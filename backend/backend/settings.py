@@ -376,6 +376,30 @@ AGENT_CSV_DIR = config(
 # Gemini API (replaces Dify for all LLM workflow calls)
 GEMINI_API_KEY = config('GEMINI_API_KEY', default='')
 
+# AI-assisted spreadsheet analysis (agent <-> spreadsheet integration).
+# Global kill-switch; a per-project toggle (Project.ai_analysis_enabled) and
+# per-user, per-spreadsheet consent (spreadsheet.SpreadsheetAiConsent) gate it
+# further.
+AGENT_SPREADSHEET_AI_ENABLED = config(
+    'AGENT_SPREADSHEET_AI_ENABLED', default=True, cast=bool
+)
+# Hard caps on spreadsheet data handed to an LLM (spreadsheet.providers +
+# core.services.file_parser read these at call time).
+SPREADSHEET_AI_MAX_ROWS = config('SPREADSHEET_AI_MAX_ROWS', default=500, cast=int)
+SPREADSHEET_AI_MAX_COLS = config('SPREADSHEET_AI_MAX_COLS', default=50, cast=int)
+SPREADSHEET_AI_MAX_CELLS = config('SPREADSHEET_AI_MAX_CELLS', default=20000, cast=int)
+SPREADSHEET_AI_MAX_CELL_CHARS = config(
+    'SPREADSHEET_AI_MAX_CELL_CHARS', default=2000, cast=int
+)
+# Gemini HTTP guardrails (core.services.gemini_client).
+GEMINI_TIMEOUT_SECONDS = config('GEMINI_TIMEOUT_SECONDS', default=75, cast=int)
+GEMINI_TOTAL_DEADLINE_SECONDS = config(
+    'GEMINI_TOTAL_DEADLINE_SECONDS', default=150, cast=int
+)
+GEMINI_CB_THRESHOLD = config('GEMINI_CB_THRESHOLD', default=5, cast=int)
+GEMINI_CB_WINDOW_SECONDS = config('GEMINI_CB_WINDOW_SECONDS', default=60, cast=int)
+GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, cast=int)
+
 # Dify LLM Platform integration (kept for reference / backward compat)
 DIFY_API_URL = config('DIFY_API_URL', default='')
 DIFY_API_KEY = config('DIFY_API_KEY', default='')
@@ -555,6 +579,15 @@ LINK_PREVIEW_PRUNE_AFTER_DAYS = config('LINK_PREVIEW_PRUNE_AFTER_DAYS', default=
 # Bound concurrent Channels publications inside one Celery/ASGI process so a
 # large group cannot create an unbounded Redis command burst.
 CHAT_FANOUT_CONCURRENCY = config('CHAT_FANOUT_CONCURRENCY', default=25, cast=int)
+
+# A SubscriptionRegistry normally runs on its owning ASGI event loop. Calls
+# submitted from another OS thread must not wait forever if that loop stalls or
+# shuts down between availability checks.
+CHAT_SUBSCRIPTION_THREAD_CALL_TIMEOUT_SECONDS = config(
+    'CHAT_SUBSCRIPTION_THREAD_CALL_TIMEOUT_SECONDS',
+    default=5.0,
+    cast=float,
+)
 
 # Publish a chat message once to a per-chat channel-layer group instead of once
 # per recipient.
@@ -976,7 +1009,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'filters': {
         'redact_secrets': {
-            '()': 'agent.log_redaction.RedactSecretsFilter',
+            '()': 'core.services.log_redaction.RedactSecretsFilter',
         },
     },
     'formatters': {

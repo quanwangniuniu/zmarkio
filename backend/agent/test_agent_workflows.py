@@ -1,4 +1,5 @@
 import json
+import tempfile
 import uuid
 from unittest.mock import patch, MagicMock
 
@@ -7,6 +8,7 @@ from rest_framework.test import APITestCase, APIClient
 from rest_framework import status
 
 from core.models import Organization, Project, ProjectMember, CustomUser
+from core.test_utils import grant_ai_consent
 from .models import (
     AgentSession, AgentMessage, AgentWorkflowRun,
     AgentWorkflowDefinition, AgentWorkflowStep, AgentStepExecution,
@@ -123,6 +125,12 @@ class AgentSessionAPITests(APITestCase):
             name='Test Project API',
             organization=self.org,
             owner=self.user,
+        )
+        ProjectMember.objects.create(
+            user=self.user,
+            project=self.project,
+            role='owner',
+            is_active=True,
         )
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
@@ -319,6 +327,121 @@ class AgentSessionAPITests(APITestCase):
         )
         row = next(r for r in response.data if r['id'] == str(session.id))
         self.assertFalse(row['has_unread'])
+
+
+class AgentSessionAppendMessageAPITests(APITestCase):
+    """Covers the lightweight messages action used by out-of-band generation
+    flows (NL pattern/pivot generation) to persist transcript turns without
+    invoking the agent pipeline."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name='Test Org Append', slug='test-org-append')
+        self.user = CustomUser.objects.create_user(
+            email='agentappend@test.com',
+            username='agentappenduser',
+            password='testpass123',
+        )
+        self.user.organization = self.org
+        self.user.save()
+        self.project = Project.objects.create(
+            name='Test Project Append',
+            organization=self.org,
+            owner=self.user,
+        )
+        self.session = AgentSession.objects.create(user=self.user, project=self.project)
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_append_user_and_assistant_messages(self):
+        response = self.client.post(
+            f'/api/agent/sessions/{self.session.id}/messages/',
+            {'role': 'user', 'content': 'summarize revenue by region'},
+            format='json',
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['role'], 'user')
+        self.assertEqual(response.data['content'], 'summarize revenue by region')
+
+        response = self.client.post(
+            f'/api/agent/sessions/{self.session.id}/messages/',
+            {'role': 'assistant', 'content': 'Done! Created a pivot sheet.'},
+            format='json',
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(self.session.messages.count(), 2)
+
+    def test_append_message_defaults_message_type_to_text(self):
+        response = self.client.post(
+            f'/api/agent/sessions/{self.session.id}/messages/',
+            {'role': 'assistant', 'content': 'hello'},
+            format='json',
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['message_type'], 'text')
+
+    def test_append_message_accepts_error_message_type(self):
+        response = self.client.post(
+            f'/api/agent/sessions/{self.session.id}/messages/',
+            {'role': 'assistant', 'content': 'boom', 'message_type': 'error'},
+            format='json',
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['message_type'], 'error')
+
+    def test_append_message_rejects_invalid_role(self):
+        response = self.client.post(
+            f'/api/agent/sessions/{self.session.id}/messages/',
+            {'role': 'system-hacker', 'content': 'hello'},
+            format='json',
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_append_message_rejects_blank_content(self):
+        response = self.client.post(
+            f'/api/agent/sessions/{self.session.id}/messages/',
+            {'role': 'user', 'content': '   '},
+            format='json',
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_append_message_persists_and_is_returned_on_retrieve(self):
+        self.client.post(
+            f'/api/agent/sessions/{self.session.id}/messages/',
+            {'role': 'user', 'content': 'add a pivot table'},
+            format='json',
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        response = self.client.get(
+            f'/api/agent/sessions/{self.session.id}/',
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['messages']), 1)
+        self.assertEqual(response.data['messages'][0]['content'], 'add a pivot table')
+
+    def test_append_message_scoped_to_owning_user(self):
+        other = CustomUser.objects.create_user(
+            email='otherappend@test.com',
+            username='otherappenduser',
+            password='testpass123',
+        )
+        other.organization = self.org
+        other.save()
+        other_client = APIClient()
+        other_client.force_authenticate(user=other)
+        response = other_client.post(
+            f'/api/agent/sessions/{self.session.id}/messages/',
+            {'role': 'user', 'content': 'not mine'},
+            format='json',
+            HTTP_X_PROJECT_ID=str(self.project.id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
 class ChatAPITests(APITestCase):
@@ -855,7 +978,7 @@ class AnomalyConfirmationTests(TestCase):
         self.assertEqual(len(msg.metadata['reviewed_anomalies']), 1)
         self.assertFalse(msg.metadata['reviewed_anomalies'][0]['included'])
 
-    # --- task-creation gate ----------------------------------------------
+    # --- task-creation gate ------------------------------------------------
 
     def test_create_tasks_blocked_before_confirmation(self):
         from task.models import Task
@@ -876,7 +999,7 @@ class AnomalyConfirmationTests(TestCase):
         self.assertIn('task_created', types)
         self.assertTrue(Task.objects.filter(project=self.project).exists())
 
-    def test_all_excluded_confirms_but_creates_no_tasks(self):
+    def test_all_excluded_still_creates_tasks_when_requested(self):
         from task.models import Task
         run = self._unconfirmed_run()
         list(self.orch.confirm_anomalies(run, self._full_payload(included=False)))
@@ -884,8 +1007,29 @@ class AnomalyConfirmationTests(TestCase):
         self.assertTrue(run.analysis_result['anomalies_confirmed'])
         chunks = list(self.orch.create_tasks_from_analysis(run))
         types = [c['type'] for c in chunks]
-        self.assertNotIn('task_created', types)
-        self.assertFalse(Task.objects.filter(project=self.project).exists())
+        self.assertIn('task_created', types)
+        self.assertTrue(Task.objects.filter(project=self.project).exists())
+
+    def test_create_tasks_with_anomalies_but_no_reviewed_list(self):
+        """Spreadsheet insights auto-confirms anomalies without reviewed_anomalies."""
+        from task.models import Task
+        run = AgentWorkflowRun.objects.create(
+            session=self.session,
+            status='awaiting_confirmation',
+            analysis_result={
+                'anomalies': [_test_anomaly()],
+                'anomalies_confirmed': True,
+                'recommended_tasks': [
+                    {'type': 'alert', 'summary': 'Investigate spike', 'priority': 'HIGH'},
+                ],
+            },
+        )
+        chunks = list(self.orch.create_tasks_from_analysis(run))
+        types = [c['type'] for c in chunks]
+        contents = ' '.join(c.get('content', '') for c in chunks)
+        self.assertIn('task_created', types)
+        self.assertNotIn('All anomalies were excluded', contents)
+        self.assertTrue(Task.objects.filter(project=self.project).exists())
 
     def test_zero_anomalies_preserves_task_creation(self):
         from task.models import Task
@@ -980,7 +1124,7 @@ class CalendarAgentTests(TestCase):
     # ------------------------------------------------------------------ #
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client.call_gemini')
     def test_handle_message_routes_to_calendar_when_context_provided(self, mock_call_gemini):
         """handle_message with calendar_context skips general chat and calls Gemini calendar."""
         mock_call_gemini.return_value = '{"answer": "You have 1 event.", "create_events": []}'
@@ -1059,7 +1203,7 @@ class CalendarAgentTests(TestCase):
     # ------------------------------------------------------------------ #
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client.call_gemini')
     def test_answer_calendar_question_yields_text_chunk(self, mock_call_gemini):
         """A successful Gemini response yields a text chunk with the answer."""
         mock_call_gemini.return_value = '{"answer": "You have 2 events this week.", "create_events": []}'
@@ -1071,7 +1215,7 @@ class CalendarAgentTests(TestCase):
         self.assertTrue(len(text_chunks) > 0)
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client.call_gemini')
     def test_answer_calendar_question_creates_event_from_dify(self, mock_call_gemini):
         """When Gemini returns create_events, the events are created in the DB."""
         from calendars.models import Calendar as CalendarModel, Event as EventModel
@@ -1095,7 +1239,7 @@ class CalendarAgentTests(TestCase):
         self.assertEqual(after_count, before_count + 1)
 
     @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client.call_gemini')
     def test_answer_calendar_question_dify_error_yields_error_chunk(self, mock_call_gemini):
         """A Gemini error yields an error chunk without raising."""
         mock_call_gemini.side_effect = Exception('Network timeout')
@@ -2133,7 +2277,7 @@ class GeminiAnalysisPromptInjectionTests(TestCase):
         system_prompt = call_args[1]
         self.assertNotIn('User Context', system_prompt)
 
-    @patch('agent.gemini_client.call_gemini_json')
+    @patch('core.services.gemini_client.call_gemini_json')
     def test_decision_tree_in_system_prompt_when_requested(self, mock_gemini):
         from agent.services import _call_gemini_analysis
 
@@ -2153,7 +2297,7 @@ class GeminiAnalysisPromptInjectionTests(TestCase):
 
 
 class RunAnalysisValidationRetryTests(TestCase):
-    @patch('agent.gemini_client._get_api_key', return_value='fake-key')
+    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
     @patch('agent.services._call_gemini_analysis')
     def test_retries_on_validation_error_then_succeeds(self, mock_call, _mock_key):
         from agent.services import _run_analysis
@@ -2183,7 +2327,7 @@ class RunAnalysisValidationRetryTests(TestCase):
         )
         self.assertEqual(result['recommended_decision_tree']['nodes'][0]['parent_refs'], [])
 
-    @patch('agent.gemini_client._get_api_key', return_value='fake-key')
+    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
     @patch('agent.services._call_gemini_analysis')
     def test_raises_after_max_validation_retries(self, mock_call, _mock_key):
         from agent.generation_registry import GenerationValidationError
@@ -2203,6 +2347,128 @@ class RunAnalysisValidationRetryTests(TestCase):
             )
 
         self.assertEqual(mock_call.call_count, _ANALYSIS_VALIDATION_MAX_ATTEMPTS)
+
+    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
+    @patch('agent.services._call_gemini_analysis')
+    def test_retries_on_recommended_tasks_validation_error_then_succeeds(self, mock_call, _mock_key):
+        from agent.services import _run_analysis
+
+        invalid = {
+            'recommended_tasks': [
+                {'type': 'bogus_type', 'summary': 'Bad', 'priority': 'HIGH'},
+            ],
+        }
+        valid = {
+            'recommended_tasks': [
+                {'type': 'alert', 'summary': 'Fix issue', 'priority': 'HIGH'},
+            ],
+        }
+        mock_call.side_effect = [invalid, valid]
+
+        result = _run_analysis(
+            {'name': 'test', 'sheets': []},
+            generation_outputs=['recommended_tasks'],
+        )
+
+        self.assertEqual(mock_call.call_count, 2)
+        self.assertIn(
+            'type is invalid',
+            mock_call.call_args_list[1].kwargs['validation_feedback'],
+        )
+        self.assertEqual(result['recommended_tasks'][0]['type'], 'alert')
+
+
+class SpreadsheetInsightsValidationRetryTests(TestCase):
+    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
+    @patch('agent.services._call_gemini_spreadsheet_insights')
+    def test_retries_on_recommended_tasks_validation_then_succeeds(self, mock_call, _mock_key):
+        from agent.services import _run_spreadsheet_insights
+
+        invalid = {
+            'summary': 'Overview',
+            'recommendations': [],
+            'anomalies': [],
+            'recommended_tasks': [
+                {'type': 'invalid', 'summary': 'Bad', 'priority': 'HIGH'},
+            ],
+        }
+        valid = {
+            'summary': 'Overview',
+            'recommendations': [],
+            'anomalies': [],
+            'recommended_tasks': [
+                {'type': 'Alert', 'summary': 'Fix issue', 'priority': 'High'},
+            ],
+        }
+        mock_call.side_effect = [invalid, valid]
+
+        result = _run_spreadsheet_insights({'name': 'test', 'sheets': []})
+
+        self.assertEqual(mock_call.call_count, 2)
+        self.assertIsNone(mock_call.call_args_list[0].kwargs.get('validation_feedback'))
+        self.assertIn(
+            'type is invalid',
+            mock_call.call_args_list[1].kwargs['validation_feedback'],
+        )
+        self.assertEqual(result['recommended_tasks'][0]['type'], 'alert')
+        self.assertEqual(result['recommended_tasks'][0]['priority'], 'HIGH')
+
+    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
+    @patch('agent.services._call_gemini_spreadsheet_insights')
+    def test_raises_after_max_insights_validation_retries(self, mock_call, _mock_key):
+        from agent.generation_registry import GenerationValidationError
+        from agent.services import _ANALYSIS_VALIDATION_MAX_ATTEMPTS, _run_spreadsheet_insights
+
+        invalid = {
+            'summary': 'Overview',
+            'recommendations': [],
+            'anomalies': [],
+            'recommended_tasks': [
+                {'type': 'invalid', 'summary': 'Bad', 'priority': 'HIGH'},
+            ],
+        }
+        mock_call.return_value = invalid
+
+        with self.assertRaises(GenerationValidationError):
+            _run_spreadsheet_insights({'name': 'test', 'sheets': []})
+
+        self.assertEqual(mock_call.call_count, _ANALYSIS_VALIDATION_MAX_ATTEMPTS)
+
+    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
+    @patch('agent.services._call_gemini_spreadsheet_insights')
+    def test_retries_on_out_of_bounds_anomaly_location_then_succeeds(self, mock_call, _mock_key):
+        from agent.services import _run_spreadsheet_insights
+
+        spreadsheet_data = {
+            'name': 'test',
+            'sheets': [
+                {'id': 1, 'name': 'S', 'columns': ['A', 'B'], 'rows': [{'A': 1}, {'A': 2}]},
+            ],
+        }
+        out_of_bounds = {
+            'summary': 'Overview',
+            'recommendations': [],
+            'anomalies': [
+                {'title': 'Ghost cell', 'locations': [{'row': 9, 'col': 0}]},
+            ],
+            'recommended_tasks': [],
+        }
+        clean = {
+            'summary': 'Overview',
+            'recommendations': [],
+            'anomalies': [
+                {'title': 'Real cell', 'locations': [{'row': 1, 'col': 0}]},
+            ],
+            'recommended_tasks': [],
+        }
+        mock_call.side_effect = [out_of_bounds, clean]
+
+        result = _run_spreadsheet_insights(spreadsheet_data, sheet_id=1)
+
+        self.assertEqual(mock_call.call_count, 2)
+        feedback = mock_call.call_args_list[1].kwargs['validation_feedback']
+        self.assertIn('outside the analysed data', feedback)
+        self.assertEqual(result['anomalies'][0]['locations'][0]['row'], 1)
 
 
 class AnalyzeDataExecutorUserContextTests(TestCase):
@@ -2274,3 +2540,347 @@ class AnalyzeDataExecutorUserContextTests(TestCase):
 
         _, kwargs = mock_analysis.call_args
         self.assertIsNone(kwargs.get('user_context'))
+
+
+class SpreadsheetInsightsTests(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name='Insights Org', slug='insights-org')
+        self.user = CustomUser.objects.create_user(
+            email='insights@test.com',
+            username='insightsuser',
+            password='testpass123',
+        )
+        self.user.organization = self.org
+        self.user.save()
+        self.project = Project.objects.create(
+            name='Insights Project',
+            organization=self.org,
+            owner=self.user,
+        )
+        ProjectMember.objects.create(
+            user=self.user,
+            project=self.project,
+            role='owner',
+            is_active=True,
+        )
+        self.session = AgentSession.objects.create(
+            user=self.user,
+            project=self.project,
+        )
+
+    def _create_spreadsheet_with_sheets(self):
+        from spreadsheet.models import Spreadsheet, Sheet
+
+        spreadsheet = Spreadsheet.objects.create(project=self.project, name='Budget')
+        grant_ai_consent(self.user, spreadsheet)
+        sheet1 = Sheet.objects.create(spreadsheet=spreadsheet, name='Sheet1', position=0)
+        sheet2 = Sheet.objects.create(spreadsheet=spreadsheet, name='Sheet2', position=1)
+        return spreadsheet, sheet1, sheet2
+
+    def test_provider_payload_filters_by_sheet_id(self):
+        from spreadsheet.providers import SpreadsheetDataProvider
+
+        spreadsheet, sheet1, sheet2 = self._create_spreadsheet_with_sheets()
+        provider = SpreadsheetDataProvider(self.user)
+
+        data = provider.get_analysis_payload(spreadsheet.id, sheet_id=sheet1.id)
+        self.assertEqual(len(data['sheets']), 1)
+        self.assertEqual(data['sheets'][0]['id'], sheet1.id)
+        self.assertEqual(data['sheets'][0]['name'], 'Sheet1')
+
+        all_data = provider.get_analysis_payload(spreadsheet.id)
+        self.assertEqual(len(all_data['sheets']), 2)
+
+    def test_normalize_spreadsheet_insights_result(self):
+        from agent.services import _normalize_spreadsheet_insights_result
+
+        raw = {
+            'summary': 'Two columns of sales data.',
+            'recommendations': ['Review outliers'],
+            'anomalies': [
+                {
+                    'title': 'Negative revenue',
+                    'severity': 'critical',
+                    'description': 'Row 3 has negative revenue.',
+                    'locations': [{'row': 2, 'col': 1, 'a1': 'B3'}],
+                }
+            ],
+            'recommended_tasks': [
+                {
+                    'type': 'report',
+                    'summary': 'Audit revenue row',
+                    'description': 'Investigate negative values.',
+                    'priority': 'HIGH',
+                }
+            ],
+        }
+        result = _normalize_spreadsheet_insights_result(raw, sheet_id=42)
+        self.assertEqual(result['summary'], 'Two columns of sales data.')
+        self.assertTrue(result['anomalies_confirmed'])
+        self.assertEqual(len(result['anomalies']), 1)
+        self.assertEqual(result['anomalies'][0]['id'], 'anom_0')
+        self.assertEqual(result['anomalies'][0]['locations'][0]['sheet_id'], 42)
+        self.assertEqual(len(result['recommended_tasks']), 1)
+
+    def test_normalize_rejects_blank_or_non_string_summary(self):
+        from agent.services import _normalize_spreadsheet_insights_result
+
+        for bad_summary in ('', '   \n\t', None):
+            with self.assertRaises(ValueError):
+                _normalize_spreadsheet_insights_result({'summary': bad_summary})
+        with self.assertRaises(ValueError):
+            _normalize_spreadsheet_insights_result({'summary': {'text': 'x'}})
+        with self.assertRaises(ValueError):
+            _normalize_spreadsheet_insights_result('not a dict')
+
+    def test_normalize_rejects_non_integer_or_negative_location(self):
+        from agent.services import _normalize_spreadsheet_insights_result
+
+        base = {'summary': 'ok', 'anomalies': [{'title': 'A', 'locations': []}]}
+
+        base['anomalies'][0]['locations'] = [{'row': 'x', 'col': 1}]
+        with self.assertRaises(ValueError):
+            _normalize_spreadsheet_insights_result(base)
+
+        base['anomalies'][0]['locations'] = [{'row': -1, 'col': 0}]
+        with self.assertRaises(ValueError):
+            _normalize_spreadsheet_insights_result(base)
+
+    def test_normalize_rejects_out_of_bounds_location(self):
+        from agent.services import _normalize_spreadsheet_insights_result
+
+        raw = {
+            'summary': 'ok',
+            'anomalies': [{'title': 'A', 'locations': [{'row': 2, 'col': 0}]}],
+        }
+        # Row 2 is fine within a 5-row / 3-col sample...
+        ok = _normalize_spreadsheet_insights_result(raw, row_count=5, col_count=3)
+        self.assertEqual(len(ok['anomalies'][0]['locations']), 1)
+
+        # ...but not when the sample only had 2 rows.
+        with self.assertRaises(ValueError):
+            _normalize_spreadsheet_insights_result(raw, row_count=2, col_count=3)
+
+        raw['anomalies'][0]['locations'] = [{'row': 0, 'col': 9}]
+        with self.assertRaises(ValueError):
+            _normalize_spreadsheet_insights_result(raw, row_count=5, col_count=3)
+
+    def test_normalize_skips_bounds_check_when_dimensions_unknown(self):
+        from agent.services import _normalize_spreadsheet_insights_result
+
+        raw = {
+            'summary': 'ok',
+            'anomalies': [{'title': 'A', 'locations': [{'row': 999, 'col': 999}]}],
+        }
+        result = _normalize_spreadsheet_insights_result(raw)
+        self.assertEqual(result['anomalies'][0]['locations'][0]['row'], 999)
+
+    def test_spreadsheet_insights_sample_bounds(self):
+        from agent.services import _spreadsheet_insights_sample_bounds
+
+        data = {
+            'sheets': [
+                {'columns': ['A', 'B', 'C'], 'rows': [{'A': 1}, {'A': 2}]},
+                {'columns': ['C', 'D'], 'rows': [{'D': 3}]},
+            ]
+        }
+        rows, cols = _spreadsheet_insights_sample_bounds(data)
+        self.assertEqual(rows, 3)
+        self.assertEqual(cols, 4)  # A, B, C, D deduped
+        self.assertEqual(_spreadsheet_insights_sample_bounds({'sheets': []}), (0, 0))
+
+    @patch('agent.services._run_spreadsheet_insights')
+    def test_analyze_spreadsheet_insights_yields_summary_and_anomalies(self, mock_insights):
+        spreadsheet, sheet1, _sheet2 = self._create_spreadsheet_with_sheets()
+        mock_insights.return_value = {
+            'summary': '## Overview\nSales look stable.',
+            'recommendations': ['Monitor Q2'],
+            'anomalies': [
+                {
+                    'id': 'anom_0',
+                    'title': 'Spike',
+                    'severity': 'warning',
+                    'description': 'Unusual value in B3',
+                    'locations': [{'row': 2, 'col': 1, 'a1': 'B3', 'sheet_id': sheet1.id}],
+                    'metric': 'Spike',
+                    'movement': 'UNEXPECTED_SPIKE',
+                    'current_value': '',
+                    'previous_value': '',
+                    'change_percent': 0,
+                }
+            ],
+            'recommended_tasks': [
+                {
+                    'type': 'report',
+                    'summary': 'Review spike',
+                    'description': 'Check the flagged cell.',
+                    'priority': 'MEDIUM',
+                }
+            ],
+            'anomalies_confirmed': True,
+        }
+
+        orchestrator = AgentOrchestrator(self.user, self.project, self.session)
+        chunks = list(
+            orchestrator.handle_message(
+                'Analyze sheet',
+                spreadsheet_id=spreadsheet.id,
+                sheet_id=sheet1.id,
+                action='analyze_spreadsheet_insights',
+            )
+        )
+        types = [chunk['type'] for chunk in chunks]
+        self.assertIn('spreadsheet_summary', types)
+        self.assertIn('spreadsheet_anomalies', types)
+        self.assertIn('done', types)
+
+        summary_chunk = next(c for c in chunks if c['type'] == 'spreadsheet_summary')
+        self.assertIn('Overview', summary_chunk['content'])
+        self.assertIn('Monitor Q2', summary_chunk['content'])
+
+        anomalies_chunk = next(c for c in chunks if c['type'] == 'spreadsheet_anomalies')
+        self.assertEqual(anomalies_chunk['data']['spreadsheet_id'], spreadsheet.id)
+        self.assertEqual(anomalies_chunk['data']['sheet_id'], sheet1.id)
+        self.assertTrue(anomalies_chunk['data']['anomalies_confirmed'])
+
+        workflow_run = AgentWorkflowRun.objects.filter(session=self.session).latest('created_at')
+        self.assertIsNotNone(workflow_run.analysis_result)
+        self.assertEqual(len(workflow_run.analysis_result.get('recommended_tasks', [])), 1)
+
+
+class FileUploadAnalyzeSpreadsheetImportTests(APITestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name='Upload Org', slug='upload-org')
+        self.user = CustomUser.objects.create_user(
+            email='upload@test.com',
+            username='uploaduser',
+            password='testpass123',
+        )
+        self.user.organization = self.org
+        self.user.save()
+        self.project = Project.objects.create(
+            name='Upload Project',
+            organization=self.org,
+            owner=self.user,
+        )
+        ProjectMember.objects.create(user=self.user, project=self.project, is_active=True)
+        # The upload-and-analyze path records per-spreadsheet consent itself for
+        # the spreadsheet it creates, so no pre-grant is needed here.
+        self.session = AgentSession.objects.create(
+            user=self.user,
+            project=self.project,
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    @patch('agent.views.AgentOrchestrator')
+    def test_upload_analyze_creates_spreadsheet_and_emits_link(self, MockOrch):
+        import csv
+        import os
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from spreadsheet.models import Spreadsheet
+        from agent.models import ImportedCSVFile
+
+        csv_dir = tempfile.mkdtemp()
+        with self.settings(AGENT_CSV_DIR=csv_dir):
+            mock_instance = MagicMock()
+            mock_instance.handle_message.return_value = iter([{'type': 'done'}])
+            MockOrch.return_value = mock_instance
+
+            csv_path = os.path.join(tempfile.mkdtemp(), 'perf.csv')
+            with open(csv_path, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Campaign', 'Spend'])
+                writer.writerow(['Alpha', '100'])
+
+            with open(csv_path, 'rb') as f:
+                upload = SimpleUploadedFile('perf.csv', f.read(), content_type='text/csv')
+
+            response = self.client.post(
+                '/api/agent/upload-analyze/',
+                {
+                    'file': upload,
+                    'session_id': str(self.session.id),
+                    'generation_outputs': '["recommended_tasks"]',
+                },
+                format='multipart',
+                HTTP_X_PROJECT_ID=str(self.project.id),
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            content = b''.join(response.streaming_content).decode()
+            self.assertIn('"type": "file_uploaded"', content)
+            self.assertIn('"spreadsheet_id"', content)
+
+            file_event = None
+            for line in content.splitlines():
+                if not line.startswith('data: '):
+                    continue
+                payload = json.loads(line[6:])
+                if payload.get('type') == 'file_uploaded':
+                    file_event = payload
+                    break
+            self.assertIsNotNone(file_event)
+            spreadsheet_id = file_event['data']['spreadsheet_id']
+            self.assertTrue(
+                Spreadsheet.objects.filter(id=spreadsheet_id, project=self.project).exists()
+            )
+
+            user_msg = AgentMessage.objects.filter(session=self.session, role='user').latest('created_at')
+            self.assertEqual(user_msg.metadata.get('spreadsheet_id'), spreadsheet_id)
+            self.assertIn('url', user_msg.metadata)
+
+            imported = ImportedCSVFile.objects.latest('created_at')
+            self.assertEqual(imported.spreadsheet_id, spreadsheet_id)
+
+            _, kwargs = mock_instance.handle_message.call_args
+            self.assertEqual(kwargs.get('spreadsheet_id'), spreadsheet_id)
+
+            # The upload is itself the user's per-spreadsheet AI consent.
+            from spreadsheet.models import SpreadsheetAiConsent
+
+            self.assertTrue(
+                SpreadsheetAiConsent.objects.filter(
+                    user=self.user, spreadsheet_id=spreadsheet_id
+                ).exists()
+            )
+
+    @patch('agent.services.file_parser.parse_file_to_json')
+    @patch('agent.services.data_service._get_csv_dir')
+    @patch('os.path.isfile')
+    def test_start_workflow_links_spreadsheet_when_both_ids_provided(
+        self, mock_isfile, mock_csv_dir, mock_parse
+    ):
+        from agent.models import ImportedCSVFile, AgentWorkflowDefinition, AgentWorkflowStep, AgentWorkflowRun
+        from spreadsheet.models import Spreadsheet
+        from agent.services import AgentOrchestrator
+
+        mock_isfile.return_value = True
+        mock_csv_dir.return_value = '/tmp'
+        mock_parse.return_value = {'name': 'test.csv', 'sheets': []}
+
+        spreadsheet = Spreadsheet.objects.create(project=self.project, name='Linked Sheet')
+        csv_file = ImportedCSVFile.objects.create(
+            filename='test.csv',
+            original_filename='test.csv',
+            user=self.user,
+            project=self.project,
+        )
+        wf = AgentWorkflowDefinition.objects.create(
+            name='Link WF', is_default=True, is_system=True, status='active',
+        )
+        AgentWorkflowStep.objects.create(
+            workflow=wf, name='Analyze', step_type='analyze_data', order=1,
+        )
+
+        with patch('agent.services._run_analysis', return_value={'anomalies': [], 'recommended_tasks': []}):
+            orch = AgentOrchestrator(user=self.user, project=self.project, session=self.session)
+            list(orch.handle_message(
+                '',
+                file_id=str(csv_file.id),
+                spreadsheet_id=spreadsheet.id,
+            ))
+
+        run = AgentWorkflowRun.objects.filter(session=self.session).latest('created_at')
+        self.assertEqual(run.spreadsheet_id, spreadsheet.id)
+

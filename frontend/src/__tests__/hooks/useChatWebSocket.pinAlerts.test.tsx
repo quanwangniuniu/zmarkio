@@ -24,14 +24,22 @@ class MockWebSocket {
 
   send = jest.fn();
 
+  open() {
+    this.readyState = MockWebSocket.OPEN;
+    this.onopen?.();
+  }
+
   receive(data: unknown) {
     this.onmessage?.({ data: JSON.stringify(data) } as MessageEvent);
   }
 
   close = jest.fn((code = 1000) => {
     this.readyState = MockWebSocket.CLOSED;
-    this.onclose?.({ code, reason: '' } as CloseEvent);
   });
+
+  finishClose(code = 1000) {
+    this.onclose?.({ code, reason: '' } as CloseEvent);
+  }
 }
 
 describe('useChatWebSocket pin alerts', () => {
@@ -87,6 +95,30 @@ describe('useChatWebSocket pin alerts', () => {
     });
 
     expect(useChatStore.getState().unseenPinChatIds[12]).toBeUndefined();
+
+    unmount();
+  });
+
+  it('does not let a stale close clear a replacement socket', () => {
+    const { result, unmount } = renderHook(() => useChatWebSocket(100));
+    const firstSocket = MockWebSocket.instances[0];
+
+    act(() => {
+      firstSocket.open();
+      useAuthStore.setState({ token: 'replacement-token' });
+    });
+
+    expect(MockWebSocket.instances).toHaveLength(2);
+    const replacementSocket = MockWebSocket.instances[1];
+    act(() => {
+      replacementSocket.open();
+      firstSocket.finishClose(1001);
+      result.current.sendTypingStart(12);
+    });
+
+    expect(replacementSocket.send).toHaveBeenCalledWith(
+      JSON.stringify({ type: 'typing_start', chat_id: 12 }),
+    );
 
     unmount();
   });

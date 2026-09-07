@@ -247,7 +247,7 @@ class MessageSerializer(MessageContentValidationMixin, serializers.ModelSerializ
     class Meta:
         model = Message
         fields = [
-            'id', 'chat', 'sender', 'content', 'rich_body', 'status', 'statuses',
+            'id', 'seq', 'chat', 'sender', 'content', 'rich_body', 'status', 'statuses',
             'created_at', 'updated_at', 'is_edited', 'is_deleted', 'deleted_at', 'is_revoked', 'revoked_at',
             'has_attachments', 'attachment_count',
             'is_forwarded', 'forwarded_from', 'reply_to', 'reactions', 'can_revoke',
@@ -258,11 +258,12 @@ class MessageSerializer(MessageContentValidationMixin, serializers.ModelSerializ
             'has_unread_thread_replies',
             'link_preview',
         ]
-        read_only_fields = ['id', 'sender', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'seq', 'sender', 'created_at', 'updated_at']
         list_serializer_class = MessageListSerializer
 
     DELETED_MESSAGE_PRESERVED_FIELDS = frozenset({
         'id',
+        'seq',
         'chat',
         'sender',
         'status',
@@ -714,7 +715,7 @@ class ChatSerializer(ChatUnreadCountMixin, serializers.ModelSerializer):
             chat=obj,
             is_deleted=False,
             is_revoked=False
-        ).order_by('-created_at').first()
+        ).order_by('-seq').first()
 
         if last_msg:
             return MessageSerializer(last_msg, context=self.context).data
@@ -786,7 +787,7 @@ class ChatListSerializer(ChatUnreadCountMixin, serializers.ModelSerializer):
             chat=obj,
             is_deleted=False,
             is_revoked=False
-        ).select_related('sender', 'reply_to', 'reply_to__sender').order_by('-created_at').first()
+        ).select_related('sender', 'reply_to', 'reply_to__sender').order_by('-seq').first()
 
         if last_msg:
             attachment_count = last_msg.attachments.count()
@@ -811,6 +812,7 @@ class ChatListSerializer(ChatUnreadCountMixin, serializers.ModelSerializer):
                 }
             return {
                 'id': last_msg.id,
+                'seq': last_msg.seq,
                 'chat_id': last_msg.chat_id,
                 'sender': {
                     'id': last_msg.sender.id,
@@ -842,7 +844,7 @@ class ChatListSerializer(ChatUnreadCountMixin, serializers.ModelSerializer):
             chat=obj,
             is_deleted=False,
             is_revoked=False
-        ).order_by('-created_at').first()
+        ).order_by('-seq').first()
 
         return last_msg.created_at if last_msg else obj.updated_at
 

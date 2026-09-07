@@ -133,6 +133,8 @@ export interface Reaction {
 
 export interface Message {
   id: number;
+  /** Server-assigned monotonic ordering key within this chat. */
+  seq?: number;
   chat_id: number;
   chat?: number;  // Backend may send this instead of chat_id
   sender: User;

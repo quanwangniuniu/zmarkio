@@ -126,6 +126,7 @@ class ImportedCSVFileSerializer(serializers.ModelSerializer):
 class ChatInputSerializer(serializers.Serializer):
     message = serializers.CharField(required=True)
     spreadsheet_id = serializers.IntegerField(required=False, allow_null=True)
+    sheet_id = serializers.IntegerField(required=False, allow_null=True)
     csv_filename = serializers.RegexField(
         r'^[\w\-. ()]+\.(csv|xlsx|xls)$', required=False, allow_null=True,
         error_messages={'invalid': 'Invalid filename format.'}
@@ -133,8 +134,8 @@ class ChatInputSerializer(serializers.Serializer):
     file_id = serializers.UUIDField(required=False, allow_null=True)
     action = serializers.ChoiceField(
         choices=[
-            'analyze', 'create_decisions', 'create_tasks', 'generate_miro',
-            'distribute_message', 'start_follow_up', 'cancel_follow_up',
+            'analyze', 'analyze_spreadsheet_insights', 'create_decisions', 'create_tasks',
+            'generate_miro', 'distribute_message', 'start_follow_up', 'cancel_follow_up',
             'confirm_columns', 'confirm_anomalies', 'resume_workflow',
             'resolve_external_approval',
         ],

@@ -121,8 +121,8 @@ export function getAssistantMessageBlockIds(
     wantsTasks &&
     message.recommendedTasks &&
     message.recommendedTasks.length > 0 &&
-    (message.type === "analysis" || message.type === "tasks_created") &&
-    (!tasksCardMessageId || message.id === tasksCardMessageId)
+    tasksCardMessageId != null &&
+    message.id === tasksCardMessageId
   ) {
     ids.push(`${message.id}-tasks`)
   }
@@ -162,6 +162,12 @@ export type MessageBoardBlockIdsOptions = AssistantMessageBlockIdsOptions & {
   showReupload?: boolean
   suppressMiroMessageNav?: boolean
   miroCardsAnchorMode?: MiroCardsAnchorMode
+  /**
+   * Pattern & pivot generation modes render messages directly and do not use
+   * the reveal queue. When set, no board block ids are produced so the queue
+   * cannot get out of sync with what those modes show.
+   */
+  bypassRevealQueue?: boolean
 }
 
 /** All board block ids in top-to-bottom render order (matches MessageList). */
@@ -169,6 +175,12 @@ export function getMessageBoardBlockIds(
   messages: MessageForBlockIds[],
   options: MessageBoardBlockIdsOptions
 ): string[] {
+  if (options.bypassRevealQueue) {
+    // Bypass clients render messages directly; emitting block ids here would
+    // desync the reveal queue from what is actually on screen.
+    return []
+  }
+
   const ids: string[] = []
   const miroAnchorId = getMiroCardsAnchorMessageId(messages, {
     mode: options.miroCardsAnchorMode,

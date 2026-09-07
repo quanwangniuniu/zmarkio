@@ -191,6 +191,12 @@ export function useChatWebSocket(
       };
 
       ws.onclose = (ev) => {
+        // A superseded socket can finish closing after a replacement socket
+        // has already been assigned to the shared ref (notably during React
+        // Strict Mode's development-only effect replay). Never let that stale
+        // close clear the live socket or its heartbeat.
+        if (wsRef.current !== ws) return;
+
         console.warn('[ChatWS] close', { code: ev.code, reason: ev.reason });
         setConnected(false);
         handlersRef.current.onClose?.(ev);

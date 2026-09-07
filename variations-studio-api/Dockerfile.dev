@@ -1,0 +1,21 @@
+# Development image for the Variations Studio API (MED-354 spike).
+FROM node:20-bullseye
+
+WORKDIR /app
+
+RUN adduser --disabled-password --gecos "" --home /home/appuser appuser
+RUN mkdir -p /app/.next && chown -R appuser:appuser /app/.next
+
+COPY --chown=appuser:appuser . /app
+RUN chown appuser:appuser /app
+
+USER appuser
+RUN npm install
+
+ENV NODE_ENV=development
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3010
+ENV HOSTNAME=0.0.0.0
+EXPOSE 3010
+
+CMD ["npm", "run", "dev"]

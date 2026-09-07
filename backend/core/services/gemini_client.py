@@ -11,22 +11,78 @@ import time
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 
-from agent.log_redaction import redact_string
+from core.services.log_redaction import redact_string
 
 logger = logging.getLogger(__name__)
 
 GEMINI_MODEL = "gemini-2.5-flash-lite"
 _GEMINI_BASE = "https://aiplatform.googleapis.com/v1/projects/406201877905/locations/global/publishers/google/models"
 
-# Retries for HTTP 429 (rate limit) before surfacing to callers.
-_RATE_LIMIT_MAX_ATTEMPTS = 4
+# Retry transient HTTP failures (rate limit + upstream 5xx) and connection drops.
+_TRANSIENT_STATUS = frozenset({429, 500, 502, 503, 504})
+_TRANSIENT_MAX_ATTEMPTS = 4
+_RATE_LIMIT_MAX_ATTEMPTS = _TRANSIENT_MAX_ATTEMPTS  # back-compat alias
 _RATE_LIMIT_BACKOFF_SECONDS = (2.0, 4.0, 8.0)
+
+# Cache-backed circuit breaker so a Gemini outage fails fast instead of tying up
+# every worker for the full retry budget.
+_CB_FAIL_KEY = "gemini:cb:failures"
+_CB_OPEN_KEY = "gemini:cb:open_until"
+
+
+class GeminiUnavailable(RuntimeError):
+    """Gemini could not be reached: upstream 5xx retries exhausted, a connection
+    failure, the wall-clock deadline, or an open circuit breaker.
+
+    Subclasses ``RuntimeError`` so existing ``except RuntimeError`` callers keep
+    treating it as a normal LLM failure.
+    """
 
 
 class GeminiRetriesExhausted(Exception):
-    """Raised when Gemini's own HTTP 429 retries are exhausted."""
-    pass
+    """Pure HTTP-429 rate-limit retries exhausted.
+
+    Deliberately NOT a ``RuntimeError``: several executors catch this separately
+    (``except GeminiRetriesExhausted``) to *skip* a step rather than fail it, and
+    that clause sits below an ``except RuntimeError`` that would otherwise
+    swallow it.
+    """
+
+
+def _resolve_timeout(timeout):
+    if timeout:
+        return int(timeout)
+    return int(getattr(settings, "GEMINI_TIMEOUT_SECONDS", 75))
+
+
+def _circuit_open() -> bool:
+    try:
+        until = cache.get(_CB_OPEN_KEY)
+        return bool(until) and until > time.time()
+    except Exception:  # cache backend itself down -> fail open
+        return False
+
+
+def _circuit_record(success: bool) -> None:
+    try:
+        if success:
+            cache.delete_many([_CB_FAIL_KEY, _CB_OPEN_KEY])
+            return
+        window = int(getattr(settings, "GEMINI_CB_WINDOW_SECONDS", 60))
+        cache.add(_CB_FAIL_KEY, 0, window)
+        try:
+            failures = cache.incr(_CB_FAIL_KEY)
+        except ValueError:
+            cache.set(_CB_FAIL_KEY, 1, window)
+            failures = 1
+        if failures >= int(getattr(settings, "GEMINI_CB_THRESHOLD", 5)):
+            cooldown = int(getattr(settings, "GEMINI_CB_COOLDOWN_SECONDS", 30))
+            cache.set(_CB_OPEN_KEY, time.time() + cooldown, cooldown)
+            logger.warning("Gemini circuit breaker opened for %ss", cooldown)
+    except Exception:
+        logger.warning("Gemini circuit-breaker cache op failed", exc_info=True)
 
 
 def _get_api_key() -> str:
@@ -39,53 +95,97 @@ def _get_api_key() -> str:
 def _gemini_request_with_retry(
     url: str,
     body: dict,
-    timeout: int = 300,
+    timeout: int | None = None,
     stream: bool = False,
 ) -> requests.Response:
+    """POST to a Gemini endpoint with bounded retries on transient failures.
+
+    Retries HTTP 429 / 5xx and connection/read errors with exponential backoff,
+    capped by both an attempt count and a wall-clock deadline
+    (``GEMINI_TOTAL_DEADLINE_SECONDS``). A cache-backed circuit breaker
+    short-circuits when Gemini has been failing.
+
+    On exhaustion: pure 429s -> :class:`GeminiRetriesExhausted`; anything else
+    -> :class:`GeminiUnavailable` (a ``RuntimeError``). Non-transient HTTP errors
+    and other request errors raise ``RuntimeError`` immediately.
     """
-    POST to a Gemini endpoint with exponential backoff on HTTP 429.
-    Works for both streamGenerateContent (stream=True) and generateContent (stream=False).
-    Raises RuntimeError on unrecoverable errors.
-    """
-    last_http_error: requests.exceptions.HTTPError | None = None
-    for attempt in range(1, _RATE_LIMIT_MAX_ATTEMPTS + 1):
+    if _circuit_open():
+        raise GeminiUnavailable("Gemini temporarily unavailable (circuit open).")
+
+    base_timeout = _resolve_timeout(timeout)
+    deadline = time.monotonic() + int(
+        getattr(settings, "GEMINI_TOTAL_DEADLINE_SECONDS", 150)
+    )
+    last_exc: Exception | None = None
+    saw_non_429 = False
+
+    for attempt in range(1, _TRANSIENT_MAX_ATTEMPTS + 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _circuit_record(False)
+            raise GeminiUnavailable("Gemini deadline exceeded.") from last_exc
+        per_call = max(1, min(base_timeout, int(remaining)))
         try:
-            response = requests.post(url, json=body, timeout=timeout, stream=stream)
+            response = requests.post(
+                url, json=body, timeout=per_call, stream=stream
+            )
             response.raise_for_status()
+            _circuit_record(True)
             return response
         except requests.exceptions.HTTPError as exc:
-            last_http_error = exc
+            last_exc = exc
             status_code = exc.response.status_code if exc.response is not None else None
-            if status_code == 429 and attempt < _RATE_LIMIT_MAX_ATTEMPTS:
-                wait_seconds = _RATE_LIMIT_BACKOFF_SECONDS[
-                    min(attempt - 1, len(_RATE_LIMIT_BACKOFF_SECONDS) - 1)
-                ]
-                logger.warning(
-                    "Gemini rate-limited (429); retrying in %.1fs (attempt %s/%s)",
-                    wait_seconds,
-                    attempt + 1,
-                    _RATE_LIMIT_MAX_ATTEMPTS,
-                )
-                time.sleep(wait_seconds)
-                continue
-            if status_code == 429:
-                raise GeminiRetriesExhausted("Gemini rate limited (HTTP 429).") from exc
-            raise RuntimeError(
-                redact_string(f"Gemini request failed with HTTP {status_code or 'unknown'}.")
-            ) from exc
+            if status_code not in _TRANSIENT_STATUS:
+                raise RuntimeError(
+                    redact_string(
+                        f"Gemini request failed with HTTP {status_code or 'unknown'}."
+                    )
+                ) from exc
+            if status_code != 429:
+                saw_non_429 = True
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            last_exc = exc
+            saw_non_429 = True
         except requests.exceptions.RequestException as exc:
             raise RuntimeError(redact_string(f"Gemini network error: {exc}")) from exc
-    raise GeminiRetriesExhausted("Gemini rate limited (HTTP 429).") from last_http_error
+
+        if attempt >= _TRANSIENT_MAX_ATTEMPTS:
+            break
+        wait_seconds = _RATE_LIMIT_BACKOFF_SECONDS[
+            min(attempt - 1, len(_RATE_LIMIT_BACKOFF_SECONDS) - 1)
+        ]
+        if time.monotonic() + wait_seconds > deadline:
+            break
+        logger.warning(
+            "Gemini transient failure (%s); retrying in %.1fs (attempt %s/%s)",
+            type(last_exc).__name__,
+            wait_seconds,
+            attempt + 1,
+            _TRANSIENT_MAX_ATTEMPTS,
+        )
+        time.sleep(wait_seconds)
+
+    _circuit_record(False)
+    # Pure rate-limiting -> GeminiRetriesExhausted (executors skip the step);
+    # anything else -> GeminiUnavailable (a RuntimeError, treated as a failure).
+    if not saw_non_429:
+        raise GeminiRetriesExhausted("Gemini rate limited (HTTP 429).") from last_exc
+    raise GeminiUnavailable(
+        redact_string("Gemini unavailable after retries.")
+    ) from last_exc
 
 
 def call_gemini(
     system_prompt: str,
     user_prompt: str,
     temperature: float = 0.3,
-    timeout: int = 300,
+    timeout: int | None = None,
     response_mime_type: str | None = None,
 ) -> str:
-    """Call Gemini via streamGenerateContent and return the full text response."""
+    """Call Gemini via streamGenerateContent and return the full text response.
+
+    ``timeout`` defaults to ``settings.GEMINI_TIMEOUT_SECONDS`` when unset.
+    """
     api_key = _get_api_key()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")
@@ -190,7 +290,7 @@ def call_gemini_json(
     system_prompt: str,
     user_prompt: str,
     temperature: float = 0.3,
-    timeout: int = 300,
+    timeout: int | None = None,
     _attempt: int = 1,
     _max_attempts: int = 3,
 ) -> dict:

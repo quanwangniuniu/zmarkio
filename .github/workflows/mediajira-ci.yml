@@ -488,14 +488,85 @@ jobs:
             npm test
           "
 
+      # The Studio service is a separate Next.js app that talks to the same
+      # Postgres. Its tests need one org whose tenant schema exists, because
+      # core_project / core_projectmember are per-org tables.
+      # Studio tests need an org tenant schema. AdCopyVariation is tenant-scoped
+      # and FKs to public.meta_ad_creatives, so public migrations (incl. meta_ads)
+      # must be applied before Organization.save() → provision_tenant_schema().
+      - name: Provision a tenant schema for variations-studio tests
+        run: |
+          docker compose exec -T backend sh <<'EOS'
+          set -e
+          python manage.py migrate --noinput
+          python manage.py shell <<'PY'
+          from django.db.models.signals import post_save
+          from core.models import Organization
+          from core.services.tenant import provision_tenant_schema
+          from stripe_meta.signals import create_default_subscription
+
+          post_save.disconnect(create_default_subscription, sender=Organization)
+          try:
+              for slug, name in (
+                  ('ci-studio-org', 'CI Studio Org'),
+                  # Second org enables dual-tenant routing Jest coverage.
+                  ('ci-studio-org-b', 'CI Studio Org B'),
+              ):
+                  org, created = Organization.objects.get_or_create(
+                      slug=slug,
+                      defaults={'name': name, 'is_active': True},
+                  )
+                  if not created:
+                      provision_tenant_schema(org.slug)
+                  print('tenant schema ready for', org.slug)
+          finally:
+              post_save.connect(create_default_subscription, sender=Organization)
+          PY
+          EOS
+
+      - name: Mint Django JWT fixtures for studio auth parity
+        run: |
+          set -e
+          docker compose exec -T backend python manage.py issue_studio_jwt_fixtures \
+            --org-slug=ci-studio-org \
+            > /tmp/django-jwt-fixtures.json
+          python3 -c "
+          import json
+          data = json.load(open('/tmp/django-jwt-fixtures.json'))
+          assert data.get('access_token'), 'missing access_token'
+          assert data.get('django_accepts_access') is True
+          print('django jwt fixtures ready for user_id=', data.get('user_id'))
+          "
+
+      - name: Run variations-studio tests
+        run: |
+          set -a; . ./.env; set +a
+          docker run --rm --network host \
+            -v "$PWD/variations-studio-api:/app" \
+            -v "/tmp/django-jwt-fixtures.json:/fixtures/django-jwt-fixtures.json:ro" \
+            -w /app \
+            -e DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/${POSTGRES_DB}" \
+            -e SECRET_KEY="${SECRET_KEY}" \
+            -e DJANGO_JWT_FIXTURES_PATH=/fixtures/django-jwt-fixtures.json \
+            node:20-alpine sh -c "
+              npm ci &&
+              npx prisma generate &&
+              npx tsc --noEmit &&
+              npm test
+            "
+
       # Cleanup containers and volumes
       - name: Cleanup containers
         if: always()
         run: |
           echo "Cleaning up containers and volumes..."
-          docker compose --profile ci down -v
+          # A prior step may have failed before the ".env" file was created.
+          # docker compose still needs it to resolve the "env_file" directive,
+          # and this cleanup must never fail the job, so guard both.
+          [ -f .env ] || touch .env
+          docker compose --profile ci --env-file .env down -v || true
           echo "Cleaning up unused Docker resources..."
-          docker system prune -f
+          docker system prune -f || true
 
   deploy:
     needs: [block, migration_guard, code_scan, image_scan, application_test]

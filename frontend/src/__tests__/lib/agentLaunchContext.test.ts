@@ -1,11 +1,14 @@
 import {
   AGENT_CALENDAR_CONTEXT_KEY,
   AGENT_SESSION_ID_KEY,
+  AGENT_SPREADSHEET_CONTEXT_KEY,
   consumeCalendarPreload,
   consumeDraftPreload,
+  consumeSpreadsheetPreload,
   readStoredAgentSessionId,
   shouldAutoSendDraftPreload,
   stageDraftContext,
+  stageSpreadsheetInsightsPreload,
 } from '@/lib/agentLaunchContext';
 
 describe('agentLaunchContext', () => {
@@ -54,6 +57,45 @@ describe('agentLaunchContext', () => {
   it('reads stored agent session id', () => {
     sessionStorage.setItem(AGENT_SESSION_ID_KEY, '  session-42  ');
     expect(readStoredAgentSessionId()).toBe('session-42');
+  });
+
+  it('stages and consumes spreadsheet insights preload', () => {
+    sessionStorage.setItem(AGENT_SESSION_ID_KEY, 'old-session');
+
+    const preload = stageSpreadsheetInsightsPreload({
+      projectId: 3,
+      spreadsheetId: 10,
+      sheetId: 20,
+      sheetName: 'Q1',
+      spreadsheetName: 'Budget',
+    });
+
+    expect(preload.message).toContain('Q1');
+    expect(preload.message).toContain('Budget');
+    expect(sessionStorage.getItem(AGENT_SESSION_ID_KEY)).toBeNull();
+    expect(sessionStorage.getItem(AGENT_SPREADSHEET_CONTEXT_KEY)).toBeTruthy();
+
+    const consumed = consumeSpreadsheetPreload();
+    expect(consumed?.projectId).toBe(3);
+    expect(consumed?.spreadsheetId).toBe(10);
+    expect(consumed?.sheetId).toBe(20);
+    expect(sessionStorage.getItem(AGENT_SPREADSHEET_CONTEXT_KEY)).toBeNull();
+    expect(consumeSpreadsheetPreload()).toBeNull();
+  });
+
+  it('ignores spreadsheet preload missing projectId', () => {
+    sessionStorage.setItem(
+      AGENT_SPREADSHEET_CONTEXT_KEY,
+      JSON.stringify({
+        message: 'Analyze sheet',
+        spreadsheetId: 10,
+        sheetId: 20,
+        sheetName: 'Q1',
+        spreadsheetName: 'Budget',
+      })
+    );
+
+    expect(consumeSpreadsheetPreload()).toBeNull();
   });
 });
 

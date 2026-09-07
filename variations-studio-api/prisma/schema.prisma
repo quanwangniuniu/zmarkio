@@ -1,0 +1,57 @@
+// Maps existing Django tables. Do NOT run `prisma migrate` against this database.
+// Generate the client only: `npx prisma generate`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// AdCopyVariation is tenant-scoped (see backend/core/tenant_config.py).
+// Prisma bakes `public` into generated SQL, so that table is reached through
+// lib/variationStore.ts raw SQL the same way core_project is.
+
+// core_project and core_projectmember are deliberately NOT modelled here.
+// They are tenant-scoped (one copy per org schema) and Prisma hardcodes the
+// datasource schema into its SQL, so a model here would always read `public`.
+// Reach them through lib/projects.ts raw SQL instead.
+
+model MetaAdAccount {
+  id        BigInt  @id
+  projectId BigInt? @map("project_id")
+
+  @@map("meta_ad_accounts")
+}
+
+model MetaAdCreative {
+  id                 BigInt @id
+  adAccountId        BigInt @map("ad_account_id")
+  title              String
+  body               String
+  callToActionType   String @map("call_to_action_type") @db.VarChar(64)
+
+  @@map("meta_ad_creatives")
+}
+
+// Shared public-schema tables. Look these up BEFORE SET LOCAL search_path.
+model Organization {
+  id       BigInt  @id
+  slug     String  @db.VarChar(200)
+  isActive Boolean @map("is_active")
+
+  @@map("core_organization")
+}
+
+model CustomUser {
+  id                    BigInt  @id
+  isActive              Boolean @map("is_active")
+  currentOrganizationId BigInt? @map("current_organization_id")
+  organizationId        BigInt? @map("organization_id")
+  // Bumped by Django on password change / forced logout; JWT claim must match.
+  authTokenVersion      Int     @default(0) @map("auth_token_version")
+
+  @@map("core_customuser")
+}

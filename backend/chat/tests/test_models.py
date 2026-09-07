@@ -141,7 +141,18 @@ class TestMessageModel:
         assert message.sender == self.user
         assert message.content == 'Hello, World!'
         assert message.created_at is not None
+        assert message.seq == 1
         assert not message.is_deleted
+
+    def test_message_sequence_increments_per_chat(self):
+        other_chat = Chat.objects.create(project=self.project, type=ChatType.GROUP, name='Other')
+
+        first = Message.objects.create(chat=self.chat, sender=self.user, content='First')
+        second = Message.objects.create(chat=self.chat, sender=self.user, content='Second')
+        other_first = Message.objects.create(chat=other_chat, sender=self.user, content='Other first')
+
+        assert (first.seq, second.seq) == (1, 2)
+        assert other_first.seq == 1
 
     def test_message_string_representation(self):
         """Test message string representation"""

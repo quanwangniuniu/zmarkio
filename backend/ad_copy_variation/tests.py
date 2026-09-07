@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import requests
 from django.contrib.auth import get_user_model
+from django.test import SimpleTestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -960,3 +961,10 @@ class GenerateBatchTests(APITestCase):
         self.assertIn('batch_id', resp.data)
         self.assertEqual(resp.data['count_succeeded'], 1)
         self.assertEqual(len(resp.data['results']), 1)
+
+
+class TenantRegistrationTests(SimpleTestCase):
+    def test_ad_copy_variation_is_a_tenant_model(self):
+        from core.tenant_config import get_tenant_models
+
+        self.assertIn(AdCopyVariation, get_tenant_models())

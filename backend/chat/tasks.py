@@ -213,6 +213,7 @@ def build_realtime_message_payload(message: Message) -> Dict[str, Any]:
     reply_to = _build_reply_to_payload(message)
     return {
         'id': message.id,
+        'seq': message.seq,
         'chat_id': message.chat.id,
         'sender': {
             'id': message.sender.id,

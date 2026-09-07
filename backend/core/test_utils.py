@@ -9,6 +9,22 @@ from django.db import connection
 from core.models import Organization
 
 
+def grant_ai_consent(user, spreadsheet):
+    """Record *user*'s one-time consent to send *spreadsheet* to an external AI.
+
+    The agent<->spreadsheet integration gates AI analysis on
+    ``spreadsheet.SpreadsheetAiConsent`` (one row per user per spreadsheet);
+    tests that exercise an analysis path call this after creating the
+    spreadsheet. Returns the ``SpreadsheetAiConsent`` row.
+    """
+    from spreadsheet.models import SpreadsheetAiConsent
+
+    obj, _ = SpreadsheetAiConsent.objects.get_or_create(
+        user=user, spreadsheet=spreadsheet
+    )
+    return obj
+
+
 class TenantTestCase(TestCase):
     """
     TestCase that runs in a tenant schema context.

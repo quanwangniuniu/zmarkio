@@ -26,6 +26,8 @@ from .models import (
     Sheet,
     SheetRow,
     SheetColumn,
+    Cell,
+    CellValueType,
     WorkflowPattern,
     PatternJob,
     PatternJobStatus,
@@ -1457,3 +1459,168 @@ class SheetXlsxExportView(APIView):
         safe_name = re.sub(r'["\\\r\n]|[\x00-\x1f]', '', (sheet.name or 'sheet')).strip() or 'sheet'
         response['Content-Disposition'] = f'attachment; filename="{safe_name}.xlsx"'
         return response
+
+
+def _audit_nl_generation(request, sheet, event_type, *, instruction, cols, rows):
+    """Record an NL->config generation request. Counts/lengths only, no content."""
+    from core.services.audit_events import safe_emit_audit_event
+
+    project = sheet.spreadsheet.project
+    safe_emit_audit_event(
+        event_type=event_type,
+        actor=request.user,
+        organization=getattr(project, 'organization', None),
+        project=project,
+        target_type='spreadsheet',
+        target_id=sheet.spreadsheet_id,
+        context={
+            'sheet_id': sheet.id,
+            'cols_sent': cols,
+            'rows_sent': rows,
+            'instruction_chars': len(instruction),
+            'provider': 'gemini',
+            'model': 'gemini-2.5-flash-lite',
+        },
+        request=request,
+    )
+
+
+class GeneratePatternStepsView(APIView):
+    """Convert a natural-language instruction into PatternStep[] via Gemini."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, sheet_id):
+        from .nl_pattern_service import generate_pattern_steps
+        from .providers import check_ai_analysis_enabled, AiAnalysisDisabled
+
+        sheet = get_accessible_sheet_or_404(request.user, id=sheet_id)
+
+        try:
+            check_ai_analysis_enabled(
+                sheet.spreadsheet.project,
+                user=request.user,
+                spreadsheet=sheet.spreadsheet,
+            )
+        except AiAnalysisDisabled as exc:
+            return Response(
+                {'error': exc.message, 'code': exc.code,
+                 'spreadsheet_id': exc.spreadsheet_id},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        instruction = (request.data.get('instruction') or '').strip()
+        if not instruction:
+            return Response({'error': 'instruction is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Build sheet schema
+        columns = list(
+            SheetColumn.objects.filter(sheet=sheet, is_deleted=False).order_by('position')
+        )
+        # Determine which columns have any non-empty cell
+        cols_with_data = set(
+            Cell.objects.filter(
+                sheet=sheet,
+                is_deleted=False,
+                column__is_deleted=False,
+                row__is_deleted=False,
+            )
+            .exclude(value_type=CellValueType.EMPTY)
+            .values_list('column_id', flat=True)
+            .distinct()
+        )
+        row_count = SheetRow.objects.filter(sheet=sheet, is_deleted=False).count()
+
+        sheet_schema = {
+            'columns': [
+                {
+                    'index': col.index,
+                    'name': col.name or f'Column {col.index}',
+                    'has_data': col.id in cols_with_data,
+                }
+                for col in columns
+            ],
+            'row_count': row_count,
+        }
+
+        try:
+            steps = generate_pattern_steps(instruction, sheet_schema)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        _audit_nl_generation(
+            request, sheet, 'spreadsheet.nl_pattern.generated',
+            instruction=instruction, cols=len(sheet_schema['columns']),
+            rows=row_count,
+        )
+        return Response({'steps': steps})
+
+
+class GeneratePivotConfigView(APIView):
+    """Convert a natural-language pivot description into a PivotConfig via Gemini."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, sheet_id):
+        from .nl_pivot_service import generate_pivot_config
+        from .pivot_service import _get_source_columns
+        from .providers import check_ai_analysis_enabled, AiAnalysisDisabled
+
+        sheet = get_accessible_sheet_or_404(request.user, id=sheet_id)
+
+        try:
+            check_ai_analysis_enabled(
+                sheet.spreadsheet.project,
+                user=request.user,
+                spreadsheet=sheet.spreadsheet,
+            )
+        except AiAnalysisDisabled as exc:
+            return Response(
+                {'error': exc.message, 'code': exc.code,
+                 'spreadsheet_id': exc.spreadsheet_id},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        instruction = (request.data.get('instruction') or '').strip()
+        if not instruction:
+            return Response({'error': 'instruction is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Use the same header derivation as the pivot engine (row-0 cell content),
+        # not SheetColumn.name, so field names Gemini picks match what pivot_engine.py
+        # will resolve against when the pivot sheet is recomputed.
+        source_columns = _get_source_columns(sheet)
+
+        cols_with_data = set(
+            Cell.objects.filter(
+                sheet=sheet,
+                is_deleted=False,
+                column__is_deleted=False,
+                row__is_deleted=False,
+                row__position__gte=1,
+            )
+            .exclude(value_type=CellValueType.EMPTY)
+            .values_list('column__position', flat=True)
+            .distinct()
+        )
+        row_count = SheetRow.objects.filter(sheet=sheet, is_deleted=False).count()
+
+        sheet_schema = {
+            'columns': [
+                {
+                    'name': col['header'],
+                    'has_data': col['index'] in cols_with_data,
+                }
+                for col in source_columns
+            ],
+            'row_count': row_count,
+        }
+
+        try:
+            config = generate_pivot_config(instruction, sheet_schema)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        _audit_nl_generation(
+            request, sheet, 'spreadsheet.nl_pivot.generated',
+            instruction=instruction, cols=len(sheet_schema['columns']),
+            rows=row_count,
+        )
+        return Response({'config': config})

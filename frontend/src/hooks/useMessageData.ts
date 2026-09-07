@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useChatStore, getChatSlugById } from '@/lib/chatStore';
+import { useChatStore, getChatSlugById, reorderMessagesBySequence } from '@/lib/chatStore';
 import { useAuthStore } from '@/lib/authStore';
 import { getMessages, sendMessage, markMessageAsRead, markChatAsRead } from '@/lib/api/chatApi';
 import type { SendMessageRequest, Message } from '@/types/chat';
@@ -84,10 +84,7 @@ export function useMessageData(options: UseMessageDataOptions = {}) {
       messageMap.set(msg.id, msg);
     });
 
-    // Sort by created_at (ascending order - oldest to newest)
-    return Array.from(messageMap.values()).sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    );
+    return reorderMessagesBySequence(Array.from(messageMap.values()));
   }, [chatId, storeMessages, localMessages]);
 
   const [isFetchingMessages, setIsFetchingMessages] = useState(false);

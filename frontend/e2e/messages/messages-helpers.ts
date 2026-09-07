@@ -116,6 +116,14 @@ export async function mockProjectShellApis(page: Page) {
 		});
 	});
 
+	await page.route('**/api/csm/notifications**', async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }),
+		});
+	});
+
 	await page.route('**/api/chat/starred/**', async (route) => {
 		await route.fulfill({
 			status: 200,

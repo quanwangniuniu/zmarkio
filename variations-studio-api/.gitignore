@@ -1,0 +1,4 @@
+node_modules
+.next
+*.tsbuildinfo
+tests/support/.django-jwt-fixtures.json

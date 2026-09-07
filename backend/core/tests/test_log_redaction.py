@@ -1,6 +1,6 @@
 import logging
 
-from agent.log_redaction import RedactSecretsFilter, redact_headers, redact_string
+from core.services.log_redaction import RedactSecretsFilter, redact_headers, redact_string
 
 
 def test_redact_headers_masks_sensitive_keys():

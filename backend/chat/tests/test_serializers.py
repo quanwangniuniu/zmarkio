@@ -151,6 +151,7 @@ class TestMessageWithAttachmentsSerializer:
         request.user = self.user
         serializer = MessageWithAttachmentsSerializer(self.message, context={'request': request})
         data = serializer.data
+        assert data['seq'] == self.message.seq
         assert 'attachments' in data
         assert len(data['attachments']) == 2
 

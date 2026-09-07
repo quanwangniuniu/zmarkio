@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.conf import settings
 from django.contrib.postgres.search import SearchVectorField
 from django.contrib.postgres.indexes import GinIndex
@@ -399,6 +399,10 @@ class Message(TimeStampedModel):
         db_index=True,
         help_text="Client idempotency key for retried sends; NULL for legacy messages.",
     )
+    seq = models.PositiveBigIntegerField(
+        editable=False,
+        help_text="Monotonic sequence number within the chat, used for deterministic ordering.",
+    )
     is_edited = models.BooleanField(default=False, help_text="True after content has been edited")
     is_deleted = models.BooleanField(default=False, help_text="Soft delete flag")
     deleted_at = models.DateTimeField(null=True, blank=True, help_text="When the message was soft deleted")
@@ -429,6 +433,10 @@ class Message(TimeStampedModel):
                 fields=['sender', 'client_message_id'],
                 name='chat_message_sender_client_msg_uniq',
             ),
+            models.UniqueConstraint(
+                fields=['chat', 'seq'],
+                name='chat_message_chat_seq_uniq',
+            ),
         ]
         indexes = [
             models.Index(fields=['chat', 'created_at']),
@@ -443,6 +451,27 @@ class Message(TimeStampedModel):
     def __str__(self):
         preview = self.content[:50] + '...' if len(self.content) > 50 else self.content
         return f"{self.sender.email}: {preview}"
+
+    def save(self, *args, **kwargs):
+        """Allocate a gap-tolerant, per-chat sequence before the first insert.
+
+        Locking the parent chat serializes concurrent message creation for the
+        same room.  All creation paths (REST, websocket, scheduled delivery,
+        and management code) therefore share one ordering rule.
+        """
+        if self._state.adding and self.seq is None:
+            with transaction.atomic():
+                Chat.objects.select_for_update().only('pk').get(pk=self.chat_id)
+                current_max = (
+                    type(self).objects
+                    .filter(chat_id=self.chat_id)
+                    .order_by('-seq')
+                    .values_list('seq', flat=True)
+                    .first()
+                )
+                self.seq = (current_max or 0) + 1
+                return super().save(*args, **kwargs)
+        return super().save(*args, **kwargs)
     
     def get_status_for_user(self, user):
         """Get the status of this message for a specific user"""

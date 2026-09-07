@@ -384,6 +384,10 @@ class Project(SluggedResourceModelMixin, TimeStampedModel):
         default=False,
         help_text="Whether pacing insights and alerts are enabled"
     )
+    ai_analysis_enabled = models.BooleanField(
+        default=True,
+        help_text="Whether AI-assisted spreadsheet analysis is available for this project"
+    )
     budget_config = models.JSONField(
         default=dict,
         blank=True,

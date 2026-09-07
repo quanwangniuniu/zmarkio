@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.core.cache import cache
 from .models import Chat, ChatParticipant, Message, MessageStatus
 from .realtime import broadcast_event_to_user_groups
+from .subscriptions import SubscriptionRegistry
 from django.conf import settings
 from core.consumers import InstrumentedAsyncWebsocketConsumer
 from core.tenant_context import tenant_schema_context, validate_tenant_schema
@@ -88,6 +89,21 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
 
     ws_channel = 'chat'
 
+    async def __call__(self, scope, receive, send):
+        """Release chat subscriptions on every consumer exit path.
+
+        Channels does not call ``disconnect`` when a handler crashes. The
+        outer guard keeps a post-accept exception from leaving this channel in
+        Redis groups until group expiry; normal disconnect already clears the
+        registry, so the second call is intentionally idempotent.
+        """
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            subscriptions = getattr(self, 'subscriptions', None)
+            if subscriptions is not None:
+                await subscriptions.clear()
+
     async def connect(self):
         """Handle WebSocket connection"""
         self.user_id = self.scope['url_route']['kwargs']['user_id']
@@ -125,12 +141,26 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
         #
         # The cost is one indexed query plus one Redis add per chat, paid
         # inside the handshake. That is what --websocket_connect_timeout covers.
-        self.joined_chat_groups = set()
+        self.subscriptions = SubscriptionRegistry(
+            self.channel_layer,
+            self.channel_name,
+            thread_call_timeout=getattr(
+                settings,
+                'CHAT_SUBSCRIPTION_THREAD_CALL_TIMEOUT_SECONDS',
+                5.0,
+            ),
+            dispatch_concurrency=getattr(
+                settings,
+                'CHAT_FANOUT_CONCURRENCY',
+                25,
+            ),
+        )
         try:
             await self.sync_chat_groups()
         except Exception:
             # Already logged. Refuse the connection rather than accept a socket
             # that cannot receive the chats it is entitled to.
+            await self.subscriptions.clear()
             await self.close(code=1011)
             return
 
@@ -213,12 +243,15 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
             except asyncio.CancelledError:
                 pass
 
-        # Leave the chat groups but keep the names: the offline presence
+        # Leave the chat groups but keep their previous names: the offline presence
         # broadcast below still has to reach the same audience, and this
         # connection must not be in the group while that is published or it
         # would be told about its own disconnect.
-        for group_name in getattr(self, 'joined_chat_groups', set()):
-            await self.channel_layer.group_discard(group_name, self.channel_name)
+        disconnect_chat_groups = frozenset()
+        subscriptions = getattr(self, 'subscriptions', None)
+        if subscriptions is not None:
+            cleanup = await subscriptions.clear()
+            disconnect_chat_groups = cleanup.subscriptions
 
         if hasattr(self, 'user_group_name'):
             # Leave user's personal channel group
@@ -263,12 +296,10 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
                                 is_online=False,
                                 recipient_ids=recipient_ids,
                                 version=version,
+                                group_names=disconnect_chat_groups,
                             )
             else:
                 logger.info(f"[WebSocket] User {self.user_id} disconnected (code: {close_code})")
-
-        # Cleared last: the offline presence broadcast above publishes to these.
-        self.joined_chat_groups = set()
 
     async def receive(self, text_data):
         """Handle incoming WebSocket messages"""
@@ -348,6 +379,7 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
                 'type': 'chat_message',
                 'message': {
                     'id': message.id,
+                    'seq': message.seq,
                     'chat_id': chat_id,
                     'sender': {
                         'id': self.user.id,
@@ -802,17 +834,10 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
                 thread_sensitive=False,
             )()
             allowed = {chat_group_name(chat_id) for chat_id in chat_ids}
-            current = getattr(self, 'joined_chat_groups', set())
-
-            for group_name in current - allowed:
-                await self.channel_layer.group_discard(group_name, self.channel_name)
-            for group_name in allowed - current:
-                await self.channel_layer.group_add(group_name, self.channel_name)
-
-            self.joined_chat_groups = allowed
+            delta = await self.subscriptions.sync(allowed)
             logger.debug(
                 "[WebSocket] User %s chat groups synced: %s joined, %s left",
-                self.user_id, len(allowed - current), len(current - allowed),
+                self.user_id, len(delta.added), len(delta.removed),
             )
         except Exception:
             # Deliberately not swallowed. While chat groups carry the messages,
@@ -843,7 +868,12 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
             with suppress(Exception):
                 await self.close(code=1011)
 
-    async def _broadcast_presence_to_chat_groups(self, is_online: bool, version=None):
+    async def _broadcast_presence_to_chat_groups(
+        self,
+        is_online: bool,
+        version=None,
+        group_names=None,
+    ):
         """Announce presence once per shared chat rather than once per peer.
 
         Publishes to the chats this connection is entitled to, which is the
@@ -855,7 +885,11 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
         is harmless: presence events carry a version and the client discards
         anything not newer than what it has.
         """
-        group_names = getattr(self, 'joined_chat_groups', set())
+        subscriptions = getattr(self, 'subscriptions', None)
+        if subscriptions is None:
+            return
+        if group_names is None:
+            group_names = await subscriptions.snapshot()
         if not group_names:
             return
         event = {
@@ -865,18 +899,42 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
             'version': version,
             'timestamp': timezone.now().isoformat(),
         }
-        for group_name in group_names:
-            await self.channel_layer.group_send(group_name, event)
+        dispatch_result = await subscriptions.dispatch(event, groups=group_names)
+        if dispatch_result.failures:
+            logger.warning(
+                "[WebSocket] Presence update for user %s failed for %s of %s "
+                "chat group(s): failures=%s",
+                self.user_id,
+                len(dispatch_result.failures),
+                len(dispatch_result.attempted),
+                [
+                    {
+                        'group': failure.group_name,
+                        'error': str(failure.error),
+                    }
+                    for failure in dispatch_result.failures
+                ],
+            )
         logger.debug(
             "[WebSocket] Presence update for user %s sent to %s chat group(s): is_online=%s",
-            self.user_id, len(group_names), is_online,
+            self.user_id, len(dispatch_result.sent), is_online,
         )
 
-    async def broadcast_presence_update(self, is_online: bool, recipient_ids=None, version=None):
+    async def broadcast_presence_update(
+        self,
+        is_online: bool,
+        recipient_ids=None,
+        version=None,
+        group_names=None,
+    ):
         """Broadcast this user's presence transition to shared chat participants."""
         try:
             if getattr(settings, 'CHAT_CHANNEL_GROUPS_ENABLED', False):
-                await self._broadcast_presence_to_chat_groups(is_online, version)
+                await self._broadcast_presence_to_chat_groups(
+                    is_online,
+                    version,
+                    group_names=group_names,
+                )
                 return
 
             if recipient_ids is None:

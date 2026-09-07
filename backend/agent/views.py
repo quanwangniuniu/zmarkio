@@ -8,6 +8,7 @@ from django.http import StreamingHttpResponse
 from django.utils.translation import activate as activate_language
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.renderers import BaseRenderer, JSONRenderer
@@ -30,9 +31,15 @@ class EventStreamRenderer(BaseRenderer):
             return b''
         return json.dumps(data).encode('utf-8')
 
-from core.models import Project, ProjectMember
+from core.models import Project
 from core.slug_mixins import resolve_project_pk, SlugLookupViewSetMixin, resolve_lookup_kwargs
-from spreadsheet.models import Spreadsheet
+from core.services.file_parser import parse_file_to_json, FileParseError
+from spreadsheet.access import accessible_projects
+from spreadsheet.providers import (
+    SpreadsheetDataProvider,
+    SpreadsheetAccessError,
+    AiAnalysisDisabled,
+)
 from .models import (
     AgentSession, AgentMessage, AgentWorkflowDefinition,
     AgentWorkflowStep, AgentWorkflowRun, AgentStepExecution,
@@ -41,6 +48,7 @@ from .models import (
 from .serializers import (
     AgentSessionListSerializer,
     AgentSessionDetailSerializer,
+    AgentMessageSerializer,
     ChatInputSerializer,
     UploadAnalyzeInputSerializer,
     AgentWorkflowDefinitionListSerializer,
@@ -67,24 +75,43 @@ class EnglishResponseMixin:
         super().initial(request, *args, **kwargs)
 
 
+def _get_project_for_user(user, project_id):
+    """Resolve a project by id if the user may access it.
+
+    Uses ``spreadsheet.access.accessible_projects`` — the canonical policy
+    (owner OR *active* membership OR org-admin), shared with the spreadsheet
+    HTTP/WS paths. This is stricter than the old bare ``ProjectMember`` check,
+    which ignored ``is_active``.
+    """
+    if project_id is None:
+        return None
+    try:
+        return accessible_projects(user).filter(id=project_id, is_deleted=False).first()
+    except (TypeError, ValueError):
+        return None
+
+
 def _get_user_project(request):
-    """Get the active project for the current user, with membership check."""
+    """Get the active project for the current user, with an access check."""
     raw_project_id = request.headers.get('X-Project-Id') or request.query_params.get('project_id')
     if raw_project_id:
         pk = resolve_project_pk(raw_project_id)
         if pk is None:
             return None
-        try:
-            project = Project.objects.get(id=pk, is_deleted=False)
-            if not ProjectMember.objects.filter(project=project, user=request.user).exists():
-                return None
-            return project
-        except Project.DoesNotExist:
-            return None
+        return accessible_projects(request.user).filter(
+            id=pk, is_deleted=False
+        ).first()
     try:
-        return request.user.active_project
+        active = request.user.active_project
     except Project.DoesNotExist:
         return None
+    if active is None:
+        return None
+    return (
+        active
+        if accessible_projects(request.user).filter(id=active.id).exists()
+        else None
+    )
 
 
 class AgentSessionViewSet(EnglishResponseMixin, viewsets.ModelViewSet):
@@ -127,16 +154,55 @@ class AgentSessionViewSet(EnglishResponseMixin, viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        project = _get_user_project(self.request)
+        project = None
+        body_project_id = self.request.data.get('project_id')
+        if body_project_id is not None:
+            project = _get_project_for_user(self.request.user, body_project_id)
         if not project:
-            project_id = self.request.data.get('project_id')
-            if project_id:
-                project = Project.objects.get(id=project_id, is_deleted=False)
+            project = _get_user_project(self.request)
+        if not project:
+            raise ValidationError(
+                {'project_id': 'A valid project you are a member of is required.'}
+            )
         serializer.save(user=self.request.user, project=project)
 
     def perform_destroy(self, instance):
         instance.is_deleted = True
         instance.save()
+
+    @action(detail=True, methods=['post'], url_path='messages')
+    def messages(self, request, pk=None):
+        """
+        Append a message to a session's transcript without invoking the agent
+        pipeline. Used by flows that generate their own results out-of-band
+        (e.g. NL pattern/pivot generation) so the sidebar history is preserved
+        when the session is reopened.
+        """
+        session = self.get_object()
+        role = request.data.get('role')
+        content = request.data.get('content')
+        if role not in {'user', 'assistant', 'system'}:
+            return Response({'detail': 'Invalid role.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not isinstance(content, str) or not content.strip():
+            return Response({'detail': 'content is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        message_type = request.data.get('message_type') or 'text'
+        valid_types = {c[0] for c in AgentMessage.MESSAGE_TYPE_CHOICES}
+        if message_type not in valid_types:
+            message_type = 'text'
+        metadata = request.data.get('data')
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        message = AgentMessage.objects.create(
+            session=session,
+            role=role,
+            content=content,
+            message_type=message_type,
+            metadata=metadata,
+        )
+        serializer = AgentMessageSerializer(message)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class ChatView(EnglishResponseMixin, APIView):
@@ -161,6 +227,7 @@ class ChatView(EnglishResponseMixin, APIView):
 
         message_text = serializer.validated_data['message']
         spreadsheet_id = serializer.validated_data.get('spreadsheet_id')
+        sheet_id = serializer.validated_data.get('sheet_id')
         csv_filename = serializer.validated_data.get('csv_filename')
         file_id = serializer.validated_data.get('file_id')
         action = serializer.validated_data.get('action')
@@ -249,6 +316,7 @@ class ChatView(EnglishResponseMixin, APIView):
                 for chunk in orchestrator.handle_message(
                     message_text,
                     spreadsheet_id=spreadsheet_id,
+                    sheet_id=sheet_id,
                     csv_filename=csv_filename,
                     action=action,
                     file_id=file_id,
@@ -323,6 +391,34 @@ class ChatView(EnglishResponseMixin, APIView):
                             )
                         continue
 
+                    if chunk_type == 'spreadsheet_summary':
+                        _flush_message()
+                        sse_data = json.dumps(chunk, default=str)
+                        yield f"data: {sse_data}\n\n"
+                        if content:
+                            AgentMessage.objects.create(
+                                session=session,
+                                role='assistant',
+                                content=content,
+                                message_type='text',
+                                metadata={'kind': 'spreadsheet_summary', **(data or {})},
+                            )
+                        continue
+
+                    if chunk_type == 'spreadsheet_anomalies':
+                        _flush_message()
+                        sse_data = json.dumps(chunk, default=str)
+                        yield f"data: {sse_data}\n\n"
+                        if content or data:
+                            AgentMessage.objects.create(
+                                session=session,
+                                role='assistant',
+                                content=content or 'Anomaly analysis complete.',
+                                message_type='analysis',
+                                metadata=data or {},
+                            )
+                        continue
+
                     # Miro status is persisted separately (_create_agent_status_message in the
                     # orchestrator). Do not merge its text into the prior assistant bubble or
                     # the final flush — that would duplicate the same line in chat history.
@@ -384,16 +480,98 @@ class SpreadsheetListView(EnglishResponseMixin, APIView):
                 {"detail": "No active project."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        spreadsheets = Spreadsheet.objects.filter(
-            project=project,
-            is_deleted=False,
-        ).values('id', 'name', 'created_at').order_by('-created_at')
-        result = [
-            {**s, 'project_id': project.id, 'updated_at': s['created_at']}
-            for s in spreadsheets
-        ]
+        result = SpreadsheetDataProvider(request.user).list_project_spreadsheets(project)
         return Response(result)
 
+
+class AiConsentView(EnglishResponseMixin, APIView):
+    """Per-user, per-spreadsheet consent to send a spreadsheet's contents to an
+    external AI service. One-time per spreadsheet (see
+    :class:`spreadsheet.models.SpreadsheetAiConsent`).
+
+    Target it by ``spreadsheet_id`` or by ``sheet_id`` (a sheet resolves to its
+    spreadsheet) — callers that only hold a sheet id (pattern/pivot generation)
+    use the latter.
+
+    GET  ?spreadsheet_id=<id> | ?sheet_id=<id>  -> {"consented": bool, "consented_at": iso|null}
+    POST {"spreadsheet_id": <id>} | {"sheet_id": <id>}  -> records consent (idempotent)
+    """
+    permission_classes = [IsAuthenticated]
+
+    @staticmethod
+    def _int_param(request, *names):
+        for name in names:
+            raw = (
+                request.data.get(name)
+                or request.query_params.get(name)
+                or request.headers.get('X-' + name.replace('_', '-').title())
+            )
+            if raw is not None:
+                try:
+                    return name, int(raw)
+                except (TypeError, ValueError):
+                    return name, None
+        return None, None
+
+    def _spreadsheet(self, request):
+        name, pk = self._int_param(request, 'spreadsheet_id', 'sheet_id')
+        if pk is None:
+            return None
+        if name == 'sheet_id':
+            from spreadsheet.access import accessible_sheets
+
+            sheet = (
+                accessible_sheets(request.user)
+                .filter(id=pk)
+                .select_related('spreadsheet')
+                .first()
+            )
+            return sheet.spreadsheet if sheet else None
+        from spreadsheet.access import accessible_spreadsheets
+
+        return accessible_spreadsheets(request.user).filter(id=pk).first()
+
+    def get(self, request):
+        from spreadsheet.models import SpreadsheetAiConsent
+
+        spreadsheet = self._spreadsheet(request)
+        if spreadsheet is None:
+            return Response({"detail": "Spreadsheet not found."}, status=status.HTTP_404_NOT_FOUND)
+        row = SpreadsheetAiConsent.objects.filter(
+            user=request.user, spreadsheet=spreadsheet
+        ).first()
+        return Response({
+            "consented": row is not None,
+            "consented_at": row.created_at.isoformat() if row else None,
+        })
+
+    def post(self, request):
+        from spreadsheet.models import SpreadsheetAiConsent
+        from spreadsheet.providers import record_ai_consent
+
+        spreadsheet = self._spreadsheet(request)
+        if spreadsheet is None:
+            return Response({"detail": "Spreadsheet not found."}, status=status.HTTP_404_NOT_FOUND)
+        existed = SpreadsheetAiConsent.objects.filter(
+            user=request.user, spreadsheet=spreadsheet
+        ).exists()
+        row = record_ai_consent(request.user, spreadsheet)
+        if not existed:
+            from core.services.audit_events import safe_emit_audit_event
+
+            safe_emit_audit_event(
+                event_type='agent.spreadsheet.ai_consent_granted',
+                actor=request.user,
+                organization=getattr(spreadsheet.project, 'organization', None),
+                project=spreadsheet.project,
+                target_type='spreadsheet',
+                target_id=spreadsheet.id,
+                request=request,
+            )
+        return Response({
+            "consented": True,
+            "consented_at": row.created_at.isoformat(),
+        })
 
 
 class DataReportListView(EnglishResponseMixin, APIView):
@@ -532,6 +710,68 @@ class FileUploadAnalyzeView(EnglishResponseMixin, APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        spreadsheet_import = None
+        spreadsheet_import_error = None
+        truncation_notice = None
+        csv_dir = data_service._get_csv_dir()
+        filepath = os.path.join(csv_dir, os.path.basename(result['filename']))
+        try:
+            # Bounded by the SPREADSHEET_AI_MAX_* settings; a genuinely large
+            # import is the deferred background job.
+            parsed = parse_file_to_json(filepath, result['original_filename'])
+            _hit = parsed.get('limits_hit') or {}
+            if _hit.get('rows') or _hit.get('cols') or _hit.get('cells'):
+                truncation_notice = (
+                    "This file is large — imported the first "
+                    f"{getattr(django_settings, 'SPREADSHEET_AI_MAX_ROWS', 500)} rows / "
+                    f"{getattr(django_settings, 'SPREADSHEET_AI_MAX_COLS', 50)} columns. "
+                    "Split the sheet for a full import."
+                )
+            spreadsheet_import = SpreadsheetDataProvider(
+                request.user
+            ).create_from_parsed_upload(
+                project, parsed, result['original_filename']
+            )
+            from .models import ImportedCSVFile
+
+            ImportedCSVFile.objects.filter(id=result['id']).update(
+                spreadsheet_id=spreadsheet_import['spreadsheet_id'],
+            )
+            from core.services.audit_events import safe_emit_audit_event
+
+            safe_emit_audit_event(
+                event_type='agent.spreadsheet.upload_analyzed',
+                actor=request.user,
+                organization=getattr(project, 'organization', None),
+                project=project,
+                target_type='spreadsheet',
+                target_id=spreadsheet_import['spreadsheet_id'],
+                context={
+                    'row_count': result.get('row_count'),
+                    'column_count': result.get('column_count'),
+                    'original_filename': result.get('original_filename'),
+                    'provider': 'gemini',
+                    'model': 'gemini-2.5-flash-lite',
+                },
+                request=request,
+            )
+        except AiAnalysisDisabled as exc:
+            return Response(
+                {"detail": exc.message, "code": exc.code},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        except FileParseError as exc:
+            spreadsheet_import_error = f"Could not read the file: {exc}"[:200]
+        except Exception as exc:
+            logger.exception(
+                "FileUploadAnalyzeView spreadsheet import failed for file_id=%s",
+                result['id'],
+            )
+            # Do not let the import fail silently: the file is saved but has no
+            # spreadsheet, so surface the failure to the client instead of
+            # continuing as if the data were imported.
+            spreadsheet_import_error = str(exc)[:200] or 'Unknown error'
+
         upload_fields = UploadAnalyzeInputSerializer(data=request.data)
         upload_fields.is_valid(raise_exception=True)
         try:
@@ -563,31 +803,74 @@ class FileUploadAnalyzeView(EnglishResponseMixin, APIView):
                 title=f"Analysis: {result['original_filename']}",
             )
 
+        user_message_metadata = {
+            'original_filename': result['original_filename'],
+            'file_id': result['id'],
+        }
+        if spreadsheet_import:
+            user_message_metadata.update({
+                'spreadsheet_id': spreadsheet_import['spreadsheet_id'],
+                'sheet_id': spreadsheet_import['sheet_id'],
+                'project_id': spreadsheet_import['project_id'],
+                'url': spreadsheet_import['url'],
+            })
+
         AgentMessage.objects.create(
             session=session,
             role='user',
             content=f'Uploaded "{result["original_filename"]}"',
+            metadata=user_message_metadata,
         )
 
         orchestrator = AgentOrchestrator(
             user=request.user, project=project, session=session,
         )
 
+        imported_spreadsheet_id = (
+            spreadsheet_import['spreadsheet_id'] if spreadsheet_import else None
+        )
+
         def event_stream():
             # Immediately emit file_uploaded event
+            file_event_data = {
+                "file_id": result['id'],
+                "filename": result['filename'],
+                "original_filename": result['original_filename'],
+                "row_count": result['row_count'],
+                "column_count": result['column_count'],
+                "generation_outputs": generation_outputs,
+            }
+            if spreadsheet_import:
+                file_event_data.update({
+                    "spreadsheet_id": spreadsheet_import['spreadsheet_id'],
+                    "sheet_id": spreadsheet_import['sheet_id'],
+                    "project_id": spreadsheet_import['project_id'],
+                    "url": spreadsheet_import['url'],
+                })
+            if truncation_notice:
+                file_event_data["truncation_notice"] = truncation_notice
             file_event = {
                 "type": "file_uploaded",
                 "content": f"Uploaded \"{result['original_filename']}\" ({result['row_count']} rows, {result['column_count']} columns).",
-                "data": {
-                    "file_id": result['id'],
-                    "filename": result['filename'],
-                    "original_filename": result['original_filename'],
-                    "row_count": result['row_count'],
-                    "column_count": result['column_count'],
-                    "generation_outputs": generation_outputs,
-                },
+                "data": file_event_data,
             }
             yield f"data: {json.dumps(file_event)}\n\n"
+            if truncation_notice:
+                yield f"data: {json.dumps({'type': 'text', 'content': truncation_notice})}\n\n"
+
+            # Spreadsheet import failed: the upload is saved but there is no
+            # spreadsheet to analyse. Tell the client and stop rather than
+            # silently proceeding as though the data were imported.
+            if spreadsheet_import_error is not None:
+                error_event = {
+                    "type": "error",
+                    "content": (
+                        f"Import failed: {spreadsheet_import_error}"
+                    ),
+                }
+                yield f"data: {json.dumps(error_event)}\n\n"
+                yield f"data: {json.dumps({'type': 'done', 'data': {'session_id': str(session.id)}})}\n\n"
+                return
 
             # Route through the workflow engine (column detection + analysis).
             assistant_content_parts = []
@@ -595,12 +878,20 @@ class FileUploadAnalyzeView(EnglishResponseMixin, APIView):
                 "file_id": result['id'],
                 "generation_outputs": generation_outputs,
             }
+            if spreadsheet_import:
+                assistant_metadata.update({
+                    "spreadsheet_id": spreadsheet_import['spreadsheet_id'],
+                    "sheet_id": spreadsheet_import['sheet_id'],
+                    "project_id": spreadsheet_import['project_id'],
+                    "url": spreadsheet_import['url'],
+                })
             last_message_type = 'text'
 
             try:
                 for chunk in orchestrator.handle_message(
                     "",
                     file_id=result['id'],
+                    spreadsheet_id=imported_spreadsheet_id,
                     generation_outputs=generation_outputs,
                     user_context=user_context):
                     chunk_type = chunk.get('type', 'text')
@@ -1219,7 +1510,6 @@ class AgentWorkflowTemplateViewSet(SlugLookupViewSetMixin, EnglishResponseMixin,
                     is_deleted=False
                 )
             except AgentWorkflowDefinition.DoesNotExist:
-                from rest_framework.exceptions import ValidationError
                 raise ValidationError({'source_workflow_id': 'Source workflow not found.'})
 
             # Copy steps configuration from source workflow

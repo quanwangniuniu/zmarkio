@@ -4,6 +4,7 @@ import {
   AgentSessionDetail,
   CreateSessionRequest,
   UpdateSessionRequest,
+  AppendMessageRequest,
   AgentChatRequest,
   AgentSpreadsheet,
   SSEEvent,
@@ -76,6 +77,16 @@ export const AgentAPI = {
 
   deleteSession: async (sessionId: string | number): Promise<void> => {
     await api.delete(`/api/agent/sessions/${sessionId}/`);
+  },
+
+  /**
+   * Append a message to a session's transcript without invoking the agent
+   * pipeline. Used by flows that generate results out-of-band (NL pattern /
+   * pivot generation) so history survives reopening the session.
+   */
+  appendMessage: async (sessionId: string | number, data: AppendMessageRequest) => {
+    const response = await api.post(`/api/agent/sessions/${sessionId}/messages/`, data);
+    return response.data;
   },
 
   // ==================== Chat (SSE Streaming) ====================

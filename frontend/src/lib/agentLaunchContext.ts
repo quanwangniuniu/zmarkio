@@ -2,12 +2,31 @@
 
 export const AGENT_CALENDAR_CONTEXT_KEY = 'agent-calendar-context';
 export const AGENT_DRAFT_CONTEXT_KEY = 'agent-draft-context';
+export const AGENT_SPREADSHEET_CONTEXT_KEY = 'agent-spreadsheet-context';
 export const AGENT_SESSION_ID_KEY = 'agent-session-id';
 export const AGENT_PANEL_OPENED_EVENT = 'agent:panel-opened';
+
+export const SPREADSHEET_HIGHLIGHT_LOCATIONS_EVENT = 'spreadsheet:highlight-locations';
 
 export type CalendarPreload = {
   message: string;
   context: Record<string, unknown>;
+};
+
+export type SpreadsheetPreload = {
+  message: string;
+  // Projects on flat routes are identified by slug (string) or numeric id.
+  projectId: number | string;
+  spreadsheetId: number;
+  sheetId: number;
+  sheetName: string;
+  spreadsheetName: string;
+};
+
+export type SpreadsheetHighlightDetail = {
+  spreadsheetId: number;
+  sheetId: number;
+  locations: Array<{ row: number; col: number; a1?: string; sheet_id?: number }>;
 };
 
 /**
@@ -45,6 +64,60 @@ export function consumeCalendarPreload(): CalendarPreload | null {
       message = `I'm viewing my calendar (${(ctx.currentView as string) ?? 'week'} view). Can you help me understand my calendar events, check my availability, or assist with scheduling?`;
     }
     return { message, context: ctx };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Stage spreadsheet context for in-sheet AI analysis (consumed by AgentChatPage).
+ */
+export function stageSpreadsheetInsightsPreload(payload: {
+  projectId: number | string;
+  spreadsheetId: number;
+  sheetId: number;
+  sheetName: string;
+  spreadsheetName: string;
+}): SpreadsheetPreload {
+  const message = `Analyze the current sheet "${payload.sheetName}" in "${payload.spreadsheetName}" for a summary, anomalies, and recommendations.`;
+  const preload: SpreadsheetPreload = {
+    message,
+    projectId: payload.projectId,
+    spreadsheetId: payload.spreadsheetId,
+    sheetId: payload.sheetId,
+    sheetName: payload.sheetName,
+    spreadsheetName: payload.spreadsheetName,
+  };
+  if (typeof window !== 'undefined') {
+    sessionStorage.setItem(AGENT_SPREADSHEET_CONTEXT_KEY, JSON.stringify(preload));
+    sessionStorage.removeItem(AGENT_SESSION_ID_KEY);
+  }
+  return preload;
+}
+
+/**
+ * Read and remove spreadsheet context staged by Spreadsheet → Analyze with AI.
+ */
+export function consumeSpreadsheetPreload(): SpreadsheetPreload | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  const raw = sessionStorage.getItem(AGENT_SPREADSHEET_CONTEXT_KEY);
+  if (!raw) {
+    return null;
+  }
+  sessionStorage.removeItem(AGENT_SPREADSHEET_CONTEXT_KEY);
+  try {
+    const parsed = JSON.parse(raw) as SpreadsheetPreload;
+    if (
+      (typeof parsed.projectId !== 'number' && typeof parsed.projectId !== 'string') ||
+      typeof parsed.spreadsheetId !== 'number' ||
+      typeof parsed.sheetId !== 'number' ||
+      typeof parsed.message !== 'string'
+    ) {
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }

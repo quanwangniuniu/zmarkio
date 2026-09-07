@@ -68,6 +68,7 @@ interface SpreadsheetGridProps {
   }) => void;
   onHighlightCommit?: (payload: ApplyHighlightParams) => void;
   highlightCell?: { row: number; col: number } | null;
+  highlightLocations?: { row: number; col: number }[] | null;
   /** Called when hydration status changes (importing -> hydrating -> ready). Parent can disable Apply Pattern until ready. */
   onHydrationStatusChange?: (status: 'idle' | 'importing' | 'hydrating' | 'ready') => void;
   /** Called when user clicks the Pivot Table button. Receives cell data for pivot builder. */
@@ -102,6 +103,7 @@ export interface SpreadsheetGridHandle {
       updated_at?: string | null;
     }>
   ) => void;
+  navigateToCell: (row: number, col: number) => void;
 }
 
 type CellKey = string; // Format: `${row}:${col}` (0-based indices)
@@ -607,6 +609,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
   onHeaderRenameCommit,
   onHighlightCommit,
   highlightCell,
+  highlightLocations,
   onHydrationStatusChange,
   frozenRowCount = 0,
   onFreezeHeaderChange,
@@ -5385,6 +5388,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       applyHighlightOperation: (payload: ApplyHighlightParams) => applyHighlightOperation(payload),
       applyRemoteCells: (cells) =>
         applyCellsFromResponse(cells, { source: 'remote' }),
+      navigateToCell: (row: number, col: number) => navigateToCell(row, col),
     }),
     [
       submitFormulaBarValue,
@@ -5394,7 +5398,22 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       refreshSheet,
       applyHighlightOperation,
       applyCellsFromResponse,
+      navigateToCell,
     ]
+  );
+
+  const isAnomalyHighlighted = useCallback(
+    (row: number, col: number) => {
+      if (highlightLocations && highlightLocations.length > 0) {
+        return highlightLocations.some((loc) => loc.row === row && loc.col === col);
+      }
+      return (
+        highlightCell != null &&
+        highlightCell.row === row &&
+        highlightCell.col === col
+      );
+    },
+    [highlightCell, highlightLocations]
   );
 
   const isRowHeaderSelected = useCallback(
@@ -6540,10 +6559,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                     const colWidth = getColumnWidth(col);
                     const key = getCellKey(row, col);
                     const isActive = activeCell && activeCell.row === row && activeCell.col === col;
-                    const isHighlighted =
-                      highlightCell != null &&
-                      highlightCell.row === row &&
-                      highlightCell.col === col;
+                    const isHighlighted = isAnomalyHighlighted(row, col);
                     const isInSelection = isCellInSelection(row, col);
                     const isEditing = editingCell === key;
                     const showFillHandle = Boolean(
@@ -6769,10 +6785,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                     const colWidth = getColumnWidth(col);
                     const key = getCellKey(row, col);
                     const isActive = activeCell && activeCell.row === row && activeCell.col === col;
-                    const isHighlighted =
-                      highlightCell != null &&
-                      highlightCell.row === row &&
-                      highlightCell.col === col;
+                    const isHighlighted = isAnomalyHighlighted(row, col);
                     const isInSelection = isCellInSelection(row, col);
                     const isEditing = editingCell === key;
                     const showFillHandle = Boolean(

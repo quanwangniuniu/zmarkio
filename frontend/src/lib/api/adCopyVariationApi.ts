@@ -12,6 +12,9 @@ import type {
 
 const BASE = '/api/ad_copy_variation/variations';
 
+/** Generate waits on Vertex; the shared axios client is 10s and is too short. */
+const GENERATE_TIMEOUT_MS = 120_000;
+
 function parseBatchGenerateResponse(data: unknown): BatchGenerateResponse | null {
   if (!data || typeof data !== 'object') return null;
   const candidate = data as {
@@ -46,7 +49,9 @@ export async function generateVariation(
 ): Promise<BatchGenerateResponse> {
   const body = { ...req, count: req.count ?? 1 };
   try {
-    const { data } = await api.post(`${BASE}/generate/`, body);
+    const { data } = await api.post(`${BASE}/generate/`, body, {
+      timeout: GENERATE_TIMEOUT_MS,
+    });
     const parsed = parseBatchGenerateResponse(data);
     if (parsed) return parsed;
   } catch (err) {

@@ -538,8 +538,8 @@ export default function PatternAgentPanel({
       >
         {!collapsed && (
           <>
-            <div className="text-sm font-semibold text-gray-900">Pattern Agent</div>
-            <div className="flex gap-2 text-xs">
+            <div className="text-sm font-semibold text-gray-900">AI Workflows</div>
+            <div className="flex items-center gap-1.5 text-xs">
               <button
                 type="button"
                 onClick={() => setActiveTab('timeline')}
@@ -577,8 +577,8 @@ export default function PatternAgentPanel({
       {!collapsed && (activeTab === 'timeline' ? (
         <div className="flex-1 overflow-y-auto p-4">
           {items.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-xs text-gray-500">
-              No formula steps yet. Commit a formula in the grid to record it.
+            <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50 p-4 text-center text-xs text-gray-500">
+              No steps yet. Edits you make in the grid will be recorded here.
             </div>
           ) : (
             <>

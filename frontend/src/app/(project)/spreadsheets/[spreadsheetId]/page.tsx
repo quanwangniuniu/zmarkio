@@ -15,6 +15,12 @@ import { ProjectAPI } from '@/lib/api/projectApi';
 import { SpreadsheetAPI } from '@/lib/api/spreadsheetApi';
 import { PatternAPI } from '@/lib/api/patternApi';
 import {
+  stageSpreadsheetInsightsPreload,
+  SPREADSHEET_HIGHLIGHT_LOCATIONS_EVENT,
+  type SpreadsheetHighlightDetail,
+} from '@/lib/agentLaunchContext';
+import { openAgentSidePanel } from '@/lib/agentSidePanelStore';
+import {
   SpreadsheetData,
   SheetData,
   UpdateSheetRequest,
@@ -156,6 +162,7 @@ export default function SpreadsheetsV2DetailPage() {
   const [projectName, setProjectName] = useState<string | null>(null);
 
   const [highlightCell, setHighlightCell] = useState<{ row: number; col: number } | null>(null);
+  const [highlightLocations, setHighlightLocations] = useState<{ row: number; col: number }[] | null>(null);
   const [patterns, setPatterns] = useState<WorkflowPatternSummary[]>([]);
   const [patternsLoading, setPatternsLoading] = useState(true);
   const [exportingPattern, setExportingPattern] = useState(false);
@@ -243,6 +250,112 @@ export default function SpreadsheetsV2DetailPage() {
     setShowPivotEditor(!!active && active.kind === 'pivot');
   }, [activeSheetId, sheets]);
 
+  const handleAnalyzeWithAgent = useCallback(() => {
+    if (!spreadsheetId || activeSheetId == null || !spreadsheet || projectId == null) return;
+    const active = sheets.find((s) => s.id === activeSheetId);
+    if (!active) return;
+    stageSpreadsheetInsightsPreload({
+      projectId,
+      spreadsheetId: Number(spreadsheetId),
+      sheetId: activeSheetId,
+      sheetName: active.name,
+      spreadsheetName: spreadsheet.name,
+    });
+    window.dispatchEvent(new CustomEvent('agent:new-chat'));
+    openAgentSidePanel();
+  }, [spreadsheetId, activeSheetId, spreadsheet, sheets, projectId]);
+
+  const handleOpenPatternGenerationAgent = useCallback(() => {
+    if (activeSheetId == null) return;
+    const active = sheets.find((s) => s.id === activeSheetId);
+    window.dispatchEvent(new CustomEvent('agent:pattern-generation-mode', {
+      detail: {
+        sheetId: activeSheetId,
+        sheetName: active?.name ?? undefined,
+        spreadsheetName: spreadsheet?.name ?? undefined,
+      },
+    }));
+    openAgentSidePanel();
+  }, [activeSheetId, sheets, spreadsheet]);
+
+  const handleOpenPivotGenerationAgent = useCallback(() => {
+    if (!spreadsheetId || activeSheetId == null) return;
+    const active = sheets.find((s) => s.id === activeSheetId);
+    window.dispatchEvent(new CustomEvent('agent:pivot-generation-mode', {
+      detail: {
+        spreadsheetId,
+        sheetId: activeSheetId,
+        sheetName: active?.name ?? undefined,
+        spreadsheetName: spreadsheet?.name ?? undefined,
+      },
+    }));
+    openAgentSidePanel();
+  }, [spreadsheetId, activeSheetId, sheets, spreadsheet]);
+
+  useEffect(() => {
+    const onStepsGenerated = (e: Event) => {
+      const detail = (e as CustomEvent<{ sheetId: number; steps: TimelineItem[] }>).detail;
+      if (!detail?.steps?.length) return;
+      setAgentStepsBySheet((prev) => {
+        const current = prev[detail.sheetId] ?? [];
+        return { ...prev, [detail.sheetId]: [...current, ...detail.steps] };
+      });
+    };
+    window.addEventListener('agent:pattern-steps-generated', onStepsGenerated);
+    return () => window.removeEventListener('agent:pattern-steps-generated', onStepsGenerated);
+  }, []);
+
+  // The pivot-generation agent creates a new pivot sheet through the API from the
+  // side panel; pull it into this view (and switch to it) without a full reload.
+  useEffect(() => {
+    const onPivotSheetCreated = (e: Event) => {
+      const detail = (e as CustomEvent<{ spreadsheetId?: string | number; sheetId?: number }>).detail;
+      if (!detail || detail.sheetId == null) return;
+      if (String(detail.spreadsheetId) !== String(spreadsheetId)) return;
+      void refreshSheetListRef.current().then(() => {
+        setActiveSheetId(detail.sheetId!);
+      });
+    };
+    window.addEventListener('agent:pivot-sheet-created', onPivotSheetCreated);
+    return () => window.removeEventListener('agent:pivot-sheet-created', onPivotSheetCreated);
+  }, [spreadsheetId]);
+
+  useEffect(() => {
+    let clearTimer: number | null = null;
+
+    const onHighlightLocations = (event: Event) => {
+      const detail = (event as CustomEvent<SpreadsheetHighlightDetail>).detail;
+      if (!detail || Number(detail.spreadsheetId) !== Number(spreadsheetId)) return;
+      if (detail.sheetId !== activeSheetId) {
+        setActiveSheetId(detail.sheetId);
+      }
+      const locations = detail.locations?.map((loc) => ({
+        row: loc.row,
+        col: loc.col,
+      })) ?? [];
+      setHighlightLocations(locations.length ? locations : null);
+      setHighlightCell(null);
+      if (locations.length > 0) {
+        gridRef.current?.navigateToCell(locations[0].row, locations[0].col);
+      }
+      if (clearTimer) {
+        window.clearTimeout(clearTimer);
+      }
+      clearTimer = window.setTimeout(() => {
+        setHighlightLocations(null);
+        clearTimer = null;
+      }, 8000);
+    };
+
+    window.addEventListener(SPREADSHEET_HIGHLIGHT_LOCATIONS_EVENT, onHighlightLocations);
+    return () => {
+      window.removeEventListener(SPREADSHEET_HIGHLIGHT_LOCATIONS_EVENT, onHighlightLocations);
+      if (clearTimer) {
+        window.clearTimeout(clearTimer);
+      }
+    };
+  }, [spreadsheetId, activeSheetId]);
+
   useEffect(() => {
     const hydratePivotSource = async () => {
       if (!spreadsheetId || !activeSheetId) return;
@@ -309,6 +422,14 @@ export default function SpreadsheetsV2DetailPage() {
       });
     },
     [activeSheetId]
+  );
+
+  const handleAddSteps = useCallback(
+    (steps: TimelineItem[]) => {
+      if (activeSheetId == null) return;
+      updateAgentSteps((prev) => [...prev, ...steps]);
+    },
+    [activeSheetId, updateAgentSteps]
   );
 
   const ensureFirstSheet = async (existingSheets: SheetData[]) => {
@@ -939,6 +1060,12 @@ export default function SpreadsheetsV2DetailPage() {
             onRename={handleRenameSpreadsheet}
             loading={loading}
             presenceSlot={<PresenceAvatars users={remoteUsers} />}
+            onAnalyzeWithAgent={handleAnalyzeWithAgent}
+            analyzeDisabled={loading || activeSheetId == null || !spreadsheet}
+            onOpenPatternGenerationAgent={handleOpenPatternGenerationAgent}
+            patternGenerationAgentDisabled={loading || !spreadsheet}
+            onOpenPivotGenerationAgent={handleOpenPivotGenerationAgent}
+            pivotGenerationAgentDisabled={loading || activeSheetId == null || !spreadsheet}
           />
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-100 sm:rounded-xl">
@@ -1016,6 +1143,7 @@ export default function SpreadsheetsV2DetailPage() {
                         ]);
                       }}
                       highlightCell={highlightCell}
+                      highlightLocations={highlightLocations}
                       onHydrationStatusChange={(status) => setSheetHydrationReady(status === 'ready')}
                       onOpenPivotBuilder={handleCreatePivotSheet}
                     />
@@ -1058,6 +1186,7 @@ export default function SpreadsheetsV2DetailPage() {
                       onRefresh={handleRefreshPivot}
                     />
                   ) : (
+                    <>
                     <PatternAgentPanelV2
                       loading={loading || patternsLoading}
                       items={activeSheet ? agentSteps : []}
@@ -1094,6 +1223,7 @@ export default function SpreadsheetsV2DetailPage() {
                       applyJobProgress={patternJobProgress}
                       applyJobError={patternJobError}
                     />
+                    </>
                   )}
                 </div>
               ) : sheets.length === 0 ? (

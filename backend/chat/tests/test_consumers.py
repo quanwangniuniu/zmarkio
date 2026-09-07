@@ -602,6 +602,7 @@ class TestChatConsumerSync:
         queued_messages = consumer.get_queued_messages()
         assert len(queued_messages) == 1
         payload = queued_messages[0]
+        assert payload['seq'] == forwarded_message.seq
         assert payload['has_attachments']
         assert payload['attachment_count'] == 1
         assert len(payload['attachments']) == 1

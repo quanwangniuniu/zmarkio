@@ -1,0 +1,726 @@
+openapi: 3.0.3
+info:
+  title: Variations Studio API (Ad Copy Variation)
+  version: 1.0.0
+  description: |
+    HTTP contract for Variations Studio: generate Meta ad-copy variations
+    (hook / headline / description / CTA), review batches, and manage AI Drafts.
+
+    Served by the `variations-studio-api` Node service behind nginx at
+    `/api/ad_copy_variation/`. Paths and payload shapes match the former Django
+    `ad_copy_variation` API so the existing frontend client does not change.
+
+    Authentication uses the same Django-issued JWT access token as the rest of
+    MediaJira. Tenant data (`AdCopyVariation`, `Project`, membership) is resolved
+    from the caller's organization schema.
+
+servers:
+  - url: http://localhost/api
+    description: Local stack via nginx
+  - url: http://localhost:3010/api
+    description: Direct hit on the Studio Node service (dev)
+
+tags:
+  - name: Variations
+    description: List, create, retrieve, update, delete
+  - name: Generate
+    description: Batch LLM generation (1–50)
+  - name: Batch review
+    description: Review / bulk status / bulk delete
+
+security:
+  - BearerAuth: []
+
+paths:
+  /ad_copy_variation/variations/:
+    get:
+      tags: [Variations]
+      summary: List variations (AI Drafts)
+      description: |
+        Paginated list. With `project_id`, the caller must be an active member.
+        Without `project_id`, results are limited to projects the caller belongs to
+        (plus rows with null project).
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdQuery'
+        - name: status
+          in: query
+          schema:
+            type: string
+            description: Comma-separated `draft` and/or `reviewed`
+          example: draft,reviewed
+        - name: source_mode
+          in: query
+          schema:
+            $ref: '#/components/schemas/SourceMode'
+        - name: creative
+          in: query
+          schema:
+            type: integer
+            format: int64
+        - name: batch_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: Paginated results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VariationListResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Variations]
+      summary: Create a variation
+      description: |
+        Manual create (not LLM generate). Body field for the project is
+        `project` (not `project_id`), matching Django.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VariationCreateRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdCopyVariation'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /ad_copy_variation/variations/{slug}/:
+    parameters:
+      - $ref: '#/components/parameters/VariationSlug'
+    get:
+      tags: [Variations]
+      summary: Retrieve one variation by slug
+      description: Path is slug-only. A numeric id returns 404 even if a row with that pk exists.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdCopyVariation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [Variations]
+      summary: Update writable copy fields or status
+      description: |
+        Writable fields: `hook`, `headline`, `description`, `cta`, `status`.
+        Sending `project` returns 400 (`project cannot be modified`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VariationPatchRequest'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdCopyVariation'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Variations]
+      summary: Hard-delete a variation
+      responses:
+        '204':
+          description: Deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /ad_copy_variation/variations/generate/:
+    post:
+      tags: [Generate]
+      summary: Generate a batch of draft variations
+      description: |
+        Synchronous batch generate (concurrency capped server-side). Persists
+        succeeded drafts with a shared `batch_id`. Returns 200 when at least one
+        draft was saved; 502 when every attempt failed (including Browserless /
+        model / quota failures). Partial failure stays 200 with
+        `failed_indices` populated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateRequest'
+      responses:
+        '200':
+          description: At least one draft persisted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchGenerateResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '502':
+          description: Entire batch failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchGenerateResponse'
+
+  /ad_copy_variation/variations/latest_batch/:
+    get:
+      tags: [Batch review]
+      summary: Latest batch for a project
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdQueryRequired'
+      responses:
+        '200':
+          description: |
+            Empty shape when the project has no batches:
+            `{ "batch_id": null, "count": 0, "results": [] }`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LatestBatchResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /ad_copy_variation/variations/review_batch/:
+    post:
+      tags: [Batch review]
+      summary: Review selected drafts in a batch; delete unselected drafts in that batch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewBatchRequest'
+      responses:
+        '200':
+          description: Remaining rows for the batch after review
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewBatchResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /ad_copy_variation/variations/bulk_review/:
+    post:
+      tags: [Batch review]
+      summary: Mark selected draft rows as reviewed (no deletes)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkReviewRequest'
+      responses:
+        '200':
+          description: Updated rows
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkReviewResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /ad_copy_variation/variations/bulk_delete/:
+    post:
+      tags: [Batch review]
+      summary: Delete selected rows that all share the requested status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkDeleteRequest'
+      responses:
+        '200':
+          description: Deletion summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkDeleteResponse'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Django SimpleJWT access token (`Authorization: Bearer <token>`).
+
+  parameters:
+    VariationSlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Variation slug (not numeric primary key).
+    ProjectIdQuery:
+      name: project_id
+      in: query
+      required: false
+      schema:
+        oneOf:
+          - type: integer
+            format: int64
+          - type: string
+      description: Numeric project pk or project slug.
+    ProjectIdQueryRequired:
+      name: project_id
+      in: query
+      required: true
+      schema:
+        oneOf:
+          - type: integer
+            format: int64
+          - type: string
+
+  responses:
+    Unauthorized:
+      description: Missing/invalid/expired token, or inactive user
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DetailError'
+    Forbidden:
+      description: Caller is not an active member of the project
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+          example:
+            error: You are not a member of this project.
+    NotFound:
+      description: Resource not found (unknown slug, unknown numeric project_id, missing creative)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DetailError'
+    Error:
+      description: Validation or business-rule error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+
+  schemas:
+    SourceMode:
+      type: string
+      enum: [existing, custom, external_url]
+
+    Status:
+      type: string
+      enum: [draft, reviewed]
+
+    AdCopyVariation:
+      type: object
+      required:
+        - id
+        - project
+        - creative
+        - source_mode
+        - source_ref
+        - hook
+        - headline
+        - description
+        - cta
+        - instruction
+        - model_name
+        - prompt_version
+        - status
+        - created_by
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        slug:
+          type: string
+        project:
+          type: integer
+          format: int64
+          nullable: true
+        creative:
+          type: integer
+          format: int64
+          nullable: true
+        source_mode:
+          $ref: '#/components/schemas/SourceMode'
+        source_ref:
+          type: string
+          description: For `external_url`, the fetched URL; otherwise often empty.
+        hook:
+          type: string
+        headline:
+          type: string
+        description:
+          type: string
+        cta:
+          type: string
+          description: Meta CTA enum, e.g. `SHOP_NOW`, `LEARN_MORE`
+        instruction:
+          type: string
+        model_name:
+          type: string
+        prompt_version:
+          type: string
+        batch_id:
+          type: string
+          format: uuid
+          nullable: true
+        batch_position:
+          type: integer
+          nullable: true
+        status:
+          $ref: '#/components/schemas/Status'
+        created_by:
+          type: integer
+          format: int64
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    VariationListResponse:
+      type: object
+      required: [count, page, page_size, results]
+      properties:
+        count:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdCopyVariation'
+
+    VariationCreateRequest:
+      type: object
+      required: [project, source_mode]
+      properties:
+        project:
+          description: Project pk or slug (Django create field name)
+          oneOf:
+            - type: integer
+              format: int64
+            - type: string
+        source_mode:
+          $ref: '#/components/schemas/SourceMode'
+        creative:
+          type: integer
+          format: int64
+          nullable: true
+        source_ref:
+          type: string
+        hook:
+          type: string
+        headline:
+          type: string
+        description:
+          type: string
+        cta:
+          type: string
+        instruction:
+          type: string
+        model_name:
+          type: string
+        prompt_version:
+          type: string
+        batch_id:
+          type: string
+          format: uuid
+          nullable: true
+        batch_position:
+          type: integer
+          nullable: true
+        status:
+          $ref: '#/components/schemas/Status'
+
+    VariationPatchRequest:
+      type: object
+      properties:
+        hook:
+          type: string
+        headline:
+          type: string
+        description:
+          type: string
+        cta:
+          type: string
+        status:
+          $ref: '#/components/schemas/Status'
+        project:
+          description: Rejected if present
+          nullable: true
+
+    BaseCopy:
+      type: object
+      properties:
+        hook:
+          type: string
+        headline:
+          type: string
+        description:
+          type: string
+        cta:
+          type: string
+
+    GenerateRequest:
+      type: object
+      required: [project_id, source_mode]
+      properties:
+        project_id:
+          oneOf:
+            - type: integer
+              format: int64
+            - type: string
+        source_mode:
+          $ref: '#/components/schemas/SourceMode'
+        count:
+          type: integer
+          minimum: 1
+          maximum: 50
+          default: 1
+        instruction:
+          type: string
+        creative_id:
+          type: integer
+          format: int64
+          description: Required when `source_mode=existing`
+        base_copy:
+          $ref: '#/components/schemas/BaseCopy'
+          description: Used when `source_mode=custom`
+        url:
+          type: string
+          format: uri
+          description: Required when `source_mode=external_url` (http/https only)
+
+    BatchGenerateResponse:
+      type: object
+      required:
+        - batch_id
+        - count_requested
+        - count_succeeded
+        - count_failed
+        - results
+        - failed_indices
+      properties:
+        batch_id:
+          type: string
+          format: uuid
+        count_requested:
+          type: integer
+        count_succeeded:
+          type: integer
+        count_failed:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdCopyVariation'
+        failed_indices:
+          type: array
+          items:
+            type: integer
+        error:
+          type: string
+          description: Present on total failure (e.g. quota message)
+
+    LatestBatchResponse:
+      type: object
+      required: [batch_id, count, results]
+      properties:
+        batch_id:
+          type: string
+          format: uuid
+          nullable: true
+        count:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdCopyVariation'
+
+    ReviewBatchRequest:
+      type: object
+      required: [project_id, batch_id, selected_ids]
+      properties:
+        project_id:
+          oneOf:
+            - type: integer
+              format: int64
+            - type: string
+        batch_id:
+          type: string
+          format: uuid
+        selected_ids:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+            format: int64
+
+    ReviewBatchResponse:
+      type: object
+      required: [batch_id, reviewed_count, deleted_count, results]
+      properties:
+        batch_id:
+          type: string
+          format: uuid
+        reviewed_count:
+          type: integer
+        deleted_count:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdCopyVariation'
+
+    BulkReviewRequest:
+      type: object
+      required: [project_id, selected_ids]
+      properties:
+        project_id:
+          oneOf:
+            - type: integer
+              format: int64
+            - type: string
+        selected_ids:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+            format: int64
+
+    BulkReviewResponse:
+      type: object
+      required: [reviewed_count, results]
+      properties:
+        reviewed_count:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdCopyVariation'
+
+    BulkDeleteRequest:
+      type: object
+      required: [project_id, selected_ids, status]
+      properties:
+        project_id:
+          oneOf:
+            - type: integer
+              format: int64
+            - type: string
+        selected_ids:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+            format: int64
+        status:
+          $ref: '#/components/schemas/Status'
+
+    BulkDeleteResponse:
+      type: object
+      required: [deleted_count, deleted_ids]
+      properties:
+        deleted_count:
+          type: integer
+        deleted_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    ErrorBody:
+      type: object
+      properties:
+        error:
+          type: string
+
+    DetailError:
+      type: object
+      properties:
+        detail:
+          type: string

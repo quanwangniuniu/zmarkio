@@ -577,7 +577,7 @@ def _try_llm_fallback(headers: list, sample_rows: list = None, agent_session=Non
     """
     from stripe_meta.exceptions import QuotaError
     from agent.llm_client import call_llm as _call_llm_unified
-    from .gemini_client import _get_api_key as _gemini_key
+    from core.services.gemini_client import _get_api_key as _gemini_key
 
     if not _gemini_key():
         logger.warning("GEMINI_API_KEY not set; skipping LLM column detection")

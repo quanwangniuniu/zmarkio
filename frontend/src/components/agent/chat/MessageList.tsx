@@ -5,7 +5,7 @@ import { FileSpreadsheet, ArrowRight, CalendarPlus, UploadCloud } from "lucide-r
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { AGENT_MESSAGES } from "@/lib/agentMessages"
-import { AnomalyCard } from "./AnomalyCard"
+import { SpreadsheetInsightAnomalyCard } from "./SpreadsheetInsightAnomalyCard"
 import { ColumnMappingCard } from "./ColumnMappingCard"
 import { FollowUpCard } from "./FollowUpCard"
 import { MiroGenerateCard } from "./MiroGenerateCard"
@@ -15,7 +15,6 @@ import type {
   AnomalyItem,
   RecommendedTask,
   RecommendedDecisionTreeNode,
-  ReviewedAnomaly,
   WorkflowStepState,
   ColumnDetectionData,
   GenerationOutputKey,
@@ -28,6 +27,8 @@ import { StepProgress, type StepProgressItem } from "./StepProgress"
 import type { PendingExternalApproval } from "./ExternalApprovalModal"
 import type { TaskGenerationStatus } from "./TaskListCard"
 import type { DecisionGenerationStatus } from "./DecisionTreeListCard"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
 import { AgentMessageBoardBlock } from "./AgentMessageBoardBlock"
 import { AgentMessageBoardMarkdown } from "./AgentMessageBoardMarkdown"
 import { AgentMessageBoardText } from "./AgentMessageBoardText"
@@ -44,6 +45,8 @@ import { WorkflowStepConfirmCard } from "./WorkflowStepConfirmCard"
 export type ChatMessageType =
   | "text"
   | "analysis"
+  | "spreadsheet_summary"
+  | "spreadsheet_anomalies"
   | "file_uploaded"
   | "tasks_created"
   | "decisions_created"
@@ -76,6 +79,8 @@ export interface ChatMessage {
   stepProgress?: StepProgressItem[]
   approval?: PendingExternalApproval
   calendarEvents?: SuggestedCalendarEvent[]
+  spreadsheetId?: number
+  sheetId?: number
 }
 
 export interface MessageListProps {
@@ -83,7 +88,6 @@ export interface MessageListProps {
   onAction?: (action: string) => void
   onNavigate?: (view: string, message?: ChatMessage) => void
   onConfirmColumns?: (mapping: Record<string, string>) => void
-  onConfirmAnomalies?: (messageId: string, reviewed: ReviewedAnomaly[]) => void
   onReupload?: () => void
   sessionId?: string | null
   projectId?: string
@@ -112,6 +116,8 @@ export interface MessageListProps {
   followUpActive?: boolean
   stepState?: WorkflowStepState
   taskGenerationStatus?: TaskGenerationStatus
+  /** When set, only this message renders the recommended-tasks card (approval flow). */
+  tasksCardMessageId?: string | null
   decisionGenerationStatus?: DecisionGenerationStatus
   generatingDecisions?: boolean
   createdDecisionByRef?: Record<string, number>
@@ -120,6 +126,13 @@ export interface MessageListProps {
   showRevisitThinkingBubble?: boolean
   onRenderFinishChange?: (finished: boolean) => void
   requestedGenerationOutputs?: GenerationOutputKey[]
+  /**
+   * Skip the sequential reveal queue for assistant bubbles / nav buttons.
+   * Used by pattern- and pivot-generation modes, which run as plain request/
+   * response calls with no SSE stream to drive the queue — routing their
+   * bubbles through the queue leaves them stuck unrevealed.
+   */
+  bypassRevealQueue?: boolean
 }
 
 export function MessageList({
@@ -127,7 +140,6 @@ export function MessageList({
   onAction,
   onNavigate,
   onConfirmColumns,
-  onConfirmAnomalies,
   onReupload,
   sessionId,
   projectId,
@@ -156,6 +168,7 @@ export function MessageList({
   followUpActive,
   stepState,
   taskGenerationStatus,
+  tasksCardMessageId: tasksCardMessageIdOverride,
   decisionGenerationStatus,
   generatingDecisions,
   createdDecisionByRef,
@@ -164,6 +177,7 @@ export function MessageList({
   showRevisitThinkingBubble = false,
   onRenderFinishChange,
   requestedGenerationOutputs = DEFAULT_GENERATION_OUTPUTS,
+  bypassRevealQueue = false,
 }: MessageListProps) {
   const effectiveGenerationOutputs =
     requestedGenerationOutputs.length > 0
@@ -183,6 +197,7 @@ export function MessageList({
   const wasAtBottomRef = useRef(true)
   const isAnalysisLikeMessage = (m: ChatMessage) =>
     m.type === "analysis" ||
+    m.type === "spreadsheet_anomalies" ||
     m.type === "tasks_created" ||
     m.type === "decisions_created" ||
     (Array.isArray(m.recommendedTasks) && m.recommendedTasks.length > 0) ||
@@ -196,30 +211,36 @@ export function MessageList({
         Array.isArray(m.recommendedTasks) &&
         m.recommendedTasks.length > 0
     )
+  const latestMessageWithTasks = [...messages]
+    .reverse()
+    .find(
+      (m) =>
+        m.role === "assistant" &&
+        Array.isArray(m.recommendedTasks) &&
+        m.recommendedTasks.length > 0
+    )
   const latestAnalysisLikeMessage = [...messages].reverse().find(isAnalysisLikeMessage)
-  const bottomCardsMessageId =
-    latestAnalysisWithTasks?.id ??
-    latestAnalysisMessageId ??
-    latestAnalysisLikeMessage?.id ??
-    "board-bottom"
   const useSingleTasksCard =
     Boolean(approvalRequired) ||
     Boolean(pendingTaskApproval) ||
     taskGenerationStatus === "awaiting_approval"
-  const tasksCardMessageId = useSingleTasksCard
-    ? (latestAnalysisWithTasks?.id ?? null)
-    : null
+  const tasksCardMessageId =
+    tasksCardMessageIdOverride ??
+    (useSingleTasksCard
+      ? (latestMessageWithTasks?.id ?? latestAnalysisWithTasks?.id ?? null)
+      : (latestAnalysisWithTasks?.id ?? null))
+  const bottomCardsMessageId =
+    tasksCardMessageId ??
+    latestAnalysisMessageId ??
+    latestAnalysisLikeMessage?.id ??
+    "board-bottom"
   const canSelectRecommendedTasks =
     (taskGenerationStatus === "idle" || taskGenerationStatus === "awaiting_approval") &&
     !tasksApprovalGenerating &&
     !generatingTasks &&
     !stepState?.tasksCreated
   const taskSelectionMode =
-    canSelectRecommendedTasks &&
-    (Boolean(pendingTaskApproval) ||
-      (Boolean(approvalRequired) &&
-        Boolean(stepState?.analysisComplete) &&
-        !stepState?.tasksCreated))
+    canSelectRecommendedTasks && Boolean(pendingTaskApproval)
   const canSelectRecommendedDecisions =
     (decisionGenerationStatus === "idle" || decisionGenerationStatus === "awaiting_approval") &&
     !decisionsApprovalGenerating &&
@@ -306,8 +327,10 @@ export function MessageList({
         miroCardsAnchorMode,
         wantsTasks,
         wantsDecisions,
+        bypassRevealQueue,
       }),
     [
+      bypassRevealQueue,
       messages,
       latestAnalysisMessageId,
       showFollowUpToggle,
@@ -424,6 +447,7 @@ export function MessageList({
             {/* Avatar */}
             <AgentMessageBoardAvatar
               role={message.role}
+              forceVisible={bypassRevealQueue && message.role === "assistant"}
               blockIds={
                 message.role === "assistant"
                   ? getAssistantMessageBlockIds(message, {
@@ -450,22 +474,37 @@ export function MessageList({
               )}
 
               {/* Text bubble — hidden for calendar_invite which renders its own card */}
-              {message.content && message.type !== "calendar_invite" && (
+              {message.content &&
+                message.type !== "calendar_invite" &&
+                message.type !== "file_uploaded" && (
                 message.role === "assistant" ? (
-                  <AgentMessageBoardBlock blockId={`${message.id}-bubble`}>
+                  bypassRevealQueue ? (
                     <div
                       className={cn(
                         "rounded-lg px-4 py-2.5 text-sm bg-muted text-foreground",
                         message.content === AGENT_MESSAGES.CHAT_THINKING && "animate-pulse"
                       )}
                     >
-                      <AgentMessageBoardMarkdown
-                        target={message.content}
-                        partId={`${message.id}-content`}
-                        blockId={`${message.id}-bubble`}
-                      />
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {message.content}
+                      </ReactMarkdown>
                     </div>
-                  </AgentMessageBoardBlock>
+                  ) : (
+                    <AgentMessageBoardBlock blockId={`${message.id}-bubble`}>
+                      <div
+                        className={cn(
+                          "rounded-lg px-4 py-2.5 text-sm bg-muted text-foreground",
+                          message.content === AGENT_MESSAGES.CHAT_THINKING && "animate-pulse"
+                        )}
+                      >
+                        <AgentMessageBoardMarkdown
+                          target={message.content}
+                          partId={`${message.id}-content`}
+                          blockId={`${message.id}-bubble`}
+                        />
+                      </div>
+                    </AgentMessageBoardBlock>
+                  )
                 ) : (
                   <div className="rounded-lg px-4 py-2.5 text-sm whitespace-pre-wrap bg-primary text-primary-foreground">
                     {message.content}
@@ -488,7 +527,7 @@ export function MessageList({
 
               {/* Navigation button */}
               {message.role === "assistant" && message.navigateTo && message.navigateLabel && (
-                <AgentMessageBoardBlock blockId={`${message.id}-nav`}>
+                bypassRevealQueue ? (
                   <Button
                     size="sm"
                     variant="outline"
@@ -496,14 +535,27 @@ export function MessageList({
                     disabled={message.navigateDisabled}
                     onClick={() => onNavigate?.(message.navigateTo!, message)}
                   >
-                    <AgentMessageBoardText
-                      target={message.navigateLabel}
-                      partId={`${message.id}-nav-label`}
-                      blockId={`${message.id}-nav`}
-                    />
+                    {message.navigateLabel}
                     <ArrowRight className="h-3.5 w-3.5" />
                   </Button>
-                </AgentMessageBoardBlock>
+                ) : (
+                  <AgentMessageBoardBlock blockId={`${message.id}-nav`}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-2"
+                      disabled={message.navigateDisabled}
+                      onClick={() => onNavigate?.(message.navigateTo!, message)}
+                    >
+                      <AgentMessageBoardText
+                        target={message.navigateLabel}
+                        partId={`${message.id}-nav-label`}
+                        blockId={`${message.id}-nav`}
+                      />
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Button>
+                  </AgentMessageBoardBlock>
+                )
               )}
 
               {/* Calendar invite prompt */}
@@ -537,34 +589,31 @@ export function MessageList({
 
               {/* Column mapping is handled silently — stored in DB, not shown to user */}
 
-              {/* Analysis result cards — progressive gating */}
+              {/* Anomaly card (read-only, collapsed) — block id must match agentMessageBoardBlockIds */}
               {message.role === "assistant" &&
-                wantsTasks &&
                 message.anomalies &&
-                message.anomalies.length > 0 && (
+                message.anomalies.length > 0 &&
+                (message.type === "spreadsheet_anomalies" || message.type === "analysis") && (
                 <AgentMessageBoardBlock blockId={`${message.id}-anomalies`}>
-                  <AnomalyCard
+                  <SpreadsheetInsightAnomalyCard
                     anomalies={message.anomalies}
-                    messageId={message.id}
-                    blockId={`${message.id}-anomalies`}
-                    confirmed={Boolean(message.anomaliesConfirmed)}
-                    disabled={isStreaming}
-                    onConfirm={
-                      onConfirmAnomalies
-                        ? (reviewed) => onConfirmAnomalies(message.id, reviewed)
-                        : undefined
-                    }
+                    spreadsheetId={message.spreadsheetId}
+                    sheetId={message.sheetId}
                   />
                 </AgentMessageBoardBlock>
               )}
+
 
               {/* TaskListCard: primary review surface. Renders before decision tree card. */}
               {message.role === "assistant" &&
                 wantsTasks &&
                 message.recommendedTasks &&
                 message.recommendedTasks.length > 0 &&
-                (message.type === "analysis" || message.type === "tasks_created") &&
-                (!tasksCardMessageId || message.id === tasksCardMessageId) && (
+                (message.type === "analysis" ||
+                  message.type === "spreadsheet_anomalies" ||
+                  message.type === "tasks_created") &&
+                tasksCardMessageId != null &&
+                message.id === tasksCardMessageId && (
                 <AgentMessageBoardBlock blockId={`${message.id}-tasks`}>
                   <TaskListCard
                     tasks={message.recommendedTasks}
@@ -583,7 +632,6 @@ export function MessageList({
                     onCreateSelected={pendingTaskApproval ? onApproveSelectedTasks : undefined}
                     createButtonDisabled={Boolean(approvalDisabled) || Boolean(tasksApprovalGenerating)}
                     onCreateAll={
-                      !approvalRequired &&
                       !pendingTaskApproval &&
                       stepState?.analysisComplete &&
                       !stepState?.tasksCreated

@@ -45,8 +45,8 @@ class AnswerDraftQuestionTest(TestCase):
         self.orch = AgentOrchestrator(self.user, self.project, self.session)
         self.draft = _draft(self.user, "Q3 Campaign Plan", "Target EU region, raise ROAS.")
 
-    @patch('agent.gemini_client._get_api_key', return_value='key')
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client._get_api_key', return_value='key')
+    @patch('core.services.gemini_client.call_gemini')
     def test_user_can_read_own_draft(self, mock_gemini, _mock_key):
         mock_gemini.return_value = "Your draft focuses on the EU region."
         chunks = list(self.orch.answer_draft_question(
@@ -59,8 +59,8 @@ class AnswerDraftQuestionTest(TestCase):
         self.assertIn("Target EU region", user_prompt)
         self.assertIn("Q3 Campaign Plan", user_prompt)
 
-    @patch('agent.gemini_client._get_api_key', return_value='key')
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client._get_api_key', return_value='key')
+    @patch('core.services.gemini_client.call_gemini')
     def test_resolves_draft_by_numeric_pk(self, mock_gemini, _mock_key):
         mock_gemini.return_value = "ok"
         chunks = list(self.orch.answer_draft_question(
@@ -68,7 +68,7 @@ class AnswerDraftQuestionTest(TestCase):
         ))
         self.assertIn('text', [c['type'] for c in chunks])
 
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client.call_gemini')
     def test_cannot_read_other_users_draft_and_llm_never_called(self, mock_gemini):
         # Owned by another user -> DraftViewSet.get_queryset() excludes it.
         foreign = _draft(self.other, "Secret", "top secret content")
@@ -78,7 +78,7 @@ class AnswerDraftQuestionTest(TestCase):
         self.assertEqual(chunks[0]['type'], 'error')
         mock_gemini.assert_not_called()
 
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client.call_gemini')
     def test_soft_deleted_draft_is_inaccessible(self, mock_gemini):
         self.draft.is_deleted = True
         self.draft.save(update_fields=['is_deleted'])
@@ -86,20 +86,20 @@ class AnswerDraftQuestionTest(TestCase):
         self.assertEqual(chunks[0]['type'], 'error')
         mock_gemini.assert_not_called()
 
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client.call_gemini')
     def test_nonexistent_slug_yields_clean_error(self, mock_gemini):
         chunks = list(self.orch.answer_draft_question("read it", {"draftId": "does-not-exist"}))
         self.assertEqual(chunks[0]['type'], 'error')
         mock_gemini.assert_not_called()
 
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client.call_gemini')
     def test_missing_draft_ref_yields_error(self, mock_gemini):
         chunks = list(self.orch.answer_draft_question("hi", {}))
         self.assertEqual(chunks[0]['type'], 'error')
         mock_gemini.assert_not_called()
 
-    @patch('agent.gemini_client._get_api_key', return_value='key')
-    @patch('agent.gemini_client.call_gemini')
+    @patch('core.services.gemini_client._get_api_key', return_value='key')
+    @patch('core.services.gemini_client.call_gemini')
     def test_handle_message_routes_draft_context(self, mock_gemini, _mock_key):
         mock_gemini.return_value = "answer"
         chunks = list(self.orch.handle_message(

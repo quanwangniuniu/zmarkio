@@ -7,6 +7,7 @@ from .views import (
     GenerationOutputsCatalogView,
     ChatView,
     SpreadsheetListView,
+    AiConsentView,
     DataReportListView,
     DataReportDetailView,
     DataReportSummaryView,
@@ -47,6 +48,7 @@ urlpatterns = [
     path('workflow-runs/<uuid:run_id>/', WorkflowRunDetailView.as_view(), name='agent-workflow-run-detail'),
 
     path('spreadsheets/', SpreadsheetListView.as_view(), name='agent-spreadsheets'),
+    path('ai-consent/', AiConsentView.as_view(), name='agent-ai-consent'),
     path('data/reports/', DataReportListView.as_view(), name='agent-data-reports'),
     path('data/reports/summary/', DataReportSummaryView.as_view(), name='agent-data-reports-summary'),
     path('data/reports/<uuid:file_id>/', DataReportDetailView.as_view(), name='agent-data-report-detail'),

@@ -23,6 +23,64 @@ function shouldMergeIncomingMessage(existing: Message, incoming: Message): boole
   return incomingCount > existingCount;
 }
 
+function messageSequence(message: Message): number | null {
+  const seq = Number(message.seq);
+  return Number.isSafeInteger(seq) && seq > 0 ? seq : null;
+}
+
+/** Keep committed messages in server sequence order under websocket jitter.
+ * Sequence-less optimistic messages stay at the end until the server replaces
+ * them with their committed payload.
+ */
+export function reorderMessagesBySequence(messages: Message[]): Message[] {
+  let previousSeq = 0;
+  let alreadyOrdered = true;
+
+  for (const message of messages) {
+    const seq = messageSequence(message);
+    if (seq === null || seq <= previousSeq) {
+      alreadyOrdered = false;
+      break;
+    }
+    previousSeq = seq;
+  }
+
+  if (alreadyOrdered) return messages;
+
+  const bySequence = new Map<number, Message>();
+  const optimistic: Message[] = [];
+
+  messages.forEach((message) => {
+    const seq = messageSequence(message);
+    if (seq === null) {
+      optimistic.push(message);
+      return;
+    }
+    const existing = bySequence.get(seq);
+    bySequence.set(
+      seq,
+      existing && !shouldMergeIncomingMessage(existing, message)
+        ? existing
+        : { ...existing, ...message },
+    );
+  });
+
+  return [
+    ...[...bySequence.entries()].sort(([left], [right]) => left - right).map(([, message]) => message),
+    ...optimistic.sort(
+      (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime(),
+    ),
+  ];
+}
+
+function isLaterMessage(candidate: Message, current: Message | null | undefined): boolean {
+  if (!current) return true;
+  const candidateSeq = messageSequence(candidate);
+  const currentSeq = messageSequence(current);
+  if (candidateSeq !== null && currentSeq !== null) return candidateSeq > currentSeq;
+  return new Date(candidate.created_at).getTime() > new Date(current.created_at).getTime();
+}
+
 function stripOptimisticOutboxMessages(messages: Message[], clientMessageId: string): Message[] {
   const optimisticId = outboxOptimisticMessageId(clientMessageId);
   return messages.filter(
@@ -335,12 +393,16 @@ export const useChatStore = create<ChatState>()(
       
       setMessages: (chatId: number, messages: Message[]) => {
         set(state => {
+          // Merge instead of replace so a websocket event that arrives while the
+          // REST history request is in flight is not discarded by the response.
+          const existingMessages = state.messages[chatId] ?? [];
+          const orderedMessages = reorderMessagesBySequence([...messages, ...existingMessages]);
           return {
             messages: {
               ...state.messages,
-              [chatId]: messages,
+              [chatId]: orderedMessages,
             },
-            presenceByUserId: presenceFromMessages(state.presenceByUserId, messages),
+            presenceByUserId: presenceFromMessages(state.presenceByUserId, orderedMessages),
           };
         });
       },
@@ -371,7 +433,7 @@ export const useChatStore = create<ChatState>()(
               ...state,
               messages: {
                 ...state.messages,
-                [numericChatId]: mergedMessages,
+                [numericChatId]: reorderMessagesBySequence(mergedMessages),
               },
               presenceByUserId: nextPresenceByUserId,
             };
@@ -404,10 +466,10 @@ export const useChatStore = create<ChatState>()(
           const newChatsByProject = { ...state.chatsByProject };
           Object.keys(newChatsByProject).forEach(projectId => {
             newChatsByProject[projectId] = newChatsByProject[projectId].map(chat =>
-              Number(chat.id) === numericChatId 
+              Number(chat.id) === numericChatId
                 ? {
                     ...chat,
-                    last_message: message,
+                    last_message: isLaterMessage(message, chat.last_message) ? message : chat.last_message,
                     unread_count: newUnreadCount,
                     mention_unread_count: mentionedCurrentUser
                       ? (chat.mention_unread_count ?? 0) + 1
@@ -424,7 +486,7 @@ export const useChatStore = create<ChatState>()(
           return {
             messages: {
               ...state.messages,
-              [numericChatId]: [...existingMessages, message],
+              [numericChatId]: reorderMessagesBySequence([...existingMessages, message]),
             },
             chatsByProject: newChatsByProject,
             unreadCounts: newUnreadCounts,
@@ -552,7 +614,7 @@ export const useChatStore = create<ChatState>()(
           return {
             messages: {
               ...state.messages,
-              [chatId]: [...newMessages, ...existingMessages],
+              [chatId]: reorderMessagesBySequence([...newMessages, ...existingMessages]),
             },
             presenceByUserId: presenceFromMessages(state.presenceByUserId, newMessages),
           };
@@ -1123,7 +1185,7 @@ export const useChatStore = create<ChatState>()(
 
       setThreadReplies: (rootId, replies) =>
         set((state) => ({
-          threadReplies: { ...state.threadReplies, [rootId]: replies },
+          threadReplies: { ...state.threadReplies, [rootId]: reorderMessagesBySequence(replies) },
           presenceByUserId: presenceFromMessages(state.presenceByUserId, replies),
         })),
 
@@ -1133,7 +1195,10 @@ export const useChatStore = create<ChatState>()(
           // Avoid duplicates
           if (existing.some((r) => r.id === reply.id)) return state;
           return {
-            threadReplies: { ...state.threadReplies, [rootId]: [...existing, reply] },
+            threadReplies: {
+              ...state.threadReplies,
+              [rootId]: reorderMessagesBySequence([...existing, reply]),
+            },
             presenceByUserId: presenceFromMessages(state.presenceByUserId, [reply]),
           };
         }),

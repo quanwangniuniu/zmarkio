@@ -1,6 +1,6 @@
-Django==4.2.23
+Django==4.2.30
 psycopg2-binary==2.9.10
-gunicorn==21.2.0
+gunicorn==22.0.0
 whitenoise==6.6.0
 python-decouple==3.8
 python-dateutil==2.9.0.post0
@@ -11,12 +11,12 @@ djangorestframework-simplejwt
 django-fsm==2.8.1
 channels==4.0.0
 channels-redis==4.1.0
-daphne==4.0.0
+daphne==4.2.2
 celery==5.3.4
 clamd==1.0.2
 requests==2.31.0 
-Pillow==10.4.0
-cryptography==41.0.7
+Pillow==12.3.0
+cryptography==50.0.0
 stripe==13.0.0
 redis==5.0.1
 django-redis==5.4.0
@@ -41,7 +41,7 @@ httpx==0.25.2
 # Reporting / Export dependencies
 matplotlib==3.9.2
 beautifulsoup4==4.12.3
-WeasyPrint==62.3
+WeasyPrint==68.0
 
 # Monitor
 django-prometheus==2.2.0
@@ -74,14 +74,14 @@ deprecated
 opentelemetry-exporter-jaeger-thrift
 
 # Kafka
-kafka-python==2.0.2
+kafka-python==2.3.2
 
 # Google auth & OAuth
-google-auth==2.23.0
+google-auth==2.24.0
 google-auth-oauthlib==1.1.0
 google-auth-httplib2==0.1.1
 requests-oauthlib==1.3.1  # OAuth2Session for token exchange
-PyJWT==2.8.0  # JWT verification with clock tolerance (leeway)
+PyJWT==2.13.0  # JWT verification with clock tolerance (leeway)
 
 # AI Agent
 anthropic>=0.40.0
@@ -89,3 +89,8 @@ openpyxl>=3.1.0
 pymupdf>=1.24.0
 python-docx>=1.1.0
 croniter>=2.0.0  # For scheduled workflow triggers
+
+# Transitive dependency
+Twisted==26.4.0
+urllib3==2.7.0
+pyOpenSSL==26.4.0

@@ -123,6 +123,7 @@ export default defineConfig({
         /e2e[\\/]messages[\\/]messages-reconnect-attachments\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-pinned\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-link-preview\.spec\.ts$/,
+        /e2e[\\/]messages[\\/]messages-ordering-jitter\.spec\.ts$/,
       ],
     },
     {

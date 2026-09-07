@@ -122,9 +122,11 @@ def _commit_task(orchestrator, draft: dict, destination: dict | None, commit_con
     from decision.models import Decision
     from task.models import Task
 
+    from .generation_registry import validate_recommended_tasks
+
     project = orchestrator.project
 
-    tasks_data = draft.get('recommended_tasks') or []
+    tasks_data = validate_recommended_tasks(draft.get('recommended_tasks') or [])
     if not tasks_data:
         raise ValueError('No tasks in draft')
 

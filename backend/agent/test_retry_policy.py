@@ -137,14 +137,14 @@ class LLMRetryPolicyTests(TestCase):
         self.assertEqual(mock_call_llm.call_count, 1)
 
 
-    @patch('agent.gemini_client.time.sleep')
-    @patch('agent.gemini_client._get_api_key')
-    @patch('agent.gemini_client.requests.post')
+    @patch('core.services.gemini_client.time.sleep')
+    @patch('core.services.gemini_client._get_api_key')
+    @patch('core.services.gemini_client.requests.post')
     @patch('agent.llm_client.call_llm')
     def test_generate_criteria_gemini_429_exhausted_skips_without_extra_retries(
         self, mock_call_llm, mock_post, mock_gemini_key, mock_sleep,
     ):
-        from agent.gemini_client import _gemini_request_with_retry
+        from core.services.gemini_client import _gemini_request_with_retry
 
         mock_gemini_key.return_value = 'fake-key'
 
