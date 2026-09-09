@@ -442,18 +442,23 @@ class MeetingListSerializer(serializers.ModelSerializer):
         return related_tasks_payload(obj)
 
     def get_search_snippet(self, obj):
-        return (
-            getattr(obj, "transcript_headline", None)
-            or getattr(obj, "summary_headline", None)
-            or ""
-        )
+        transcript_hl = getattr(obj, "transcript_headline", None) or ""
+        summary_hl = getattr(obj, "summary_headline", None) or ""
+        if "<mark>" in transcript_hl:
+            return transcript_hl
+        if "<mark>" in summary_hl:
+            return summary_hl
+        return ""
 
     def get_snippet_source(self, obj):
-        if getattr(obj, "transcript_headline", None):
+        transcript_hl = getattr(obj, "transcript_headline", None) or ""
+        summary_hl = getattr(obj, "summary_headline", None) or ""
+        title_hl = getattr(obj, "title_headline", None) or ""
+        if "<mark>" in transcript_hl:
             return "transcript"
-        if getattr(obj, "summary_headline", None):
+        if "<mark>" in summary_hl:
             return "summary"
-        if getattr(obj, "title_headline", None):
+        if "<mark>" in title_hl:
             return "title"
         return None
 
