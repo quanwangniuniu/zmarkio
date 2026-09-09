@@ -1,4 +1,5 @@
 from django.test import TestCase
+from rest_framework.test import APIClient
 
 from core.models import Organization, Project, ProjectMember, CustomUser
 from meetings.models import Meeting, MeetingTypeDefinition
@@ -118,3 +119,24 @@ class TestTranscriptSearch(TestCase):
         result_ids = [m.pk for m in results]
         self.assertIn(my_meeting.pk, result_ids)
         self.assertNotIn(other_meeting.pk, result_ids)
+
+    def test_api_returns_transcript_snippet(self):
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        meeting = Meeting.objects.create(
+            project=self.project,
+            title="Budget Meeting",
+            type_definition=self.meeting_type,
+            objective="o",
+            transcript="Tim: We need to cut the budget. " * 20,
+        )
+
+        url = f"/api/projects/{self.project.slug}/meetings/"
+        response = client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        result = next(r for r in response.data["results"] if r["id"] == meeting.id)
+        self.assertIn("transcript_snippet", result)
+        self.assertLessEqual(len(result["transcript_snippet"]), 200)
+        self.assertTrue(result["transcript_snippet"].startswith("Tim:"))

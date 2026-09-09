@@ -392,6 +392,7 @@ class MeetingListSerializer(serializers.ModelSerializer):
     generated_tasks_count = serializers.IntegerField(read_only=True, source="task_count")
     generated_decisions = serializers.SerializerMethodField()
     generated_tasks = serializers.SerializerMethodField()
+    transcript_snippet = serializers.SerializerMethodField()
     related_decisions = serializers.SerializerMethodField()
     related_tasks = serializers.SerializerMethodField()
 
@@ -417,6 +418,7 @@ class MeetingListSerializer(serializers.ModelSerializer):
             "related_decisions",
             "related_tasks",
             "is_archived",
+            "transcript_snippet",
         ]
 
     def get_participants(self, obj):
@@ -436,6 +438,12 @@ class MeetingListSerializer(serializers.ModelSerializer):
 
     def get_related_tasks(self, obj):
         return related_tasks_payload(obj)
+
+    def get_transcript_snippet(self, obj):
+        transcript = obj.transcript or ""
+        if not transcript:
+            return ""
+        return transcript[:200]
 
 
 class AgendaItemSerializer(serializers.ModelSerializer):
