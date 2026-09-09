@@ -32,11 +32,9 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-4g=$b1l14w5*aia@bgix6
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0').split(',') + [
-    'lipographic-damon-unshrinkable.ngrok-free.dev',
-    'volar-probankruptcy-orval.ngrok-free.dev',
-    'christeen-gawkiest-carmelia.ngrok-free.dev',
-    'upload-rinsing-tracing.ngrok-free.dev',
+ALLOWED_HOSTS = [
+    h.strip() for h in config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0').split(',')
+    if h.strip()
 ]
 
 
@@ -421,10 +419,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:80",
     "http://127.0.0.1:80",
-    "http://lipographic-damon-unshrinkable.ngrok-free.dev",
-    "http://volar-probankruptcy-orval.ngrok-free.dev",
-    "http://christeen-gawkiest-carmelia.ngrok-free.dev",
-    "https://upload-rinsing-tracing.ngrok-free.dev",
+] + [
+    o.strip() for o in config('CORS_EXTRA_ORIGINS', default='').split(',')
+    if o.strip()
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -434,11 +431,9 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://christeen-gawkiest-carmelia.ngrok-free.dev",
-    "http://christeen-gawkiest-carmelia.ngrok-free.dev",
-    "http://lipographic-damon-unshrinkable.ngrok-free.dev",
-    "http://volar-probankruptcy-orval.ngrok-free.dev",
-    "https://upload-rinsing-tracing.ngrok-free.dev",
+] + [
+    o.strip() for o in config('CSRF_EXTRA_ORIGINS', default='').split(',')
+    if o.strip()
 ]
 
 # Session Configuration for OAuth
