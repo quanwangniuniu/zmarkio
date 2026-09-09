@@ -9,7 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import ZoomMeetingData
-from .services import ZOOM_SYNC_EVENT_TYPES, sync_zoom_meeting_for_event
+from .services import ZOOM_SYNC_EVENT_TYPES, sync_zoom_meeting_for_event, _sync_layer3_transcript
 
 logger = logging.getLogger(__name__)
 
@@ -74,3 +74,26 @@ def process_zoom_webhook_event(
                 "zoom webhook task: failed to persist sync error id=%s",
                 zoom_meeting_data_id,
             )
+
+@shared_task(bind=True, ignore_result=True)
+def sync_meeting_transcript(self, zoom_meeting_data_id: int) -> None:
+    """Download and store Zoom transcript for a meeting, then trigger search vector update."""
+    from meetings.tasks import update_meeting_search_vector
+
+    if not ZoomMeetingData.objects.filter(pk=zoom_meeting_data_id).exists():
+        logger.warning("sync_meeting_transcript: ZoomMeetingData missing id=%s", zoom_meeting_data_id)
+        return
+
+    row = ZoomMeetingData.objects.select_related("zoom_host_user").get(pk=zoom_meeting_data_id)
+
+    try:
+        _sync_layer3_transcript(row, "")
+    except Exception:
+        logger.exception(
+            "sync_meeting_transcript: failed zoom_meeting_data_id=%s",
+            zoom_meeting_data_id
+        )
+        return
+
+    if row.meeting_id:
+        update_meeting_search_vector.delay(row.meeting_id) # type: ignore[operator]

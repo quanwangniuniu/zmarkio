@@ -669,7 +669,8 @@ def sync_zoom_meeting_for_event(
         _sync_layer3_summary(row, webhook_uuid)
     elif et == EVENT_TRANSCRIPT_COMPLETED:
         _sync_layer3_participants(row, webhook_uuid)
-        _sync_layer3_transcript(row, webhook_uuid)
+        from zoom_integration.tasks import sync_meeting_transcript
+        sync_meeting_transcript.delay(zoom_meeting_data_id) # type: ignore[operator]
     else:
         logging.getLogger(__name__).info(
             "zoom sync: ignored event_type=%s zoom_meeting_data_id=%s",
