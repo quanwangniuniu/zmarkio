@@ -23,6 +23,7 @@ class AgentSession(TimeStampedModel):
         'core.Project',
         on_delete=models.CASCADE,
         related_name='agent_sessions',
+        db_constraint=False,  # CRITICAL: Project is in tenant schema, AgentSession in public schema
     )
     title = models.CharField(max_length=255, blank=True, default='')
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')

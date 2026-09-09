@@ -1762,6 +1762,89 @@ class AgentOrchestrator:
         answer_text = (answer or "").strip() or "I couldn't generate a response for that draft."
         yield {"type": "text", "content": answer_text}
 
+    def answer_project_question(self, message):
+        """Answer a question grounded in this project's indexed documents
+        (MED-264 retrieval phase).
+
+        Generic fallback only -- reached from _legacy_handle's trailing else,
+        which means every dedicated route (spreadsheet, calendar, draft,
+        workflow start/resume/confirm, active follow-up chat) has already
+        declined this message.
+
+        retrieve_chunks() has no similarity threshold applied here (see
+        rag.retrieval's min_similarity default of None) -- it returns
+        top-K-by-distance whenever the project has ANY indexed chunks, not
+        only when something actually relevant exists. So "no retrieved
+        chunks" below means "nothing indexed for this project yet", not
+        "nothing relevant". Relevance is left entirely to the prompt-level
+        abstention instruction below; no threshold is introduced yet pending
+        eval data on real no-answer questions.
+        """
+        from rag.retrieval import retrieve_chunks
+        from .llm_client import call_llm as _call_llm_unified
+
+        try:
+            retrieved = retrieve_chunks(self.project.id, message)
+        except Exception as e:
+            logger.error(f"Project RAG retrieval failed: {e}")
+            yield {"type": "error", "content": "Failed to search project documents. Please try again."}
+            return
+
+        if not retrieved:
+            yield {
+                "type": "text",
+                "content": (
+                    "I couldn't find anything in this project's documents to answer that. "
+                    "Try rephrasing, or check that the relevant meeting/draft/retrospective has been indexed."
+                ),
+                "data": {"citations": []},
+            }
+            return
+
+        context_block = "\n\n".join(
+            f"[{i}] ({c.source_type}:{c.source_id}#{c.chunk_index})\n{c.content}"
+            for i, c in enumerate(retrieved, start=1)
+        )
+        system_prompt = (
+            "You are a helpful assistant embedded in a project management platform. "
+            "Answer the user's question using ONLY the numbered context excerpts below, "
+            "drawn from this project's meetings, drafts, and retrospectives. "
+            "Cite sources inline as [n] matching the excerpt numbers. "
+            "If the retrieved context does not support the answer, say so instead of guessing."
+        )
+        user_prompt = f"Context:\n{context_block}\n\nUser question: {message}"
+
+        try:
+            result = _call_llm_unified(
+                agent_session=self.session,
+                provider='gemini',
+                model='gemini-2.5-flash-lite',
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=0.3,
+                max_output_tokens=4096,
+                call_purpose='other',
+            )
+        except Exception as e:
+            logger.error(f"Project RAG LLM call failed: {e}")
+            yield {"type": "error", "content": "Failed to get AI response. Please try again."}
+            return
+
+        answer_text = (result.get('text') or '').strip() or "I couldn't generate a response for that."
+        citations = [
+            {
+                "n": i,
+                "source_type": c.source_type,
+                "source_id": c.source_id,
+                "chunk_index": c.chunk_index,
+                "citation_metadata": c.citation_metadata,
+                "snippet": c.content,
+                "similarity": c.similarity,
+            }
+            for i, c in enumerate(retrieved, start=1)
+        ]
+        yield {"type": "text", "content": answer_text, "data": {"citations": citations}}
+
     def answer_calendar_question(self, message, calendar_context):
         """Answer calendar-related questions using real event data via Dify AI."""
         yield {"type": "text", "content": "Looking up your calendar data..."}
@@ -3044,11 +3127,5 @@ class AgentOrchestrator:
                     logger.error(f"Dify chat call failed: {e}")
                     yield {"type": "error", "content": str(e)}
             else:
-                yield {
-                    "type": "text",
-                    "content": (
-                        "I can help you analyze spreadsheet data and recommended tasks. "
-                        "To get started, select a spreadsheet and use the 'analyze' action."
-                    ),
-                }
+                yield from self.answer_project_question(message)
         yield {"type": "done"}

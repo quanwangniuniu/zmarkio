@@ -16,6 +16,7 @@ from pathlib import Path
 from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 from celery.schedules import crontab
+from corsheaders.defaults import default_headers as CORS_DEFAULT_HEADERS
 
 
 
@@ -106,6 +107,7 @@ INSTALLED_APPS = [
     'tracking',
     'csm',
     'portal',
+    'rag.apps.RagConfig',
 ]
 
 MIDDLEWARE = [
@@ -400,6 +402,56 @@ GEMINI_CB_THRESHOLD = config('GEMINI_CB_THRESHOLD', default=5, cast=int)
 GEMINI_CB_WINDOW_SECONDS = config('GEMINI_CB_WINDOW_SECONDS', default=60, cast=int)
 GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, cast=int)
 
+# RAG document retrieval (MED-264). Both document-chunk and query embeddings
+# MUST use this same model/dimension pair — mixing models or widths at
+# retrieval time produces meaningless similarity scores with no error, since
+# pgvector only rejects a literal width mismatch, not a same-width model swap.
+# Changing either value later requires re-embedding every existing
+# DocumentChunk row; changing RAG_EMBEDDING_DIMENSIONS additionally requires a
+# schema migration, since pgvector's VectorField width is fixed at the column
+# type level (not adjustable via settings alone).
+RAG_EMBEDDING_MODEL = config('RAG_EMBEDDING_MODEL', default='gemini-embedding-2')
+RAG_EMBEDDING_DIMENSIONS = config('RAG_EMBEDDING_DIMENSIONS', default=768, cast=int)
+
+# Embedding provider switch (MED-264 eval/local-dev unblock while Gemini
+# access is blocked). 'gemini' is the only production-supported value and
+# stays the default everywhere -- this must never be set to 'local' outside
+# a developer's own env or an eval run. 'local' routes through
+# core.services.local_embeddings (fastembed/ONNX, no Gemini dependency)
+# instead of core.services.gemini_embeddings. RAG_EMBEDDING_DIMENSIONS stays
+# 768 either way: BAAI/bge-base-en-v1.5 (the local model) natively outputs
+# 768-dim vectors, so no padding/truncation is needed to fit
+# DocumentChunk.embedding's fixed-width column.
+RAG_EMBEDDING_PROVIDER = config('RAG_EMBEDDING_PROVIDER', default='gemini')
+RAG_LOCAL_EMBEDDING_MODEL = config('RAG_LOCAL_EMBEDDING_MODEL', default='BAAI/bge-base-en-v1.5')
+
+# Chunking (rag.chunking). Units are CHARACTERS, not tokens — chunking does
+# not use a tokenizer. Deliberately simple fixed-size+overlap for the first
+# implementation; do not retune without considering that any change here
+# invalidates every existing DocumentChunk (see rag.indexing.current_pipeline_hash,
+# which folds both values in specifically so a retune forces a re-index).
+RAG_CHUNK_SIZE = config('RAG_CHUNK_SIZE', default=1500, cast=int)
+RAG_CHUNK_OVERLAP = config('RAG_CHUNK_OVERLAP', default=200, cast=int)
+if RAG_CHUNK_SIZE <= 0:
+    raise ImproperlyConfigured("RAG_CHUNK_SIZE must be > 0")
+if not (0 <= RAG_CHUNK_OVERLAP < RAG_CHUNK_SIZE):
+    raise ImproperlyConfigured("RAG_CHUNK_OVERLAP must satisfy 0 <= RAG_CHUNK_OVERLAP < RAG_CHUNK_SIZE")
+
+# Max chunks per Gemini :batchEmbedContents call (rag.embeddings).
+RAG_EMBED_BATCH_SIZE = config('RAG_EMBED_BATCH_SIZE', default=32, cast=int)
+
+# Retrieval (rag.retrieval). Exact pgvector cosine distance over non-deleted,
+# non-null-embedding DocumentChunk rows -- no ANN index yet, sequential scan
+# is fine at current data volume. RAG_RETRIEVAL_MIN_SIMILARITY is opt-in
+# (None = no threshold filtering) since a real cutoff needs eval data to set
+# sensibly; callers may still pass min_similarity explicitly per call.
+RAG_RETRIEVAL_TOP_K = config('RAG_RETRIEVAL_TOP_K', default=8, cast=int)
+RAG_RETRIEVAL_MIN_SIMILARITY = config(
+    'RAG_RETRIEVAL_MIN_SIMILARITY',
+    default=None,
+    cast=lambda v: float(v) if v not in (None, '') else None,
+)
+
 # Dify LLM Platform integration (kept for reference / backward compat)
 DIFY_API_URL = config('DIFY_API_URL', default='')
 DIFY_API_KEY = config('DIFY_API_KEY', default='')
@@ -428,6 +480,17 @@ CORS_ALLOWED_ORIGINS = [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+# django-cors-headers' own default_headers list, plus X-Organization-Token --
+# the frontend attaches this header (frontend/src/lib/api.ts) whenever a
+# user has an organization access token, for TenantSchemaMiddleware's
+# priority-2 schema resolution (core/middleware/tenant_schema.py). Without
+# this, the browser's CORS preflight succeeds (200) but the *actual* request
+# is silently blocked client-side because the header isn't allow-listed --
+# no server-side trace, surfaces only as a generic network error in the browser.
+CORS_ALLOW_HEADERS = list(CORS_DEFAULT_HEADERS) + [
+    "x-organization-token",
+]
 
 # CSRF Trusted Origins - Required for ngrok and external domains
 CSRF_TRUSTED_ORIGINS = [
@@ -814,6 +877,14 @@ CACHES = {
         'LOCATION': 'redis://redis:6379/1',  # Use db=1 (separate from Celery's db=0)
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            # No timeout was set here, so a stalled Redis connection blocked
+            # the calling thread indefinitely (found via MED-264 chat-hang
+            # investigation: _circuit_open()'s cache.get() has no bound of
+            # its own and sits upstream of every Gemini call's retry/deadline
+            # logic). A finite timeout lets that call's existing
+            # `except Exception: return False` fail open instead of hanging.
+            'SOCKET_CONNECT_TIMEOUT': 3,
+            'SOCKET_TIMEOUT': 3,
         },
         'KEY_PREFIX': 'mediajira',  # Prefix all cache keys
         'TIMEOUT': None,  # Default timeout (None = no expiration)
