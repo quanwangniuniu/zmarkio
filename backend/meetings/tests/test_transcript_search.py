@@ -141,3 +141,75 @@ class TestTranscriptSearch(TestCase):
         self.assertIn("search_snippet", result)
         self.assertIn("<mark>", result["search_snippet"])
         self.assertIn("budget", result["search_snippet"])
+
+    def test_snippet_source_is_transcript_when_matched_in_transcript(self):
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        meeting = Meeting.objects.create(
+            project=self.project,
+            title="Weekly Sync",
+            type_definition=self.meeting_type,
+            objective="o",
+            transcript="Tim: We need to cut the budget allocation.",
+        )
+        update_meeting_search_vector(meeting.pk)
+
+        response = client.get(f"/api/projects/{self.project.slug}/meetings/?q=budget")
+        result = next(r for r in response.data["results"] if r["id"] == meeting.id)
+        self.assertEqual(result["snippet_source"], "transcript")
+
+    def test_snippet_source_is_summary_when_matched_in_summary(self):
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        meeting = Meeting.objects.create(
+            project=self.project,
+            title="Weekly Sync",
+            type_definition=self.meeting_type,
+            objective="o",
+            summary="We discussed the quarterly budget allocation.",
+            transcript="",
+        )
+        update_meeting_search_vector(meeting.pk)
+
+        response = client.get(f"/api/projects/{self.project.slug}/meetings/?q=budget")
+        result = next(r for r in response.data["results"] if r["id"] == meeting.id)
+        self.assertEqual(result["snippet_source"], "summary")
+        self.assertEqual(result["search_snippet"], "")
+
+    def test_snippet_source_is_title_when_matched_in_title(self):
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        meeting = Meeting.objects.create(
+            project=self.project,
+            title="Budget Planning Session",
+            type_definition=self.meeting_type,
+            objective="o",
+            summary="",
+            transcript="",
+        )
+        update_meeting_search_vector(meeting.pk)
+
+        response = client.get(f"/api/projects/{self.project.slug}/meetings/?q=budget")
+        result = next(r for r in response.data["results"] if r["id"] == meeting.id)
+        self.assertEqual(result["snippet_source"], "title")
+        self.assertEqual(result["search_snippet"], "")
+
+    def test_snippet_source_is_null_when_no_search_query(self):
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        meeting = Meeting.objects.create(
+            project=self.project,
+            title="Weekly Sync",
+            type_definition=self.meeting_type,
+            objective="o",
+            transcript="Tim: We need to cut the budget.",
+        )
+
+        response = client.get(f"/api/projects/{self.project.slug}/meetings/")
+        result = next(r for r in response.data["results"] if r["id"] == meeting.id)
+        self.assertIsNone(result["snippet_source"])
+        self.assertEqual(result["search_snippet"], "")
