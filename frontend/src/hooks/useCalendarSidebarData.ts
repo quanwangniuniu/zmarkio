@@ -5,6 +5,10 @@ import {
   CalendarSubscriptionDTO,
 } from "@/lib/api/calendarApi";
 import { useAuthStore } from "@/lib/authStore";
+import {
+  findPersonalCalendar,
+  provisionPersonalCalendar,
+} from "@/lib/ensurePersonalCalendar";
 
 export interface SidebarCalendarItem {
   calendarId: string;
@@ -13,6 +17,7 @@ export interface SidebarCalendarItem {
   color: string;
   isHidden: boolean;
   isMine: boolean;
+  isTeam: boolean;
 }
 
 interface UseCalendarSidebarResult {
@@ -79,11 +84,17 @@ export function useCalendarSidebarData(
       CalendarAPI.listCalendars(projectId),
       CalendarAPI.listSubscriptions(),
     ])
-      .then(([calRes, subRes]) => {
-        const normalizedCalendars = normalizeListResponse<CalendarDTO>(calRes.data);
+      .then(async ([calRes, subRes]) => {
+        let normalizedCalendars = normalizeListResponse<CalendarDTO>(calRes.data);
         const normalizedSubscriptions = normalizeListResponse<CalendarSubscriptionDTO>(
           subRes.data,
         );
+        if (projectId != null && !findPersonalCalendar(normalizedCalendars)) {
+          const { calendar } = await provisionPersonalCalendar(normalizedCalendars);
+          if (!normalizedCalendars.some((item) => item.id === calendar.id)) {
+            normalizedCalendars = [...normalizedCalendars, calendar];
+          }
+        }
         sidebarCache.projectId = projectId;
         sidebarCache.calendars = normalizedCalendars;
         sidebarCache.subscriptions = normalizedSubscriptions;
@@ -129,16 +140,17 @@ export function useCalendarSidebarData(
         color: effectiveColor,
         isHidden,
         isMine,
+        isTeam: cal.project_id != null,
       };
     });
   }, [calendars, subscriptions, currentUserId]);
 
   const myCalendars = useMemo(
-    () => items.filter((item) => item.isMine),
+    () => items.filter((item) => !item.isTeam),
     [items],
   );
   const otherCalendars = useMemo(
-    () => items.filter((item) => !item.isMine),
+    () => items.filter((item) => item.isTeam),
     [items],
   );
 

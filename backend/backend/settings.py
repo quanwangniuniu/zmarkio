@@ -471,6 +471,11 @@ REST_FRAMEWORK = {
     ],
     'EXCEPTION_HANDLER': 'calendars.exceptions.calendar_exception_handler',
     'DEFAULT_THROTTLE_RATES': {
+        # Booking links are unauthenticated, so they are throttled by
+        # IP. Reads are generous (a prospect paging through weeks); writes are
+        # tight, since each one creates a real calendar event.
+        'public_booking_read': config('PUBLIC_BOOKING_READ_THROTTLE_RATE', default='60/minute'),
+        'public_booking_write': config('PUBLIC_BOOKING_WRITE_THROTTLE_RATE', default='10/hour'),
         'chat_message_write': config('CHAT_MESSAGE_WRITE_THROTTLE_RATE', default='60/minute'),
         'chat_reaction': config('CHAT_REACTION_THROTTLE_RATE', default='120/minute'),
         'spreadsheet_ws_ticket': config(

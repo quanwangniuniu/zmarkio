@@ -19,6 +19,11 @@ import { DecisionAPI } from "@/lib/api/decisionApi";
 import { BudgetAPI } from "@/lib/api/budgetApi";
 import api from "@/lib/api";
 import { budgetLabelFromNotification } from "@/lib/budgetNotificationCopy";
+import {
+  bookingInvitePhase,
+  bookingInviteSlot,
+  formatBookingSlot,
+} from "@/lib/bookingInviteState";
 import DrawerSectionDivider from "./DrawerSectionDivider";
 
 interface DrawerObjectCardProps {
@@ -468,15 +473,39 @@ function BudgetCard({ budget }: { budget: BudgetCardData }) {
 }
 
 function GenericCard({ notification }: { notification: NotificationItem }) {
+  const isBooking = notification.related_object_type?.toLowerCase() === "booking_link";
+  const phase = isBooking ? bookingInvitePhase(notification) : null;
+  const slot = isBooking ? bookingInviteSlot(notification) : null;
   return (
     <div className={MODULE_CARD_SHELL}>
       <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
-        <AlertCircle className="w-3.5 h-3.5 text-brand-teal" />
-        <span>{notification.related_object_type.toUpperCase()}</span>
+        {isBooking ? (
+          <Calendar className="w-3.5 h-3.5 text-brand-teal" />
+        ) : (
+          <AlertCircle className="w-3.5 h-3.5 text-brand-teal" />
+        )}
+        <span>{isBooking ? "BOOKING" : notification.related_object_type.toUpperCase()}</span>
       </div>
-      <h4 className="text-base font-medium text-gray-900 mb-2">{notification.title}</h4>
-      {notification.body && (
-        <p className="text-sm text-gray-600">{notification.body}</p>
+      <h4 className="text-base font-medium text-gray-900 mb-2">
+        {notification.body || notification.title}
+      </h4>
+      {isBooking && phase === "booked" && slot ? (
+        <p className="text-sm text-gray-600">
+          Booked for {formatBookingSlot(slot.start, slot.end)}.
+        </p>
+      ) : isBooking && phase === "closed" ? (
+        <p className="text-sm text-gray-600">
+          The host cancelled this time after changing availability. This notice
+          does not let you pick a new slot.
+        </p>
+      ) : isBooking ? (
+        <p className="text-sm text-gray-600">
+          Date and time are chosen on the booking page — this invite does not have a slot yet.
+        </p>
+      ) : (
+        notification.body && (
+          <p className="text-sm text-gray-600">{notification.body}</p>
+        )
       )}
     </div>
   );
@@ -519,6 +548,7 @@ const SECTION_TITLES: Record<string, string> = {
   project: "Project Details",
   decision: "Decision Details",
   budget_request: "Budget Details",
+  booking_link: "Booking Details",
 };
 
 // ── Main component ────────────────────────────────────────────────────────────

@@ -88,7 +88,7 @@ export function CalendarSidebarPanel({
         {myCalendars.length > 0 && (
           <div className="mb-4">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-              My calendars
+              Personal
             </h3>
             <ul className="space-y-1">
               {myCalendars.map((item) => {
@@ -98,6 +98,8 @@ export function CalendarSidebarPanel({
                     <button
                       type="button"
                       onClick={() => onCalendarItemClick(item.calendarId)}
+                      data-testid="calendar-sidebar-personal"
+                      data-selected={isSelected ? "true" : "false"}
                       className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
                         isSelected
                           ? "bg-[#3CCED7]/10 text-[#3CCED7] border-l-2 border-[#3CCED7]"
@@ -120,7 +122,7 @@ export function CalendarSidebarPanel({
         {otherCalendars.length > 0 && (
           <div className="mb-4">
             <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-              Other calendars
+              Team
             </h3>
             <ul className="space-y-1">
               {otherCalendars.map((item) => {
@@ -130,6 +132,8 @@ export function CalendarSidebarPanel({
                     <button
                       type="button"
                       onClick={() => onCalendarItemClick(item.calendarId)}
+                      data-testid="calendar-sidebar-team"
+                      data-selected={isSelected ? "true" : "false"}
                       className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
                         isSelected
                           ? "bg-[#3CCED7]/10 text-[#3CCED7] border-l-2 border-[#3CCED7]"

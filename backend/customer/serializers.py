@@ -55,6 +55,11 @@ class CustomerSerializer(serializers.ModelSerializer):
         model = Customer
         fields = [
             'id',
+            # Whether this customer has an account here, and which one. Callers
+            # that invite customers need to tell the two apart: an account can
+            # be added as a real participant, while someone without one can
+            # only ever be reached by email.
+            'user_id',
             'email',
             'full_name',
             'company',
@@ -71,7 +76,7 @@ class CustomerSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = [
-            'id', 'created_at', 'updated_at', 'experience_group_name',
+            'id', 'user_id', 'created_at', 'updated_at', 'experience_group_name',
             'status_label_name', 'status_label_color',
         ]
 

@@ -12,6 +12,11 @@ import type {
   EventDTO,
   RecurringEditScope,
 } from "@/lib/api/calendarApi";
+import {
+  findPersonalCalendar,
+  normalizeCalendarList,
+  provisionPersonalCalendar,
+} from "@/lib/ensurePersonalCalendar";
 import { RecurringEditScopeDialog } from "@/components/calendar/RecurringEditScopeDialog";
 import { googleCalendarApi } from "@/lib/api/googleCalendarApi";
 import type { GoogleCalendarStatus } from "@/lib/api/googleCalendarApi";
@@ -26,10 +31,15 @@ import { List, Loader2, RefreshCw } from "lucide-react";
 import { useProjectStore } from "@/lib/projectStore";
 import {
   VIEW_LABELS,
+  calendarAllEventsStorageKey,
   calendarFilterStorageKey,
   extractCalendarIdFromStoredValue,
+  isAllEventsStoredValue,
+  resolveVisibleCalendarSelection,
   sameCalendarIdList,
 } from "@/components/calendar/utils";
+import { calendarScope } from "@/lib/bookingLinkScope";
+import { isBookingEvent } from "@/lib/bookingEvent";
 import { openAgentSidePanel } from "@/lib/agentSidePanelStore";
 import {
   clearCalendarSidebarCache,
@@ -64,6 +74,7 @@ export default function CalendarPageContent() {
   const [currentView, setCurrentView] = useState<CalendarViewType>("week");
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [visibleCalendarIds, setVisibleCalendarIds] = useState<string[] | undefined>(undefined);
+  const [includeAllEvents, setIncludeAllEvents] = useState(false);
   const [hasLoadedCalendarFilter, setHasLoadedCalendarFilter] = useState(false);
 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -86,6 +97,7 @@ export default function CalendarPageContent() {
   const [gcalStatus, setGcalStatus] = useState<GoogleCalendarStatus | null>(null);
   const [gcalSyncing, setGcalSyncing] = useState(false);
   const [primaryCalendar, setPrimaryCalendar] = useState<CalendarDTO | null>(null);
+  const [accessibleCalendars, setAccessibleCalendars] = useState<CalendarDTO[]>([]);
 
   const refreshGcalStatus = useCallback(() => {
     googleCalendarApi
@@ -101,16 +113,30 @@ export default function CalendarPageContent() {
   useEffect(() => {
     let cancelled = false;
     CalendarAPI.listCalendars(projectId)
-      .then((res) => {
-        const raw = res.data as CalendarDTO[] | { results?: CalendarDTO[] };
-        const list = Array.isArray(raw) ? raw : raw.results ?? [];
+      .then(async (res) => {
+        let list = normalizeCalendarList(res.data);
+        if (projectId != null && !findPersonalCalendar(list)) {
+          const { calendar, created } = await provisionPersonalCalendar(list);
+          if (!list.some((item) => item.id === calendar.id)) {
+            list = [...list, calendar];
+          }
+          if (created) {
+            clearCalendarSidebarCache();
+          }
+        }
         if (cancelled) {
           return;
         }
-        setPrimaryCalendar(list.find((c) => c.is_primary) ?? null);
+        setAccessibleCalendars(list);
+        setPrimaryCalendar(
+          list.find((item) => item.is_primary && item.project_id == null)
+            ?? list.find((item) => item.is_primary)
+            ?? null,
+        );
       })
       .catch(() => {
         if (!cancelled) {
+          setAccessibleCalendars([]);
           setPrimaryCalendar(null);
         }
       });
@@ -122,6 +148,7 @@ export default function CalendarPageContent() {
   useEffect(() => {
     clearCalendarSidebarCache();
     setVisibleCalendarIds(undefined);
+    setIncludeAllEvents(false);
     setHasLoadedCalendarFilter(false);
   }, [projectId]);
 
@@ -189,10 +216,27 @@ export default function CalendarPageContent() {
     });
   }, []);
 
+  const selectedCalendarId = useMemo(
+    () =>
+      visibleCalendarIds && visibleCalendarIds.length === 1
+        ? visibleCalendarIds[0]
+        : null,
+    [visibleCalendarIds],
+  );
+  const isPersonalSelected = useMemo(() => {
+    if (!selectedCalendarId) {
+      return false;
+    }
+    const selected = accessibleCalendars.find((cal) => cal.id === selectedCalendarId);
+    return selected != null && calendarScope(selected) === "personal";
+  }, [accessibleCalendars, selectedCalendarId]);
+  const showAllEvents = includeAllEvents && isPersonalSelected;
+  const viewCalendarIds = showAllEvents ? undefined : visibleCalendarIds;
+
   const { events, calendars, isLoading, error, refetch } = useCalendarView({
     viewType: currentView,
     currentDate,
-    calendarIds: visibleCalendarIds,
+    calendarIds: viewCalendarIds,
     activeEventTypes: Array.from(activeEventTypes),
     projectId,
   });
@@ -261,6 +305,9 @@ export default function CalendarPageContent() {
 
   const handleVisibleCalendarsChange = useCallback(
     (calendarIds: string[] | undefined) => {
+      if (calendarIds && calendarIds.length === 1) {
+        setIncludeAllEvents(false);
+      }
       setVisibleCalendarIds((current) =>
         sameCalendarIdList(current, calendarIds) ? current : calendarIds,
       );
@@ -268,60 +315,73 @@ export default function CalendarPageContent() {
     [],
   );
 
-  const selectedCalendarId = useMemo(
-    () =>
-      visibleCalendarIds && visibleCalendarIds.length === 1
-        ? visibleCalendarIds[0]
-        : null,
-    [visibleCalendarIds],
-  );
+  useEffect(() => {
+    if (!includeAllEvents || !hasLoadedCalendarFilter || accessibleCalendars.length === 0) {
+      return;
+    }
+    if (!isPersonalSelected) {
+      setIncludeAllEvents(false);
+    }
+  }, [
+    includeAllEvents,
+    hasLoadedCalendarFilter,
+    accessibleCalendars.length,
+    isPersonalSelected,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
     }
     const storageKey = calendarFilterStorageKey(projectId);
+    const allEventsKey = calendarAllEventsStorageKey(projectId);
     const storedValue = window.localStorage.getItem(storageKey);
-    const storedCalendarId = extractCalendarIdFromStoredValue(storedValue);
-    if (storedCalendarId) {
-      setVisibleCalendarIds([storedCalendarId]);
-    } else if (storedValue) {
+    if (isAllEventsStoredValue(storedValue)) {
+      setIncludeAllEvents(true);
       window.localStorage.removeItem(storageKey);
+    } else {
+      setIncludeAllEvents(window.localStorage.getItem(allEventsKey) === "1");
+      const storedCalendarId = extractCalendarIdFromStoredValue(storedValue);
+      if (storedCalendarId) {
+        setVisibleCalendarIds([storedCalendarId]);
+      } else if (storedValue) {
+        window.localStorage.removeItem(storageKey);
+      }
     }
     setHasLoadedCalendarFilter(true);
   }, [projectId]);
 
   useEffect(() => {
-    if (!projectId || !hasLoadedCalendarFilter || calendars.length === 0) {
+    if (!hasLoadedCalendarFilter) {
       return;
     }
-    const projectCalendar = calendars.find((cal) => cal.project_id === projectId);
-    if (!projectCalendar) {
-      return;
+    const nextIds = resolveVisibleCalendarSelection(
+      projectId,
+      accessibleCalendars,
+      visibleCalendarIds,
+    );
+    if (nextIds) {
+      setVisibleCalendarIds(nextIds);
     }
-    if (visibleCalendarIds && visibleCalendarIds.length === 1) {
-      const selectedIsProjectCalendar = visibleCalendarIds[0] === projectCalendar.id;
-      const selectedBelongsToProject = calendars.some(
-        (cal) => cal.id === visibleCalendarIds[0] && cal.project_id === projectId,
-      );
-      if (selectedIsProjectCalendar || selectedBelongsToProject) {
-        return;
-      }
-    }
-    setVisibleCalendarIds([projectCalendar.id]);
-  }, [projectId, hasLoadedCalendarFilter, calendars, visibleCalendarIds]);
+  }, [projectId, hasLoadedCalendarFilter, accessibleCalendars, visibleCalendarIds]);
 
   useEffect(() => {
     if (!hasLoadedCalendarFilter || typeof window === "undefined") {
       return;
     }
     const storageKey = calendarFilterStorageKey(projectId);
+    const allEventsKey = calendarAllEventsStorageKey(projectId);
+    if (includeAllEvents) {
+      window.localStorage.setItem(allEventsKey, "1");
+    } else {
+      window.localStorage.removeItem(allEventsKey);
+    }
     if (visibleCalendarIds && visibleCalendarIds.length === 1) {
       window.localStorage.setItem(storageKey, visibleCalendarIds[0]);
       return;
     }
     window.localStorage.removeItem(storageKey);
-  }, [hasLoadedCalendarFilter, visibleCalendarIds, projectId]);
+  }, [hasLoadedCalendarFilter, visibleCalendarIds, includeAllEvents, projectId]);
 
   const headerTitle = useMemo(() => {
     if (currentView === "year") {
@@ -491,6 +551,8 @@ export default function CalendarPageContent() {
         onToday={handleToday}
         onOffset={handleOffset}
         onAskAgent={handleAskAgentFromCalendar}
+        showAllEvents={showAllEvents}
+        onShowAllEventsChange={isPersonalSelected ? setIncludeAllEvents : undefined}
       />
 
       {gcalStatus?.connected && (gcalStatus.needs_reconnect || gcalStatus.last_error_message) ? (
@@ -643,7 +705,7 @@ export default function CalendarPageContent() {
           event={editingEvent}
           calendars={calendars}
           primaryCalendar={primaryCalendar}
-          preferredCalendarId={selectedCalendarId}
+          preferredCalendarId={selectedCalendarId ?? primaryCalendar?.id ?? null}
           position={panelPosition}
           onAskAgent={handleAskAgentFromEvent}
           onSave={async (payload) => {
@@ -660,8 +722,17 @@ export default function CalendarPageContent() {
               await CalendarAPI.deleteEvent(eventToDelete.id, eventToDelete.etag);
               await refetch();
               setIsDialogOpen(false);
+              toast.success(
+                isBookingEvent(eventToDelete)
+                  ? "Meeting cancelled."
+                  : "Event deleted.",
+              );
             } catch (err: any) {
-              toast.error("Failed to delete event");
+              toast.error(
+                isBookingEvent(eventToDelete)
+                  ? "Could not cancel this meeting."
+                  : "Failed to delete event",
+              );
             }
           }}
         />

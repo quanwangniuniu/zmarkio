@@ -556,23 +556,69 @@ jobs:
             "
 
       # Budget approval Playwright E2E (MED-315): real backend via nginx, isolated fixtures per test.
-      - name: Wait for nginx (budget E2E)
+      - name: Restart frontend and verify browser assets (budget E2E)
         run: |
-          echo "Waiting for nginx to serve the stack..."
-          timeout=120
-          counter=0
-          while [ $counter -lt $timeout ]; do
-            if curl -fsS http://localhost/health > /dev/null 2>&1; then
-              echo "nginx is ready!"
-              exit 0
-            fi
-            echo "nginx not ready yet, waiting... ($counter/$timeout)"
-            sleep 2
-            counter=$((counter + 2))
-          done
-          echo "nginx failed to become healthy within ${timeout}s"
-          docker compose logs nginx
-          exit 1
+          # The build check replaced .next while Next.js was running. Reload
+          # the server so its manifests match the files now on disk.
+          docker compose restart frontend
+          if ! python3 - <<'PY'
+          import time
+          from html.parser import HTMLParser
+          from urllib.parse import urljoin, urlsplit
+          from urllib.request import urlopen
+
+          base_url = "http://localhost"
+          deadline = time.monotonic() + 120
+
+          class Scripts(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.urls = set()
+
+              def handle_starttag(self, tag, attrs):
+                  src = dict(attrs).get("src")
+                  if tag == "script" and src:
+                      url = urljoin(base_url, src)
+                      parsed = urlsplit(url)
+                      if ((parsed.scheme, parsed.netloc)
+                              == (urlsplit(base_url).scheme, urlsplit(base_url).netloc)
+                              and parsed.path.startswith("/_next/static/")
+                              and parsed.path.endswith(".js")):
+                          self.urls.add(url)
+
+          def fetch(url, expected_type):
+              remaining = deadline - time.monotonic()
+              if remaining <= 0:
+                  raise TimeoutError("Frontend readiness deadline exceeded")
+              with urlopen(url, timeout=min(10, remaining)) as response:
+                  content_type = response.headers.get("Content-Type", "")
+                  if expected_type not in content_type:
+                      raise ValueError(f"{url}: unexpected Content-Type {content_type}")
+                  body = response.read()
+                  if not body:
+                      raise ValueError(f"{url}: empty response")
+                  return body
+
+          while time.monotonic() < deadline:
+              try:
+                  page = Scripts()
+                  page.feed(fetch(f"{base_url}/login", "text/html").decode("utf-8"))
+                  if not page.urls:
+                      raise ValueError("Login page contains no Next.js script assets")
+                  for url in sorted(page.urls):
+                      fetch(url, "javascript")
+                  print(f"Frontend ready: login page and {len(page.urls)} scripts loaded.")
+                  break
+              except (OSError, ValueError) as exc:
+                  print(f"Frontend not ready: {exc}", flush=True)
+                  time.sleep(min(2, max(0, deadline - time.monotonic())))
+          else:
+              raise SystemExit("Frontend page/assets did not become ready within 120s")
+          PY
+          then
+            docker compose logs --tail=100 frontend nginx
+            exit 1
+          fi
 
       - name: Provision budget E2E anchor user
         run: |

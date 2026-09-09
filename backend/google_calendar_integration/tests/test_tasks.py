@@ -158,5 +158,5 @@ class ExportEventToGoogleTaskTests(TestCase):
             timezone="UTC",
         )
         r = export_event_to_google_task.apply(args=(str(ev.pk),))
-        self.assertTrue(r.successful())
+        self.assertTrue(r.failed())
         mock_logger.exception.assert_called()

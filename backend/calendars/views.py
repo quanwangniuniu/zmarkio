@@ -10,21 +10,39 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import generics, status, viewsets
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.throttling import ScopedRateThrottle
+from rest_framework.views import APIView
+from core.authentication import TenantAwareJWTAuthentication
 from .services import (
     get_calendar_events,
     modify_single_occurrence,
     cancel_single_occurrence,
     split_series_from_occurrence,
     _count_occurrences_before,
+    # Occurrence expansion moved to services so booking availability can reuse
+    # it without importing the API layer. Re-exported here: existing callers
+    # (including tests) still import these names from views.
+    _events_intersecting_range,
+    _expand_recurring_event,
+    get_busy_intervals_by_calendar,
+    # Booking links
+    rules_from_booking_link,
+    schedule_from_booking_link,
 )
 
-from core.models import ProjectMember
+from django.contrib.auth import get_user_model
+
+from core.models import Organization, ProjectMember
 from core.slug_mixins import resolve_project_pk
+from core.services.tenant import slug_to_schema_name
+from core.tenant_context import tenant_schema_context
 from .models import (
+    BookingLink,
     Calendar,
+    CalendarSettings,
     CalendarShare,
     CalendarSubscription,
     Event,
@@ -52,10 +70,53 @@ from .serializers import (
     AttendeeCreateRequestSerializer,
     AttendeeResponseRequestSerializer,
     EventReminderSerializer,
+    # Booking links
+    PublicBookingLinkSerializer,
+    BookingRequestSerializer,
+    BookingLookupSerializer,
+    BookingLinkSerializer,
 )
-from .exceptions import calendar_error_response
+from urllib.parse import quote
 
+from django.http import HttpResponse
+from django.urls import reverse
+
+from .booking_access import booker_shares_project, can_book_public_link
+from .booking_ics import as_webcal_url, build_booking_ics
+from .booking_lookup import find_guest_bookings, find_viewer_bookings, serialize_viewer_bookings
+from .booking_write import (
+    calendars_for_booking_availability,
+    cancel_booking_events,
+    create_booking_events,
+    event_belongs_to_booking_link,
+    ensure_personal_calendar,
+    is_team_booking_calendar,
+    lock_booking_event,
+    prefer_visible_booking_copy,
+    sync_booking_siblings,
+)
+from .tasks import send_booking_confirmation_task, send_booking_recovery_task, queue_booking_task
+from .booking_notifications import (
+    notify_booking_cancelled,
+    notify_booking_made,
+    notify_booking_rescheduled,
+    notify_link_created,
+)
+from .booking_invite_state import (
+    find_upcoming_guest_booking,
+    mark_invite_booked,
+    mark_invite_unbooked,
+)
+from .booking_tokens import make_cancel_token, read_cancel_token, make_feed_token, read_feed_token
+from .exceptions import calendar_error_response
 from google_calendar_integration.tasks import export_event_to_google_task
+from google_calendar_integration.services import (
+    GoogleAvailabilityUnavailable,
+    get_merged_availability,
+    is_slot_still_available,
+)
+
+User = get_user_model()
 
 
 class CalendarViewSet(viewsets.ModelViewSet):
@@ -137,7 +198,9 @@ class CalendarViewSet(viewsets.ModelViewSet):
             project_id = resolve_project_pk(project_id_param)
             if project_id is None:
                 return Calendar.objects.none()
-            qs = qs.filter(project_id=project_id)
+            qs = qs.filter(
+                Q(project_id=project_id) | Q(project__isnull=True, owner=user)
+            )
 
         return qs.distinct().order_by("-is_primary", "name")
 
@@ -385,9 +448,13 @@ class EventViewSet(viewsets.ModelViewSet):
                 return Event.objects.none()
 
         calendars = _get_accessible_calendars(user, project_id=project_id)
-        queryset = Event.objects.select_related("calendar", "created_by").filter(
-            calendar__in=calendars,
-            is_deleted=False,
+        queryset = (
+            Event.objects.select_related("calendar", "created_by")
+            .filter(
+                _visible_events_q(user, calendars, get_user_organization(user)),
+                is_deleted=False,
+            )
+            .distinct()
         )
 
         calendar_ids_param = self.request.query_params.get("calendar_ids")
@@ -457,17 +524,24 @@ class EventViewSet(viewsets.ModelViewSet):
             created_by=request.user if request.user.is_authenticated else None,
         )
         eid = str(event.id)
-        transaction.on_commit(lambda: export_event_to_google_task.delay(eid))
+        self._queue_google_export(eid)
         output_serializer = EventSerializer(event)
         headers = self.get_success_headers(output_serializer.data)
         return Response(output_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
+    @transaction.atomic
     def update(self, request, *args, **kwargs):
         """
         Update event and return full Event representation.
         """
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
+        if (instance.metadata or {}).get("source") == "booking_link":
+            instance = lock_booking_event(instance)
+            if instance.is_deleted or instance.status == "cancelled":
+                return calendar_error_response("BOOKING_CANCELLED", "This booking has been cancelled.", status_code=409)
+            if request.data.get("calendar_id") and str(request.data["calendar_id"]) != str(instance.calendar_id):
+                return calendar_error_response("BAD_REQUEST", "A booking cannot be moved to another calendar.", status_code=400)
 
         # ETag / If-Match handling (optimistic concurrency)
         if_match = request.META.get("HTTP_IF_MATCH")
@@ -483,8 +557,12 @@ class EventViewSet(viewsets.ModelViewSet):
         )
         serializer.is_valid(raise_exception=True)
         event = serializer.save()
+        if (event.metadata or {}).get("source") == "booking_link" and event.status == "cancelled":
+            self.perform_destroy(event)
+        for sibling in sync_booking_siblings(event):
+            self._queue_google_export(str(sibling.id))
         eid = str(event.id)
-        transaction.on_commit(lambda: export_event_to_google_task.delay(eid))
+        self._queue_google_export(eid)
         output_serializer = EventSerializer(event)
         return Response(output_serializer.data)
 
@@ -492,11 +570,85 @@ class EventViewSet(viewsets.ModelViewSet):
         kwargs["partial"] = True
         return self.update(request, *args, **kwargs)
 
+    def _queue_google_export(self, event_id: str) -> None:
+        """
+        Hand the worker the schema explicitly.
+
+        A Celery worker never passes through TenantSchemaMiddleware, so the
+        default of 'public' silently finds nothing for an org with its own
+        schema - the export, and the delete that shares this path, would both
+        no-op there.
+        """
+        organization = get_user_organization(self.request.user)
+        schema = slug_to_schema_name(organization.slug) if organization else "public"
+        queue_booking_task(export_event_to_google_task, event_id, tenant_schema=schema)
+
+    @transaction.atomic
     def perform_destroy(self, instance: Event):
+        instance = lock_booking_event(instance)
+        if instance.is_deleted:
+            return
         eid = str(instance.id)
-        instance.is_deleted = True
-        instance.save(update_fields=["is_deleted", "updated_at"])
-        transaction.on_commit(lambda: export_event_to_google_task.delay(eid))
+        # Read the attendees before the row is marked deleted.
+        booked_guest = (
+            EventAttendee.objects.filter(
+                event=instance,
+                is_organizer=False,
+                metadata__source="booking_link",
+                is_deleted=False,
+            )
+            .exclude(user=None)
+            .first()
+        )
+        organizer = (
+            EventAttendee.objects.filter(event=instance, is_organizer=True)
+            .exclude(user=None)
+            .first()
+        )
+
+        is_booking = (
+            bool(booked_guest)
+            or (instance.metadata or {}).get("source") == "booking_link"
+        )
+        # Older bookings dual-wrote a personal row and a project mirror.
+        # Deleting one still cancels the group. Ordinary events only
+        # soft-delete the row that was asked for.
+        if is_booking:
+            siblings = cancel_booking_events(instance)
+        else:
+            instance.is_deleted = True
+            instance.save(update_fields=["is_deleted", "updated_at"])
+            siblings = [instance]
+
+        # Only bookings, and only guests with an account. Ordinary events are
+        # deleted here too, and announcing every one of those would be noise -
+        # while a guest whose meeting just vanished genuinely needs telling.
+        if booked_guest:
+            notify_booking_cancelled(
+                instance,
+                host_id=organizer.user_id if organizer else instance.created_by_id,
+                guest_user_id=booked_guest.user_id,
+                actor=self.request.user,
+                by_guest=False,
+            )
+            slug = (instance.metadata or {}).get("booking_link_slug") or (
+                (booked_guest.metadata or {}).get("booking_link_slug")
+            )
+            if slug:
+                from .models import BookingLink
+
+                link = BookingLink.objects.filter(
+                    organization=instance.organization,
+                    slug=slug,
+                    is_deleted=False,
+                ).first()
+                if link:
+                    mark_invite_unbooked(link, booked_guest.user)
+        exported = {eid}
+        for sibling in siblings:
+            exported.add(str(sibling.pk))
+        for event_id in exported:
+            self._queue_google_export(event_id)
 
 
 class EventSearchView(generics.ListAPIView):
@@ -517,9 +669,13 @@ class EventSearchView(generics.ListAPIView):
                 return Event.objects.none()
 
         calendars = _get_accessible_calendars(user, project_id=project_id)
-        queryset = Event.objects.select_related("calendar", "created_by").filter(
-            calendar__in=calendars,
-            is_deleted=False,
+        queryset = (
+            Event.objects.select_related("calendar", "created_by")
+            .filter(
+                _visible_events_q(user, calendars, get_user_organization(user)),
+                is_deleted=False,
+            )
+            .distinct()
         )
 
         q = self.request.query_params.get("q")
@@ -615,36 +771,58 @@ def _get_accessible_calendars(
     if calendar_ids:
         qs = qs.filter(id__in=calendar_ids)
     if project_id is not None:
-        qs = qs.filter(project_id=project_id)
+        # Project week view still needs the team calendar, but personal
+        # booking / events live on the user's own calendar in the same org.
+        qs = qs.filter(Q(project_id=project_id) | Q(project__isnull=True, owner=user))
 
     return qs.distinct()
 
 
-def _events_intersecting_range(start_dt, end_dt, base_qs=None):
-    """
-    Return events that may appear in [start_dt, end_dt).
 
-    Non-recurring events use wall-clock overlap. Recurring masters are included
-    when the series can still produce instances in the window (so split-born
-    series remain visible after their first occurrence day).
+def _visible_events_q(user, calendars, organization) -> Q:
     """
-    if base_qs is None:
-        base_qs = Event.objects.all()
+    Events a user may see: on a calendar they can reach, or one they attend.
 
-    non_recurring = Q(
-        is_recurring=False,
-        start_datetime__lt=end_dt,
-        end_datetime__gt=start_dt,
-    )
-    recurring = Q(
-        is_recurring=True,
-        recurrence_rule__isnull=False,
-        start_datetime__lt=end_dt,
-    ) & (
-        Q(recurrence_rule__until__isnull=True)
-        | Q(recurrence_rule__until__gt=start_dt)
-    )
-    return base_qs.filter(non_recurring | recurring)
+    Attendance conferring visibility is what lets someone who booked time find
+    that meeting in their own week. The event lives on the host's calendar, so
+    without this clause an attendee is invisible to themselves.
+
+    The organisation is pinned explicitly on the attendee branch. Orgs without
+    their own schema share `public`, where an unscoped attendee lookup would
+    reach across tenants.
+    """
+    attending = Q(attendees__user=user, attendees__is_deleted=False)
+    if organization is not None:
+        attending &= Q(organization=organization)
+    return Q(calendar__in=calendars) | attending
+
+
+def _events_on_selected_calendars(events, selected_ids: set[str], accessible_ids: set[str]):
+    """
+    Opening one calendar should show that diary, not every meeting the
+    viewer attends.
+
+    A guest who cannot open the host calendar still sees the booking until
+    they have their own copy on a calendar they can open.
+    """
+    groups_on_accessible = {
+        (getattr(event, "metadata", None) or {}).get("booking_group")
+        for event in events
+        if (getattr(event, "metadata", None) or {}).get("booking_group")
+        and str(getattr(event, "calendar_id", "")) in accessible_ids
+    }
+    kept = []
+    for event in events:
+        calendar_id = str(getattr(event, "calendar_id", ""))
+        if calendar_id in selected_ids:
+            kept.append(event)
+            continue
+        group = (getattr(event, "metadata", None) or {}).get("booking_group")
+        if group and group in groups_on_accessible:
+            continue
+        if calendar_id not in accessible_ids:
+            kept.append(event)
+    return kept
 
 
 def _build_calendar_view_payload(
@@ -655,23 +833,19 @@ def _build_calendar_view_payload(
     project_id: int | None,
     view_type: str,
 ):
+    accessible_all = _get_accessible_calendars(user, project_id=project_id)
     calendars = _get_accessible_calendars(user, calendar_ids, project_id=project_id)
-    if not calendars.exists():
-        return {
-            "view_type": view_type,
-            "start_date": start_dt.isoformat().replace("+00:00", "Z"),
-            "end_date": end_dt.isoformat().replace("+00:00", "Z"),
-            "events": [],
-            "calendars": [],
-        }
+    organization = get_user_organization(user)
 
     events_qs = _events_intersecting_range(
         start_dt,
         end_dt,
-        Event.objects.select_related("calendar", "created_by", "recurrence_rule").filter(
-            calendar__in=calendars,
+        Event.objects.select_related("calendar", "created_by", "recurrence_rule")
+        .filter(
+            _visible_events_q(user, accessible_all, organization),
             is_deleted=False,
-        ),
+        )
+        .distinct(),
     )
 
     instances: list[Any] = []
@@ -680,6 +854,20 @@ def _build_calendar_view_payload(
             instances.extend(_expand_recurring_event(ev, start_dt, end_dt))
         else:
             instances.append(ev)
+
+    if calendar_ids:
+        instances = _events_on_selected_calendars(
+            instances,
+            selected_ids={str(calendar.id) for calendar in calendars},
+            accessible_ids={str(calendar.id) for calendar in accessible_all},
+        )
+
+    # A booking is two rows (host primary + project copy). Showing both on the
+    # same week view looks like a double-booked slot, so keep one card.
+    instances = prefer_visible_booking_copy(
+        instances,
+        visible_calendar_ids=[calendar.id for calendar in calendars],
+    )
 
     events_data = EventSerializer(instances, many=True).data
 
@@ -710,100 +898,6 @@ def _build_calendar_view_payload(
         "calendars": calendars_data,
     }
 
-
-def _expand_recurring_event(
-    event: Event,
-    time_min,
-    time_max,
-    max_results: int = 250,
-):
-    """
-    Expand a recurring event into concrete instances within [time_min, time_max).
-    Currently supports simple DAILY and WEEKLY patterns based on start_datetime.
-    """
-    if not event.is_recurring or not event.recurrence_rule_id:
-        return []
-
-    rule = event.recurrence_rule
-    frequency = rule.frequency
-    interval = max(int(rule.interval or 1), 1)
-
-    duration = event.end_datetime - event.start_datetime
-    instances: list[Any] = []
-
-    # Load exceptions for this event/rule within range
-    exceptions = RecurrenceException.objects.filter(
-        organization=event.organization,
-        recurrence_rule=rule,
-        original_event=event,
-        exception_date__gte=time_min,
-        exception_date__lt=time_max,
-    ).select_related("modified_event")
-    exceptions_by_date = {exc.exception_date: exc for exc in exceptions}
-
-    # Fast-forward to first occurrence that could intersect [time_min, time_max)
-    if frequency == "DAILY":
-        step = timezone.timedelta(days=interval)
-    elif frequency == "WEEKLY":
-        step = timezone.timedelta(weeks=interval)
-    else:
-        # For now only basic DAILY/WEEKLY patterns are supported in expansion.
-        return []
-
-    # Honor the series bounds so a capped/split series stops generating.
-    # `until` is treated as exclusive (strict-less): an occurrence exactly at
-    # `until` belongs to the next (split) series, never the capped master.
-    rule_until = rule.until
-    rule_count = rule.count
-
-    # Skip occurrences that end at or before time_min (first that can intersect
-    # the window has start > time_min - duration).
-    occurrence_index = _count_occurrences_before(
-        event.start_datetime, time_min - duration, rule
-    )
-    current = event.start_datetime + (step * occurrence_index)
-
-    if rule_count is not None and occurrence_index >= rule_count:
-        return []
-    if rule_until is not None and current >= rule_until:
-        return []
-
-    while current + duration <= time_max and len(instances) < max_results:
-        if rule_count is not None and occurrence_index >= rule_count:
-            break
-        if rule_until is not None and current >= rule_until:
-            break
-
-        # Check intersection with requested window
-        if current < time_max and (current + duration) > time_min:
-            exc = exceptions_by_date.get(current)
-            if exc:
-                if exc.is_cancelled:
-                    # Skip cancelled instance
-                    pass
-                else:
-                    # Use modified event instance
-                    instances.append(exc.modified_event)
-            else:
-                # Create a lightweight instance based on the master event
-                attrs = {}
-                for field in Event._meta.fields:
-                    name = field.name
-                    attrs[name] = getattr(event, name)
-
-                # Override fields specific to this occurrence
-                attrs["id"] = event.id  # master id; original_start differentiates instances
-                attrs["start_datetime"] = current
-                attrs["end_datetime"] = current + duration
-                attrs["original_start"] = current
-
-                instance_obj = SimpleNamespace(**attrs)
-                instances.append(instance_obj)
-
-        current = current + step
-        occurrence_index += 1
-
-    return instances
 
 
 class EventInstancesView(generics.ListAPIView):
@@ -1475,53 +1569,19 @@ class FreeBusyView(generics.GenericAPIView):
             "calendars": {},
         }
 
-        for cal in calendars:
-            events_qs = _events_intersecting_range(
-                time_min,
-                time_max,
-                Event.objects.filter(
-                    calendar=cal,
-                    is_deleted=False,
-                ).select_related("recurrence_rule"),
-            )
+        # Expansion + merge live in services so booking availability reuses the
+        # same computation rather than a second copy of it.
+        by_calendar = get_busy_intervals_by_calendar(calendars, time_min, time_max)
 
-            intervals = []
-            for ev in events_qs:
-                if ev.is_recurring and ev.recurrence_rule_id:
-                    instances = _expand_recurring_event(ev, time_min, time_max)
-                    for inst in instances:
-                        intervals.append(
-                            [
-                                getattr(inst, "start_datetime"),
-                                getattr(inst, "end_datetime"),
-                            ]
-                        )
-                else:
-                    intervals.append([ev.start_datetime, ev.end_datetime])
-
-            # Merge overlapping intervals
-            intervals = sorted(intervals, key=lambda x: x[0])
-            merged = []
-            for start, end in intervals:
-                if not merged:
-                    merged.append([start, end])
-                else:
-                    last_start, last_end = merged[-1]
-                    if start <= last_end:
-                        merged[-1][1] = max(last_end, end)
-                    else:
-                        merged.append([start, end])
-
-            busy = [
-                {
-                    "start": s.isoformat().replace("+00:00", "Z"),
-                    "end": e.isoformat().replace("+00:00", "Z"),
-                }
-                for s, e in merged
-            ]
-
-            result["calendars"][str(cal.id)] = {
-                "busy": busy,
+        for calendar_id, intervals in by_calendar.items():
+            result["calendars"][calendar_id] = {
+                "busy": [
+                    {
+                        "start": s.isoformat().replace("+00:00", "Z"),
+                        "end": e.isoformat().replace("+00:00", "Z"),
+                    }
+                    for s, e in intervals
+                ],
                 "errors": [],
             }
 
@@ -1610,3 +1670,688 @@ class CalendarEventListView(generics.ListAPIView):
             event_type=self.request.query_params.get('event_type'),
             project_id=resolve_project_pk(self.request.query_params.get('project_id')),
         )
+
+# ── Public booking links ────────────────────────────────────────
+#
+# These are the only unauthenticated endpoints in this app. Two consequences
+# shape everything below:
+#
+# 1. TenantSchemaMiddleware resolves the schema from the authenticated user and
+#    falls back to `public` when there is none. Booking links are tenant-scoped,
+#    so each view must resolve the organisation from the URL and switch schema
+#    itself — see core.services.tenant.tenant_schema.
+# 2. Anything read here is readable by anyone holding the URL, and anything
+#    written here is written by an anonymous caller. Responses are therefore
+#    kept narrow, and both views are throttled by IP.
+
+
+# How far ahead an availability query may look in one request, independent of
+# the link's own horizon. Keeps a single request from expanding months of slots.
+MAX_AVAILABILITY_WINDOW_DAYS = 62
+DEFAULT_AVAILABILITY_WINDOW_DAYS = 14
+
+
+def _resolve_booking_org(org_slug: str):
+    """
+    Resolve the URL's org slug to an Organization, or None.
+
+    Runs before any schema switch, because Organization lives in the public
+    schema. Validating here is what makes the slug safe to hand to
+    tenant_schema(); an unvalidated slug would let a caller aim queries at any
+    schema name they can guess.
+    """
+    return Organization.objects.filter(slug=org_slug, is_active=True).first()
+
+
+def _load_active_booking_link(link_slug: str, organization):
+    """Fetch a live booking link. Must be called inside the tenant schema."""
+    return (
+        BookingLink.objects.filter(
+            organization=organization,
+            slug=link_slug,
+            is_active=True,
+            is_deleted=False,
+            owner__is_active=True,
+            calendar__is_deleted=False,
+        )
+        .select_related("owner", "calendar")
+        .prefetch_related("invitee_users")
+        .first()
+    )
+
+
+def _booking_from_token(event_id, organization, link_slug):
+    event = Event.objects.filter(id=event_id, organization=organization).first()
+    if not event:
+        return None, None
+    meta = event.metadata or {}
+    links = BookingLink.objects.filter(organization=organization)
+    if meta.get("booking_link_id"):
+        link = links.filter(pk=meta["booking_link_id"]).first()
+        if not link or link_slug not in {link.slug, meta.get("booking_link_slug")}:
+            return None, None
+    else:
+        link = links.filter(slug=link_slug).order_by("-created_at").first()
+    if not link or not event_belongs_to_booking_link(event, link):
+        return None, None
+    return link, event
+
+
+def _booking_not_found():
+    """
+    One indistinguishable response for every miss.
+
+    A wrong org, a wrong link, an inactive link and a deleted link all answer
+    identically, so the endpoint cannot be used to enumerate which
+    organisations or links exist.
+    """
+    return calendar_error_response(
+        "NOT_FOUND",
+        "This booking link is not available.",
+        status_code=status.HTTP_404_NOT_FOUND,
+    )
+
+
+def _google_connection_for(user_id):
+    """
+    The owner's Google connection, if any.
+
+    GoogleCalendarConnection is not tenant-scoped — it lives in the public
+    schema — so this resolves correctly regardless of the active search_path.
+    """
+    from google_calendar_integration.models import GoogleCalendarConnection
+
+    return GoogleCalendarConnection.objects.filter(user_id=user_id).first()
+
+
+def _google_busy_for_link(link):
+    """Personal links consult the host's Google diary; team links do not."""
+    if is_team_booking_calendar(getattr(link, "calendar", None)):
+        return None
+    return _google_connection_for(link.owner_id)
+
+
+class PublicBookingLinkAvailabilityView(APIView):
+    """
+    GET /api/public/book/<org_slug>/<link_slug>/
+
+    Link details plus bookable slots. Anonymous visitors can read an open
+    link. An invitees-only link answers 404 until a named person is signed
+    in, same as a missing link — otherwise the payload would confirm the
+    link exists and who it is for.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = [TenantAwareJWTAuthentication]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_booking_read"
+
+    def get(self, request, org_slug: str, link_slug: str):
+        organization = _resolve_booking_org(org_slug)
+        if not organization:
+            return _booking_not_found()
+
+        try:
+            range_start, range_end = self._parse_range(request)
+        except (ValueError, OverflowError) as exc:
+            return calendar_error_response(
+                "BAD_REQUEST", "Invalid availability range.", status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        with tenant_schema_context(slug_to_schema_name(organization.slug)):
+            link = _load_active_booking_link(link_slug, organization)
+            if not link:
+                return _booking_not_found()
+
+            if not can_book_public_link(link, request.user):
+                return _booking_not_found()
+
+            payload = PublicBookingLinkSerializer(link).data
+            payload["viewer_can_book"] = True
+            payload["same_project"] = booker_shares_project(link, request.user)
+            payload["viewer_bookings"] = serialize_viewer_bookings(
+                find_viewer_bookings(link, request.user)
+            )
+
+            # Windows and their timezone must come from the same source — see
+            # AvailabilitySchedule.
+            schedule = schedule_from_booking_link(link)
+            slots = get_merged_availability(
+                calendars=calendars_for_booking_availability(link),
+                google_connection=_google_busy_for_link(link),
+                rules=rules_from_booking_link(link),
+                windows=schedule.windows,
+                tz_name=schedule.timezone,
+                range_start=range_start,
+                range_end=range_end,
+            )
+
+        payload["slots"] = [
+            {
+                "start": start.isoformat().replace("+00:00", "Z"),
+                "end": end.isoformat().replace("+00:00", "Z"),
+            }
+            for start, end in slots
+        ]
+        return Response(payload, status=status.HTTP_200_OK)
+
+    def _parse_range(self, request):
+        now = timezone.now()
+
+        start_raw = request.query_params.get("from")
+        end_raw = request.query_params.get("to")
+
+        range_start = _parse_iso_datetime(start_raw) if start_raw else now
+        if end_raw:
+            range_end = _parse_iso_datetime(end_raw)
+        else:
+            range_end = range_start + timedelta(days=DEFAULT_AVAILABILITY_WINDOW_DAYS)
+
+        if range_end <= range_start:
+            raise ValueError("'to' must be later than 'from'.")
+        if range_end - range_start > timedelta(days=MAX_AVAILABILITY_WINDOW_DAYS):
+            raise ValueError(
+                f"Range cannot exceed {MAX_AVAILABILITY_WINDOW_DAYS} days."
+            )
+        # Never offer slots in the past, however wide the requested window.
+        return max(range_start, now), range_end
+
+
+class PublicBookingCreateView(APIView):
+    """
+    POST /api/public/book/<org_slug>/<link_slug>/bookings/
+
+    Create a booking. Guests may book anonymously; a signed-in member's
+    name and email come from the account. Tightly throttled: each call
+    writes a real calendar event.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = [TenantAwareJWTAuthentication]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_booking_write"
+
+    def post(self, request, org_slug: str, link_slug: str):
+        organization = _resolve_booking_org(org_slug)
+        if not organization:
+            return _booking_not_found()
+
+        serializer = BookingRequestSerializer(
+            data=request.data,
+            context={"user": request.user},
+        )
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        with tenant_schema_context(slug_to_schema_name(organization.slug)), transaction.atomic():
+            link = _load_active_booking_link(link_slug, organization)
+            if not link:
+                return _booking_not_found()
+
+            if not can_book_public_link(link, request.user):
+                return _booking_not_found()
+
+            # Lock every diary we will write, in a stable order. Reciprocal
+            # member bookings otherwise lock A then B / B then A and deadlock.
+            # NO KEY UPDATE also lets unrelated foreign-key inserts proceed.
+            initial_owner_id = link.owner_id
+            calendar_ids = {link.calendar_id}
+            guest = self._guest_account(link, data["email"])
+            booker = request.user if getattr(request.user, "is_authenticated", False) else None
+            existing = find_upcoming_guest_booking(link, booker) if booker else None
+            if existing:
+                calendar_ids.add(existing.calendar_id)
+            if guest and guest.pk != link.owner_id and guest.organization_id == link.organization_id:
+                guest_calendar = ensure_personal_calendar(
+                    organization=link.organization, owner=guest, timezone=link.timezone,
+                )
+                calendar_ids.add(guest_calendar.pk)
+            locked = list(Calendar.objects.select_for_update(no_key=True).filter(
+                pk__in=calendar_ids, is_deleted=False,
+            ).order_by("pk"))
+            calendar = next((item for item in locked if item.pk == link.calendar_id), None)
+            if calendar is None:
+                return _booking_not_found()
+            # Re-read permissions and rules after waiting; the host may have
+            # disabled or changed this link while another booking held the lock.
+            link = BookingLink.objects.select_for_update().get(pk=link.pk)
+            if (link.is_deleted or not link.is_active or link.owner_id != initial_owner_id
+                    or not link.owner.is_active or link.calendar_id != calendar.pk
+                    or not can_book_public_link(link, request.user)):
+                return _booking_not_found()
+            link.calendar = calendar
+            if data["email"].strip().lower() == (link.owner.email or "").strip().lower():
+                return calendar_error_response("BAD_REQUEST", "The host cannot book their own link.", status_code=400)
+
+            rules = rules_from_booking_link(link)
+            schedule = schedule_from_booking_link(link)
+            google_connection = _google_busy_for_link(link)
+
+            booker = request.user if getattr(request.user, "is_authenticated", False) else None
+            existing = find_upcoming_guest_booking(link, booker) if booker else None
+            if existing and existing.start_datetime == data["start"]:
+                return calendar_error_response(
+                    "SLOT_UNAVAILABLE", "You already booked this time.",
+                    status_code=status.HTTP_409_CONFLICT,
+                )
+            replaced = cancel_booking_events(existing) if existing else []
+
+            # Availability was rendered from a snapshot, so the slot may have
+            # been taken while the page sat open. Without this re-check the same
+            # slot can be booked twice.
+            try:
+                slot_available = is_slot_still_available(
+                    calendars=calendars_for_booking_availability(link),
+                    google_connection=google_connection,
+                    rules=rules,
+                    windows=schedule.windows,
+                    tz_name=schedule.timezone,
+                    slot_start=data["start"],
+                )
+            except GoogleAvailabilityUnavailable:
+                transaction.set_rollback(True)
+                return calendar_error_response(
+                    "AVAILABILITY_UNAVAILABLE",
+                    "We couldn't verify this time. Please try again shortly.",
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            if not slot_available:
+                transaction.set_rollback(True)
+                return calendar_error_response(
+                    "SLOT_UNAVAILABLE",
+                    "That time is no longer available. Please pick another slot.",
+                    status_code=status.HTTP_409_CONFLICT,
+                )
+
+            event, guest = self._create_event(link, data, rules)
+            link_timezone = schedule.timezone
+            if existing:
+                notify_booking_rescheduled(link, event, guest, data["name"])
+            else:
+                notify_booking_made(link, event, guest, data["name"])
+            if guest:
+                mark_invite_booked(link, guest, event, make_cancel_token(event.pk))
+            for old_copy in replaced:
+                queue_booking_task(export_event_to_google_task, str(old_copy.pk),
+                                   tenant_schema=slug_to_schema_name(organization.slug))
+
+        # Export asynchronously after commit, as every other event write in this
+        # module does. The local event is the source of truth: a Google outage
+        # must not lose a confirmed booking, and the prospect should not wait on
+        # an external API. The worker needs the schema explicitly — it never
+        # passes through TenantSchemaMiddleware.
+        event_id = str(event.pk)
+        schema = slug_to_schema_name(organization.slug)
+        if not is_team_booking_calendar(getattr(link, "calendar", None)):
+            queue_booking_task(export_event_to_google_task, event_id, tenant_schema=schema)
+
+        token = make_cancel_token(event.pk)
+        cancel_url = request.build_absolute_uri(
+            f"/book/{quote(org_slug)}/{quote(link_slug)}/cancel?token={quote(token)}"
+        )
+        # Token in the path, not ?token=: Outlook desktop strips query
+        # strings when adding an internet calendar, then the feed 404s.
+        # Colon in a signed token also has to be encoded — reverse()
+        # leaves it raw, and some clients treat it as a delimiter.
+        placeholder = "FEEDTOKEN"
+        feed_path = reverse(
+            "public-booking-feed",
+            kwargs={
+                "org_slug": org_slug,
+                "link_slug": link_slug,
+                "token": placeholder,
+            },
+        ).replace(placeholder, quote(make_feed_token(event.pk), safe=""))
+        feed_url = as_webcal_url(request.build_absolute_uri(feed_path))
+        self._queue_confirmation_email(
+            event=event,
+            link=link,
+            data=data,
+            cancel_url=cancel_url,
+            feed_url=feed_url,
+        )
+
+        return Response(
+            {
+                "status": "confirmed",
+                "start": event.start_datetime.isoformat().replace("+00:00", "Z"),
+                "end": event.end_datetime.isoformat().replace("+00:00", "Z"),
+                "title": event.title,
+                "timezone": link_timezone,
+                # The guest's handle on this booking. Also emailed, so closing
+                # the tab is no longer the end of it.
+                "cancel_token": token,
+                # Subscribing keeps their calendar in step with ours - the only
+                # way a guest with no account hears about a cancellation.
+                "feed_url": feed_url,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+    def _queue_confirmation_email(self, *, event, link, data, cancel_url, feed_url):
+        """
+        Email is the guest's only channel: no account, so no notifications.
+
+        Fired after commit so a booking is never emailed before it is durable,
+        and never blocks the response.
+        """
+        ics_body = build_booking_ics(
+            uid=f"{event.pk}@marketing-simplified",
+            title=event.title,
+            start=event.start_datetime,
+            end=event.end_datetime,
+            description=event.description or "",
+            url=feed_url,
+            organizer_email=link.owner.email or "",
+        )
+        payload = {
+            "to_email": data["email"],
+            "guest_name": data["name"],
+            "host_name": link.owner.get_full_name() or link.owner.get_username(),
+            "title": event.title,
+            "when": event.start_datetime.strftime("%A %d %B %Y, %H:%M UTC"),
+            "ics_body": ics_body,
+            "cancel_url": cancel_url,
+            "feed_url": feed_url,
+        }
+        queue_booking_task(send_booking_confirmation_task, **payload)
+
+    @staticmethod
+    def _event_description(data) -> str:
+        """
+        Put the guest's contact details where the host will actually see them.
+
+        They are also stored properly on the EventAttendee row, but nothing in
+        the calendar UI renders attendees today - so a phone number recorded
+        only there would be collected and never read. The description is the
+        one field the event dialog shows, which makes it the honest place for
+        this until an attendee panel exists.
+        """
+        lines = [f"Booked by {data['name']}", data["email"]]
+        if data.get("phone"):
+            lines.append(data["phone"])
+        notes = (data.get("notes") or "").strip()
+        if notes:
+            lines += ["", notes]
+        return "\n".join(lines)
+
+    @transaction.atomic
+    def _create_event(self, link, data, rules):
+        start = data["start"]
+        end = start + timedelta(minutes=rules.duration_minutes)
+        guest = self._guest_account(link, data["email"])
+        # The selected calendar receives the host event. A verified account
+        # also receives a personal copy; an anonymous email proves no identity.
+        event, _guest = create_booking_events(
+            link=link,
+            title=f"{link.title} with {data['name']}"[:255],
+            description=self._event_description(data),
+            start=start,
+            end=end,
+            guest_user=guest,
+            guest_name=data["name"],
+            guest_email=data["email"],
+            guest_phone=data.get("phone", ""),
+        )
+        return event, guest
+
+    def _guest_account(self, link, email: str):
+        user = self.request.user
+        if not getattr(user, "is_authenticated", False):
+            return None
+        if user.organization_id == link.organization_id:
+            return user
+        if is_team_booking_calendar(link.calendar) and link.invitee_users.filter(pk=user.pk).exists():
+            return user
+        return None
+
+
+class PublicBookingFeedView(APIView):
+    """
+    GET /api/public/book/<org_slug>/<link_slug>/<token>.ics
+    GET /api/public/book/<org_slug>/<link_slug>/calendar.ics?token=...
+
+    The guest's booking as a subscribable calendar feed.
+
+    Distinct from the .ics the browser builds at confirmation time, which is a
+    snapshot: once saved, it never learns that the host cancelled. A calendar
+    app subscribed to this URL re-fetches it, so a cancellation reaches the
+    guest even though they have no account and no notification of any kind.
+
+    Read-only and idempotent, so unlike the cancel endpoint it is safe for the
+    prefetching that mail and chat clients do.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_booking_read"
+
+    def perform_content_negotiation(self, request, force=False):
+        # Successful responses are already rendered as text/calendar below.
+        # Calendar clients request that MIME type, which DRF's JSON renderers
+        # otherwise reject with 406 before get() runs. Keep JSON for errors.
+        return super().perform_content_negotiation(request, force=True)
+
+    def get(self, request, org_slug: str, link_slug: str, token: str | None = None):
+        organization = _resolve_booking_org(org_slug)
+        if not organization:
+            return _booking_not_found()
+
+        event_id = read_feed_token(token or request.query_params.get("token") or "")
+        if not event_id:
+            return _booking_not_found()
+
+        with tenant_schema_context(slug_to_schema_name(organization.slug)):
+            link, event = _booking_from_token(event_id, organization, link_slug)
+            if not link or not event or not event_belongs_to_booking_link(event, link):
+                return _booking_not_found()
+
+            cancelled = bool(event.is_deleted) or event.status == "cancelled"
+            body = build_booking_ics(
+                uid=f"{event.pk}@marketing-simplified",
+                title=event.title,
+                start=event.start_datetime,
+                end=event.end_datetime,
+                description=event.description or "",
+                url=request.build_absolute_uri(),
+                organizer_email=link.owner.email or "",
+                cancelled=cancelled,
+            )
+
+        response = HttpResponse(body, content_type="text/calendar; charset=utf-8")
+        response["Content-Disposition"] = 'inline; filename="booking.ics"'
+        # The whole point is that subscribers see changes; a cached copy would
+        # keep showing a meeting that has been called off.
+        response["Cache-Control"] = "no-store, max-age=0"
+        return response
+
+
+class PublicBookingCancelView(APIView):
+    """
+    POST /api/public/book/<org_slug>/<link_slug>/cancel/
+
+    Let a guest call off a booking they made. The token is the whole of the
+    authorisation: it proves they hold something only issued to them at booking
+    time, which is as much as can be asked of someone with no account.
+
+    Cancelling from either side ends the meeting for both, matching how Google
+    and Outlook behave - a half-cancelled meeting is worse than none.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_booking_write"
+
+    def post(self, request, org_slug: str, link_slug: str):
+        organization = _resolve_booking_org(org_slug)
+        if not organization:
+            return _booking_not_found()
+
+        event_id = read_cancel_token((request.data or {}).get("token") or "")
+        if not event_id:
+            # Same answer as an unknown link: a bad token must not confirm that
+            # some other booking exists.
+            return _booking_not_found()
+
+        with tenant_schema_context(slug_to_schema_name(organization.slug)), transaction.atomic():
+            link, event = _booking_from_token(event_id, organization, link_slug)
+            # The token names an event; the URL has to name the same booking, or
+            # a token could be replayed against an unrelated link.
+            if not link or not event or not event_belongs_to_booking_link(event, link):
+                return _booking_not_found()
+
+            event = lock_booking_event(event)
+            already_cancelled = bool(event.is_deleted) or event.status == "cancelled"
+            guest = (
+                EventAttendee.objects.filter(event=event, is_organizer=False)
+                .exclude(user=None)
+                .first()
+            )
+            siblings = cancel_booking_events(event)
+
+            if not already_cancelled:
+                notify_booking_cancelled(
+                    event,
+                    host_id=link.owner_id,
+                    guest_user_id=guest.user_id if guest else None,
+                    actor=None,
+                    by_guest=True,
+                )
+                if guest and guest.user_id:
+                    mark_invite_unbooked(link, guest.user)
+
+        # Soft-deleting is what makes the export remove the Google copy.
+        # Queue every sibling: only the primary calendar actually exports.
+        schema = slug_to_schema_name(organization.slug)
+        export_ids = {str(event.pk)} | {str(sibling.pk) for sibling in siblings}
+        for event_pk in export_ids:
+            queue_booking_task(export_event_to_google_task, event_pk, tenant_schema=schema)
+        return Response({"status": "cancelled"}, status=status.HTTP_200_OK)
+
+
+class PublicBookingLookupView(APIView):
+    """Request recovery by email without disclosing bookings or bearer tokens."""
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_booking_write"
+
+    def post(self, request, org_slug: str, link_slug: str):
+        serializer = BookingLookupSerializer(data=request.data or {})
+        serializer.is_valid(raise_exception=True)
+        try:
+            send_booking_recovery_task.delay(
+                org_slug=org_slug, link_slug=link_slug,
+                email=serializer.validated_data["email"],
+                base_url=request.build_absolute_uri("/").rstrip("/"),
+            )
+        except Exception:
+            return calendar_error_response(
+                "RECOVERY_UNAVAILABLE", "Recovery is temporarily unavailable. Please try again later.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"status": "accepted"}, status=status.HTTP_202_ACCEPTED)
+
+
+class BookingLinkViewSet(viewsets.ModelViewSet):
+    """
+    Owner-facing CRUD for booking links.
+
+    Scoped to links you are party to - ones you host, and ones you set up for a
+    colleague. A link you are unconnected to is neither listable nor
+    addressable, even inside the same organisation, so update and delete
+    inherit that boundary from the queryset.
+
+    `organization` is set from the request. The host comes from the serializer,
+    which checks the requester shares a project with them, and that they are a
+    project owner/admin if the host is someone else.
+
+    The public counterparts (PublicBookingLinkAvailabilityView /
+    PublicBookingCreateView) are the anonymous read + book side of the same
+    model, and deliberately expose far less.
+    """
+
+    serializer_class = BookingLinkSerializer
+    permission_classes = [IsAuthenticatedInOrganization]
+    # An owner's links are a naturally small set and the management UI wants
+    # them all; the global PAGE_SIZE would silently truncate the list.
+    pagination_class = None
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        Organization.objects.select_for_update(no_key=True).get(pk=request.user.organization_id)
+        return super().create(request, *args, **kwargs)
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        BookingLink.objects.select_for_update().get(pk=self.get_object().pk)
+        return super().update(request, *args, **kwargs)
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        BookingLink.objects.select_for_update().get(pk=self.get_object().pk)
+        return super().destroy(request, *args, **kwargs)
+
+    def get_serializer_context(self):
+        # Reuse the app's single definition of "calendars this user can use"
+        # rather than re-deriving it in the serializer.
+        context = super().get_serializer_context()
+        context["accessible_calendars"] = _get_accessible_calendars(self.request.user)
+        return context
+
+    def get_queryset(self):
+        organization = get_user_organization(self.request.user)
+        if not organization:
+            return BookingLink.objects.none()
+        return (
+            BookingLink.objects.filter(
+                Q(owner=self.request.user) | Q(created_by=self.request.user),
+                organization=organization,
+                is_deleted=False,
+            )
+            .select_related("calendar", "owner", "created_by")
+            .prefetch_related("invitee_users")
+            .distinct()
+            .order_by("-created_at", "title")
+        )
+
+    def perform_create(self, serializer):
+        organization = get_user_organization(self.request.user)
+        if not organization:
+            raise PermissionDenied("An organization is required to create booking links.")
+
+        extra = {"organization": organization, "created_by": self.request.user}
+        # Default the timezone from the host's calendar settings rather than
+        # asking for it. A per-link zone is an override, not something every
+        # user should have to answer — and a wrong answer silently shifts every
+        # offered slot. It must be the host's zone, not the creator's: the
+        # windows describe the host's working day.
+        if not serializer.validated_data.get("timezone"):
+            host = serializer.validated_data.get("owner", self.request.user)
+            settings_obj = CalendarSettings.objects.filter(user=host).first()
+            extra["timezone"] = (settings_obj and settings_obj.timezone) or "UTC"
+
+        link = serializer.save(**extra)
+        notify_link_created(link, self.request.user)
+
+    def perform_update(self, serializer):
+        # Only the people newly attached need telling. Re-announcing the link on
+        # every rules tweak would train everyone to ignore the bell.
+        before = self.get_object()
+        previous = {before.owner_id} | set(
+            before.invitee_users.values_list("pk", flat=True)
+        )
+        link = serializer.save()
+        current = {link.owner_id} | set(link.invitee_users.values_list("pk", flat=True))
+        newly_added = current - previous
+        if newly_added:
+            notify_link_created(link, self.request.user, only_ids=newly_added)
+
+    def perform_destroy(self, instance):
+        # Soft delete, matching the rest of this app. The partial unique
+        # constraint excludes deleted rows, so the slug becomes reusable.
+        instance.is_deleted = True
+        instance.save(update_fields=["is_deleted", "updated_at"], validate=False)

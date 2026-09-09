@@ -43,6 +43,7 @@ function CalendarPageStory(props: CalendarPageStoryProps = {}) {
   const [currentView, setCurrentView] = React.useState<CalendarViewType>("week");
   const [currentDate, setCurrentDate] = React.useState<Date>(() => new Date());
   const [viewSwitcherOpen, setViewSwitcherOpen] = React.useState(false);
+  const [showAllEvents, setShowAllEvents] = React.useState(false);
   const [dialogOpen, setDialogOpen] = React.useState(false);
   const [dialogPos, setDialogPos] = React.useState<EventPanelPosition | null>(
     null,
@@ -137,6 +138,8 @@ function CalendarPageStory(props: CalendarPageStoryProps = {}) {
         }}
         onToday={() => setCurrentDate(new Date())}
         onOffset={handleOffset}
+        showAllEvents={showAllEvents}
+        onShowAllEventsChange={setShowAllEvents}
       />
 
       <div className="flex flex-1 overflow-hidden">

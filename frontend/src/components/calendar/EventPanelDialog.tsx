@@ -10,13 +10,19 @@ import {
   X,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { CalendarAPI, extractUserDescription } from "@/lib/api/calendarApi";
+import {
+  CalendarAPI,
+  extractNavigationMetadata,
+  extractUserDescription,
+} from "@/lib/api/calendarApi";
 import type {
   CalendarDTO,
   EventDTO,
   RecurringEditScope,
 } from "@/lib/api/calendarApi";
 import type { CalendarDialogMode, EventPanelPosition } from "@/components/calendar/types";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import { isBookingEvent } from "@/lib/bookingEvent";
 import {
   RecurringEditScopeField,
 } from "@/components/calendar/RecurringEditScopeDialog";
@@ -78,15 +84,15 @@ export function EventPanelDialog({
       if (eventCalendarId && availableIds.has(eventCalendarId)) {
         return eventCalendarId;
       }
+      if (preferredCalendarId && availableIds.has(preferredCalendarId)) {
+        return preferredCalendarId;
+      }
       if (
         mode === "create" &&
         primaryCalendar?.id &&
         availableIds.has(primaryCalendar.id)
       ) {
         return primaryCalendar.id;
-      }
-      if (preferredCalendarId && availableIds.has(preferredCalendarId)) {
-        return preferredCalendarId;
       }
       return mergedCalendars[0]?.id || "";
     },
@@ -107,6 +113,7 @@ export function EventPanelDialog({
   const [calendarId, setCalendarId] = React.useState<string>(
     resolveDefaultCalendarId(event?.calendar_id),
   );
+  const [confirmCancelMeeting, setConfirmCancelMeeting] = React.useState(false);
   const formSeedRef = React.useRef<string | null>(null);
   const formSeedKey = [
     mode,
@@ -137,6 +144,7 @@ export function EventPanelDialog({
       pinnedOriginalStartRef.current =
         event?.original_start ?? event?.start_datetime ?? null;
       setShowMore(false);
+      setConfirmCancelMeeting(false);
       return;
     }
 
@@ -183,6 +191,41 @@ export function EventPanelDialog({
     />
   );
 
+  const isDerivedEvent = Boolean(
+    extractNavigationMetadata(event?.description || "")?.isDerived,
+  );
+  const bookingEvent = isBookingEvent(event);
+  const canRemoveEvent = Boolean(onDelete) && !isDerivedEvent;
+
+  const requestRemoveEvent = () => {
+    setConfirmCancelMeeting(true);
+  };
+
+  const confirmRemoveEvent = async () => {
+    if (!event || !onDelete) {
+      return;
+    }
+    setConfirmCancelMeeting(false);
+    await onDelete(event);
+  };
+
+  const removeConfirmDialog = canRemoveEvent ? (
+    <ConfirmDialog
+      isOpen={confirmCancelMeeting}
+      type="danger"
+      title={bookingEvent ? "Cancel this meeting?" : "Delete this event?"}
+      message={
+        bookingEvent
+          ? "The other person will be told this slot is no longer held, and the time will become available again."
+          : "This event will be removed from the calendar."
+      }
+      confirmText={bookingEvent ? "Cancel meeting" : "Delete"}
+      cancelText={bookingEvent ? "Keep meeting" : "Keep event"}
+      onConfirm={() => void confirmRemoveEvent()}
+      onCancel={() => setConfirmCancelMeeting(false)}
+    />
+  ) : null;
+
   if (mode === "view" && event) {
     const calendarName =
       mergedCalendars.find((c) => c.id === event.calendar_id)?.name || "Calendar";
@@ -194,6 +237,7 @@ export function EventPanelDialog({
     return (
       <>
         {backdrop}
+        {removeConfirmDialog}
         <div
           role="dialog"
           aria-label="View event"
@@ -213,7 +257,7 @@ export function EventPanelDialog({
               </span>
             </div>
             <div className="flex items-center gap-2 text-gray-500">
-              {onDelete && (
+              {canRemoveEvent && (
                 <button
                   type="button"
                   className="rounded-full p-1 hover:bg-gray-100"
@@ -223,13 +267,11 @@ export function EventPanelDialog({
                   <Pencil className="h-4 w-4" />
                 </button>
               )}
-              {!event.is_recurring && onDelete && (
+              {!event.is_recurring && canRemoveEvent && !bookingEvent && (
                 <button
                   type="button"
                   className="rounded-full p-1 hover:bg-gray-100"
-                  onClick={async () => {
-                    await onDelete(event);
-                  }}
+                  onClick={requestRemoveEvent}
                   aria-label="Delete event"
                 >
                   <Trash2 className="h-4 w-4" />
@@ -268,11 +310,29 @@ export function EventPanelDialog({
               <CalendarIcon className="mt-0.5 h-4 w-4 text-gray-500" />
               <span className="text-sm">{calendarName}</span>
             </div>
+            {bookingEvent && (
+              <p className="mt-2 text-xs text-gray-500" data-testid="calendar-booking-note">
+                Booked meeting. Cancelling notifies the other person and frees
+                this time.
+              </p>
+            )}
             {event.is_recurring && (
               <p className="mt-2 text-xs text-gray-500">
                 This is a recurring event. When you edit it you can choose to
                 change only this event, this and following events, or all events.
               </p>
+            )}
+            {bookingEvent && canRemoveEvent && (
+              <div className="mt-3 border-t border-gray-200 pt-3">
+                <button
+                  type="button"
+                  className="inline-flex w-full items-center justify-center rounded-full border border-red-300 bg-white px-4 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+                  data-testid="calendar-cancel-meeting"
+                  onClick={requestRemoveEvent}
+                >
+                  Cancel meeting
+                </button>
+              </div>
             )}
             {onAskAgent && (
               <div className="mt-3 border-t border-gray-200 pt-3">
@@ -410,16 +470,10 @@ export function EventPanelDialog({
     }
   };
 
-  const handleDelete = async () => {
-    if (!event || !onDelete) {
-      return;
-    }
-    await onDelete(event);
-  };
-
   return (
     <>
       {backdrop}
+      {removeConfirmDialog}
       <div
         role="dialog"
         aria-label={mode === "edit" ? "Edit event" : "Create event"}
@@ -642,12 +696,30 @@ export function EventPanelDialog({
                       className="mt-1 w-full rounded-md border border-gray-300 bg-gray-50 px-2 py-1 text-sm text-gray-900 outline-none focus:border-[#3CCED7]"
                       value={calendarId}
                       onChange={(e) => setCalendarId(e.target.value)}
+                      data-testid="event-calendar"
                     >
-                      {mergedCalendars.map((cal) => (
-                        <option key={cal.id} value={cal.id}>
-                          {cal.name}
-                        </option>
-                      ))}
+                      {mergedCalendars.some((cal) => cal.project_id != null) && (
+                        <optgroup label="Team">
+                          {mergedCalendars
+                            .filter((cal) => cal.project_id != null)
+                            .map((cal) => (
+                              <option key={cal.id} value={cal.id}>
+                                {cal.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                      {mergedCalendars.some((cal) => cal.project_id == null) && (
+                        <optgroup label="Personal">
+                          {mergedCalendars
+                            .filter((cal) => cal.project_id == null)
+                            .map((cal) => (
+                              <option key={cal.id} value={cal.id}>
+                                {cal.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
                 </div>
@@ -691,13 +763,14 @@ export function EventPanelDialog({
               </span>
             )}
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {mode === "edit" && event && !event.is_recurring && (
+              {mode === "edit" && event && !event.is_recurring && canRemoveEvent && (
                 <button
                   type="button"
                   className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
-                  onClick={handleDelete}
+                  data-testid={bookingEvent ? "calendar-cancel-meeting" : "calendar-delete-event"}
+                  onClick={requestRemoveEvent}
                 >
-                  Delete
+                  {bookingEvent ? "Cancel meeting" : "Delete"}
                 </button>
               )}
               <button

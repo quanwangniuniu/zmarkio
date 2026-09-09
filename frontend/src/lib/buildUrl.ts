@@ -26,6 +26,13 @@ function withOrgProjectPrefix(
     return path;
   }
 
+  // Public booking pages live at /book/<org>/<slug>, outside the app shell.
+  // Prefixing them produces /{org}/{project}/book/... which 404s.
+  const bare = path.startsWith('/') ? path : `/${path}`;
+  if (bare === '/book' || bare.startsWith('/book/') || bare.startsWith('/book?')) {
+    return bare;
+  }
+
   const suffix = path.startsWith('/') ? path : `/${path}`;
   return `${prefix}${suffix}`;
 }

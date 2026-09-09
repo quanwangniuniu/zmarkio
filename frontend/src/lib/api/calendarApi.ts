@@ -1,3 +1,4 @@
+import axios from 'axios';
 import api from "../api";
 
 export type CalendarViewType = "day" | "week" | "month" | "year" | "agenda";
@@ -40,6 +41,13 @@ export interface RecurrenceInput {
   until?: string | null;
 }
 
+export interface EventMetadata {
+  source?: string | null;
+  booking_link_slug?: string | null;
+  booking_role?: string | null;
+  [key: string]: unknown;
+}
+
 export interface EventDTO {
   id: string;
   calendar_id?: string;
@@ -56,6 +64,7 @@ export interface EventDTO {
   original_start?: string | null;
   color?: string;
   etag?: string;
+  metadata?: EventMetadata | null;
 }
 
 export type EventWritePayload = Partial<EventDTO> & {
@@ -337,4 +346,234 @@ export function extractNavigationMetadata(eventDescription: string): any {
   } catch {
     return null;
   }
+}
+
+
+// ── Public booking links ────────────────────────────────────────
+
+/**
+ * Booking pages are viewed by external prospects who have no account, so these
+ * calls use their own axios instance with no auth interceptors — the shared
+ * `api` client attaches tokens and redirects on 401, neither of which makes
+ * sense here. Mirrors googleAdsPublicPreviewApi.
+ */
+const publicApi = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || '',
+  timeout: 15000,
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/plain, */*',
+  },
+});
+
+export interface BookingSlotDTO {
+  /** ISO 8601 UTC. */
+  start: string;
+  end: string;
+}
+
+export interface ViewerBookingDTO {
+  start: string;
+  end: string;
+  title: string;
+}
+
+export interface PublicBookingLinkDTO {
+  slug: string;
+  title: string;
+  description: string | null;
+  duration_minutes: number;
+  /** Lets the client expire slots that lapse while the page sits open. */
+  min_notice_minutes: number;
+  /** The owner's timezone, for showing what time it is on their side. */
+  timezone: string;
+  owner_name: string;
+  slots: BookingSlotDTO[];
+  /** When true, only named invitees who are signed in can book. */
+  invitees_only?: boolean;
+  /** False on an invitees-only link until the viewer is a named invitee. */
+  viewer_can_book?: boolean;
+  /** Signed-in viewer shares a project with the host. Guests never see this. */
+  same_project?: boolean;
+  /** Upcoming bookings this signed-in viewer already has on this link. */
+  viewer_bookings?: ViewerBookingDTO[];
+}
+
+export interface BookingRequestPayload {
+  name: string;
+  email: string;
+  /** Optional: helps the host reach a guest whose email bounces. */
+  phone?: string;
+  /** ISO 8601 with an explicit offset — the backend rejects naive datetimes. */
+  start: string;
+  notes?: string;
+}
+
+export interface BookingConfirmationDTO {
+  status: string;
+  start: string;
+  end: string;
+  title: string;
+  timezone: string;
+  /**
+   * The guest's handle on this booking. Recovery sends it to the booking email.
+   */
+  cancel_token: string;
+  /** Subscribable calendar feed — stays in step if the booking is cancelled. */
+  feed_url: string;
+}
+
+function bookingBase(orgSlug: string, linkSlug: string): string {
+  return `/api/public/book/${encodeURIComponent(orgSlug)}/${encodeURIComponent(linkSlug)}`;
+}
+
+export const PublicBookingAPI = {
+  /** Link details plus bookable slots. `from`/`to` are ISO 8601. */
+  getAvailability: (
+    orgSlug: string,
+    linkSlug: string,
+    range?: { from?: string; to?: string },
+    accessToken?: string | null,
+  ) =>
+    publicApi
+      .get<PublicBookingLinkDTO>(`${bookingBase(orgSlug, linkSlug)}/`, {
+        params: range,
+        headers: accessToken
+          ? { Authorization: `Bearer ${accessToken}` }
+          : undefined,
+      })
+      .then((res) => res.data),
+
+  createBooking: (
+    orgSlug: string,
+    linkSlug: string,
+    payload: BookingRequestPayload,
+    accessToken?: string | null,
+  ) => {
+    const post = (token?: string | null) =>
+      publicApi
+        .post<BookingConfirmationDTO>(
+          `${bookingBase(orgSlug, linkSlug)}/bookings/`,
+          payload,
+          token
+            ? { headers: { Authorization: `Bearer ${token}` } }
+            : undefined,
+        )
+        .then((res) => res.data);
+
+    // An expired session must not silently downgrade a member to a guest.
+    return post(accessToken);
+  },
+
+  cancelBooking: (orgSlug: string, linkSlug: string, token: string) =>
+    publicApi
+      .post<{ status: string }>(`${bookingBase(orgSlug, linkSlug)}/cancel/`, { token })
+      .then((res) => res.data),
+
+  lookupBookings: (
+    orgSlug: string,
+    linkSlug: string,
+    query: { email: string },
+  ) =>
+    publicApi
+      .post<{ status: string }>(
+        `${bookingBase(orgSlug, linkSlug)}/lookup/`,
+        query,
+      )
+      .then((res) => res.data),
+};
+
+
+// ── Owner-facing booking link management ────────────────────────
+
+/** A weekly availability window, in the owner's timezone. */
+export interface BookingWindowDTO {
+  /** Monday=0 … Sunday=6. */
+  weekday: number;
+  /** "HH:MM" */
+  start: string;
+  end: string;
+}
+
+export interface BookingLinkDTO {
+  id: string;
+  slug: string;
+  /** The org that owns this link. Authoritative for building the public URL. */
+  organization_slug: string;
+  title: string;
+  description: string | null;
+  duration_minutes: number;
+  slot_increment_minutes: number;
+  buffer_before_minutes: number;
+  buffer_after_minutes: number;
+  min_notice_minutes: number;
+  max_advance_days: number;
+  timezone: string;
+  availability_windows: BookingWindowDTO[];
+  is_active: boolean;
+  /** Team (project calendar) or personal. */
+  scope: 'team' | 'personal';
+  /** Calendar the bookings land on. */
+  calendar: string;
+  /** Whose time the link books. Not necessarily whoever set it up. */
+  host: { id: number; name: string };
+  /** Who it was made for. id is null for a guest with no account here. */
+  invitees: { id: number | null; name: string; email: string }[];
+  invitee_emails: string[];
+  /** When true, only named invitees who are signed in can book. */
+  invitees_only: boolean;
+  /** Blank when the host set the link up themselves. */
+  created_by_name: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type BookingLinkWritePayload = Partial<
+  Omit<
+    BookingLinkDTO,
+    'id' | 'created_at' | 'updated_at' | 'host' | 'calendar' | 'invitees'
+  >
+> & {
+  /** Required on create: the calendar bookings are written to. */
+  calendar_id?: string;
+  /** The host. Omitted or null books your own time. */
+  host_id?: number | null;
+  /** Colleagues as guests. An empty list clears whoever was named. */
+  invitee_ids?: number[];
+};
+
+const BOOKING_LINKS_BASE = '/api/booking-links';
+
+/** The list is unpaginated server-side; stay tolerant of an envelope anyway. */
+function unwrapList<T>(data: unknown): T[] {
+  return Array.isArray(data) ? data : ((data as { results?: T[] })?.results ?? []);
+}
+
+export const BookingLinkAPI = {
+  list: () =>
+    api
+      .get<BookingLinkDTO[] | { results: BookingLinkDTO[] }>(`${BOOKING_LINKS_BASE}/`)
+      .then((res) => unwrapList<BookingLinkDTO>(res.data)),
+
+  create: (payload: BookingLinkWritePayload) =>
+    api.post<BookingLinkDTO>(`${BOOKING_LINKS_BASE}/`, payload),
+
+  update: (id: string, payload: BookingLinkWritePayload) =>
+    api.patch<BookingLinkDTO>(`${BOOKING_LINKS_BASE}/${id}/`, payload),
+
+  destroy: (id: string) => api.delete(`${BOOKING_LINKS_BASE}/${id}/`),
+};
+
+/**
+ * The shareable URL for a link.
+ *
+ * The org slug is part of the path because the public endpoint has no
+ * authenticated user to resolve the tenant from — see the booking views.
+ */
+export function bookingLinkUrl(orgSlug: string, linkSlug: string): string {
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  // Encoded for the same reason bookingBase() encodes: both segments are
+  // slugs today, but this is the string a user copies and pastes, so it should
+  // stay a valid URL whatever it is handed.
+  return `${origin}/book/${encodeURIComponent(orgSlug)}/${encodeURIComponent(linkSlug)}`;
 }

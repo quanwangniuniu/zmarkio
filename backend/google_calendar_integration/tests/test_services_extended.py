@@ -560,7 +560,8 @@ class ExportEventToGoogleServiceTests(TestCase):
             end_datetime=timezone.now() + timedelta(hours=1),
             timezone="UTC",
         )
-        export_event_to_google(ev)
+        with self.assertRaises(requests.HTTPError):
+            export_event_to_google(ev)
         self.conn.refresh_from_db()
         self.assertTrue(self.conn.needs_reconnect)
 

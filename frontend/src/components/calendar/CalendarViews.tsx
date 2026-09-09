@@ -13,7 +13,12 @@ import {
 } from "date-fns";
 import type { CalendarDTO, EventDTO, CalendarViewType } from "@/lib/api/calendarApi";
 import type { EventPanelPosition } from "@/components/calendar/types";
+import { isBookingEvent } from "@/lib/bookingEvent";
 import { computePanelPosition } from "@/components/calendar/utils";
+import {
+  layoutOverlappingEvents,
+  overlapColumnStyle,
+} from "@/components/calendar/overlapLayout";
 
 const WEEKDAY_LABELS = [
   { key: "mon", label: "M" },
@@ -237,27 +242,47 @@ export function WeekView({
                 );
               })}
 
-              {dayEvents.map((event) => {
-                const preview = previewTimes[event.id];
-                const evStart = preview ? preview.start : new Date(event.start_datetime);
-                const evEnd = preview ? preview.end : new Date(event.end_datetime);
-                const clampedStart = evStart < dayStart ? dayStart : evStart;
-                const clampedEnd = evEnd > dayEnd ? dayEnd : evEnd;
-                const startMinutes =
-                  (clampedStart.getTime() - dayStart.getTime()) / 60000;
-                const durationMinutes =
-                  (clampedEnd.getTime() - clampedStart.getTime()) / 60000 || 30;
-                const pixelsPerMinute = 48 / 60;
-                const topPx = startMinutes * pixelsPerMinute;
-                const heightPx = durationMinutes * pixelsPerMinute;
-                const backgroundColor =
-                  event.color || calendarColorById.get(event.calendar_id || "") || "#1E88E5";
+              {(() => {
+                const positioned = dayEvents.map((event) => {
+                  const preview = previewTimes[event.id];
+                  const evStart = preview ? preview.start : new Date(event.start_datetime);
+                  const evEnd = preview ? preview.end : new Date(event.end_datetime);
+                  const clampedStart = evStart < dayStart ? dayStart : evStart;
+                  const clampedEnd = evEnd > dayEnd ? dayEnd : evEnd;
+                  const startMinutes =
+                    (clampedStart.getTime() - dayStart.getTime()) / 60000;
+                  const durationMinutes =
+                    (clampedEnd.getTime() - clampedStart.getTime()) / 60000 || 30;
+                  const pixelsPerMinute = 48 / 60;
+                  return {
+                    event,
+                    evStart,
+                    evEnd,
+                    topPx: startMinutes * pixelsPerMinute,
+                    heightPx: durationMinutes * pixelsPerMinute,
+                    startMs: clampedStart.getTime(),
+                    endMs: clampedEnd.getTime(),
+                  };
+                });
+                const placements = layoutOverlappingEvents(
+                  positioned.map((item) => ({
+                    id: item.event.id,
+                    startMs: item.startMs,
+                    endMs: item.endMs,
+                  })),
+                );
+                return positioned.map((item) => {
+                  const { event, evStart, evEnd, topPx, heightPx } = item;
+                  const backgroundColor =
+                    event.color || calendarColorById.get(event.calendar_id || "") || "#1E88E5";
+                  const columnStyle = overlapColumnStyle(placements.get(event.id));
 
                 return (
                   <button
                     key={event.id + event.start_datetime}
                     type="button"
                     data-testid="calendar-event-card"
+                    data-booking={isBookingEvent(event) ? "true" : "false"}
                     aria-label={`Open event ${event.title || "(No title)"}`}
                     onClick={(e) => {
                       if (suppressClick) {
@@ -284,10 +309,12 @@ export function WeekView({
                         originalEnd: new Date(event.end_datetime),
                       });
                     }}
-                    className="absolute left-1 right-1 rounded-md px-1.5 py-0.5 pb-2 text-[11px] text-gray-900"
+                    className="absolute rounded-md px-1.5 py-0.5 pb-2 text-[11px] text-gray-900"
                     style={{
                       top: `${topPx}px`,
                       height: `${heightPx}px`,
+                      left: columnStyle.left,
+                      width: columnStyle.width,
                       borderLeft: `3px solid ${backgroundColor}`,
                       backgroundColor: `color-mix(in srgb, ${backgroundColor} 15%, white)`,
                     }}
@@ -317,7 +344,8 @@ export function WeekView({
                     )}
                   </button>
                 );
-              })}
+                });
+              })()}
 
               {isLoading && <div className="pointer-events-none absolute inset-0 bg-white/40" />}
               {error && (
@@ -478,24 +506,44 @@ export function DayView({
             );
           })}
 
-          {dayEvents.map((event) => {
-            const preview = previewTimes[event.id];
-            const evStart = preview ? preview.start : new Date(event.start_datetime);
-            const evEnd = preview ? preview.end : new Date(event.end_datetime);
-            const clampedStart = evStart < dayStart ? dayStart : evStart;
-            const clampedEnd = evEnd > dayEnd ? dayEnd : evEnd;
-            const startMinutes = (clampedStart.getTime() - dayStart.getTime()) / 60000;
-            const durationMinutes = (clampedEnd.getTime() - clampedStart.getTime()) / 60000 || 30;
-            const topPercent = (startMinutes / (24 * 60)) * 100;
-            const heightPercent = (durationMinutes / (24 * 60)) * 100;
-            const backgroundColor =
-              event.color || calendarColorById.get(event.calendar_id || "") || "#1E88E5";
+          {(() => {
+            const positioned = dayEvents.map((event) => {
+              const preview = previewTimes[event.id];
+              const evStart = preview ? preview.start : new Date(event.start_datetime);
+              const evEnd = preview ? preview.end : new Date(event.end_datetime);
+              const clampedStart = evStart < dayStart ? dayStart : evStart;
+              const clampedEnd = evEnd > dayEnd ? dayEnd : evEnd;
+              const startMinutes = (clampedStart.getTime() - dayStart.getTime()) / 60000;
+              const durationMinutes = (clampedEnd.getTime() - clampedStart.getTime()) / 60000 || 30;
+              return {
+                event,
+                evStart,
+                evEnd,
+                topPercent: (startMinutes / (24 * 60)) * 100,
+                heightPercent: (durationMinutes / (24 * 60)) * 100,
+                startMs: clampedStart.getTime(),
+                endMs: clampedEnd.getTime(),
+              };
+            });
+            const placements = layoutOverlappingEvents(
+              positioned.map((item) => ({
+                id: item.event.id,
+                startMs: item.startMs,
+                endMs: item.endMs,
+              })),
+            );
+            return positioned.map((item) => {
+              const { event, evStart, evEnd, topPercent, heightPercent } = item;
+              const backgroundColor =
+                event.color || calendarColorById.get(event.calendar_id || "") || "#1E88E5";
+              const columnStyle = overlapColumnStyle(placements.get(event.id));
 
             return (
               <button
                 key={event.id + event.start_datetime}
                 type="button"
                 data-testid="calendar-event-card"
+                data-booking={isBookingEvent(event) ? "true" : "false"}
                 aria-label={`Open event ${event.title || "(No title)"}`}
                 onClick={(e) => {
                   if (suppressClick) {
@@ -519,10 +567,12 @@ export function DayView({
                     originalEnd: new Date(event.end_datetime),
                   });
                 }}
-                className="absolute left-1 right-1 rounded-md px-1.5 py-0.5 pb-2 text-[11px] text-gray-900"
+                className="absolute rounded-md px-1.5 py-0.5 pb-2 text-[11px] text-gray-900"
                 style={{
                   top: `${topPercent}%`,
                   height: `${heightPercent}%`,
+                  left: columnStyle.left,
+                  width: columnStyle.width,
                   borderLeft: `3px solid ${backgroundColor}`,
                   backgroundColor: `color-mix(in srgb, ${backgroundColor} 15%, white)`,
                 }}
@@ -551,7 +601,8 @@ export function DayView({
                 )}
               </button>
             );
-          })}
+            });
+          })()}
 
           {isLoading && <div className="pointer-events-none absolute inset-0 bg-white/40" />}
           {error && (

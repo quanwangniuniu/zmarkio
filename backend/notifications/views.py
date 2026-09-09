@@ -212,15 +212,23 @@ class NotificationRespondView(APIView):
     def post(self, request, pk):
         notification = get_object_or_404(Notification, pk=pk, recipient=request.user)
 
-        if notification.responded:
+        ser = NotificationRespondSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        action = ser.validated_data["action"]
+
+        # Clicking Pick a time used to mark the invite accepted. A guest who
+        # never booked must still be able to decline.
+        meta = notification.metadata or {}
+        late_decline = (
+            action == "reject"
+            and (notification.related_object_type or "").lower() == "booking_link"
+            and not meta.get("booked")
+        )
+        if notification.responded and not late_decline:
             return Response(
                 {"detail": "You have already responded to this notification."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-
-        ser = NotificationRespondSerializer(data=request.data)
-        ser.is_valid(raise_exception=True)
-        action = ser.validated_data["action"]
 
         # Dispatch side-effects
         try:
@@ -391,8 +399,27 @@ def _handle_org_invite(notification, action, user):
                 pass
 
 
+def _handle_booking_link_invite(notification, action, user):
+    """Named guest: booking the slot is the accept. Decline removes them from the link."""
+    from calendars.models import BookingLink  # noqa: PLC0415
+
+    link_id = notification.related_object_id
+    try:
+        link = BookingLink.objects.filter(is_deleted=False).get(pk=link_id)
+    except (BookingLink.DoesNotExist, ValueError, TypeError):
+        logger.warning("BookingLink %s not found for invite response", link_id)
+        return
+
+    if action == "reject":
+        link.invitee_users.remove(user)
+
+
 def _handle_meeting_participant(notification, action, user):
     """Accept → mark participant link as accepted; reject → remove the link and revoke access."""
+    if (notification.related_object_type or "").lower() == "booking_link":
+        _handle_booking_link_invite(notification, action, user)
+        return
+
     from meetings.models import ParticipantLink  # noqa: PLC0415
 
     participant_link_id = notification.metadata.get("participant_link_id")

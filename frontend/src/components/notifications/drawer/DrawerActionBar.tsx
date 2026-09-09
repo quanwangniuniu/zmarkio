@@ -10,7 +10,9 @@ import { budgetChangeType, isBudgetNotification } from "@/lib/budgetNotification
 import {
   activateProjectForNavigation,
   buildNotificationFullPageTarget,
+  isBookingLinkInvite,
 } from "@/lib/notificationRoutes";
+import { bookingInvitePickLabel } from "@/lib/bookingInviteState";
 import { buildUrl } from "@/lib/buildUrl";
 
 interface DrawerActionBarProps {
@@ -283,6 +285,11 @@ function GoToFullPageLink({
 
   if (!target) return null;
 
+  const bookingLabel = isBookingLinkInvite(notification)
+    ? bookingInvitePickLabel(notification)
+    : null;
+  if (isBookingLinkInvite(notification) && !bookingLabel) return null;
+
   const handleClick = async () => {
     onNavigate();
     if (target.requiresProjectSwitch && target.projectId) {
@@ -297,7 +304,7 @@ function GoToFullPageLink({
       onClick={handleClick}
       className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#3CCED7] to-[#A6E661] px-4 py-3 font-medium text-white shadow-sm transition hover:opacity-95"
     >
-      <span>Go to Full Page</span>
+      <span>{bookingLabel ?? "Go to Full Page"}</span>
       <ExternalLink className="w-4 h-4" />
     </button>
   );

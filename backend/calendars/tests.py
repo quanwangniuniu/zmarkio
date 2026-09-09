@@ -464,6 +464,26 @@ class CalendarAPITests(CalendarTestBase):
         names_public = [c["name"] for c in items_public]
         self.assertEqual(names_public, ["Team Calendar"])
 
+    def test_calendar_list_with_project_id_includes_own_personal(self):
+        project, project_calendar = self._create_project_calendar_for_cross_org_member()
+        view = CalendarViewSet.as_view({"get": "list"})
+
+        req = self.factory.get(f"/api/v1/calendars/?project_id={project.id}")
+        force_authenticate(req, user=self.user)
+        resp = view(req)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        items = resp.data.get("results", resp.data)
+        names = {item["name"] for item in items}
+        self.assertIn("My Calendar", names)
+        self.assertIn(project_calendar.name, names)
+
+        req_member = self.factory.get(f"/api/v1/calendars/?project_id={project.id}")
+        force_authenticate(req_member, user=self.cross_org_user)
+        resp_member = view(req_member)
+        member_names = {item["name"] for item in resp_member.data.get("results", resp_member.data)}
+        self.assertIn(project_calendar.name, member_names)
+        self.assertNotIn("My Calendar", member_names)
+
     def test_cross_org_project_member_sees_project_calendar(self):
         _project, project_calendar = self._create_project_calendar_for_cross_org_member(role="viewer")
         view = CalendarViewSet.as_view({"get": "list"})
