@@ -555,6 +555,139 @@ jobs:
               npm test
             "
 
+      # Budget approval Playwright E2E (MED-315): real backend via nginx, isolated fixtures per test.
+      - name: Wait for nginx (budget E2E)
+        run: |
+          echo "Waiting for nginx to serve the stack..."
+          timeout=120
+          counter=0
+          while [ $counter -lt $timeout ]; do
+            if curl -fsS http://localhost/health > /dev/null 2>&1; then
+              echo "nginx is ready!"
+              exit 0
+            fi
+            echo "nginx not ready yet, waiting... ($counter/$timeout)"
+            sleep 2
+            counter=$((counter + 2))
+          done
+          echo "nginx failed to become healthy within ${timeout}s"
+          docker compose logs nginx
+          exit 1
+
+      - name: Provision budget E2E anchor user
+        run: |
+          docker compose exec -T backend sh <<'EOS'
+          set -e
+          python manage.py shell <<'PY'
+          from django.contrib.auth import get_user_model
+          from django.db.models.signals import post_save
+
+          from core.models import Organization, OrganizationMembership, Project, ProjectMember
+          from core.services.tenant import provision_tenant_schema, slug_to_schema_name
+          from core.tenant_context import tenant_schema_context
+          from stripe_meta.signals import create_default_subscription
+
+          User = get_user_model()
+          ANCHOR_EMAIL = "ci-budget-anchor@example.com"
+          ORG_SLUG = "ci-budget-e2e-org"
+
+          post_save.disconnect(create_default_subscription, sender=Organization)
+          try:
+              org, _ = Organization.objects.get_or_create(
+                  slug=ORG_SLUG,
+                  defaults={"name": "CI Budget E2E Org", "is_active": True},
+              )
+              provision_tenant_schema(org.slug)
+
+              anchor, _ = User.objects.get_or_create(
+                  email=ANCHOR_EMAIL,
+                  defaults={
+                      "username": "ci-budget-anchor",
+                      "organization": org,
+                      "current_organization": org,
+                      "is_verified": True,
+                      "password_set": True,
+                  },
+              )
+              anchor.organization = org
+              anchor.current_organization = org
+              anchor.is_verified = True
+              anchor.password_set = True
+              anchor.set_password("password123!")
+              anchor.save()
+
+              OrganizationMembership.objects.update_or_create(
+                  user=anchor,
+                  organization=org,
+                  defaults={"role": "admin", "is_active": True},
+              )
+
+              schema = slug_to_schema_name(org.slug)
+              with tenant_schema_context(schema):
+                  project, _ = Project.objects.get_or_create(
+                      organization=org,
+                      name="CI Budget Anchor Project",
+                      defaults={"owner": anchor},
+                  )
+                  ProjectMember.objects.update_or_create(
+                      user=anchor,
+                      project=project,
+                      defaults={"role": "owner", "is_active": True},
+                  )
+              anchor.active_project = project
+              anchor.save(update_fields=["active_project"])
+              print("budget E2E anchor ready:", anchor.email, "project_id=", project.id)
+          finally:
+              post_save.connect(create_default_subscription, sender=Organization)
+          PY
+          EOS
+
+      - name: Generate budget E2E fixtures
+        run: |
+          set -e
+          mkdir -p frontend/e2e/budget/fixtures
+          docker compose exec -T backend python manage.py issue_budget_e2e_fixtures \
+            --allow-outside-debug \
+            --anchor-email=ci-budget-anchor@example.com \
+            > frontend/e2e/budget/fixtures/budget-e2e-fixtures.json
+          python3 -c "
+          import json
+          data = json.load(open('frontend/e2e/budget/fixtures/budget-e2e-fixtures.json'))
+          assert data.get('users', {}).get('requester', {}).get('access_token'), 'missing requester access_token'
+          print('budget E2E fixtures ready for org', data.get('organization_slug'))
+          "
+
+      - name: Set up Node for budget Playwright E2E
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Playwright (Chromium only)
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run budget approval Playwright E2E
+        working-directory: frontend
+        env:
+          CI: true
+          BASE_URL: http://localhost
+          E2E_USE_EXISTING_SERVER: "1"
+        run: npm run test:e2e:budget
+
+      - name: Upload budget E2E Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: budget-e2e-playwright-${{ github.sha }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+
       # Cleanup containers and volumes
       - name: Cleanup containers
         if: always()
