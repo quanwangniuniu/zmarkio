@@ -153,9 +153,9 @@ async function ensureInactiveOrg(): Promise<{ id: bigint; slug: string }> {
   const name = `Studio Routing Inactive ${slug}`;
   const rows = await prisma.$queryRaw<{ id: bigint }[]>`
     INSERT INTO public.core_organization (
-      name, slug, is_active, is_deleted, is_parent, created_at, updated_at
+      name, slug, is_active, is_deleted, is_parent, created_at, updated_at, max_concurrent_sessions
     ) VALUES (
-      ${name}, ${slug}, false, false, false, now(), now()
+      ${name}, ${slug}, false, false, false, now(), now(), 5
     )
     RETURNING id`;
   return { id: rows[0].id, slug };
