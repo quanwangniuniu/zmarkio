@@ -159,6 +159,7 @@ export interface MeetingListItem {
   related_decisions: KnowledgeNavigationLink[];
   related_tasks: KnowledgeNavigationLink[];
   is_archived: boolean;
+  transcript_snippet?: string;
 }
 
 export interface PaginatedMeetingsList {

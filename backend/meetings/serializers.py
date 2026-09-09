@@ -392,7 +392,8 @@ class MeetingListSerializer(serializers.ModelSerializer):
     generated_tasks_count = serializers.IntegerField(read_only=True, source="task_count")
     generated_decisions = serializers.SerializerMethodField()
     generated_tasks = serializers.SerializerMethodField()
-    transcript_snippet = serializers.SerializerMethodField()
+    search_snippet = serializers.SerializerMethodField()
+    snippet_source = serializers.SerializerMethodField()
     related_decisions = serializers.SerializerMethodField()
     related_tasks = serializers.SerializerMethodField()
 
@@ -418,7 +419,8 @@ class MeetingListSerializer(serializers.ModelSerializer):
             "related_decisions",
             "related_tasks",
             "is_archived",
-            "transcript_snippet",
+            "search_snippet",
+            "snippet_source",
         ]
 
     def get_participants(self, obj):
@@ -439,11 +441,21 @@ class MeetingListSerializer(serializers.ModelSerializer):
     def get_related_tasks(self, obj):
         return related_tasks_payload(obj)
 
-    def get_transcript_snippet(self, obj):
-        transcript = obj.transcript or ""
-        if not transcript:
-            return ""
-        return transcript[:200]
+    def get_search_snippet(self, obj):
+        return (
+            getattr(obj, "transcript_headline", None)
+            or getattr(obj, "summary_headline", None)
+            or ""
+        )
+
+    def get_snippet_source(self, obj):
+        if getattr(obj, "transcript_headline", None):
+            return "transcript"
+        if getattr(obj, "summary_headline", None):
+            return "summary"
+        if getattr(obj, "title_headline", None):
+            return "title"
+        return None
 
 
 class AgendaItemSerializer(serializers.ModelSerializer):

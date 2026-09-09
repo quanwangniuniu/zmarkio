@@ -120,7 +120,7 @@ class TestTranscriptSearch(TestCase):
         self.assertIn(my_meeting.pk, result_ids)
         self.assertNotIn(other_meeting.pk, result_ids)
 
-    def test_api_returns_transcript_snippet(self):
+    def test_api_returns_search_snippet_with_highlight(self):
         client = APIClient()
         client.force_authenticate(user=self.user)
 
@@ -131,12 +131,13 @@ class TestTranscriptSearch(TestCase):
             objective="o",
             transcript="Tim: We need to cut the budget. " * 20,
         )
+        update_meeting_search_vector(meeting.pk)
 
-        url = f"/api/projects/{self.project.slug}/meetings/"
+        url = f"/api/projects/{self.project.slug}/meetings/?q=budget"
         response = client.get(url)
 
         self.assertEqual(response.status_code, 200)
         result = next(r for r in response.data["results"] if r["id"] == meeting.id)
-        self.assertIn("transcript_snippet", result)
-        self.assertLessEqual(len(result["transcript_snippet"]), 200)
-        self.assertTrue(result["transcript_snippet"].startswith("Tim:"))
+        self.assertIn("search_snippet", result)
+        self.assertIn("<mark>", result["search_snippet"])
+        self.assertIn("budget", result["search_snippet"])
