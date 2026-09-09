@@ -1379,7 +1379,14 @@ class TaskViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
                             is_org_admin_override_action,
                             user_may_process_budget_approval,
                         )
+                        from budget_approval.models import BudgetRequest
                         br = task.linked_object or task.budget_requests.first()
+                        if br is None:
+                            br = (
+                                BudgetRequest.objects.filter(task_id=task.pk)
+                                .order_by('-id')
+                                .first()
+                            )
                         if br is not None and user_may_process_budget_approval(request.user, br):
                             is_admin_override = is_org_admin_override_action(request.user, br)
                         else:
