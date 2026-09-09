@@ -254,3 +254,60 @@ class TestTranscriptSearch(TestCase):
         result = next(r for r in response.data["results"] if r["id"] == meeting.id)
         self.assertIsNone(result["snippet_source"])
         self.assertEqual(result["search_snippet"], "")
+
+    def test_api_cannot_see_meetings_from_another_project_in_same_org(self):
+        """Meetings from another project in the same org must not appear in search results."""
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        other_project = Project.objects.create(
+            name="Other Project",
+            organization=self.organization,
+        )
+        other_type = MeetingTypeDefinition.objects.create(
+            project=other_project,
+            slug="weekly",
+            label="Weekly",
+        )
+        other_meeting = Meeting.objects.create(
+            project=other_project,
+            title="Budget Sync",
+            type_definition=other_type,
+            objective="o",
+            transcript="Sarah: let us review the budget.",
+        )
+        update_meeting_search_vector(other_meeting.pk)
+
+        response = client.get(f"/api/projects/{self.project.slug}/meetings/?q=budget")
+        self.assertEqual(response.status_code, 200)
+        returned_ids = [r["id"] for r in response.data["results"]]
+        self.assertNotIn(other_meeting.id, returned_ids)
+
+    def test_api_cannot_see_meetings_from_another_organization(self):
+        """Meetings from a completely different org must not appear in search results."""
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        other_org = Organization.objects.create(name="Other Org", slug="other-org")
+        other_project = Project.objects.create(
+            name="Other Project",
+            organization=other_org,
+        )
+        other_type = MeetingTypeDefinition.objects.create(
+            project=other_project,
+            slug="weekly",
+            label="Weekly",
+        )
+        other_meeting = Meeting.objects.create(
+            project=other_project,
+            title="Budget Planning",
+            type_definition=other_type,
+            objective="o",
+            transcript="Alice: we must plan the budget carefully.",
+        )
+        update_meeting_search_vector(other_meeting.pk)
+
+        response = client.get(f"/api/projects/{self.project.slug}/meetings/?q=budget")
+        self.assertEqual(response.status_code, 200)
+        returned_ids = [r["id"] for r in response.data["results"]]
+        self.assertNotIn(other_meeting.id, returned_ids)
