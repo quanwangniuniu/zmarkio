@@ -176,7 +176,8 @@ class TestTranscriptSearch(TestCase):
         response = client.get(f"/api/projects/{self.project.slug}/meetings/?q=budget")
         result = next(r for r in response.data["results"] if r["id"] == meeting.id)
         self.assertEqual(result["snippet_source"], "summary")
-        self.assertEqual(result["search_snippet"], "")
+        self.assertIn("<mark>", result["search_snippet"])
+        self.assertIn("budget", result["search_snippet"])
 
     def test_snippet_source_is_title_when_matched_in_title(self):
         client = APIClient()
