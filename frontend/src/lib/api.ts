@@ -5,6 +5,7 @@ import {
   LoginResponse,
   RegisterRequest,
   RegisterResponse,
+  PasswordValidationRule,
   User,
   AuthError,
   GoogleAuthResponse,
@@ -460,6 +461,14 @@ export const authAPI = {
   
   register: async (userData: RegisterRequest): Promise<RegisterResponse> => {
     const response = await api.post('/auth/register/', userData);
+    return response.data;
+  },
+
+  validatePassword: async (
+    userData: Pick<RegisterRequest, 'username' | 'email' | 'password'>,
+    signal?: AbortSignal,
+  ): Promise<{ rules: PasswordValidationRule[] }> => {
+    const response = await api.post('/auth/password/validate/', userData, { signal });
     return response.data;
   },
   
