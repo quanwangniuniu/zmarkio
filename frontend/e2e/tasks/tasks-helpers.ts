@@ -73,7 +73,7 @@ export async function waitForTasksPageReady(page: Page) {
 export async function getActiveProjectSlug(page: Page): Promise<string> {
   const slug = await page.evaluate(() => {
     try {
-      const raw = localStorage.getItem('project-storage-v1');
+      const raw = localStorage.getItem('project-storage-v1') ?? localStorage.getItem('project-storage');
       if (!raw) return null;
       return (JSON.parse(raw) as { state?: { activeProject?: { slug?: string } } })?.state?.activeProject?.slug ?? null;
     } catch {
@@ -95,7 +95,7 @@ export async function getActiveProjectIdFromStore(page: Page): Promise<number> {
 
   const projectId: number | null = await page.evaluate(() => {
     try {
-      const raw = localStorage.getItem('project-storage-v1');
+      const raw = localStorage.getItem('project-storage-v1') ?? localStorage.getItem('project-storage');
       if (!raw) return null;
       return (JSON.parse(raw) as any)?.state?.activeProject?.id ?? null;
     } catch {
@@ -120,7 +120,7 @@ export async function navigateToTasksAndSelectProject(page: Page): Promise<numbe
 
   const projectId: number | null = await page.evaluate(() => {
     try {
-      const raw = localStorage.getItem('project-storage-v1');
+      const raw = localStorage.getItem('project-storage-v1') ?? localStorage.getItem('project-storage');
       if (!raw) return null;
       return (JSON.parse(raw) as any)?.state?.activeProject?.id ?? null;
     } catch {

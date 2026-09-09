@@ -18,6 +18,37 @@ def _tasks_from_response(response):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize('include_subtasks', [None, 'false', 'true', 'TRUE'])
+def test_parent_prefetch_only_runs_when_subtasks_requested(
+    authenticated_client, project, user, include_subtasks,
+):
+    user.active_project = project
+    user.save(update_fields=['active_project'])
+    parent = Task.objects.create(
+        summary='Parent', type='asset', project=project, owner=user, created_by=user,
+    )
+    child = Task.objects.create(
+        summary='Child', type='asset', project=project, owner=user,
+        created_by=user, is_subtask=True,
+    )
+    TaskHierarchy.objects.create(parent_task=parent, child_task=child)
+    params = {} if include_subtasks is None else {'include_subtasks': include_subtasks}
+    with CaptureQueriesContext(connection) as queries:
+        response = authenticated_client.get(reverse('task-list'), params)
+    assert response.status_code == 200
+    # Exclude the main task query's hierarchy COUNT join: only count direct
+    # hierarchy SELECTs, which should be the single prefetch (or none).
+    hierarchy_queries = [q for q in queries if 'FROM "task_hierarchies"' in q['sql']]
+    includes_children = include_subtasks in ('true', 'TRUE')
+    assert len(hierarchy_queries) == int(includes_children)
+    payloads = {task['id']: task for task in _tasks_from_response(response)}
+    assert set(payloads) == ({parent.id, child.id} if includes_children else {parent.id})
+    assert payloads[parent.id]['parent_relationship'] is None
+    if includes_children:
+        assert payloads[child.id]['parent_relationship'][0]['parent_task_id'] == parent.id
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize('scenario', [
     'empty_list', 'no_parent', 'missing_hierarchy',
     'parent_outside_page', 'shared_parent',
