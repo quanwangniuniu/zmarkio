@@ -654,7 +654,7 @@ class NotificationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "user", "read_at", "created_at", "updated_at"]
 
 
-# Read-only serializer for system-derived calendar events.
+# SMP-407: Read-only serializer for system-derived calendar events
 from .models import CalendarEvent
 
 class CalendarEventSerializer(serializers.ModelSerializer):

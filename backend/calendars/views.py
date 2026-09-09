@@ -1642,7 +1642,7 @@ class EventReminderListCreateView(generics.ListCreateAPIView):
         output = self.get_serializer(reminder)
         return Response(output.data, status=status.HTTP_201_CREATED)
 
-# System-derived calendar events (from decisions and tasks).
+# SMP-407
 from .models import CalendarEvent
 from .serializers import CalendarEventSerializer
 

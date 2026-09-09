@@ -1091,7 +1091,8 @@ class CalendarEventModelTests(TestCase):
 
 class CalendarEventSignalTests(TestCase):
     """
-    Test CalendarEvent auto-generation from Decision and Task signals.
+    Test CalendarEvent auto-generation from Decision and Task signals,
+    including bug fixes from SMP-400 QA phase 7.
     """
 
     def setUp(self):

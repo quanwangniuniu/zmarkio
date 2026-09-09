@@ -1,5 +1,5 @@
 """
-Recurring-event edits must honor the chosen scope.
+MED-249: recurring-event edits must honor the chosen scope.
 
 Covers all three scopes (this / this-and-future / all) plus the split boundary
 (off-by-one) behavior. Lives in its own module (discovered by pytest's

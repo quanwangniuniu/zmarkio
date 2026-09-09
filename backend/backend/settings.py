@@ -555,7 +555,7 @@ CELERY_TASK_ROUTES = {
     'chat.tasks.prune_link_previews': {'queue': 'chat.link_previews'},
 }
 
-# --- Link previews -------------------------------------------------
+# --- Link previews (MED-279) -------------------------------------------------
 # How long an answer is reused before the URL is fetched again. Success and
 # failure are separate on purpose: a page that resolved fine is worth holding for
 # a day, but a host that timed out may well be back within the hour, and a URL the
@@ -1114,7 +1114,7 @@ FB_CONFIG_ID = config('FB_CONFIG_ID', default='')
 FB_API_VERSION = config('FB_API_VERSION', default='v22.0')
 FB_REDIRECT_URI = config('FB_REDIRECT_URI', default='http://localhost/api/facebook_integration/callback/')
 
-# Meetings: when True, creating a meeting requires at least one participant_user_ids entry
+# Meetings (SMP-484): when True, creating a meeting requires at least one participant_user_ids entry
 MEETINGS_REQUIRE_PARTICIPANTS_AT_CREATE = config(
     'MEETINGS_REQUIRE_PARTICIPANTS_AT_CREATE',
     default=False,
@@ -1132,7 +1132,7 @@ LINEAR_CLIENT_ID = (os.environ.get("LINEAR_CLIENT_ID") or "").strip()
 LINEAR_CLIENT_SECRET = (os.environ.get("LINEAR_CLIENT_SECRET") or "").strip()
 LINEAR_REDIRECT_URI = (os.environ.get("LINEAR_REDIRECT_URI") or "").strip()
 
-# Tracking module config
+# Tracking module config (SMP-546)
 TRACKING_IDLE_SECONDS = config('TRACKING_IDLE_SECONDS', default=120, cast=int)
 TRACKING_HEARTBEAT_SECONDS = config('TRACKING_HEARTBEAT_SECONDS', default=30, cast=int)
 TRACKING_SESSION_TIMEOUT_SECONDS = config('TRACKING_SESSION_TIMEOUT_SECONDS', default=900, cast=int)
