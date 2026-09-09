@@ -474,7 +474,14 @@ jobs:
             pytest -v -o addopts='' --ds=backend.settings --timeout=600 metric_upload/tests/integration asset/tests/test_tasks.py budget_approval/tests/test_concurrency.py
            "
 
-      # Run frontend tests in container
+      # Run frontend tests in container.
+      # Local equivalent (from repo):
+      #   cd frontend && npm run test:ci
+      # That runs Jest with --coverage and enforces coverageThreshold in
+      # frontend/jest.config.js. Inspect the terminal Coverage summary, or
+      # coverage/coverage-summary.json / coverage/lcov-report/index.html after
+      # a local run. New unit tests must mock network (jest.mock / fetch mocks);
+      # do not hit real services from CI.
       - name: Run frontend tests in container
         run: |
           # run tests in the built frontend image
