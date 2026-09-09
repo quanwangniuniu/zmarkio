@@ -32,6 +32,26 @@ class TestTranscriptSearch(TestCase):
             label="Weekly"
         )
 
+    def test_search_vector_updated_on_meeting_save(self):
+        """Creating a meeting should make it immediately searchable by title and summary."""
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        meeting = Meeting.objects.create(
+            project=self.project,
+            title="Quarterly Budget Review",
+            type_definition=self.meeting_type,
+            objective="o",
+            summary="We discussed the quarterly budget allocation in detail.",
+        )
+        # signal fires .delay() — call the task synchronously to simulate Celery executing it
+        update_meeting_search_vector(meeting.pk)
+
+        response = client.get(f"/api/projects/{self.project.slug}/meetings/?q=quarterly")
+        self.assertEqual(response.status_code, 200)
+        returned_ids = [r["id"] for r in response.data["results"]]
+        self.assertIn(meeting.id, returned_ids)
+
     def test_task_populates_search_vector(self):
         meeting = Meeting.objects.create(
             project=self.project,

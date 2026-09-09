@@ -77,9 +77,10 @@ def process_zoom_webhook_event(
 
 @shared_task(bind=True, ignore_result=True)
 def sync_meeting_transcript(self, zoom_meeting_data_id: int) -> None:
-    """Download and store Zoom transcript for a meeting, then trigger search vector update."""
-    from meetings.tasks import update_meeting_search_vector
+    """Download and store Zoom transcript for a meeting.
 
+    The post_save signal on Meeting automatically updates search_vector after save.
+    """
     if not ZoomMeetingData.objects.filter(pk=zoom_meeting_data_id).exists():
         logger.warning("sync_meeting_transcript: ZoomMeetingData missing id=%s", zoom_meeting_data_id)
         return
@@ -93,7 +94,3 @@ def sync_meeting_transcript(self, zoom_meeting_data_id: int) -> None:
             "sync_meeting_transcript: failed zoom_meeting_data_id=%s",
             zoom_meeting_data_id
         )
-        return
-
-    if row.meeting_id:
-        update_meeting_search_vector.delay(row.meeting_id) # type: ignore[operator]
