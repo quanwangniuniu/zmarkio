@@ -126,7 +126,7 @@ class TestTranscriptSearch(TestCase):
 
         meeting = Meeting.objects.create(
             project=self.project,
-            title="Budget Meeting",
+            title="Weekly Sync",
             type_definition=self.meeting_type,
             objective="o",
             transcript="Tim: We need to cut the budget. " * 20,
@@ -197,6 +197,46 @@ class TestTranscriptSearch(TestCase):
         result = next(r for r in response.data["results"] if r["id"] == meeting.id)
         self.assertEqual(result["snippet_source"], "title")
         self.assertEqual(result["search_snippet"], "")
+
+    def test_snippet_source_priority_title_over_summary_and_transcript(self):
+        """When title, summary, and transcript all match, title takes priority."""
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        meeting = Meeting.objects.create(
+            project=self.project,
+            title="Budget Review Session",
+            type_definition=self.meeting_type,
+            objective="o",
+            summary="We discussed the quarterly budget allocation.",
+            transcript="Tim: The budget needs to be reviewed carefully.",
+        )
+        update_meeting_search_vector(meeting.pk)
+
+        response = client.get(f"/api/projects/{self.project.slug}/meetings/?q=budget")
+        result = next(r for r in response.data["results"] if r["id"] == meeting.id)
+        self.assertEqual(result["snippet_source"], "title")
+        self.assertEqual(result["search_snippet"], "")
+
+    def test_snippet_source_priority_summary_over_transcript(self):
+        """When summary and transcript both match but title does not, summary takes priority."""
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+
+        meeting = Meeting.objects.create(
+            project=self.project,
+            title="Weekly Sync",
+            type_definition=self.meeting_type,
+            objective="o",
+            summary="We discussed the quarterly budget allocation.",
+            transcript="Tim: The budget needs to be reviewed carefully.",
+        )
+        update_meeting_search_vector(meeting.pk)
+
+        response = client.get(f"/api/projects/{self.project.slug}/meetings/?q=budget")
+        result = next(r for r in response.data["results"] if r["id"] == meeting.id)
+        self.assertEqual(result["snippet_source"], "summary")
+        self.assertIn("<mark>", result["search_snippet"])
 
     def test_snippet_source_is_null_when_no_search_query(self):
         client = APIClient()
