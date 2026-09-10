@@ -88,11 +88,14 @@ class BudgetRequestService:
         budget_request.save(update_fields=['notes'])
 
     @staticmethod
-    def _resolve_next_from_approval_chain(budget_request):
-        """Next chain step after the task's current step, or None (legacy / last step).
+    def _resolve_next_from_approval_chain(budget_request, from_step=None):
+        """Next chain step after *from_step* (or the task's current step), or None.
 
         Org-admin override must continue the *original* ApprovalChain — the admin
         does not pick the next approver. Returns (approver_user, next_step_number).
+
+        When make_approval has already advanced the task along the chain, pass
+        replaced_step as from_step so we do not double-advance.
         """
         task = getattr(budget_request, 'task', None)
         if task is None or not getattr(task, 'approval_chain_id', None):
@@ -102,7 +105,9 @@ class BudgetRequestService:
         if chain is None:
             return None, None
 
-        current_step = task.current_approval_step or 1
+        current_step = (
+            from_step if from_step is not None else (task.current_approval_step or 1)
+        )
         next_step_num = current_step + 1
         next_step = chain.get_step(next_step_num)
         if next_step is None:
@@ -260,8 +265,15 @@ class BudgetRequestService:
         # the original ApprovalChain (not a client-supplied next_approver).
         # Legacy / no remaining steps → finalize (effective_next stays None).
         if is_override and is_approved:
+            base_step = replaced_step
+            if base_step is None:
+                task = getattr(budget_request, 'task', None)
+                base_step = getattr(task, 'current_approval_step', None) if task else None
             effective_next, next_step_num = (
-                BudgetRequestService._resolve_next_from_approval_chain(budget_request)
+                BudgetRequestService._resolve_next_from_approval_chain(
+                    budget_request,
+                    from_step=base_step,
+                )
             )
         else:
             effective_next = next_approver
