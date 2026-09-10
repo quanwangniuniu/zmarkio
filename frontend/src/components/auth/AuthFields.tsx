@@ -8,6 +8,7 @@ type AuthFieldConfig = {
   value: string;
   onChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   error?: string;
+  description?: React.ReactNode;
   required?: boolean;
   placeholder?: string;
 };
@@ -42,6 +43,7 @@ export default function AuthFields({
           value={field.value}
           onChange={field.onChange}
           error={field.error}
+          description={field.description}
           required={field.required}
           placeholder={field.placeholder}
         />
