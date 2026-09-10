@@ -39,6 +39,7 @@ backend/celerybeat.pid
 # run_timestamp every test run; nothing reads it as a baseline).
 backend/benchmarks/retrospective.json
 test-results/chat-load/
+frontend/e2e/budget/fixtures/budget-e2e-fixtures.json
 
 # Debug/scratch scripts — never tracked
 frontend/.scratch/

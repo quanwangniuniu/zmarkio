@@ -123,12 +123,12 @@ async function createProject(args: {
       INSERT INTO ${tenantTable(schema, 'core_project')} (
         id, created_at, updated_at, is_deleted, name, description,
         project_type, work_model, advertising_platforms, objectives, kpis,
-        pacing_enabled, budget_config, audience_targeting,
+        pacing_enabled, ai_analysis_enabled, budget_config, audience_targeting,
         organization_id, owner_id, slug
       ) VALUES (
         ${id}, now(), now(), false, ${`Routing ${args.label}`}, '',
         '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb,
-        false, '{}'::jsonb, '{}'::jsonb,
+        false, true, '{}'::jsonb, '{}'::jsonb,
         ${args.organizationId}, ${BigInt(args.ownerId)}, ${slug}
       )`;
   }
