@@ -3127,5 +3127,19 @@ class AgentOrchestrator:
                     logger.error(f"Dify chat call failed: {e}")
                     yield {"type": "error", "content": str(e)}
             else:
-                yield from self.answer_project_question(message)
+                pending_run = self.session.workflow_runs.filter(
+                    status='awaiting_confirmation',
+                    analysis_result__isnull=False,
+                    is_deleted=False,
+                ).order_by('-created_at').first()
+                if pending_run:
+                    yield {
+                        "type": "text",
+                        "content": (
+                            "I can help you analyze spreadsheet data and recommended tasks. "
+                            "To get started, select a spreadsheet and use the 'analyze' action."
+                        ),
+                    }
+                else:
+                    yield from self.answer_project_question(message)
         yield {"type": "done"}
