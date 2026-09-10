@@ -474,7 +474,14 @@ jobs:
             pytest -v -o addopts='' --ds=backend.settings --timeout=600 metric_upload/tests/integration asset/tests/test_tasks.py budget_approval/tests/test_concurrency.py
            "
 
-      # Run frontend tests in container
+      # Run frontend tests in container.
+      # Local equivalent (from repo):
+      #   cd frontend && npm run test:ci
+      # That runs Jest with --coverage and enforces coverageThreshold in
+      # frontend/jest.config.js. Inspect the terminal Coverage summary, or
+      # coverage/coverage-summary.json / coverage/lcov-report/index.html after
+      # a local run. New unit tests must mock network (jest.mock / fetch mocks);
+      # do not hit real services from CI.
       - name: Run frontend tests in container
         run: |
           # run tests in the built frontend image
@@ -484,8 +491,8 @@ jobs:
             npx next lint --max-warnings 9999 &&
             echo 'Building frontend application...' &&
             npm run build &&
-            echo 'Running frontend tests...' &&
-            npm test
+            echo 'Running frontend tests with coverage gate...' &&
+            npm run test:ci
           "
 
       # The Studio service is a separate Next.js app that talks to the same
@@ -556,6 +563,13 @@ jobs:
             "
 
       # Budget approval Playwright E2E (MED-315): real backend via nginx, isolated fixtures per test.
+      # Frontend tests above run `npm run build` inside the already-running container, which
+      # rewrites .next while `next start` keeps serving the previous build. Restart so Playwright
+      # hits matching /_next/static chunks (avoids webpack 404/400 + Tasks skeleton).
+      - name: Restart frontend after in-container build (budget E2E)
+        run: |
+          docker compose restart frontend
+
       - name: Wait for nginx (budget E2E)
         run: |
           echo "Waiting for nginx to serve the stack..."
@@ -572,6 +586,7 @@ jobs:
           done
           echo "nginx failed to become healthy within ${timeout}s"
           docker compose logs nginx
+          docker compose logs frontend
           exit 1
 
       - name: Provision budget E2E anchor user
