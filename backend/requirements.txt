@@ -93,3 +93,13 @@ croniter>=2.0.0  # For scheduled workflow triggers
 Twisted==26.4.0
 urllib3==2.7.0
 pyOpenSSL==26.4.0
+# RAG (pgvector ORM field/migration helpers; the `vector` Postgres extension
+# itself must be installed at the database level — see postgres/Dockerfile for
+# CI/bundled Postgres, and DOCKER_README.md for local/host Postgres setup)
+pgvector==0.3.6
+
+# Temporary local embedding provider (MED-264 eval/local-dev unblock only --
+# NOT the production default; see RAG_EMBEDDING_PROVIDER in settings.py,
+# which stays 'gemini' unless explicitly overridden). ONNX-based, no torch.
+# Pulls in onnxruntime/numpy/tokenizers/huggingface_hub transitively.
+fastembed==0.8.0

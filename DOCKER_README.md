@@ -49,6 +49,41 @@ exit
 
 **Important:** After setting up the database, update your `.env` file with the correct database credentials.
 
+#### pgvector extension (required for RAG document retrieval)
+
+The `rag` app stores document embeddings in a `vector` column (via the `pgvector`
+Python package). The Postgres **extension** itself is separate from the Python
+package and must be installed at the database level before migrations run:
+
+- **CI / bundled Postgres** (`docker compose --profile ci`, and the single-instance
+  prod compose file): already handled — `postgres/Dockerfile` installs
+  `postgresql-15-pgvector` via apt, since the official `postgres:15` image already
+  has the PGDG apt repo configured.
+- **Local/dev Postgres** (host machine — `docker-compose.dev.yml` connects to it via
+  `host.docker.internal`, it is *not* a compose service): install the extension
+  package for your OS's Postgres 15, then enable it in your dev database.
+  ```bash
+  # Ubuntu/Debian
+  sudo apt install postgresql-15-pgvector
+  # macOS (Homebrew)
+  brew install pgvector
+  ```
+  Then, connected to `mediajira_db` (or your configured `POSTGRES_DB`) via psql:
+  ```sql
+  CREATE EXTENSION IF NOT EXISTS vector;
+  ```
+  Django's migration for the `rag` app also issues `CREATE EXTENSION IF NOT EXISTS
+  vector`, so this manual step is only needed if your Postgres user lacks
+  `CREATE EXTENSION` privilege (the extension install itself always requires OS/DB
+  admin access — the SQL statement alone can't fetch the extension binary).
+- **External/host Postgres** (`docker-compose.pro.yml`'s production target, or any
+  managed Postgres): this repo does not build that Postgres instance, so pgvector
+  must be installed by whoever administers it, *before* deploying this branch. On
+  managed services (RDS, Cloud SQL, etc.) confirm `vector` is on the engine's
+  allow-listed extension list for your Postgres version — some require the
+  extension to be added via the provider's console/parameter group rather than raw
+  SQL.
+
 ### 3. Environment Configuration
 
 Edit the `.env` file with your local PostgreSQL credentials:
