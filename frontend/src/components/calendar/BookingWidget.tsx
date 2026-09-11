@@ -58,6 +58,16 @@ import {
   type BookingScope,
 } from '@/lib/bookingLinkScope';
 
+/**
+ * This booking page, absolute. Safe to put anywhere, including a calendar
+ * entry: it carries no token, and the page offers a recovery link to the
+ * booking email for anyone who needs to cancel.
+ */
+function bookingPageUrl(orgSlug: string, linkSlug: string): string {
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  return `${origin}/book/${encodeURIComponent(orgSlug)}/${encodeURIComponent(linkSlug)}`;
+}
+
 interface BookingWidgetProps {
   orgSlug: string;
   linkSlug: string;
@@ -94,6 +104,10 @@ export default function BookingWidget({ orgSlug, linkSlug }: BookingWidgetProps)
   // Keeping `end` as well as `start` so the confirmation can offer an
   // add-to-calendar entry without another round trip.
   const [confirmation, setConfirmation] = useState<CalendarEntry | null>(null);
+  // The on-page cancel link, held apart from `confirmation.url` on purpose: that
+  // URL is written into calendar entries, and a cancel token must never leave
+  // this page for a calendar someone else can see.
+  const [cancelUrl, setCancelUrl] = useState<string>('');
   // Kept beside the entry rather than inside it: a subscription URL is not part
   // of the calendar entry, it is how the guest keeps that entry current.
   const [feedUrl, setFeedUrl] = useState<string>('');
@@ -149,7 +163,13 @@ export default function BookingWidget({ orgSlug, linkSlug }: BookingWidgetProps)
   useEffect(() => {
     const stored = readBookingConfirmation(orgSlug, linkSlug);
     if (!stored) return;
-    setConfirmation(stored.confirmation);
+    // Never trust a stored entry URL: tabs saved before the split kept the
+    // cancel link there. Rebuild it, and recover that link for this page only.
+    setConfirmation({ ...stored.confirmation, url: bookingPageUrl(orgSlug, linkSlug) });
+    setCancelUrl(
+      stored.cancelUrl ??
+        (stored.confirmation.url?.includes('/cancel?token=') ? stored.confirmation.url : ''),
+    );
     setFeedUrl(stored.feedUrl);
     setConfirmedScope(stored.bookerScope ?? null);
     setStage('booked');
@@ -224,6 +244,7 @@ export default function BookingWidget({ orgSlug, linkSlug }: BookingWidgetProps)
     clearBookingConfirmation(orgSlug, linkSlug);
     setConfirmation(null);
     setFeedUrl('');
+    setCancelUrl('');
     setSelectedSlot(null);
     setError(null);
     setStage('picking');
@@ -388,26 +409,29 @@ export default function BookingWidget({ orgSlug, linkSlug }: BookingWidgetProps)
         start: result.start,
         end: result.end,
         title: result.title,
-        // Absolute: this travels into the guest's own calendar app, where a
-        // relative path means nothing.
-        url: result.cancel_token
-          ? `${window.location.origin}/book/${encodeURIComponent(orgSlug)}/${encodeURIComponent(
-              linkSlug,
-            )}/cancel?token=${encodeURIComponent(result.cancel_token)}`
-          : undefined,
+        // The booking page, not the cancel link. This URL is written into
+        // calendar entries, which get shared and synced to other people's
+        // servers; from the page a guest can request a recovery link instead.
+        url: bookingPageUrl(orgSlug, linkSlug),
         description:
           [link?.description?.trim(), link?.owner_name && `With ${link.owner_name}`]
             .filter(Boolean)
             .join('\n\n') || undefined,
       };
       const nextFeed = result.feed_url || '';
+      // Only ever shown on this page, never written into a calendar entry.
+      const nextCancel = result.cancel_token
+        ? `${bookingPageUrl(orgSlug, linkSlug)}/cancel?token=${encodeURIComponent(result.cancel_token)}`
+        : '';
       setConfirmation(confirmation);
+      setCancelUrl(nextCancel);
       setFeedUrl(nextFeed);
       setConfirmedScope(internalBooker ? bookerScope : null);
       setStage('booked');
       saveBookingConfirmation(orgSlug, linkSlug, {
         confirmation,
         feedUrl: nextFeed,
+        cancelUrl: nextCancel,
         bookerScope: internalBooker ? bookerScope : undefined,
       });
     } catch (err) {
@@ -574,8 +598,9 @@ export default function BookingWidget({ orgSlug, linkSlug }: BookingWidgetProps)
             </p>
           </div>
           {/*
-            The same link is written into the .ics, so a guest who closes this
-            tab can still get back here from their own calendar entry.
+            The cancel link lives only on this page. Calendar entries get the
+            booking page instead, where a guest who lost this tab can request a
+            recovery link to their booking email.
           */}
           <div className="mt-4 flex flex-col items-center gap-2">
             <button
@@ -586,9 +611,9 @@ export default function BookingWidget({ orgSlug, linkSlug }: BookingWidgetProps)
             >
               Book another time
             </button>
-            {confirmation.url && (
+            {cancelUrl && (
               <a
-                href={confirmation.url}
+                href={cancelUrl}
                 data-testid="confirmation-cancel-link"
                 className="inline-block text-xs text-gray-400 underline underline-offset-2 transition-colors hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3CCED7] focus-visible:ring-offset-2"
               >

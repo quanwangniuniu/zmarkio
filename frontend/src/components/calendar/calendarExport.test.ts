@@ -92,13 +92,12 @@ describe('icsFileName', () => {
   });
 });
 
-describe('cancel link', () => {
-  const withUrl = { ...entry, url: 'https://app.example/book/acme/intro/cancel?token=abc' };
+describe('entry url', () => {
+  // The booking page: it carries no token, so it is safe in a shared calendar.
+  const withUrl = { ...entry, url: 'https://app.example/book/acme/intro' };
 
-  it('rides into the calendar entry as URL, so a closed tab is recoverable', () => {
-    expect(buildIcs(withUrl, 'u')).toContain(
-      'URL:https://app.example/book/acme/intro/cancel?token=abc',
-    );
+  it('rides into the calendar entry as URL', () => {
+    expect(buildIcs(withUrl, 'u')).toContain('URL:https://app.example/book/acme/intro');
   });
 
   it('is omitted when there is none', () => {
@@ -108,7 +107,7 @@ describe('cancel link', () => {
   it('rides along in details for Google, which has no URL field', () => {
     const url = new URL(googleCalendarUrl({ ...withUrl, description: 'With Ray' }));
     expect(url.searchParams.get('details')).toBe(
-      'With Ray\n\nhttps://app.example/book/acme/intro/cancel?token=abc',
+      'With Ray\n\nhttps://app.example/book/acme/intro',
     );
   });
 });

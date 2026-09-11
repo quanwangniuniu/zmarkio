@@ -130,6 +130,12 @@ test.describe('Public booking link', () => {
     ]).then(([event]) => event);
     expect(download.suggestedFilename()).toBe('intro-call-with-grace-hopper.ics');
 
+    // The file lands in the guest's calendar app, and calendars get shared.
+    // It must point at the booking page, never carry the cancel token.
+    const ics = (await import('fs')).readFileSync(String(await download.path()), 'utf8');
+    expect(ics).toMatch(/^URL:\S*\/book\/acme\/intro-call\r?$/m);
+    expect(ics).not.toContain('cancel?token');
+
     // The guest's only route back to this booking.
     await expect(page.getByTestId('confirmation-cancel-link')).toHaveAttribute(
       'href',

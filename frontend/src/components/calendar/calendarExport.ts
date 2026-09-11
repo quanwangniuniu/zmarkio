@@ -16,8 +16,10 @@ export interface CalendarEntry {
   end: string;
   description?: string;
   /**
-   * Travels into the guest's own calendar as the entry's URL, which is how
-   * someone who closed the confirmation tab can still find their way back.
+   * Written into the entry (.ics URL, Google details, Outlook body), so it
+   * leaves the guest's hands: calendars get shared and synced to other people's
+   * servers. Never put a bearer token here - a cancel link in a shared calendar
+   * lets anyone who sees it call the meeting off.
    */
   url?: string;
 }

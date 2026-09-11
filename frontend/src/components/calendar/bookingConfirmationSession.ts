@@ -9,6 +9,11 @@ import type { CalendarEntry } from './calendarExport';
 export type StoredBookingConfirmation = {
   confirmation: CalendarEntry;
   feedUrl: string;
+  /**
+   * The on-page cancel link, stored apart from `confirmation.url` because that
+   * one is written into calendar entries. Absent in tabs saved before the split.
+   */
+  cancelUrl?: string;
   bookerScope?: BookingScope;
 };
 
