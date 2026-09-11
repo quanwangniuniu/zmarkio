@@ -145,3 +145,78 @@ class AttendeeVisibilityTests(TestCase):
         attendance.is_deleted = True
         attendance.save(update_fields=["is_deleted"])
         assert "Intro Call with Grace" not in self._titles_for(self.guest)
+
+
+class GuestContactPrivacyTests(TestCase):
+    """
+    Who may read what a guest typed in when they booked.
+
+    A team link books onto the project calendar, so everyone on the project can
+    open the event. The guest's email, phone and notes are meant for the person
+    running the meeting, not for all of them.
+    """
+
+    def setUp(self):
+        self.org = Organization.objects.create(name="Privacy Org", slug="privacy-org")
+        self.host = User.objects.create_user(
+            username="privhost", email="host@privacy.com", password="x",
+            organization=self.org,
+        )
+        self.teammate = User.objects.create_user(
+            username="privmate", email="mate@privacy.com", password="x",
+            organization=self.org,
+        )
+        project = Project.objects.create(
+            name="Privacy Project", organization=self.org, owner=self.host
+        )
+        for user in (self.host, self.teammate):
+            ProjectMember.objects.create(
+                project=project, user=user, role="member", is_active=True
+            )
+        calendar = Calendar.objects.create(
+            organization=self.org, owner=self.host, project=project,
+            name="Privacy Project Calendar", timezone="UTC",
+        )
+        start = timezone.now() + timedelta(days=2)
+        self.event = Event.objects.create(
+            organization=self.org, calendar=calendar, created_by=self.host,
+            title="Intro Call with Grace", start_datetime=start,
+            end_datetime=start + timedelta(minutes=30), timezone="UTC",
+            metadata={"source": "booking_link"},
+        )
+        EventAttendee.objects.create(
+            organization=self.org, event=self.event, user=self.host,
+            email=self.host.email, is_organizer=True, response_status="accepted",
+        )
+        EventAttendee.objects.create(
+            organization=self.org, event=self.event,
+            email="grace@example.com", phone="+44 7700 900123",
+            display_name="Grace Hopper", response_status="accepted",
+            metadata={"source": "booking_link", "notes": "Keen to talk pricing."},
+        )
+
+    def _guest_row_for(self, user):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        response = client.get(f"{EVENTS_URL}{self.event.id}/attendees/")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        return next(row for row in response.json() if not row["is_organizer"])
+
+    def test_a_teammate_sees_who_booked_but_not_how_to_reach_them(self):
+        row = self._guest_row_for(self.teammate)
+        assert row["display_name"] == "Grace Hopper"
+        assert row["email"] == ""
+        assert row["phone"] == ""
+        assert "notes" not in (row["metadata"] or {})
+
+    def test_the_organiser_sees_everything_the_guest_gave(self):
+        row = self._guest_row_for(self.host)
+        assert row["email"] == "grace@example.com"
+        assert row["phone"] == "+44 7700 900123"
+        assert row["metadata"]["notes"] == "Keen to talk pricing."
+
+    def test_ordinary_attendees_are_not_redacted(self):
+        # Only booking guests are private; someone added to a meeting by hand is not.
+        self.event.attendees.filter(is_organizer=False).update(metadata={})
+        row = self._guest_row_for(self.teammate)
+        assert row["email"] == "grace@example.com"

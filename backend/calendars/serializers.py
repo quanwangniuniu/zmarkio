@@ -492,6 +492,49 @@ class EventAttendeeSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
+    # What a guest typed in when booking through a public link. It is for the
+    # person running the meeting, not for everyone who can open the calendar it
+    # sits on - which, for a team link, is the whole project.
+    _GUEST_PRIVATE_FIELDS = ("email", "phone")
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not self._hides_guest_contact(instance):
+            return data
+        for field in self._GUEST_PRIVATE_FIELDS:
+            if field in data:
+                data[field] = ""
+        metadata = dict(data.get("metadata") or {})
+        metadata.pop("notes", None)
+        data["metadata"] = metadata
+        return data
+
+    def _hides_guest_contact(self, instance) -> bool:
+        meta = instance.metadata or {}
+        if instance.is_organizer or meta.get("source") != "booking_link":
+            return False
+        request = self.context.get("request")
+        viewer_id = getattr(getattr(request, "user", None), "pk", None)
+        if viewer_id is None:
+            # No viewer to vouch for, so assume the least privileged one.
+            return True
+        if viewer_id == instance.user_id:
+            return False
+        return viewer_id not in self._organizer_ids(instance.event_id)
+
+    def _organizer_ids(self, event_id) -> set:
+        # Cached on the context: every row of an attendee list shares one event.
+        cache = self.context.setdefault("_booking_organizer_ids", {})
+        if event_id not in cache:
+            cache[event_id] = set(
+                EventAttendee.objects.filter(
+                    event_id=event_id, is_organizer=True, is_deleted=False
+                )
+                .exclude(user=None)
+                .values_list("user_id", flat=True)
+            )
+        return cache[event_id]
+
 
 class AttendeeCreateRequestSerializer(serializers.Serializer):
     """

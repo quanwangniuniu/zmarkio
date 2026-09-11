@@ -1335,7 +1335,9 @@ class EventRSVPView(generics.GenericAPIView):
         attendee.response_comment = data.get("response_comment") or ""
         attendee.save()
 
-        output = EventAttendeeSerializer(attendee)
+        # With the request in context the serializer recognises the responder as
+        # this attendee, so their own contact details are not redacted back at them.
+        output = EventAttendeeSerializer(attendee, context={"request": request})
         return Response(output.data, status=status.HTTP_200_OK)
 
 
@@ -2057,23 +2059,18 @@ class PublicBookingCreateView(APIView):
         queue_booking_task(send_booking_confirmation_task, **payload)
 
     @staticmethod
-    def _event_description(data) -> str:
+    def _event_description(link) -> str:
         """
-        Put the guest's contact details where the host will actually see them.
+        What the shared event says about itself - never who booked it.
 
-        They are also stored properly on the EventAttendee row, but nothing in
-        the calendar UI renders attendees today - so a phone number recorded
-        only there would be collected and never read. The description is the
-        one field the event dialog shows, which makes it the honest place for
-        this until an attendee panel exists.
+        The description is not private to the host. Anyone who can open the
+        calendar reads it (every member of the project, for a team link), it is
+        exported to the host's Google Calendar, and it rides into the guest's
+        feed and .ics. The guest's email, phone and notes live on their
+        EventAttendee row instead, where the serializer shows them only to the
+        organiser and to the guest.
         """
-        lines = [f"Booked by {data['name']}", data["email"]]
-        if data.get("phone"):
-            lines.append(data["phone"])
-        notes = (data.get("notes") or "").strip()
-        if notes:
-            lines += ["", notes]
-        return "\n".join(lines)
+        return (link.description or "").strip()
 
     @transaction.atomic
     def _create_event(self, link, data, rules):
@@ -2085,13 +2082,14 @@ class PublicBookingCreateView(APIView):
         event, _guest = create_booking_events(
             link=link,
             title=f"{link.title} with {data['name']}"[:255],
-            description=self._event_description(data),
+            description=self._event_description(link),
             start=start,
             end=end,
             guest_user=guest,
             guest_name=data["name"],
             guest_email=data["email"],
             guest_phone=data.get("phone", ""),
+            guest_notes=(data.get("notes") or "").strip(),
         )
         return event, guest
 

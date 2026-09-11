@@ -243,6 +243,7 @@ def create_booking_events(
     guest_name: str,
     guest_email: str,
     guest_phone: str = "",
+    guest_notes: str = "",
 ):
     """
     Write the host event on the link's calendar.
@@ -266,6 +267,7 @@ def create_booking_events(
         guest_name=guest_name,
         guest_email=guest_email,
         guest_phone=guest_phone,
+        guest_notes=guest_notes,
         metadata={
             "source": BOOKING_SOURCE,
             "booking_link_id": str(link.pk),
@@ -299,6 +301,7 @@ def create_booking_events(
                 guest_name=guest_name,
                 guest_email=guest_email,
                 guest_phone=guest_phone,
+                guest_notes=guest_notes,
                 metadata={
                     "source": BOOKING_SOURCE,
                     "booking_link_id": str(link.pk),
@@ -323,6 +326,7 @@ def _write_event(
     guest_email: str,
     guest_phone: str,
     metadata: dict,
+    guest_notes: str = "",
 ) -> Event:
     event = Event.objects.create(
         organization=link.organization,
@@ -356,6 +360,9 @@ def _write_event(
         metadata={
             "source": BOOKING_SOURCE,
             "booking_link_slug": link.slug,
+            # The guest's own words, kept here rather than in the shared event
+            # description. EventAttendeeSerializer decides who may read them.
+            **({"notes": guest_notes} if guest_notes else {}),
         },
     )
     return event

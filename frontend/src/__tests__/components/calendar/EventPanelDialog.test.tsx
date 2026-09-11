@@ -8,6 +8,8 @@ jest.mock("@/lib/api/calendarApi", () => ({
     updateEvent: jest.fn(),
     updateEventInstance: jest.fn(),
     splitEventSeries: jest.fn(),
+    // A booking event loads its guest on open; none here keeps the panel empty.
+    listEventAttendees: jest.fn().mockResolvedValue([]),
   },
   extractUserDescription: (value: string) => value,
   extractNavigationMetadata: () => null,

@@ -242,10 +242,9 @@ class PublicAvailabilityTests(PublicBookingTestBase):
             guest = EventAttendee.objects.get(is_organizer=False)
         assert guest.phone == "+44 7700 900123"
 
-    def test_the_contact_details_land_where_the_host_can_read_them(self):
-        # Nothing in the calendar UI renders attendees, so details stored only
-        # on the attendee row would be collected and never seen. The
-        # description is the field the event dialog actually shows.
+    def test_guest_contact_details_stay_off_the_shared_event(self):
+        # The description is read by everyone who can open the calendar and is
+        # exported to Google, so it must not carry what a guest typed in.
         start = next_weekday_at(13)
         response = self.client.post(
             self.booking_url,
@@ -261,11 +260,13 @@ class PublicAvailabilityTests(PublicBookingTestBase):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         with in_org(self.org):
             event = Event.objects.get(start_datetime=start)
-        assert "Grace Hopper" in event.description
-        assert "grace@example.com" in event.description
-        assert "+44 7700 900123" in event.description
-        # The guest's own words survive alongside the contact block.
-        assert "Keen to talk pricing." in event.description
+            guest = event.attendees.get(is_organizer=False)
+        for private in ("grace@example.com", "+44 7700 900123", "Keen to talk pricing."):
+            assert private not in (event.description or "")
+        # Nothing is lost: it all sits on the guest's own attendee row.
+        assert guest.email == "grace@example.com"
+        assert guest.phone == "+44 7700 900123"
+        assert guest.metadata.get("notes") == "Keen to talk pricing."
 
     def test_a_booking_without_a_phone_number_still_goes_through(self):
         # Optional: demanding one would lose bookings from people who won't
@@ -475,7 +476,9 @@ class PublicBookingCreateTests(PublicBookingTestBase):
             event = Event.objects.get(calendar=self.calendar)
             emails = set(event.attendees.values_list("email", flat=True))
             assert "invitee@acme.com" in emails
-            assert "Booked by Grace Hopper" in (event.description or "")
+            guest = event.attendees.get(is_organizer=False)
+            assert guest.metadata.get("notes") == "See you then."
+            assert "See you then." not in (event.description or "")
 
     def test_signed_in_member_identity_comes_from_the_account(self):
         invitee = User.objects.create_user(

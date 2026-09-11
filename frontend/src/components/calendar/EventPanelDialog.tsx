@@ -4,7 +4,9 @@ import {
   AlignLeft,
   Calendar as CalendarIcon,
   Clock,
+  Mail,
   Pencil,
+  Phone,
   Sparkles,
   Trash2,
   X,
@@ -17,6 +19,7 @@ import {
 } from "@/lib/api/calendarApi";
 import type {
   CalendarDTO,
+  EventAttendeeDTO,
   EventDTO,
   RecurringEditScope,
 } from "@/lib/api/calendarApi";
@@ -170,6 +173,32 @@ export function EventPanelDialog({
     }
   }, [editScope, event?.is_recurring, mode]);
 
+  // Who booked, for the person running the meeting. The API blanks a guest's
+  // contact details for everyone else, so for them this renders nothing - the
+  // dialog never decides on its own who may see them.
+  const [bookingGuest, setBookingGuest] = React.useState<EventAttendeeDTO | null>(null);
+  const bookingEventId =
+    open && mode === "view" && isBookingEvent(event) ? event?.id ?? null : null;
+  React.useEffect(() => {
+    setBookingGuest(null);
+    if (!bookingEventId) return;
+    let cancelled = false;
+    CalendarAPI.listEventAttendees(bookingEventId)
+      .then((rows) => {
+        if (cancelled) return;
+        const guest = rows.find(
+          (row) => !row.is_organizer && row.metadata?.source === "booking_link",
+        );
+        setBookingGuest(guest ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setBookingGuest(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingEventId]);
+
   const canShowMoreOptions =
     mode === "create" || (mode === "edit" && !event?.is_recurring) ||
     (mode === "edit" && event?.is_recurring && editScope === "all");
@@ -310,6 +339,43 @@ export function EventPanelDialog({
               <CalendarIcon className="mt-0.5 h-4 w-4 text-gray-500" />
               <span className="text-sm">{calendarName}</span>
             </div>
+            {bookingGuest &&
+              Boolean(bookingGuest.email || bookingGuest.phone || bookingGuest.metadata?.notes) && (
+                <div
+                  className="mt-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-700"
+                  data-testid="calendar-booking-guest"
+                >
+                  <p className="font-medium text-gray-900">
+                    {bookingGuest.display_name || "Guest"}
+                  </p>
+                  {bookingGuest.email && (
+                    <a
+                      href={`mailto:${bookingGuest.email}`}
+                      className="mt-1 flex items-center gap-1.5 break-all hover:underline"
+                    >
+                      <Mail className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                      {bookingGuest.email}
+                    </a>
+                  )}
+                  {bookingGuest.phone && (
+                    <a
+                      href={`tel:${bookingGuest.phone.replace(/[^\d+]/g, "")}`}
+                      className="mt-1 flex items-center gap-1.5 hover:underline"
+                    >
+                      <Phone className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                      {bookingGuest.phone}
+                    </a>
+                  )}
+                  {bookingGuest.metadata?.notes && (
+                    <p className="mt-1.5 whitespace-pre-line text-gray-600">
+                      {bookingGuest.metadata.notes}
+                    </p>
+                  )}
+                  <p className="mt-1.5 text-[11px] text-gray-400">
+                    Only you and the guest can see these details.
+                  </p>
+                </div>
+              )}
             {bookingEvent && (
               <p className="mt-2 text-xs text-gray-500" data-testid="calendar-booking-note">
                 Booked meeting. Cancelling notifies the other person and frees

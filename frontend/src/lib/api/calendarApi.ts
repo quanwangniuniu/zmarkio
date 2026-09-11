@@ -67,6 +67,18 @@ export interface EventDTO {
   metadata?: EventMetadata | null;
 }
 
+/** One row from `/api/events/{id}/attendees/`. */
+export interface EventAttendeeDTO {
+  id: string;
+  email: string;
+  phone: string;
+  display_name: string | null;
+  is_organizer: boolean;
+  response_status: string;
+  /** `notes` is a booking guest's message, blank for viewers who may not see it. */
+  metadata: { source?: string; notes?: string; [key: string]: unknown } | null;
+}
+
 export type EventWritePayload = Partial<EventDTO> & {
   is_recurring?: boolean;
   recurrence?: RecurrenceInput | null;
@@ -211,6 +223,17 @@ export const CalendarAPI = {
 
   deleteEvent: (eventId: string, _etag?: string) =>
     api.delete<void>(`/api/events/${eventId}/`),
+
+  /**
+   * Attendees of one event. A booking guest's email, phone and notes come back
+   * blank unless the viewer runs the meeting or is that guest.
+   */
+  listEventAttendees: (eventId: string) =>
+    api
+      .get<EventAttendeeDTO[] | { results: EventAttendeeDTO[] }>(
+        `/api/events/${eventId}/attendees/`,
+      )
+      .then((res) => (Array.isArray(res.data) ? res.data : res.data?.results ?? [])),
 
   // Fetch system-derived calendar events (from Decisions and Tasks, read-only)
   getDerivedEvents: (params: {
