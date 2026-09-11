@@ -434,6 +434,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             'is_current',
             'user_role',
             'member_count',
+            'max_concurrent_sessions',
         ]
         read_only_fields = ['id', 'slug', 'created_at', 'updated_at']
 

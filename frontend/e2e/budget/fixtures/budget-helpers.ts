@@ -17,7 +17,7 @@ export async function openTaskDetail(page: Page, taskSlug: string, projectId: nu
   await expect(page).toHaveURL(new RegExp(`/tasks/${escapeRegex(taskSlug)}(?:\\?|$)`), {
     timeout: 20_000,
   });
-  await expect(page.getByRole('heading', { name: /budget details/i })).toBeVisible({
+  await expect(page.getByRole('heading', { name: /budget request details/i })).toBeVisible({
     timeout: 20_000,
   });
 }

@@ -7,6 +7,7 @@ tenant schema the request is currently operating in.
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import AuthenticationFailed
 from django.db import connection
+from authentication.session_registry import SessionRegistry
 
 
 class TenantAwareJWTAuthentication(JWTAuthentication):
@@ -44,6 +45,11 @@ class TenantAwareJWTAuthentication(JWTAuthentication):
             token_version = int(validated_token.get("auth_token_version", 0))
             if token_version != getattr(user, "auth_token_version", 0):
                 raise AuthenticationFailed("Token has been revoked.", code="token_revoked")
+            # Use refresh_jti (embedded from the refresh token) to match the
+            # session registry, which keys sessions by refresh token JTI.
+            refresh_jti = validated_token.get("refresh_jti")
+            if refresh_jti and SessionRegistry.is_evicted(refresh_jti):
+                raise AuthenticationFailed("Session has been evicted.", code="session_evicted")
             return user
         finally:
             # Restore original search_path

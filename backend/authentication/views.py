@@ -32,6 +32,8 @@ from requests_oauthlib import OAuth2Session  # For OAuth callback (token exchang
 from django.core.mail import send_mail
 from django.utils import timezone
 from core.services.auth_tokens import build_user_refresh_token
+from core.models import CustomUser
+from authentication.session_registry import SessionRegistry
 import datetime
 import requests
 import jwt
@@ -280,6 +282,8 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        assert isinstance(user, CustomUser)
+
         # Email verification gate is disabled while no email service is wired
         # up in this environment. Restore the check below once SMTP / SES /
         # Mailgun are configured. See 00_Auth issues B-01.
@@ -304,6 +308,22 @@ class LoginView(APIView):
             )
         
         refresh = build_user_refresh_token(user)
+
+        # Register session in Redis
+        jti = str(refresh["jti"])
+        meta = {
+            "ip": request.META.get("REMOTE_ADDR"),
+            "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+            "created_at": datetime.datetime.utcnow().isoformat(),
+        }
+        try:
+            cap = user.current_organization.max_concurrent_sessions if user.current_organization else 5
+            evicted_jtis = SessionRegistry.register_session(user.pk, jti, meta, cap)
+            for evicted_jti in evicted_jtis:
+                SessionRegistry.evict_session(user.pk, evicted_jti)
+        except Exception:
+            logger.exception("Failed to register session in Redis for user %s", user.pk)
+
         profile_data = UserProfileSerializer(user, context={'request': request}).data
         
         # Generate organization access token if user belongs to an organization
@@ -1151,13 +1171,12 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        refresh_token = request.data.get('refresh_token')
-        if refresh_token:
-            try:
-                token = RefreshToken(refresh_token)
-                token.blacklist()
-            except Exception:
-                logger.exception("Failed to blacklist refresh token during logout for user %s", request.user.id)
+        try:
+            refresh_jti = request.auth.get("refresh_jti") if request.auth else None
+            if refresh_jti:
+                SessionRegistry.remove_session(request.user.pk, refresh_jti)
+        except Exception:
+            logger.exception("Failed to remove session from registry during logout for user %s", request.user.id)
 
         try:
             from asgiref.sync import async_to_sync
@@ -1288,3 +1307,53 @@ class DeleteAccountView(APIView):
             logger.exception("Failed to emit account-delete websocket revoke for user %s", user.id)
 
         return Response({'message': 'Account deleted successfully.'}, status=status.HTTP_200_OK)
+
+
+class SessionTokenRefreshView(APIView):
+    """
+    POST /auth/token/refresh/
+    Wraps SimpleJWT's TokenRefreshView to propagate refresh_jti into the new
+    access token, so session revocation remains effective after token refresh.
+    """
+    permission_classes = []
+
+    def post(self, request):
+        from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+        from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+
+        serializer = TokenRefreshSerializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as e:
+            raise InvalidToken(e.args[0])
+
+        # refresh_jti is already embedded in the refresh token payload and
+        # auto-copied to the new access token by SimpleJWT — no manual injection needed.
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+
+class SessionListView(APIView):
+    """
+    GET /auth/sessions/
+    Returns all active sessions for the authenticated user.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        sessions = SessionRegistry.list_sessions(request.user.pk)
+        return Response(sessions, status=status.HTTP_200_OK)
+
+
+class SessionRevokeView(APIView):
+    """
+    DELETE /auth/sessions/<jti>/
+    Revokes a specific session by JTI.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, jti):
+        sessions = SessionRegistry.list_sessions(request.user.pk)
+        if not any(s["jti"] == jti for s in sessions):
+            return Response({'error': 'Session not found.'}, status=status.HTTP_404_NOT_FOUND)
+        SessionRegistry.delete_session(request.user.pk, jti)
+        return Response({'message': 'Session revoked.'}, status=status.HTTP_200_OK)

@@ -1838,6 +1838,44 @@ class OrganizationDetailView(APIView):
             'recent_activity': activity_data,
         })
 
+    def patch(self, request, org_id):
+        """
+        PATCH /api/core/organizations/<org_id>/
+        Updates organization settings (admin only).
+        Currently supports: max_concurrent_sessions
+        """
+        user = request.user
+        resolved_id = resolve_pk_for(Organization, org_id)
+
+        if not can_user_access_organization(user, resolved_id):
+            return Response(
+                {'error': 'You do not have access to this organization.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        org = get_object_or_404(Organization, id=resolved_id)
+
+        original_org_id = user.current_organization_id
+        user.current_organization_id = resolved_id
+        if not is_org_admin(user):
+            user.current_organization_id = original_org_id
+            return Response({'error': 'Only organization admins can update settings.'}, status=status.HTTP_403_FORBIDDEN)
+        user.current_organization_id = original_org_id
+
+        cap = request.data.get('max_concurrent_sessions')
+        if cap is None:
+            return Response({'error': 'max_concurrent_sessions is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            cap = int(cap)
+            if cap < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            return Response({'error': 'max_concurrent_sessions must be a positive integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        org.max_concurrent_sessions = cap
+        org.save(update_fields=['max_concurrent_sessions', 'updated_at'])
+        return Response({'max_concurrent_sessions': org.max_concurrent_sessions})
+
     def delete(self, request, org_id):
         """
         DELETE /api/core/organizations/<org_id>/
