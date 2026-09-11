@@ -11,6 +11,7 @@ import {
   SetPasswordRequest,
   ChangePasswordResponse,
 } from '../types/auth';
+import { isRetryableAuthError } from './authMessages';
 
 const DEFAULT_API_BASE_URL = '';
 
@@ -309,25 +310,44 @@ export function updatePersistedAccessToken(accessToken: string, refreshToken?: s
   writeAuthCookie(authData);
 }
 
+// Throws on failure so callers can tell a rejected refresh token from an unreachable server.
+async function requestTokenRefresh(refreshToken: string): Promise<string | null> {
+  const response = await axios.post(
+    `${API_BASE_URL}/auth/token/refresh/`,
+    { refresh: refreshToken },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/plain, */*',
+      },
+    },
+  );
+  const accessToken = response.data?.access || response.data?.token;
+  if (!accessToken) return null;
+  updatePersistedAccessToken(accessToken, response.data?.refresh);
+  return accessToken;
+}
+
 export async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   try {
-    const response = await axios.post(
-      `${API_BASE_URL}/auth/token/refresh/`,
-      { refresh: refreshToken },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json, text/plain, */*',
-        },
-      },
-    );
-    const accessToken = response.data?.access || response.data?.token;
-    if (!accessToken) return null;
-    updatePersistedAccessToken(accessToken, response.data?.refresh);
-    return accessToken;
+    return await requestTokenRefresh(refreshToken);
   } catch (error) {
     console.warn('Failed to refresh auth token:', error);
     return null;
+  }
+}
+
+export const SESSION_ENDED_EVENT = 'auth:session-ended';
+
+// The session can't be recovered: clear it and send the user to log in again.
+// authStore listens for SESSION_ENDED_EVENT to reset its in-memory state
+// (it can't be imported here — authStore already imports this file).
+export function endSession() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(SESSION_ENDED_EVENT));
+  clearPersistedAuthState();
+  if (!window.location.pathname.startsWith('/login')) {
+    window.location.href = '/login';
   }
 }
 
@@ -335,7 +355,13 @@ export async function refreshAccessToken(refreshToken: string): Promise<string |
 // like preferencesApi.ts) so concurrent 401s trigger exactly one refresh call.
 export function getSharedRefreshedToken(refreshToken: string): Promise<string | null> {
   if (!sharedRefreshPromise) {
-    sharedRefreshPromise = refreshAccessToken(refreshToken);
+    sharedRefreshPromise = requestTokenRefresh(refreshToken).catch((error) => {
+      console.warn('Failed to refresh auth token:', error);
+      // Network errors and 5xx may recover; a 4xx means the server rejected the refresh token.
+      // Runs once per refresh, not once per waiting request.
+      if (!isRetryableAuthError(error)) endSession();
+      return null;
+    });
   }
   return sharedRefreshPromise.finally(() => {
     sharedRefreshPromise = null;
@@ -422,6 +448,9 @@ api.interceptors.response.use(
           config.headers.Authorization = `Bearer ${accessToken}`;
           return api(config);
         }
+        // Sent a token but have nothing to refresh it with: the session is dead.
+        // (A rejected refresh already ended it inside getSharedRefreshedToken.)
+        if (!refreshToken && config.headers.Authorization) endSession();
       }
     }
 
