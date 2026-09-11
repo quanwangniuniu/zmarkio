@@ -16,19 +16,19 @@ Tenant schema handling
 -----------------------
 This app is schema-per-organization (see core.tenant_config /
 core.services.tenant). Project, Meeting, MeetingDocument, Draft, ContentBlock,
-DraftProjectLink, DocumentChunk and DocumentIndexState are all tenant models,
-physically present only inside each org's own `org_<slug>` schema -- never in
-`public`. A management command process starts on `search_path = public` with
-nothing to change that, unlike an HTTP request (TenantSchemaMiddleware) or a
-Celery task (rag.tasks wraps every call in tenant_schema_context itself). So
-the Organization/User are created first against `public` (which is also what
-auto-provisions the eval org's schema, via Organization.save()), then
-everything else -- Project, all source seeding, all indexing, all retrieval --
-runs inside one `tenant_schema_context(eval_schema)` block, exactly mirroring
-rag/tasks.py's own convention. RetrospectiveTask/Insight are the one source
-type that stays in `public` permanently (not in get_tenant_models()), which
-resolves fine either way since `SET search_path TO org_x, public` still falls
-through to `public` for tables that don't exist in the org schema.
+DraftProjectLink, RetrospectiveTask, Insight, CampaignMetric, DocumentChunk,
+and DocumentIndexState are tenant-scoped models provisioned in each
+organization's `org_<slug>` schema.
+
+A management command starts with `search_path = public`, unlike an HTTP
+request where TenantSchemaMiddleware establishes the organization schema, or
+a RAG Celery task which explicitly re-enters it with tenant_schema_context.
+
+The Organization/User are therefore created first in the public context
+(which also provisions the eval organization's schema), then Project, source
+seeding, indexing, and retrieval run inside
+`tenant_schema_context(eval_schema)`, matching the convention used by
+rag/tasks.py.
 
 RAG-enqueue suppression during seeding
 ----------------------------------------

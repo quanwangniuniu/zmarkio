@@ -34,11 +34,12 @@ logger = logging.getLogger(__name__)
 # docstrings for the transaction.on_commit + best-effort-delivery trade-offs,
 # which apply identically here and aren't repeated.
 #
-# RetrospectiveTask/Insight are public-schema models (not registered in
-# core.tenant_config.get_tenant_models()), unlike Meeting/Draft/Project --
-# but `current_tenant_schema()` still reports the org schema the current
-# request is running under, which is what indexing needs to know which
-# project's tenant-scoped DocumentChunk/DocumentIndexState rows to touch.
+# RetrospectiveTask/Insight are tenant-scoped models (registered in
+# core.tenant_config.get_tenant_models()), same as Meeting/Draft/Project.
+# `current_tenant_schema()` is still captured here and passed through
+# explicitly because the Celery task runs in a separate worker process and
+# must re-establish the org schema itself -- it can't inherit the request's
+# search_path.
 
 def _enqueue_retrospective_index(project_id, retrospective_id, tenant_schema=None) -> None:
     schema = tenant_schema or current_tenant_schema()
