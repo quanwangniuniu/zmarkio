@@ -1321,3 +1321,30 @@ class ZoomSyncStepDTest(TestCase):
         payload = build_zoom_post_meeting_payload(self.zd)
         self.assertEqual(payload["summary_text"], "")
         self.assertEqual(payload["user_feedback_code"], "not_applicable")
+
+from zoom_integration.services import _parse_vtt_to_text
+
+class PraseVttToTextTests(TestCase):
+    def test_strips_timestamps_and_header(self):
+        vtt = (
+            "WEBVTT\n\n"
+            "1\n"
+            "00:00:01.000 --> 00:00:04.000\n"
+            "Tim: We need to cut the budget.\n\n"
+            "2\n"
+            "00:00:05.000 --> 00:00:08.000\n"
+            "Sarah: I agree.\n"
+        )
+        result = _parse_vtt_to_text(vtt)
+        self.assertIn("Tim: We need to cut the budget.", result)
+        self.assertIn("Sarah: I agree.", result)
+        self.assertNotIn("WEBVTT", result)
+
+    def test_empty_vtt_returns_empty_string(self):
+        self.assertEqual(_parse_vtt_to_text(""), "")
+
+# @patch("zoom_integration.services.request.get")
+# def test_transcript_completed_stores_text_on_meeting(self, mock_get):
+#     recordings_response = self._json_response({
+#         reco
+#     })

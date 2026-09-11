@@ -36,6 +36,8 @@ import uuid
 from core.models import TimeStampedModel
 from meetings.querysets import MeetingManager
 
+from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 
 class MeetingTypeDefinition(models.Model):
     """
@@ -159,6 +161,12 @@ class Meeting(SluggedResourceModelMixin, TimeStampedModel):
         default=False,
         help_text="Soft-delete flag (added in migration 0002).",
     )
+    transcript = models.TextField(
+        blank=True,
+        default="",
+        help_text="Plain-text Zoom transcript for full-text search."
+    )
+    search_vector = SearchVectorField(null=True, blank=True)
     minutes_published = models.BooleanField(
         default=False,
         help_text="Whether the meeting minutes have been published to all participants.",
@@ -183,6 +191,10 @@ class Meeting(SluggedResourceModelMixin, TimeStampedModel):
             models.Index(
                 fields=["project", "type_definition"],
                 name="mtgs_mtg_prj_type",
+            ),
+            GinIndex(
+                fields=["search_vector"],
+                name="mtgs_mtg_search_vec",
             ),
         ]
 

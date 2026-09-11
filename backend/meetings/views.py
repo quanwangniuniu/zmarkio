@@ -199,6 +199,37 @@ class MeetingViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
 
         qs_filtered = apply_meeting_knowledge_filters(qs_base, filters).distinct()
 
+        q = filters.get("q", "").strip()
+        if q:
+            from django.contrib.postgres.search import SearchHeadline, SearchQuery
+            sq = SearchQuery(q)
+            qs_filtered = qs_filtered.annotate(
+                transcript_headline=SearchHeadline(
+                    "transcript", sq,
+                    start_sel="<mark>",
+                    stop_sel="</mark>",
+                    max_words=15,
+                    min_words=5,
+                    max_fragments=1,
+                ),
+                summary_headline=SearchHeadline(
+                    "summary", sq,
+                    start_sel="<mark>",
+                    stop_sel="</mark>",
+                    max_words=15,
+                    min_words=5,
+                    max_fragments=1,
+                ),
+                title_headline=SearchHeadline(
+                    "title", sq,
+                    start_sel="<mark>",
+                    stop_sel="</mark>",
+                    max_words=15,
+                    min_words=5,
+                    max_fragments=1,
+                ),
+            )
+
         ordering = filters.get("ordering") or "-created_at"
         qs = qs_filtered.order_by(*meeting_list_order_by_fields(ordering))
 
