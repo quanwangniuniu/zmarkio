@@ -56,9 +56,6 @@ from core.serializers import (
     ProjectSummarySerializer,
     SwitchOrganizationSerializer,
 )
-from decision.models import Decision, DecisionEdge, DecisionTopicLabel
-from decision.serializers import DecisionEdgeSerializer, DecisionGraphNodeSerializer
-from decision.services import decision_topic_label as default_decision_topic_label, normalize_decision_topic
 from core.services.project_initialization import ProjectInitializationService
 from core.services.organization_activity import log_org_activity
 from core.services.audit_events import safe_emit_audit_event
@@ -823,121 +820,6 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
             'message': 'Active project updated successfully',
             'active_project': serializer.data
         })
-
-    @action(detail=True, methods=['get'], url_path='decisions/graph')
-    def decisions_graph(self, request, pk=None):
-        """Return decision graph (nodes + edges) for one project or all member projects."""
-        project = self.get_object()
-        scope = request.query_params.get('scope')
-        if scope == 'all_projects':
-            if request.user.is_superuser:
-                project_ids = Project.objects.filter(
-                    organization=project.organization,
-                    is_deleted=False,
-                ).values_list('id', flat=True)
-            else:
-                project_ids = ProjectMember.objects.filter(
-                    user=request.user,
-                    is_active=True,
-                    project__organization=project.organization,
-                    project__is_deleted=False,
-                ).values_list('project_id', flat=True)
-        else:
-            project_ids = [project.id]
-
-        nodes_qs = Decision.objects.filter(project_id__in=project_ids, is_deleted=False).select_related('project').order_by(
-            'project_id',
-            'project_seq',
-            'id',
-        )
-        edges_qs = DecisionEdge.objects.filter(
-            from_decision__project_id__in=project_ids,
-            to_decision__project_id__in=project_ids,
-        )
-        topic_labels = {
-            label.topic: label.title
-            for label in DecisionTopicLabel.objects.filter(
-                project=project,
-                is_deleted=False,
-            )
-        }
-        nodes = DecisionGraphNodeSerializer(
-            nodes_qs,
-            many=True,
-            context={"request": request, "topic_labels": topic_labels},
-        ).data
-        edges = DecisionEdgeSerializer(edges_qs, many=True).data
-        topics = [
-            {
-                "topic": topic,
-                "title": title,
-                "defaultTitle": default_decision_topic_label(topic),
-            }
-            for topic, title in sorted(topic_labels.items(), key=lambda item: item[1].lower())
-        ]
-        return Response({"nodes": nodes, "edges": edges, "topics": topics})
-
-    @action(
-        detail=True,
-        methods=['patch', 'post', 'delete'],
-        url_path=r'decision-topic-labels/(?P<topic>[^/.]+)',
-    )
-    def decision_topic_label(self, request, pk=None, topic=None):
-        """Create, rename, or remove a topic column title for this project view."""
-        project = self.get_object()
-        normalized_topic = normalize_decision_topic(topic)
-
-        if request.method == 'DELETE':
-            if Decision.objects.filter(
-                project=project,
-                topic=normalized_topic,
-                is_deleted=False,
-            ).exists():
-                return Response(
-                    {'detail': 'Only empty topics can be deleted.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            DecisionTopicLabel.objects.filter(
-                project=project,
-                topic=normalized_topic,
-                is_deleted=False,
-            ).update(is_deleted=True)
-            return Response(status=status.HTTP_204_NO_CONTENT)
-
-        title = (request.data.get('title') or '').strip()
-        if not title:
-            return Response(
-                {'title': 'Title is required.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if len(title) > 80:
-            return Response(
-                {'title': 'Title must be 80 characters or fewer.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with transaction.atomic():
-            label, _ = DecisionTopicLabel.objects.update_or_create(
-                project=project,
-                topic=normalized_topic,
-                defaults={'title': title, 'is_deleted': False},
-            )
-            record_audit_entry(
-                actor=self.request.user if self.request.user.is_authenticated else None,
-                action='project.labels_updated',
-                target=project,
-                before=None,
-                after={'topic': normalized_topic, 'title': title},
-                organization=project.organization,
-                project=project,
-            )
-        return Response(
-            {
-                'topic': normalized_topic,
-                'title': label.title,
-                'defaultTitle': default_decision_topic_label(normalized_topic),
-            }
-        )
 
 
 class ProjectMemberViewSet(viewsets.ModelViewSet):

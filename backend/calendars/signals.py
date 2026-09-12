@@ -37,8 +37,8 @@ def generate_calendar_events_for_decision(sender, instance, created, **kwargs):
     - Decision Review Event: created when Decision has approved_at
 
     IMPORTANT: Skip soft-deleted Decisions. Without this guard, the post_save
-    signal fired by decision.save(update_fields=["is_deleted", ...]) inside
-    DecisionViewSet.destroy() would recreate the CalendarEvent we just deleted,
+    signal fired by decision.save(update_fields=["is_deleted", ...]) during the
+    Decision soft-delete path would recreate the CalendarEvent we just deleted,
     causing deleted Decisions to remain visible on the calendar.
     """
     # Guard: do not generate or update calendar events for soft-deleted decisions
@@ -172,7 +172,7 @@ def generate_calendar_events_for_task(sender, instance, created, **kwargs):
 def delete_calendar_events_for_decision(sender, instance, **kwargs):
     """
     Auto-delete CalendarEvents when a Decision is hard-deleted.
-    Note: soft-delete is handled in DecisionViewSet.destroy() in decision/views.py.
+    Note: soft-delete is handled by the Decision API before this hard-delete signal.
     """
     CalendarEvent.objects.filter(decision=instance).delete()
 

@@ -12,7 +12,7 @@ export function useActiveProjectForFlatRoute() {
   const activeProject = useProjectStore((s) => s.activeProject);
   const hasProjectStoreHydrated = useProjectStore((s) => s.hasHydrated);
 
-  const projectId = activeProject?.slug ?? activeProject?.id ?? null;
+  const projectId = activeProject?.id ?? activeProject?.slug ?? null;
 
   return {
     projectId,

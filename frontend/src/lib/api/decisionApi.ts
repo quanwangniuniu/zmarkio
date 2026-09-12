@@ -182,10 +182,14 @@ export const DecisionAPI = {
     options?: { scope?: 'project' | 'all_projects' },
   ): Promise<DecisionGraphResponse> => {
     const response = await api.get<DecisionGraphResponse>(
-      `/api/core/projects/${projectId}/decisions/graph/`,
-      options?.scope && options.scope !== 'project'
-        ? { params: { scope: options.scope } }
-        : undefined,
+      '/api/decisions/graph',
+      {
+        headers: { 'x-project-id': projectId },
+        params: {
+          project_id: projectId,
+          ...(options?.scope && options.scope !== 'project' ? { scope: options.scope } : {}),
+        },
+      },
     );
     return response.data;
   },
@@ -250,8 +254,9 @@ export const DecisionAPI = {
     title: string,
   ) => {
     const response = await api.patch<DecisionTopicLabelResponse>(
-      `/api/core/projects/${projectId}/decision-topic-labels/${topic}/`,
+      `/api/decisions/topic-labels/${encodeURIComponent(topic)}`,
       { title },
+      withProject(projectId),
     );
     return response.data;
   },
@@ -260,8 +265,9 @@ export const DecisionAPI = {
     title: string,
   ) => {
     const response = await api.post<DecisionTopicLabelResponse>(
-      `/api/core/projects/${projectId}/decision-topic-labels/${encodeURIComponent(title)}/`,
+      `/api/decisions/topic-labels/${encodeURIComponent(title)}`,
       { title },
+      withProject(projectId),
     );
     return response.data;
   },
@@ -270,7 +276,8 @@ export const DecisionAPI = {
     topic: string,
   ) => {
     await api.delete(
-      `/api/core/projects/${projectId}/decision-topic-labels/${encodeURIComponent(topic)}/`,
+      `/api/decisions/topic-labels/${encodeURIComponent(topic)}`,
+      withProject(projectId),
     );
   },
   createSignal: async (
