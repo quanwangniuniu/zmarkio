@@ -101,6 +101,9 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         }
 
         using var connection = dataSource.OpenConnection();
+        var originMeeting = request.OriginMeetingId.HasValue
+            ? ResolveOriginMeeting(connection, request.OriginMeetingId.Value, projectId.Value)
+            : null;
         using var transaction = connection.BeginTransaction();
         var now = DateTimeOffset.UtcNow;
         var projectSeq = NextProjectSequence(connection, projectId.Value);
@@ -185,6 +188,10 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         ReplaceOptions(connection, transaction, id, now, request.Options);
         ReplaceSignals(connection, transaction, id, actorId, now, request.Signals);
         ReplaceParentEdges(connection, transaction, id, projectId.Value, actorId, request.ParentDecisionIds);
+        if (originMeeting is not null)
+        {
+            CreateMeetingDecisionOrigin(connection, transaction, originMeeting.Id, id, actorId, now);
+        }
         transaction.Commit();
 
         return Get(connection, id.ToString())!;
@@ -868,7 +875,8 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
             GetNullableGuid(reader, "agent_session_id"),
             GetDateTimeOffset(reader, "planned_decision_date"),
             Array.Empty<DecisionSignalDto>(),
-            Array.Empty<DecisionOptionDto>()
+            Array.Empty<DecisionOptionDto>(),
+            null
         );
         reader.Close();
 
@@ -876,7 +884,137 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         {
             Signals = ListSignals(connection, detail.Id),
             Options = ListOptions(connection, detail.Id),
+            OriginMeeting = GetOriginMeeting(connection, detail.Id),
         };
+    }
+
+    private DecisionOriginMeetingDto ResolveOriginMeeting(NpgsqlConnection connection, int meetingId, int projectId)
+    {
+        var origin = GetMeeting(connection, meetingId);
+        if (origin is null)
+        {
+            throw new DecisionValidationException("origin_meeting_id", "Meeting does not exist.");
+        }
+        if (origin.ProjectId != projectId)
+        {
+            throw new DecisionValidationException("origin_meeting_id", "Meeting must belong to the same project as the decision.");
+        }
+        if (IsMeetingArchived(connection, meetingId))
+        {
+            throw new DecisionValidationException("origin_meeting_id", "Archived meetings cannot be used as a decision origin.");
+        }
+        return origin;
+    }
+
+    private DecisionOriginMeetingDto? GetOriginMeeting(NpgsqlConnection connection, int decisionId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT meeting_id
+            FROM meetings_meetingdecisionorigin
+            WHERE decision_id = @decision_id
+            LIMIT 1
+            """;
+        command.Parameters.AddWithValue("decision_id", decisionId);
+        var meetingId = command.ExecuteScalar();
+        return meetingId is null ? null : GetMeeting(connection, Convert.ToInt32(meetingId));
+    }
+
+    private DecisionOriginMeetingDto? GetMeeting(NpgsqlConnection connection, int meetingId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT
+                m.id,
+                m.title,
+                m.slug,
+                m.project_id,
+                t.slug AS type_slug,
+                m.scheduled_date
+            FROM meetings_meeting m
+            LEFT JOIN meetings_meetingtypedefinition t ON t.id = m.type_definition_id
+            WHERE m.id = @meeting_id
+              AND m.is_deleted = false
+            """;
+        command.Parameters.AddWithValue("meeting_id", meetingId);
+
+        using var reader = command.ExecuteReader();
+        if (!reader.Read())
+        {
+            return null;
+        }
+
+        var projectId = GetNullableInt32(reader, "project_id");
+        var slug = GetNullableString(reader, "slug");
+        var url = projectId.HasValue && !string.IsNullOrWhiteSpace(slug)
+            ? $"/projects/{projectId.Value}/meetings/{slug}"
+            : null;
+        return new DecisionOriginMeetingDto(
+            reader.GetInt32(reader.GetOrdinal("id")),
+            GetNullableString(reader, "title") ?? "",
+            url,
+            url,
+            projectId,
+            GetNullableString(reader, "type_slug"),
+            GetNullableDateOnly(reader, "scheduled_date")
+        );
+    }
+
+    private bool IsMeetingArchived(NpgsqlConnection connection, int meetingId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT is_archived FROM meetings_meeting WHERE id = @meeting_id";
+        command.Parameters.AddWithValue("meeting_id", meetingId);
+        return command.ExecuteScalar() is true;
+    }
+
+    private static void CreateMeetingDecisionOrigin(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        int meetingId,
+        int decisionId,
+        int? actorId,
+        DateTimeOffset now
+    )
+    {
+        if (actorId is null)
+        {
+            throw new DecisionValidationException("origin_meeting_id", "Authenticated user is required to create a meeting origin.");
+        }
+
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO meetings_meetingdecisionorigin (
+                meeting_id,
+                decision_id,
+                origin_timestamp,
+                creation_context,
+                created_by_id,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                @meeting_id,
+                @decision_id,
+                @now,
+                @creation_context,
+                @actor_id,
+                @now,
+                @now
+            )
+            """;
+        command.Parameters.AddWithValue("meeting_id", meetingId);
+        command.Parameters.AddWithValue("decision_id", decisionId);
+        command.Parameters.AddWithValue("now", now);
+        command.Parameters.AddWithValue("actor_id", actorId.Value);
+        command.Parameters.Add("creation_context", NpgsqlDbType.Jsonb).Value = JsonSerializer.Serialize(new
+        {
+            source = "decision_service",
+            meeting_id = meetingId,
+            decision_id = decisionId,
+        });
+        command.ExecuteNonQuery();
     }
 
     private DecisionConnectionsResponse BuildConnectionsPayload(NpgsqlConnection connection, int decisionId, int? projectId, int projectSeq)
@@ -1439,6 +1577,23 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
     {
         var ordinal = reader.GetOrdinal(column);
         return reader.IsDBNull(ordinal) ? null : reader.GetGuid(ordinal);
+    }
+
+    private static DateOnly? GetNullableDateOnly(NpgsqlDataReader reader, string column)
+    {
+        var ordinal = reader.GetOrdinal(column);
+        if (reader.IsDBNull(ordinal))
+        {
+            return null;
+        }
+
+        var value = reader.GetValue(ordinal);
+        return value switch
+        {
+            DateOnly dateOnly => dateOnly,
+            DateTime dateTime => DateOnly.FromDateTime(dateTime),
+            _ => null,
+        };
     }
 
     private static DateTimeOffset? GetDateTimeOffset(NpgsqlDataReader reader, string column)

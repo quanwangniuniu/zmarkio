@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DecisionService.Decisions;
 
 public enum DecisionStatus
@@ -63,7 +65,18 @@ public sealed record DecisionDetailDto(
     Guid? AgentSessionId,
     DateTimeOffset? PlannedDecisionDate,
     IReadOnlyList<DecisionSignalDto> Signals,
-    IReadOnlyList<DecisionOptionDto> Options
+    IReadOnlyList<DecisionOptionDto> Options,
+    DecisionOriginMeetingDto? OriginMeeting = null
+);
+
+public sealed record DecisionOriginMeetingDto(
+    int Id,
+    string Title,
+    string? Url,
+    string? DetailUrl,
+    int? ProjectId,
+    string? Type,
+    DateOnly? ScheduledDate
 );
 
 public sealed record DecisionSignalDto(
@@ -112,7 +125,8 @@ public sealed record CreateDecisionDraftRequest(
     DateTimeOffset? PlannedDecisionDate,
     IReadOnlyList<DecisionSignalInput>? Signals,
     IReadOnlyList<DecisionOptionInput>? Options,
-    IReadOnlyList<int>? ParentDecisionIds
+    IReadOnlyList<int>? ParentDecisionIds,
+    [property: JsonPropertyName("origin_meeting_id")] int? OriginMeetingId = null
 );
 
 public sealed record UpdateDecisionDraftRequest(
@@ -126,7 +140,8 @@ public sealed record UpdateDecisionDraftRequest(
     DateTimeOffset? PlannedDecisionDate,
     IReadOnlyList<DecisionSignalInput>? Signals,
     IReadOnlyList<DecisionOptionInput>? Options,
-    IReadOnlyList<int>? ParentDecisionIds
+    IReadOnlyList<int>? ParentDecisionIds,
+    [property: JsonPropertyName("origin_meeting_id")] int? OriginMeetingId = null
 );
 
 public sealed record DecisionSignalInput(

@@ -92,52 +92,6 @@ class TestDecisionCaptureIntegration(TestCase):
             2,
         )
 
-    def test_retrieve_decision_origin(self):
-        meeting = self._meeting()
-        decision = Decision.objects.create(
-            project=self.project,
-            author=self.user,
-            title="Pause underperforming campaign",
-            context_summary="Campaign CPA exceeded threshold.",
-        )
-        create_meeting_decision_origin(
-            meeting=meeting,
-            decision=decision,
-            user=self.user,
-        )
-
-        response = self.client.get(
-            f"/api/decisions/{decision.slug}/origin/?project_id={self.project.slug}"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["decisionId"], decision.id)
-        self.assertEqual(response.data["meeting"]["id"], meeting.id)
-        self.assertEqual(response.data["meeting"]["title"], meeting.title)
-
-    def test_decision_detail_includes_origin_meeting(self):
-        meeting = self._meeting()
-        decision = Decision.objects.create(
-            project=self.project,
-            author=self.user,
-            title="Approve revised targeting",
-            context_summary="Targeting was approved in the meeting.",
-        )
-        create_meeting_decision_origin(
-            meeting=meeting,
-            decision=decision,
-            user=self.user,
-        )
-
-        response = self.client.get(
-            f"/api/decisions/{decision.slug}/?project_id={self.project.slug}"
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("originMeeting", response.data)
-        self.assertEqual(response.data["originMeeting"]["id"], meeting.id)
-        self.assertEqual(response.data["originMeeting"]["title"], meeting.title)
-
     def test_meeting_delete_cascades_decision_origins(self):
         """Test that deleting a meeting also deletes its decision origins (CASCADE)."""
         meeting = self._meeting()

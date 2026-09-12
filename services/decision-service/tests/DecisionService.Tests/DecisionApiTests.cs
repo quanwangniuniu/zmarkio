@@ -71,6 +71,61 @@ public sealed class DecisionApiTests
         Assert.Equal("Test decision", node.Title);
     }
 
+    [Fact]
+    public async Task Draft_create_returns_origin_meeting_when_origin_meeting_id_is_supplied()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        var createResponse = await client.PostAsJsonAsync("/api/decisions/drafts", new Dictionary<string, object?>
+        {
+            ["title"] = "Decision from meeting",
+            ["origin_meeting_id"] = 99,
+        });
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var decision = await createResponse.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(decision);
+        Assert.NotNull(decision!.OriginMeeting);
+        Assert.Equal(99, decision.OriginMeeting!.Id);
+    }
+
+    [Fact]
+    public async Task Draft_patch_rejects_origin_meeting_id()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        var createResponse = await client.PostAsJsonAsync("/api/decisions/drafts", new CreateDecisionDraftRequest(
+            "Existing decision",
+            null,
+            null,
+            null,
+            null,
+            "general",
+            false,
+            false,
+            null,
+            null,
+            null,
+            null,
+            null
+        ));
+        var decision = await createResponse.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+
+        var patchResponse = await client.PatchAsJsonAsync($"/api/decisions/drafts/{decision!.Slug}", new Dictionary<string, object?>
+        {
+            ["title"] = "Updated",
+            ["origin_meeting_id"] = 100,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, patchResponse.StatusCode);
+    }
+
     private sealed class DecisionApiFactory(bool authenticated) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)

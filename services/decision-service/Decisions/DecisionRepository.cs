@@ -30,6 +30,11 @@ public enum TopicLabelDeleteResult
     NotFound
 }
 
+public sealed class DecisionValidationException(string field, string message) : Exception(message)
+{
+    public string Field { get; } = field;
+}
+
 public sealed class InMemoryDecisionRepository : IDecisionRepository
 {
     private readonly ConcurrentDictionary<int, DecisionRecord> _decisions = new();
@@ -87,6 +92,17 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
             CreatedByAgent = request.CreatedByAgent,
             AgentSessionId = request.AgentSessionId,
             PlannedDecisionDate = request.PlannedDecisionDate,
+            OriginMeeting = request.OriginMeetingId.HasValue
+                ? new DecisionOriginMeetingDto(
+                    request.OriginMeetingId.Value,
+                    $"Meeting {request.OriginMeetingId.Value}",
+                    $"/projects/{projectId}/meetings/{request.OriginMeetingId.Value}",
+                    $"/projects/{projectId}/meetings/{request.OriginMeetingId.Value}",
+                    projectId,
+                    null,
+                    null
+                )
+                : null,
             Signals = BuildSignals(id, actorId, now, request.Signals),
             Options = BuildOptions(id, now, request.Options),
         };
@@ -465,7 +481,8 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
             decision.AgentSessionId,
             decision.PlannedDecisionDate,
             decision.Signals,
-            decision.Options
+            decision.Options,
+            decision.OriginMeeting
         );
     }
 
@@ -492,6 +509,7 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
         public bool CreatedByAgent { get; init; }
         public Guid? AgentSessionId { get; init; }
         public DateTimeOffset? PlannedDecisionDate { get; init; }
+        public DecisionOriginMeetingDto? OriginMeeting { get; init; }
         public required IReadOnlyList<DecisionSignalDto> Signals { get; init; }
         public required IReadOnlyList<DecisionOptionDto> Options { get; init; }
     }

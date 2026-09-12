@@ -21,8 +21,15 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
 
-        var decision = repository.Create(projectId, access.UserId, request);
-        return Created($"/api/decisions/drafts/{decision.Id}", decision);
+        try
+        {
+            var decision = repository.Create(projectId, access.UserId, request);
+            return Created($"/api/decisions/drafts/{decision.Id}", decision);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
     }
 
     [HttpGet("{lookup}")]
@@ -49,6 +56,13 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
         if (access is not { Allowed: true })
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+        }
+        if (request.OriginMeetingId is not null)
+        {
+            return BadRequest(new Dictionary<string, string[]>
+            {
+                ["origin_meeting_id"] = new[] { "Meeting origin can only be set when creating a decision." },
+            });
         }
 
         var decision = repository.UpdateDraft(lookup, access.UserId, request);
