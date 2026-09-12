@@ -113,7 +113,7 @@ from django.conf import settings
 from django.db import transaction
 
 from rag.chunking import chunk_text
-from rag.embeddings import FRAMING_VERSION, embed_document_chunks
+from rag.embeddings import FRAMING_VERSION, active_embedding_identity, embed_document_chunks
 from rag.extraction import SourceDocument, extract_source
 from rag.models import DocumentChunk, DocumentIndexState, DocumentIndexStatus
 
@@ -130,9 +130,16 @@ INDEXING_VERSION = "1"
 def current_pipeline_hash() -> str:
     """Fingerprint of everything that affects what gets stored for a chunk,
     other than the source text itself.
+
+    Uses active_embedding_identity() rather than settings.RAG_EMBEDDING_MODEL
+    directly so a provider switch (e.g. gemini -> local) or a local-model
+    change is reflected here even when RAG_EMBEDDING_MODEL itself is
+    untouched -- see that function's docstring for why 'gemini' keeps an
+    unprefixed identity (backward-compatible hash) while every other
+    provider is provider-qualified.
     """
     parts = [
-        settings.RAG_EMBEDDING_MODEL,
+        active_embedding_identity(),
         str(settings.RAG_EMBEDDING_DIMENSIONS),
         str(settings.RAG_CHUNK_SIZE),
         str(settings.RAG_CHUNK_OVERLAP),

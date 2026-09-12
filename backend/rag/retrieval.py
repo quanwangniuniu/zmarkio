@@ -16,10 +16,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.db.models import Exists, OuterRef, Q, Subquery
 from pgvector.django import CosineDistance
 
 from rag.embeddings import embed_query
-from rag.models import DocumentChunk
+from rag.indexing import current_pipeline_hash
+from rag.models import DocumentChunk, DocumentIndexState
 
 
 @dataclass(frozen=True)
@@ -48,6 +50,22 @@ def retrieve_chunks(
     """Embed `question` and return the top-K most similar chunks for `project_id`.
 
     - Only non-deleted chunks with a non-null embedding are considered.
+    - A chunk is excluded if its source has a DocumentIndexState row whose
+      indexed_pipeline_hash no longer matches current_pipeline_hash().
+      This prevents query vectors from being compared against chunks
+      produced by a different indexing pipeline (for example, during a
+      provider-switch rebuild). Stale chunks are excluded until that source
+      is re-indexed.
+
+      Retrieval is deliberately not gated on DocumentIndexState.status:
+      a later indexing attempt may be PENDING or FAILED while the existing
+      chunks still represent the last successful current-pipeline index.
+
+      If no DocumentIndexState exists, existing retrieval behavior is
+      preserved. The normal indexing pipeline creates DocumentIndexState
+      before writing DocumentChunk rows; missing-state chunks are currently
+      used only by isolated test fixtures that intentionally bypass
+      indexing.
     - Ranked by pgvector cosine distance, ascending (most similar first).
     - Ties broken deterministically by (source_type, source_id, chunk_index)
       so repeated calls against unchanged data return byte-identical
@@ -69,12 +87,31 @@ def retrieve_chunks(
 
     query_vector = embed_query(question)
 
+    # Per-source DocumentIndexState lookup, correlated on the (project,
+    # source_type, source_id) triple that identifies a source document --
+    # DocumentChunk has no FK to DocumentIndexState, only matching fields.
+    # _has_state distinguishes "no DocumentIndexState row at all" (subquery
+    # yields NULL either way) from "a row exists with indexed_pipeline_hash
+    # NULL" (the excluded/moved bookkeeping shape, rag.indexing._clear_locked)
+    # so the two cases aren't conflated by a single NULL check.
+    source_state = DocumentIndexState.objects.filter(
+        project_id=OuterRef('project_id'),
+        source_type=OuterRef('source_type'),
+        source_id=OuterRef('source_id'),
+    )
+    pipeline_hash = current_pipeline_hash()
+
     qs = (
         DocumentChunk.objects.filter(
             project_id=project_id,
             is_deleted=False,
             embedding__isnull=False,
         )
+        .annotate(
+            _has_state=Exists(source_state),
+            _indexed_pipeline_hash=Subquery(source_state.values('indexed_pipeline_hash')[:1]),
+        )
+        .filter(Q(_has_state=False) | Q(_indexed_pipeline_hash=pipeline_hash))
         .annotate(distance=CosineDistance('embedding', query_vector))
         .order_by('distance', 'source_type', 'source_id', 'chunk_index')[:top_k]
     )

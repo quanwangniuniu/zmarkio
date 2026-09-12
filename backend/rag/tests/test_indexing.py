@@ -160,6 +160,45 @@ class TestIndexSourceDocumentOutcomes:
             )
             assert state.indexed_pipeline_hash == expected_pipeline_hash
 
+    def test_changed_provider_prevents_unchanged_source_from_being_skipped(
+        self, make_meeting, make_meeting_document, project, mock_embed,
+    ):
+        """MED-264 Problem 3. Note what this test does and does NOT prove:
+        switching RAG_EMBEDDING_PROVIDER does not itself enqueue anything --
+        re-indexing still only happens when something calls
+        index_source_document() (a source save/update signal, or an
+        explicit rebuild). What it must prove is narrower: once indexing IS
+        triggered again for a source whose content hasn't changed, a
+        different embedding provider/model identity must stop
+        `_enter_pending` from treating it as SKIPPED_UNCHANGED -- neither the
+        source text nor RAG_EMBEDDING_MODEL itself changes when switching to
+        'local', which was exactly the gap (see
+        rag.embeddings.active_embedding_identity).
+
+        `mock_embed` patches rag.indexing.embed_document_chunks -- the name
+        imported from rag.embeddings, the shared entry point both providers
+        dispatch through via _provider() -- so the call_count assertions
+        below hold regardless of which provider is configured, and switching
+        to 'local' here never touches the real fastembed/ONNX model.
+        """
+        with override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='gemini-embedding-2'):
+            meeting = _bare_meeting(make_meeting, make_meeting_document)
+            index_source_document(project.id, DocumentSourceType.MEETING, str(meeting.id))
+        assert mock_embed.call_count == 1
+
+        with override_settings(RAG_EMBEDDING_PROVIDER='local', RAG_LOCAL_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5'):
+            expected_pipeline_hash = current_pipeline_hash()
+
+            result = index_source_document(project.id, DocumentSourceType.MEETING, str(meeting.id))
+
+            assert result.outcome == IndexOutcome.INDEXED
+            assert mock_embed.call_count == 2
+
+            state = DocumentIndexState.objects.get(
+                project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+            )
+            assert state.indexed_pipeline_hash == expected_pipeline_hash
+
     def test_source_shrinking_removes_exact_stale_tail_chunks(
         self, make_meeting, make_meeting_document, project, mock_embed,
     ):

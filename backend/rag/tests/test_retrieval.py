@@ -12,7 +12,8 @@ import pytest
 from django.conf import settings
 from django.utils import timezone
 
-from rag.models import DocumentChunk, DocumentSourceType
+from rag.indexing import current_pipeline_hash
+from rag.models import DocumentChunk, DocumentIndexState, DocumentIndexStatus, DocumentSourceType
 from rag.retrieval import retrieve_chunks
 
 pytestmark = pytest.mark.django_db
@@ -45,6 +46,23 @@ def _make_chunk(
         source_updated_at=timezone.now(),
         is_deleted=is_deleted,
         citation_metadata=citation_metadata or {},
+    )
+
+
+def _make_state(
+    project,
+    source_type=DocumentSourceType.MEETING,
+    source_id='1',
+    status=DocumentIndexStatus.COMPLETE,
+    indexed_pipeline_hash=None,
+):
+    return DocumentIndexState.objects.create(
+        project=project,
+        source_type=source_type,
+        source_id=source_id,
+        status=status,
+        indexed_pipeline_hash=indexed_pipeline_hash,
+        indexed_content_hash='irrelevant-to-retrieval',
     )
 
 
@@ -140,3 +158,95 @@ def test_min_similarity_filters_low_similarity_results(project, mock_query_embed
     results = retrieve_chunks(project.id, 'q', min_similarity=0.5)
 
     assert [r.source_id for r in results] == ['close']
+
+
+class TestStalePipelineGuard:
+    """MED-264 Problem 3: retrieve_chunks() must not compare a fresh query
+    vector against chunks embedded under a different pipeline (e.g. a
+    provider switch mid-rebuild) -- see the module docstring in
+    rag/retrieval.py.
+    """
+
+    def test_chunk_with_matching_current_pipeline_state_is_returned(self, project, mock_query_embed):
+        mock_query_embed(_vec(1.0, 0.0))
+        _make_state(project, source_id='1', indexed_pipeline_hash=current_pipeline_hash())
+        _make_chunk(project, source_id='1', embedding=_vec(1.0, 0.0))
+
+        results = retrieve_chunks(project.id, 'q')
+
+        assert [r.source_id for r in results] == ['1']
+
+    def test_chunk_with_stale_pipeline_state_is_excluded(self, project, mock_query_embed):
+        mock_query_embed(_vec(1.0, 0.0))
+        _make_state(project, source_id='stale', indexed_pipeline_hash='some-old-pipeline-hash')
+        _make_chunk(project, source_id='stale', embedding=_vec(1.0, 0.0))
+
+        results = retrieve_chunks(project.id, 'q')
+
+        assert results == []
+
+    def test_chunk_with_null_pipeline_hash_state_is_excluded(self, project, mock_query_embed):
+        """Distinct from test_chunk_without_documentindexstate_remains_retrievable
+        below: here a DocumentIndexState row DOES exist for this source, but
+        its indexed_pipeline_hash is NULL (the excluded/moved bookkeeping
+        shape left by rag.indexing._clear_locked). A NULL hash can never
+        equal current_pipeline_hash() in SQL, so this must be excluded --
+        the same as any other stale/mismatched hash -- not treated as the
+        no-state-at-all compatibility case.
+        """
+        mock_query_embed(_vec(1.0, 0.0))
+        _make_state(project, source_id='cleared', indexed_pipeline_hash=None)
+        _make_chunk(project, source_id='cleared', embedding=_vec(1.0, 0.0))
+
+        results = retrieve_chunks(project.id, 'q')
+
+        assert results == []
+
+    def test_chunk_without_documentindexstate_remains_retrievable(self, project, mock_query_embed):
+        """Compatibility path: sources indexed only via bare test fixtures
+        (no DocumentIndexState row at all) keep working exactly as before --
+        the real indexing pipeline always creates DocumentIndexState first,
+        so this shape never masks a genuine provider/pipeline mismatch in
+        production data (see rag/retrieval.py's docstring).
+        """
+        mock_query_embed(_vec(1.0, 0.0))
+        _make_chunk(project, source_id='no-state', embedding=_vec(1.0, 0.0))
+
+        results = retrieve_chunks(project.id, 'q')
+
+        assert [r.source_id for r in results] == ['no-state']
+
+    @pytest.mark.parametrize('status', [DocumentIndexStatus.PENDING, DocumentIndexStatus.FAILED])
+    def test_non_complete_status_with_matching_hash_does_not_exclude(self, project, mock_query_embed, status):
+        """A later re-index attempt for this same source may be PENDING or
+        FAILED while the chunks on disk still reflect the last successful,
+        current-pipeline index -- status must never gate eligibility, only
+        indexed_pipeline_hash does (see rag.indexing's module docstring:
+        retrieval never consults DocumentIndexState.status).
+        """
+        mock_query_embed(_vec(1.0, 0.0))
+        _make_state(project, source_id='1', status=status, indexed_pipeline_hash=current_pipeline_hash())
+        _make_chunk(project, source_id='1', embedding=_vec(1.0, 0.0))
+
+        results = retrieve_chunks(project.id, 'q')
+
+        assert [r.source_id for r in results] == ['1']
+
+    def test_mixed_old_and_new_pipeline_chunks_only_returns_current_pipeline_ones(self, project, mock_query_embed):
+        """The partial-rebuild scenario: one source already re-indexed under
+        the current pipeline, another still sitting on a stale one. Only the
+        current-pipeline source's chunks may enter the cosine ranking.
+        """
+        mock_query_embed(_vec(1.0, 0.0))
+        _make_state(project, source_id='fresh', indexed_pipeline_hash=current_pipeline_hash())
+        _make_chunk(project, source_id='fresh', embedding=_vec(1.0, 0.0))
+
+        _make_state(project, source_id='stale', indexed_pipeline_hash='some-old-pipeline-hash')
+        # Even though this vector is numerically closer to the query vector
+        # than 'fresh' is, it must never be allowed to win the ranking --
+        # it's from an incompatible embedding space, not just a worse match.
+        _make_chunk(project, source_id='stale', embedding=_vec(1.0, 0.0))
+
+        results = retrieve_chunks(project.id, 'q')
+
+        assert [r.source_id for r in results] == ['fresh']

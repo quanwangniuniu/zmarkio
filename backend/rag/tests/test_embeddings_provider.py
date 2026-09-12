@@ -117,3 +117,42 @@ def test_empty_chunk_list_short_circuits_before_provider_resolution():
     provider call would ever be made either way.
     """
     assert embeddings.embed_document_chunks([]) == []
+
+
+@override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='gemini-embedding-2')
+def test_active_embedding_identity_gemini_is_unprefixed():
+    """'gemini' must keep a bare model-name identity, matching exactly what
+    current_pipeline_hash() has always hashed for this provider (see
+    rag/tests/test_hashing.py's legacy-formula compatibility test).
+    """
+    assert embeddings.active_embedding_identity() == 'gemini-embedding-2'
+
+
+@override_settings(RAG_EMBEDDING_PROVIDER='local', RAG_LOCAL_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5')
+def test_active_embedding_identity_local_is_provider_qualified():
+    assert embeddings.active_embedding_identity() == 'local:BAAI/bge-base-en-v1.5'
+
+
+@override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='gemini-embedding-2')
+def test_active_embedding_identity_changes_with_gemini_model():
+    baseline = embeddings.active_embedding_identity()
+    with override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='gemini-embedding-3'):
+        assert embeddings.active_embedding_identity() != baseline
+
+
+def test_active_embedding_identity_differs_between_providers_even_with_same_bare_model_name():
+    """A 'local' identity can never collide with a 'gemini' identity that
+    happens to share the same bare model string -- the provider-qualified
+    prefix is what guarantees this, not the model name alone.
+    """
+    with override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='shared-name'):
+        gemini_identity = embeddings.active_embedding_identity()
+    with override_settings(RAG_EMBEDDING_PROVIDER='local', RAG_LOCAL_EMBEDDING_MODEL='shared-name'):
+        local_identity = embeddings.active_embedding_identity()
+    assert gemini_identity != local_identity
+
+
+@override_settings(RAG_EMBEDDING_PROVIDER='bogus-provider')
+def test_active_embedding_identity_unsupported_provider_fails_fast():
+    with pytest.raises(ValueError, match="Unknown RAG_EMBEDDING_PROVIDER 'bogus-provider'"):
+        embeddings.active_embedding_identity()

@@ -40,7 +40,7 @@ FRAMING_VERSION = "1"
 
 
 def _provider():
-    """Resolve settings.RAG_EMBEDDING_PROVIDER to (module, model_name).
+    """Resolve settings.RAG_EMBEDDING_PROVIDER to (module, provider, model_name).
 
     'gemini' is the only production-supported value and is what every
     existing caller gets by default -- this branch preserves the exact
@@ -52,15 +52,49 @@ def _provider():
     Framing (_DOCUMENT_INSTRUCTION / _QUERY_INSTRUCTION below) is applied
     identically regardless of provider -- only which module receives the
     already-framed text differs here.
+
+    `provider` is returned (not just re-read from settings by callers) so
+    active_embedding_identity() below builds its fingerprint from the exact
+    same resolution this function used to dispatch -- the two can never
+    drift apart, including for any provider added here in the future.
     """
     provider = settings.RAG_EMBEDDING_PROVIDER
     if provider == 'gemini':
-        return gemini_embeddings, settings.RAG_EMBEDDING_MODEL
+        return gemini_embeddings, provider, settings.RAG_EMBEDDING_MODEL
     if provider == 'local':
-        return local_embeddings, settings.RAG_LOCAL_EMBEDDING_MODEL
+        return local_embeddings, provider, settings.RAG_LOCAL_EMBEDDING_MODEL
     raise ValueError(
         f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'gemini' or 'local'."
     )
+
+
+def active_embedding_identity() -> str:
+    """Fingerprint input for the provider+model actually active right now.
+
+    This is what rag.indexing.current_pipeline_hash() folds in instead of
+    reading settings.RAG_EMBEDDING_MODEL directly, so a provider or model
+    swap is no longer invisible to the pipeline hash (that used to be the
+    gap: RAG_EMBEDDING_MODEL never changes when switching to 'local', so the
+    hash didn't either).
+
+    'gemini' is the one legacy-compatibility special case, kept as a bare,
+    unprefixed model-name identity -- exactly what current_pipeline_hash()
+    has always hashed for this provider -- so deploying this fix while
+    production stays on the same Gemini model does not invalidate any
+    existing index. Every other provider -- 'local' today, whatever gets
+    added to _provider() next -- is generically provider-qualified as
+    f"{provider}:{model_name}" (e.g. 'local:BAAI/bge-base-en-v1.5'), so a new
+    provider automatically gets a correct, collision-safe identity the
+    moment it's registered in _provider(), with no further change needed
+    here.
+
+    Deliberately stateless: built entirely from _provider()'s current
+    resolution, never from a previously stored hash.
+    """
+    _, provider, model_name = _provider()
+    if provider == 'gemini':
+        return model_name
+    return f"{provider}:{model_name}"
 
 
 def embed_document_chunks(texts: list[str]) -> list[list[float]]:
@@ -74,7 +108,7 @@ def embed_document_chunks(texts: list[str]) -> list[list[float]]:
 
     framed = [_DOCUMENT_INSTRUCTION + text for text in texts]
     batch_size = settings.RAG_EMBED_BATCH_SIZE
-    module, model_name = _provider()
+    module, _, model_name = _provider()
 
     embeddings: list[list[float]] = []
     for start in range(0, len(framed), batch_size):
@@ -100,7 +134,7 @@ def embed_query(text: str) -> list[float]:
     if not text or not text.strip():
         raise ValueError("Query text must not be empty")
     framed = _QUERY_INSTRUCTION + text
-    module, model_name = _provider()
+    module, _, model_name = _provider()
     return module.embed_content(
         framed,
         model=model_name,
