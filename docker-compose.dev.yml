@@ -138,6 +138,8 @@ services:
         condition: service_healthy
       clamav:
         condition: service_healthy
+      decision-service:
+        condition: service_started
       # sonarqube:
       #   condition: service_healthy
     volumes:
@@ -178,8 +180,10 @@ services:
       # - SONAR_USER=${SONAR_USER}
       # - SONAR_PWD=${SONAR_PWD}
       - KAFKA_BROKER=${KAFKA_BROKER}
+      - DECISION_SERVICE_URL=http://decision-service:8080
     depends_on:
       - backend
+      - decision-service
       # - sonarqube
     command: ["/bin/bash", "/app/entrypoint-dev"]
     logging:
@@ -188,6 +192,36 @@ services:
         max-size: "10m"
         max-file: "3"
         labels: "service=nextjs"    
+
+  # Decision .NET Microservice (Development)
+  decision-service:
+    build:
+      context: ./services/decision-service
+      dockerfile: Dockerfile
+    container_name: decision-service-dev
+    restart: always
+    ports:
+      - "8085:8080"
+    env_file:
+      - .env
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - DECISION_SERVICE_STORAGE=postgres
+      - ConnectionStrings__DecisionDb=Host=host.docker.internal;Port=${POSTGRES_PORT:-5432};Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Search Path=public
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=decision-service"
 
   # Nginx Reverse Proxy
   nginx:
@@ -201,6 +235,7 @@ services:
     depends_on:
       - backend
       - frontend
+      - decision-service
 
   # Celery Worker for background tasks
   celery-worker:
