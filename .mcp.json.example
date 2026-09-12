@@ -1,0 +1,38 @@
+{
+  "_comment": "Reference / alternatives for .mcp.json. The committed .mcp.json uses OAuth for the three hosted servers (no secrets in the file) and reads the DB connection string from the MCP_DATABASE_URI environment variable. Copy an alternative below into .mcp.json only if the default does not work for you. Never inline a token or password - use ${VAR} expansion and set the value in .claude/settings.local.json (env block) or your shell profile.",
+
+  "mcpServers": {
+
+    "github": {
+      "_default": "OAuth - run /mcp in a session and authorize in the browser.",
+      "_alt_pat": "If your org blocks OAuth apps, use a fine-grained PAT instead:",
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": { "Authorization": "Bearer ${GITHUB_MCP_PAT}" }
+    },
+
+    "linear": {
+      "_default": "OAuth only - run /mcp and authorize. Streamable-HTTP endpoint below; the old /sse endpoint is deprecated.",
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp"
+    },
+
+    "atlassian": {
+      "_default": "OAuth via the authv2 endpoint (used in .mcp.json).",
+      "_alt_token": "Jira Service Management / Bitbucket Cloud require an API token and the non-authv2 endpoint:",
+      "type": "http",
+      "url": "https://mcp.atlassian.com/v1/mcp",
+      "headers": { "Authorization": "Bearer ${ATLASSIAN_API_TOKEN}" }
+    },
+
+    "postgres_uvx": {
+      "_comment": "No-Docker alternative. Needs `uv` installed (https://docs.astral.sh/uv/). Use localhost, not host.docker.internal.",
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["postgres-mcp", "--access-mode=restricted"],
+      "env": { "DATABASE_URI": "${MCP_DATABASE_URI}" }
+    }
+  },
+
+  "_MCP_DATABASE_URI": "Set this in .claude/settings.local.json under an \"env\" key (gitignored, per-developer). Value shape for the standard local dev DB: postgresql://<POSTGRES_USER>:<POSTGRES_PASSWORD>@host.docker.internal:5432/<POSTGRES_DB>  (use localhost instead of host.docker.internal for the postgres_uvx variant). Credentials come from your .env (POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB)."
+}

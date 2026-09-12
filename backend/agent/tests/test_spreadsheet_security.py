@@ -64,7 +64,8 @@ class SpreadsheetInsightsSecurityTests(TestCase):
         self.assertEqual(err[0]["data"]["code"], "AI_CONSENT_REQUIRED")
         self.assertEqual(err[0]["data"]["spreadsheet_id"], self.spreadsheet.id)
 
-    def test_insights_allowed_after_per_spreadsheet_consent(self):
+    @patch("core.services.gemini_client._get_api_key", return_value="test-key")
+    def test_insights_allowed_after_per_spreadsheet_consent(self, _mock_key):
         grant_ai_consent(self.user, self.spreadsheet)
         with patch("core.services.gemini_client._get_api_key", return_value="test-key"), patch(
             "agent.services._call_gemini_spreadsheet_insights"
