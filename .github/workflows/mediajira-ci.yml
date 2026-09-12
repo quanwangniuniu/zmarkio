@@ -361,6 +361,7 @@ jobs:
           CELERY_RESULT_BACKEND=redis://redis:6379/0
           CLAMAV_HOST=clamav
           CLAMAV_PORT=3310
+          FRONTEND_CLEAR_NEXT=1
           EOF
 
       # Start all services
@@ -669,6 +670,27 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+
+      - name: Restart frontend with a clean Next cache for budget E2E
+        run: |
+          docker compose restart frontend
+
+          echo "Waiting for frontend to rebuild after clearing .next..."
+          timeout=180
+          counter=0
+          while [ $counter -lt $timeout ]; do
+            if curl -fsS http://localhost/tasks > /dev/null 2>&1; then
+              echo "frontend is ready!"
+              exit 0
+            fi
+            echo "frontend not ready yet, waiting... ($counter/$timeout)"
+            sleep 3
+            counter=$((counter + 3))
+          done
+
+          echo "frontend failed to become ready within ${timeout}s"
+          docker compose logs frontend
+          exit 1
 
       - name: Run budget approval Playwright E2E
         working-directory: frontend
