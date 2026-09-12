@@ -41,6 +41,7 @@ def test_parent_prefetch_only_runs_when_subtasks_requested(
     hierarchy_queries = [q for q in queries if 'FROM "task_hierarchies"' in q['sql']]
     includes_children = include_subtasks in ('true', 'TRUE')
     assert len(hierarchy_queries) == int(includes_children)
+    assert len(queries) == (6 if includes_children else 5), [q['sql'] for q in queries]
     payloads = {task['id']: task for task in _tasks_from_response(response)}
     assert set(payloads) == ({parent.id, child.id} if includes_children else {parent.id})
     assert payloads[parent.id]['parent_relationship'] is None
@@ -94,7 +95,10 @@ def test_task_list_hierarchy_edge_cases(
             reverse('task-list'), {'include_subtasks': 'true'},
         )
     assert response.status_code == status.HTTP_200_OK
-    assert len(queries) <= 12, [q['sql'] for q in queries]
+    assert len(queries) == (4 if scenario == 'empty_list' else 6), [q['sql'] for q in queries]
+    assert sum('FROM "task_hierarchies"' in q['sql'] for q in queries) == (
+        0 if scenario == 'empty_list' else 1
+    )
     tasks = _tasks_from_response(response)
     assert {task['id']: task['parent_relationship'] for task in tasks} == expected
     if scenario == 'parent_outside_page':
@@ -147,7 +151,9 @@ def test_task_list_prefetches_parent_hierarchy_within_query_budget(
         )
 
     assert response.status_code == status.HTTP_200_OK
-    assert len(queries) <= 12, [q['sql'] for q in queries]
+    # Fixed fixture budget: query count must stay constant for 2/20/200 rows.
+    assert len(queries) == 6, [q['sql'] for q in queries]
+    assert sum('FROM "task_hierarchies"' in q['sql'] for q in queries) == 1
 
     tasks = _tasks_from_response(response)
     assert len(tasks) == child_count + 1
