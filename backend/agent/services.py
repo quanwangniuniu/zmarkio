@@ -1125,7 +1125,6 @@ def _get_or_create_bot_private_chat(bot, target_user, project):
     third participant (e.g. via @Agent lazy-join).
     """
     from chat.models import Chat, ChatType, ChatParticipant
-    from chat.services import ChatService
 
     # First, find chats that contain both bot and target_user
     chat = (
@@ -1149,21 +1148,16 @@ def _get_or_create_bot_private_chat(bot, target_user, project):
     # If found, reactivate any inactive participants
     if chat:
         participants = ChatParticipant.objects.filter(chat=chat, user__in=[bot, target_user])
-        reactivated = False
         for participant in participants:
             if not participant.is_active:
                 participant.is_active = True
                 participant.save(update_fields=['is_active', 'updated_at'])
-                reactivated = True
-        if reactivated:
-            ChatService.invalidate_presence_recipients_for_chat(chat)
         return chat, False
 
     # Not found, create new chat
     chat = Chat.objects.create(project=project, type=ChatType.PRIVATE)
     ChatParticipant.objects.create(chat=chat, user=bot, is_active=True)
     ChatParticipant.objects.create(chat=chat, user=target_user, is_active=True)
-    ChatService.invalidate_presence_recipients_for_chat(chat)
     return chat, True
 
 

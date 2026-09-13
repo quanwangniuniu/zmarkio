@@ -678,10 +678,6 @@ class OnlineStatusService:
     # (see ChatService.invalidate_presence_recipients_for_chat), so a longer TTL
     # is safe and keeps the cache effective beyond a single connect.
     PRESENCE_RECIPIENTS_TIMEOUT = 60 * 5  # 5 minutes
-    # Above this many affected users, a membership change skips the explicit
-    # per-user cache fan-out and lets the TTL reconcile instead — avoids firing a
-    # multi-thousand-key Redis delete on the join/leave hot path for huge channels.
-    PRESENCE_RECIPIENTS_INVALIDATION_LIMIT = 1000
 
     @classmethod
     def _online_key(cls, user_id: int) -> str:
@@ -1082,14 +1078,6 @@ class ChatService:
             lambda: notify_chat_membership_changed(chat_id, affected_ids)
         )
 
-        limit = OnlineStatusService.PRESENCE_RECIPIENTS_INVALIDATION_LIMIT
-        if len(affected_ids) > limit:
-            logger.info(
-                "[OnlineStatus] presence recipient invalidation skipped for chat %s: "
-                "%s affected users exceeds limit %s; relying on %ss TTL",
-                chat.id, len(affected_ids), limit, OnlineStatusService.PRESENCE_RECIPIENTS_TIMEOUT,
-            )
-            return
         transaction.on_commit(
             lambda: OnlineStatusService.invalidate_presence_recipients(affected_ids)
         )
@@ -1158,7 +1146,6 @@ class ChatService:
         ChatParticipant.objects.create(chat=chat, user=current_user, is_active=True)
         ChatParticipant.objects.create(chat=chat, user=other_user, is_active=True)
 
-        ChatService.invalidate_presence_recipients_for_chat(chat)
         logger.info(f"Created private chat {chat.id} between users {current_user.id} and {other_user.id}")
         return chat, True
     
@@ -1295,7 +1282,6 @@ class ChatService:
                 existing.is_manager = False
                 existing.joined_at = timezone.now()
                 existing.save()
-                ChatService.invalidate_presence_recipients_for_chat(chat)
                 logger.info(f"Reactivated participant {user.id} in chat {chat.id}")
                 return existing
         
@@ -1306,7 +1292,6 @@ class ChatService:
             is_active=True
         )
 
-        ChatService.invalidate_presence_recipients_for_chat(chat)
         logger.info(f"Added participant {user.id} to chat {chat.id} by user {added_by.id}")
         return participant
     
@@ -1324,7 +1309,6 @@ class ChatService:
         participant.is_active = False
         participant.save(update_fields=['is_active', 'updated_at'])
 
-        ChatService.invalidate_presence_recipients_for_chat(chat, extra_user_ids=[user.id])
         logger.info(f"User {user.id} left chat {chat.id}")
 
     @staticmethod
@@ -1354,7 +1338,6 @@ class ChatService:
         participant.is_active = False
         participant.save()
 
-        ChatService.invalidate_presence_recipients_for_chat(chat, extra_user_ids=[user.id])
         logger.info(f"Removed participant {user.id} from chat {chat.id} by user {removed_by.id}")
 
 

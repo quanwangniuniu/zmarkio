@@ -398,10 +398,9 @@ class TestChatConsumer:
         hours, so a removal that only takes effect on reconnect means the
         removed user keeps reading the channel until then.
         """
-        from asgiref.sync import sync_to_async
         from channels.db import database_sync_to_async
         from channels.layers import get_channel_layer
-        from chat.services import ChatService, chat_group_name
+        from chat.services import chat_group_name
 
         settings.CHAT_CHANNEL_GROUPS_ENABLED = True
 
@@ -429,19 +428,19 @@ class TestChatConsumer:
             received = await communicator.receive_json_from(timeout=5)
             assert received['message']['content'] == 'before'
 
-            # Remove them. Every membership mutator funnels through this hook,
-            # which is what tells the live socket to re-derive its groups.
+            # Direct model saves must revoke live access through the signal.
             @database_sync_to_async
             def remove():
                 participant.is_active = False
                 participant.save(update_fields=['is_active'])
-                ChatService.invalidate_presence_recipients_for_chat(
-                    chat, extra_user_ids=[user.id]
-                )
 
             await remove()
-            # Let the membership event reach the consumer and be acted on.
-            await asyncio.sleep(0.5)
+            revoked = await communicator.receive_json_from(timeout=1)
+            assert revoked == {
+                'type': 'chat_access_revoked',
+                'chat_id': chat.id,
+                'reason': 'participant_removed',
+            }
 
             # After removal the same publish must not reach this socket.
             await channel_layer.group_send(

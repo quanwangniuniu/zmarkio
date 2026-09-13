@@ -5,6 +5,7 @@ import { buildWsUrl } from '@/lib/ws';
 import { useAuthStore } from '@/lib/authStore';
 import { useChatStore } from '@/lib/chatStore';
 import type { MessageLinkPreview } from '@/types/chat';
+import toast from 'react-hot-toast';
 
 // WebSocket message types (server -> client)
 export type ChatWsEventType =
@@ -18,6 +19,7 @@ export type ChatWsEventType =
   | 'presence_snapshot'
   | 'in_app_notification'
   | 'user_session_revoked'
+  | 'chat_access_revoked'
   | 'error'
   | 'outbox_ack'
   | 'pong'
@@ -55,6 +57,7 @@ export interface UseChatWebSocketHandlers {
   onPresenceUpdate?: (e: ChatWsEvent) => void;
   onPresenceSnapshot?: (e: ChatWsEvent) => void;
   onInAppNotification?: (e: ChatWsEvent) => void;
+  onChatAccessRevoked?: (e: ChatWsEvent) => void;
   onError?: (e: ChatWsEvent) => void;
   onUnknownEvent?: (e: ChatWsEvent) => void;
   onOpen?: () => void;
@@ -168,6 +171,17 @@ export function useChatWebSocket(
                 window.location.href = '/login';
               }
               break;
+            case 'chat_access_revoked': {
+              const chatId = Number(data.chat_id);
+              if (Number.isFinite(chatId)) {
+                useChatStore.getState().removeChat(chatId);
+                toast.error('You were removed from this chat', {
+                  id: `chat-access-revoked-${chatId}`,
+                });
+              }
+              handlersRef.current.onChatAccessRevoked?.(data);
+              break;
+            }
             case 'error':
               handlersRef.current.onError?.(data);
               break;
