@@ -1,4 +1,4 @@
-import api from '../api';
+import api, { LLM_TIMEOUT_MS } from '../api';
 import { AiConsentRequiredError, aiConsentSpreadsheetId, isAiConsentRequired } from './aiConsentApi';
 
 export class PivotAgentError extends Error {
@@ -28,7 +28,7 @@ export const PivotAPI = {
       response = await api.post<{ config?: GeneratedPivotConfig; error?: string }>(
         `/api/spreadsheet/sheets/${sheetId}/generate-pivot-config/`,
         { instruction },
-        { timeout: 60000 } // Gemini can take 15-30s; override the global 10s default
+        { timeout: LLM_TIMEOUT_MS } // Gemini can take 15-30s; override the global 10s default
       );
     } catch (err) {
       if (isAiConsentRequired(err)) throw new AiConsentRequiredError(aiConsentSpreadsheetId(err));
