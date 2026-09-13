@@ -32,8 +32,12 @@ const chat = {
 
 async function installSocketHarness(page: Page) {
   await page.addInitScript(() => {
-    const sockets: Array<{ onmessage: ((event: MessageEvent) => void) | null }> = [];
-    class TestWebSocket {
+    const sockets: Array<{
+      url: string;
+      onmessage: ((event: MessageEvent) => void) | null;
+      dispatchEvent: (event: Event) => boolean;
+    }> = [];
+    class TestWebSocket extends EventTarget {
       static CONNECTING = 0;
       static OPEN = 1;
       static CLOSING = 2;
@@ -44,15 +48,29 @@ async function installSocketHarness(page: Page) {
       onclose: ((event: CloseEvent) => void) | null = null;
       onerror: ((event: Event) => void) | null = null;
       constructor(public url: string) {
+        super();
         sockets.push(this);
-        setTimeout(() => this.onopen?.(), 0);
+        setTimeout(() => {
+          const event = new Event('open');
+          this.onopen?.();
+          this.dispatchEvent(event);
+        }, 0);
       }
       send() {}
       close() { this.readyState = TestWebSocket.CLOSED; }
     }
     Object.defineProperty(window, 'WebSocket', { value: TestWebSocket });
-    (window as typeof window & { emitChatEvent?: (value: unknown) => void }).emitChatEvent = (value) => {
-      sockets.forEach((socket) => socket.onmessage?.({ data: JSON.stringify(value) } as MessageEvent));
+    const testWindow = window as typeof window & {
+      emitChatEvent?: (value: unknown) => void;
+      hasChatSocket?: () => boolean;
+    };
+    testWindow.hasChatSocket = () => sockets.some((socket) => socket.url.includes('/ws/chat/'));
+    testWindow.emitChatEvent = (value) => {
+      sockets.forEach((socket) => {
+        const event = new MessageEvent('message', { data: JSON.stringify(value) });
+        socket.onmessage?.(event);
+        socket.dispatchEvent(event);
+      });
     };
   });
 }
@@ -81,7 +99,13 @@ async function setupMemberPage(page: Page) {
   }));
   await page.goto('/messages');
   await waitForLayoutMain(page);
-  await expect(page.getByTestId('messages-chat-row')).toHaveCount(1);
+  const chatRow = page.getByTestId('messages-chat-row');
+  await expect(chatRow).toHaveCount(1);
+  await chatRow.click();
+  await page.waitForFunction(() => {
+    const testWindow = window as typeof window & { hasChatSocket?: () => boolean };
+    return testWindow.hasChatSocket?.() === true;
+  });
 }
 
 test('a manager removal revokes the other user mid-session within one second', async ({ browser, baseURL }) => {
