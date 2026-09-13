@@ -558,18 +558,11 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = config('TIME_ZONE', default='UTC')
 broker_connection_retry_on_startup = True
 
-# Global backstop (MED-400): without this, a task has unlimited time to
-# finish. Most scheduled work makes outbound network calls to third-party
-# services (ad platforms, calendars); a call that hangs rather than errors
-# — instead of the fast path everything else takes — pins a worker slot
-# forever, and the affected syncs are scheduled repeatedly (hourly,
-# every 15 minutes), so the pool degrades one hang at a time. Soft raises a
-# catchable SoftTimeLimitExceeded so a task can clean up; hard kills it a
-# short interval later regardless. This is a backstop, not a substitute for
-# the outbound call itself having a much shorter timeout — every requests.*
-# call in task code already sets one (see meta_ads/meta_client.py,
-# google_calendar_integration/services.py, chat/services.py), so a hang
-# there is caught in seconds, not by these limits.
+# Without this, a task has unlimited time to finish. A hung outbound call
+# (most scheduled work syncs with ad platforms/calendars) then pins a worker
+# slot forever. This is a backstop, not a substitute for the call itself
+# having a shorter timeout — see meta_ads/meta_client.py,
+# google_calendar_integration/services.py, chat/services.py.
 CELERY_TASK_TIME_LIMIT = 900  # 15 min hard kill
 CELERY_TASK_SOFT_TIME_LIMIT = 600  # 10 min soft warning
 
