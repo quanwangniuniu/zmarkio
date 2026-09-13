@@ -1,5 +1,5 @@
 import axios from 'axios';
-import api from '../api';
+import api, { LLM_BATCH_TIMEOUT_MS } from '../api';
 import { getApiErrorDetail } from './errorMessage';
 import type {
   QuickStartApiErrorBody,
@@ -13,7 +13,7 @@ const PREVIEW_PATH = '/api/core/projects/quick-start/preview/';
 const CONFIRM_PATH = '/api/core/projects/quick-start/confirm/';
 
 /** Align with backend QUICK_START_LLM_TIMEOUT_SECONDS default (120s). */
-const PREVIEW_LLM_TIMEOUT_MS = 120_000;
+const PREVIEW_LLM_TIMEOUT_MS = LLM_BATCH_TIMEOUT_MS;
 
 export function getQuickStartErrorDetail(error: unknown, fallback: string): string {
   if (axios.isAxiosError(error)) {

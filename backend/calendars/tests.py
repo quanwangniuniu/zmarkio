@@ -1249,7 +1249,7 @@ class CalendarEventSignalTests(TestCase):
         """
         decision = self._create_decision()
         self.assertEqual(self.CalendarEvent.objects.filter(decision=decision).count(), 1)
-        # Simulate DecisionViewSet.destroy():
+        # Simulate the Decision soft-delete path:
         self.CalendarEvent.objects.filter(decision=decision).delete()
         self.assertEqual(self.CalendarEvent.objects.filter(decision=decision).count(), 0)
         decision.is_deleted = True
