@@ -1,4 +1,4 @@
-import api from '../api';
+import api, { LONG_REQUEST_TIMEOUT_MS } from '../api';
 import {
   SpreadsheetData,
   SpreadsheetListResponse,
@@ -17,8 +17,12 @@ import {
   withBaseRevision,
 } from '@/lib/sheetRevisionStore';
 
-/** Timeout for long-running spreadsheet requests (import batch, large range read). Default axios 10s is too short. */
-const SPREADSHEET_LONG_REQUEST_TIMEOUT_MS = 300000; // 5 minutes (safety net; optimized batch writes should finish in <5s)
+/**
+ * Timeout for long-running spreadsheet requests (import batch, large range read).
+ * Default axios 10s is too short; uses the shared LONG_REQUEST_TIMEOUT_MS tier
+ * (5 minutes, safety net — optimized batch writes should finish in <5s).
+ */
+const SPREADSHEET_LONG_REQUEST_TIMEOUT_MS = LONG_REQUEST_TIMEOUT_MS;
 
 /**
  * Collab WS client id of this tab (set by useSheetSocket while a sheet room is
