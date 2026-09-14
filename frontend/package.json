@@ -18,6 +18,7 @@
     "build-storybook": "storybook build",
     "chromatic": "chromatic --exit-zero-on-changes",
     "test:e2e": "playwright test",
+    "test:e2e:budget": "playwright test --project=budget-e2e --workers=1",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:cypress": "cypress run",
     "test:e2e:cypress:open": "cypress open",

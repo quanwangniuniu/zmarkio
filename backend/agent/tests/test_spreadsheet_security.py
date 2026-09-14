@@ -66,7 +66,6 @@ class SpreadsheetInsightsSecurityTests(TestCase):
 
     def test_insights_allowed_after_per_spreadsheet_consent(self):
         grant_ai_consent(self.user, self.spreadsheet)
-        # The key check runs before the mocked provider call, even after consent.
         with patch("core.services.gemini_client._get_api_key", return_value="test-key"), patch(
             "agent.services._call_gemini_spreadsheet_insights"
         ) as mock_call:
