@@ -28,6 +28,7 @@ docker-compose.dev.override.yml
 .claude/
 **/.env.local
 .claude/.cursorrules
+backend/rag/eval_results/
 CLAUDE.md
 figma/
 nul

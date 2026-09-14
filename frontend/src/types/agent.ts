@@ -59,6 +59,23 @@ export interface AgentMessage {
   data?: AgentMessageData | null;
 }
 
+/**
+ * One retrieved source chunk backing a project-document RAG answer
+ * (agent/services.py::answer_project_question). `citation_metadata` shape
+ * varies by source_type (e.g. {title, meeting_id} vs {decision, retrospective_id}),
+ * so it's kept loose here rather than modeled per-source-type.
+ */
+export interface Citation {
+  n: number;
+  source_type: string;
+  source_id: string;
+  chunk_index: number;
+  citation_metadata: Record<string, unknown>;
+  snippet: string;
+  /** Retrieval cosine similarity (0-1) between the query and this chunk -- not a model confidence score. */
+  similarity?: number;
+}
+
 export interface AgentMessageData {
   anomalies?: AnomalyItem[];
   reviewed_anomalies?: AnomalyItem[];
@@ -100,6 +117,7 @@ export interface AgentMessageData {
   step_order?: number;
   step_name?: string;
   total_steps?: number;
+  citations?: Citation[];
 }
 
 export interface SuggestedCalendarEvent {

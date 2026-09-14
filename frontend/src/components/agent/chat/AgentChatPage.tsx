@@ -418,6 +418,7 @@ function restoreMessage(m: AgentMessage): ChatMessage {
     fileName,
     spreadsheetId: m.data?.spreadsheet_id,
     sheetId: m.data?.sheet_id,
+    citations: m.data?.citations,
   }
 }
 
@@ -1906,7 +1907,10 @@ setStepState({
         } else if (event.type === "text") {
           if (!columnMappingReceived) {
             contentParts.push(event.content || "")
-            updateMessage(aiMsgId, { content: contentParts.join("\n") })
+            updateMessage(aiMsgId, {
+              content: contentParts.join("\n"),
+              citations: event.data?.citations,
+            })
           }
         } else if (event.type === "analysis") {
           setAgentMessageBoardWaitingForFileAnalysisResponse(requestSessionId, false)

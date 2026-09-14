@@ -15,6 +15,7 @@ from rest_framework.renderers import BaseRenderer, JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.tenant_context import current_tenant_schema, tenant_schema_context
 from stripe_meta.exceptions import QuotaError
 from stripe_meta.services import check_quota_or_402, resolve_charging_org
 
@@ -291,175 +292,194 @@ class ChatView(EnglishResponseMixin, APIView):
             session=session,
         )
 
-        def event_stream():
-            assistant_content_parts = []
-            assistant_metadata = {}
-            last_message_type = 'text'
+        # Captured now, while TenantSchemaMiddleware's search_path is still
+        # active on this connection. event_stream() below is a generator:
+        # StreamingHttpResponse(event_stream(), ...) only constructs the
+        # generator object here -- its body doesn't run until Django drains
+        # the stream later, which happens *after* this view (and therefore
+        # TenantSchemaMiddleware's `finally: SET search_path TO public`) has
+        # already returned. Without re-entering the tenant schema inside the
+        # generator itself, every lazy DB call below (session/message
+        # persistence, AgentOrchestrator.handle_message, RAG retrieval)
+        # would silently run against the empty `public` schema instead.
+        stream_schema = current_tenant_schema()
 
-            def _flush_message():
-                """Save accumulated content as an assistant message and reset state."""
-                nonlocal assistant_content_parts, assistant_metadata, last_message_type
-                body = '\n'.join(p for p in assistant_content_parts if p)
-                if body:
-                    AgentMessage.objects.create(
-                        session=session,
-                        role='assistant',
-                        content=body,
-                        message_type=last_message_type,
-                        metadata=assistant_metadata,
-                    )
+        def event_stream():
+            # Held open for the generator's entire lifetime -- normal
+            # completion, an exception propagating out, or GeneratorExit from
+            # an early .close() (client disconnect) -- since a `with` wrapping
+            # a generator's full body always runs __exit__ on any of those,
+            # restoring the previous search_path via tenant_schema_context's
+            # own finally block.
+            with tenant_schema_context(stream_schema):
                 assistant_content_parts = []
                 assistant_metadata = {}
                 last_message_type = 'text'
 
-            try:
-                for chunk in orchestrator.handle_message(
-                    message_text,
-                    spreadsheet_id=spreadsheet_id,
-                    sheet_id=sheet_id,
-                    csv_filename=csv_filename,
-                    action=action,
-                    file_id=file_id,
-                    calendar_context=calendar_context,
-                    draft_context=draft_context,
-                    workflow_id=workflow_id,
-                    column_mapping=column_mapping,
-                    approval_id=approval_id,
-                    approval_decision=approval_decision,
-                    approval_draft=approval_draft,
-                    user_context=user_context,
-                    reviewed_anomalies=reviewed_anomalies,
-                ):
-                    chunk_type = chunk.get('type', 'text')
-                    content = chunk.get('content', '')
-                    data = chunk.get('data')
-
-                    # Save calendar_invite as a separate message so it can be
-                    # restored independently from the preceding calendar answer.
-                    if chunk_type == 'calendar_invite':
-                        _flush_message()
-                        sse_data = json.dumps(chunk, default=str)
-                        yield f"data: {sse_data}\n\n"
-                        if content:
-                            AgentMessage.objects.create(
-                                session=session,
-                                role='assistant',
-                                content=content,
-                                message_type='calendar_invite',
-                                metadata={},
-                            )
-                        continue
-
-                    if chunk_type == 'approval_request':
-                        _flush_message()
-                        sse_data = json.dumps(chunk, default=str)
-                        yield f"data: {sse_data}\n\n"
+                def _flush_message():
+                    """Save accumulated content as an assistant message and reset state."""
+                    nonlocal assistant_content_parts, assistant_metadata, last_message_type
+                    body = '\n'.join(p for p in assistant_content_parts if p)
+                    if body:
                         AgentMessage.objects.create(
                             session=session,
                             role='assistant',
-                            content=content or 'Approval required.',
-                            message_type='approval_request',
-                            metadata=data or {},
+                            content=body,
+                            message_type=last_message_type,
+                            metadata=assistant_metadata,
                         )
-                        continue
+                    assistant_content_parts = []
+                    assistant_metadata = {}
+                    last_message_type = 'text'
 
-                    if chunk_type == 'confirmation_request':
-                        _flush_message()
-                        sse_data = json.dumps(chunk, default=str)
-                        yield f"data: {sse_data}\n\n"
-                        if content:
+                try:
+                    for chunk in orchestrator.handle_message(
+                        message_text,
+                        spreadsheet_id=spreadsheet_id,
+                        sheet_id=sheet_id,
+                        csv_filename=csv_filename,
+                        action=action,
+                        file_id=file_id,
+                        calendar_context=calendar_context,
+                        draft_context=draft_context,
+                        workflow_id=workflow_id,
+                        column_mapping=column_mapping,
+                        approval_id=approval_id,
+                        approval_decision=approval_decision,
+                        approval_draft=approval_draft,
+                        user_context=user_context,
+                        reviewed_anomalies=reviewed_anomalies,
+                    ):
+                        chunk_type = chunk.get('type', 'text')
+                        content = chunk.get('content', '')
+                        data = chunk.get('data')
+
+                        # Save calendar_invite as a separate message so it can be
+                        # restored independently from the preceding calendar answer.
+                        if chunk_type == 'calendar_invite':
+                            _flush_message()
+                            sse_data = json.dumps(chunk, default=str)
+                            yield f"data: {sse_data}\n\n"
+                            if content:
+                                AgentMessage.objects.create(
+                                    session=session,
+                                    role='assistant',
+                                    content=content,
+                                    message_type='calendar_invite',
+                                    metadata={},
+                                )
+                            continue
+
+                        if chunk_type == 'approval_request':
+                            _flush_message()
+                            sse_data = json.dumps(chunk, default=str)
+                            yield f"data: {sse_data}\n\n"
                             AgentMessage.objects.create(
                                 session=session,
                                 role='assistant',
-                                content=content,
-                                message_type='confirmation_request',
+                                content=content or 'Approval required.',
+                                message_type='approval_request',
                                 metadata=data or {},
                             )
-                        continue
+                            continue
 
-                    if chunk_type == 'decision_draft':
-                        _flush_message()
+                        if chunk_type == 'confirmation_request':
+                            _flush_message()
+                            sse_data = json.dumps(chunk, default=str)
+                            yield f"data: {sse_data}\n\n"
+                            if content:
+                                AgentMessage.objects.create(
+                                    session=session,
+                                    role='assistant',
+                                    content=content,
+                                    message_type='confirmation_request',
+                                    metadata=data or {},
+                                )
+                            continue
+
+                        if chunk_type == 'decision_draft':
+                            _flush_message()
+                            sse_data = json.dumps(chunk, default=str)
+                            yield f"data: {sse_data}\n\n"
+                            if content or data:
+                                AgentMessage.objects.create(
+                                    session=session,
+                                    role='assistant',
+                                    content=content or 'Decision drafts created.',
+                                    message_type='decision_draft',
+                                    metadata=data or {},
+                                )
+                            continue
+
+                        if chunk_type == 'spreadsheet_summary':
+                            _flush_message()
+                            sse_data = json.dumps(chunk, default=str)
+                            yield f"data: {sse_data}\n\n"
+                            if content:
+                                AgentMessage.objects.create(
+                                    session=session,
+                                    role='assistant',
+                                    content=content,
+                                    message_type='text',
+                                    metadata={'kind': 'spreadsheet_summary', **(data or {})},
+                                )
+                            continue
+
+                        if chunk_type == 'spreadsheet_anomalies':
+                            _flush_message()
+                            sse_data = json.dumps(chunk, default=str)
+                            yield f"data: {sse_data}\n\n"
+                            if content or data:
+                                AgentMessage.objects.create(
+                                    session=session,
+                                    role='assistant',
+                                    content=content or 'Anomaly analysis complete.',
+                                    message_type='analysis',
+                                    metadata=data or {},
+                                )
+                            continue
+
+                        # Miro status is persisted separately (_create_agent_status_message in the
+                        # orchestrator). Do not merge its text into the prior assistant bubble or
+                        # the final flush — that would duplicate the same line in chat history.
+                        if chunk_type == 'miro_status':
+                            _flush_message()
+                            sse_data = json.dumps(chunk, default=str)
+                            yield f"data: {sse_data}\n\n"
+                            continue
+
+                        # Skip internal signalling events from content accumulation.
+                        # 'anomalies_confirmed' updates the existing analysis message
+                        # in-place (see confirm_anomalies), so it must not be persisted
+                        # as a second anomaly card here.
+                        if chunk_type not in ('done', 'calendar_updated', 'anomalies_confirmed'):
+                            if content:
+                                assistant_content_parts.append(content)
+                            last_message_type = chunk_type
+                            if data:
+                                assistant_metadata.update(data)
+
                         sse_data = json.dumps(chunk, default=str)
                         yield f"data: {sse_data}\n\n"
-                        if content or data:
-                            AgentMessage.objects.create(
-                                session=session,
-                                role='assistant',
-                                content=content or 'Decision drafts created.',
-                                message_type='decision_draft',
-                                metadata=data or {},
-                            )
-                        continue
 
-                    if chunk_type == 'spreadsheet_summary':
-                        _flush_message()
-                        sse_data = json.dumps(chunk, default=str)
-                        yield f"data: {sse_data}\n\n"
-                        if content:
-                            AgentMessage.objects.create(
-                                session=session,
-                                role='assistant',
-                                content=content,
-                                message_type='text',
-                                metadata={'kind': 'spreadsheet_summary', **(data or {})},
-                            )
-                        continue
-
-                    if chunk_type == 'spreadsheet_anomalies':
-                        _flush_message()
-                        sse_data = json.dumps(chunk, default=str)
-                        yield f"data: {sse_data}\n\n"
-                        if content or data:
-                            AgentMessage.objects.create(
-                                session=session,
-                                role='assistant',
-                                content=content or 'Anomaly analysis complete.',
-                                message_type='analysis',
-                                metadata=data or {},
-                            )
-                        continue
-
-                    # Miro status is persisted separately (_create_agent_status_message in the
-                    # orchestrator). Do not merge its text into the prior assistant bubble or
-                    # the final flush — that would duplicate the same line in chat history.
-                    if chunk_type == 'miro_status':
-                        _flush_message()
-                        sse_data = json.dumps(chunk, default=str)
-                        yield f"data: {sse_data}\n\n"
-                        continue
-
-                    # Skip internal signalling events from content accumulation.
-                    # 'anomalies_confirmed' updates the existing analysis message
-                    # in-place (see confirm_anomalies), so it must not be persisted
-                    # as a second anomaly card here.
-                    if chunk_type not in ('done', 'calendar_updated', 'anomalies_confirmed'):
-                        if content:
-                            assistant_content_parts.append(content)
-                        last_message_type = chunk_type
-                        if data:
-                            assistant_metadata.update(data)
-
-                    sse_data = json.dumps(chunk, default=str)
-                    yield f"data: {sse_data}\n\n"
-
-                    if chunk_type == 'done':
-                        _flush_message()
-            except QuotaError as exc:
-                _flush_message()
-                quota_payload = json.dumps(
-                    {'code': exc.code, 'message': exc.message, **exc.payload}
-                )
-                yield f"data: {quota_payload}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
-            except Exception:
-                logger.exception("Error during agent SSE stream")
-                _flush_message()
-                error_payload = json.dumps({
-                    "type": "error",
-                    "content": "An internal error occurred. Please try again.",
-                })
-                yield f"data: {error_payload}\n\n"
-                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                        if chunk_type == 'done':
+                            _flush_message()
+                except QuotaError as exc:
+                    _flush_message()
+                    quota_payload = json.dumps(
+                        {'code': exc.code, 'message': exc.message, **exc.payload}
+                    )
+                    yield f"data: {quota_payload}\n\n"
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                except Exception:
+                    logger.exception("Error during agent SSE stream")
+                    _flush_message()
+                    error_payload = json.dumps({
+                        "type": "error",
+                        "content": "An internal error occurred. Please try again.",
+                    })
+                    yield f"data: {error_payload}\n\n"
+                    yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
         response = StreamingHttpResponse(
             event_stream(),

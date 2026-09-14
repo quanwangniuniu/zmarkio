@@ -241,6 +241,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         BlockAction,
         MediaFile,
         NotionConnection,
+        DraftProjectLink,
     )
 
     # ------------------------------------------------------------------
@@ -248,6 +249,24 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     # and MetaAdCreative / CustomUser (public).
     # ------------------------------------------------------------------
     from ad_copy_variation.models import AdCopyVariation
+
+    # ------------------------------------------------------------------
+    # retrospective (MED-264 tenancy fix). RetrospectiveTask/CampaignMetric
+    # depend only on Project; Insight depends on RetrospectiveTask. All three
+    # were previously public-schema-only despite being project-scoped, which
+    # is what made RAG retrieval over retrospective sources unreliable
+    # (cross-schema lookups) and is unrelated to AgentSession's separate
+    # public->tenant FK problem (see AgentSession.project's db_constraint
+    # below in agent/models.py -- that one stays public, fixed differently).
+    # ------------------------------------------------------------------
+    from retrospective.models import CampaignMetric, Insight, RetrospectiveTask
+
+    # ------------------------------------------------------------------
+    # rag — RAG document retrieval (MED-264). DocumentChunk only FKs to
+    # Project; source_type/source_id are plain fields, not FKs, so it has no
+    # dependency on meetings/notion_editor/retrospective tables.
+    # ------------------------------------------------------------------
+    from rag.models import DocumentChunk, DocumentIndexState
 
     # ------------------------------------------------------------------
     # Return in topological order
@@ -384,6 +403,15 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         BlockAction,
         MediaFile,
         NotionConnection,
+        DraftProjectLink,       # depends on Draft + Project
         # ad_copy_variation (depends on Project; creative/user stay in public)
         AdCopyVariation,
+        # retrospective (MED-264 tenancy fix) -- RetrospectiveTask/CampaignMetric
+        # depend on Project; Insight depends on RetrospectiveTask
+        RetrospectiveTask,
+        CampaignMetric,
+        Insight,                # depends on RetrospectiveTask
+        # rag (DocumentChunk / DocumentIndexState depend on Project only)
+        DocumentChunk,
+        DocumentIndexState,
     ]
