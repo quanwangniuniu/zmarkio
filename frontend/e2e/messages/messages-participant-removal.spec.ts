@@ -11,10 +11,12 @@ const PROJECT = { id: 1, name: 'MED-234 Project' };
 const MANAGER = { id: 1, email: 'manager@example.com', username: 'manager', is_verified: true, roles: [] };
 const MEMBER = { id: 2, email: 'member@example.com', username: 'member', is_verified: true, roles: [] };
 const CHAT_ID = 234;
+const CHAT_SLUG = 'visibility-cache';
 const CREATED_AT = '2026-09-12T08:00:00.000Z';
 
 const chat = {
   id: CHAT_ID,
+  slug: CHAT_SLUG,
   name: 'visibility-cache',
   type: 'group',
   project_id: PROJECT.id,
@@ -117,7 +119,7 @@ test('a manager removal revokes the other user mid-session within one second', a
   try {
     await setupMemberPage(memberPage);
     await seedAuthenticatedUser(managerPage, MANAGER);
-    await managerPage.route(`**/api/chat/chats/${CHAT_ID}/remove_participant/**`, async (route) => {
+    await managerPage.route(`**/api/chat/chats/${CHAT_SLUG}/remove_participant/**`, async (route) => {
       await route.fulfill({ status: 204, body: '' });
       await memberPage.evaluate((chatId) => {
         (window as typeof window & { emitChatEvent?: (value: unknown) => void }).emitChatEvent?.({
@@ -126,13 +128,13 @@ test('a manager removal revokes the other user mid-session within one second', a
       }, CHAT_ID);
     });
     await managerPage.goto('/');
-    await managerPage.evaluate(async ({ chatId, userId }) => {
-      await fetch(`/api/chat/chats/${chatId}/remove_participant/`, {
+    await managerPage.evaluate(async ({ chatSlug, userId }) => {
+      await fetch(`/api/chat/chats/${chatSlug}/remove_participant/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_id: userId }),
       });
-    }, { chatId: CHAT_ID, userId: MEMBER.id });
+    }, { chatSlug: CHAT_SLUG, userId: MEMBER.id });
 
     await expect(memberPage.getByText('You were removed from this chat')).toBeVisible({ timeout: 1_000 });
     await expect(memberPage.getByTestId('messages-chat-row')).toHaveCount(0);

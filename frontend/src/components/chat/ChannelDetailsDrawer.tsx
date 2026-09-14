@@ -217,6 +217,7 @@ function EditableField({ label, hint, value, placeholder, multiline = false, dis
 
 interface AddMemberPickerProps {
   chatId: number;
+  chatSlug: string;
   projectId: number;
   existingUserIds: Set<number>;
   currentUserId: number;
@@ -224,7 +225,7 @@ interface AddMemberPickerProps {
   onClose: () => void;
 }
 
-function AddMemberPicker({ chatId, projectId, existingUserIds, onAdded, onClose }: AddMemberPickerProps) {
+function AddMemberPicker({ chatId, chatSlug, projectId, existingUserIds, onAdded, onClose }: AddMemberPickerProps) {
   const [query, setQuery] = useState('');
   const [members, setMembers] = useState<ProjectMemberData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -255,7 +256,7 @@ function AddMemberPicker({ chatId, projectId, existingUserIds, onAdded, onClose 
   const handleAdd = async (member: ProjectMemberData) => {
     setAdding(member.user.id);
     try {
-      const participant = await addParticipant(chatId, member.user.id);
+      const participant = await addParticipant(chatSlug, member.user.id);
       // Backend returns a ChatParticipant; normalise chat_id if needed
       onAdded({ ...participant, chat_id: chatId });
       onClose();
@@ -745,7 +746,7 @@ export default function ChannelDetailsDrawer({
   const handleRemove = async (participant: ChatParticipant) => {
     setRemovingId(participant.user.id);
     try {
-      await removeParticipant(chat.id, participant.user.id);
+      await removeParticipant(chat.slug, participant.user.id);
       const nextParticipants = participants.filter((p) => p.user.id !== participant.user.id);
       setParticipants(nextParticipants);
       onChatUpdated({ ...chat, participants: nextParticipants });
@@ -1162,6 +1163,7 @@ export default function ChannelDetailsDrawer({
                   {showAddPicker && (
                     <AddMemberPicker
                       chatId={chat.id}
+                      chatSlug={chat.slug}
                       projectId={projectId}
                       existingUserIds={existingUserIds}
                       currentUserId={currentUserId}
