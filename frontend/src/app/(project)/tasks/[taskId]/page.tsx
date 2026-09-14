@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { useTaskTracking } from '@/lib/tracking/useTaskTracking';
 import { useBuildUrl } from '@/lib/buildUrl';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import ChatFAB from '@/components/global-chat/ChatFAB';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
@@ -30,8 +30,10 @@ import CommentSection from '@/components/comments/CommentSection';
 export default function TaskV2DetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const buildUrl = useBuildUrl();
   const taskId = params?.taskId ? String(params.taskId) : null;
+  const routeProjectId = searchParams?.get('project_id') || null;
 
   const [task, setTask] = useState<TaskData | null>(null);
   const updateTaskInStore = useTaskStore((s) => s.updateTask);
@@ -49,7 +51,10 @@ export default function TaskV2DetailPage() {
       if (!taskId) return;
       setLoading(true);
       try {
-        const resp = await TaskAPI.getTask(taskId, options);
+        const resp = await TaskAPI.getTask(taskId, {
+          ...options,
+          projectId: routeProjectId,
+        });
         const fresh = normalizeTaskFromApi(resp.data);
         setTask(fresh);
         if (fresh.id) updateTaskInStore(fresh.id, fresh);
@@ -60,7 +65,7 @@ export default function TaskV2DetailPage() {
         setLoading(false);
       }
     },
-    [taskId],
+    [taskId, routeProjectId, updateTaskInStore],
   );
 
   useEffect(() => {
