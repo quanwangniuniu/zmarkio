@@ -557,13 +557,19 @@ jobs:
             "
 
       # Budget approval Playwright E2E (MED-315): real backend via nginx, isolated fixtures per test.
+      # The verification build replaces .next while next start is still serving
+      # its previous build. Reload it before E2E so HTML and runtime chunks agree.
+      - name: Restart frontend after verification build
+        run: docker compose restart frontend
+
       - name: Wait for nginx (budget E2E)
         run: |
           echo "Waiting for nginx to serve the stack..."
           timeout=120
           counter=0
           while [ $counter -lt $timeout ]; do
-            if curl -fsS http://localhost/health > /dev/null 2>&1; then
+            if curl --max-time 5 -fsS http://localhost/health > /dev/null 2>&1 && \
+               curl --max-time 5 -fsS http://localhost/login > /dev/null 2>&1; then
               echo "nginx is ready!"
               exit 0
             fi

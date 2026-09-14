@@ -86,6 +86,56 @@ test.describe('Task hierarchy parent picker (MED-235)', () => {
     await expect(page.getByText('Parent', { exact: true })).toBeVisible();
   });
 
+  test('task list keeps the parent relationship payload contract', async ({ page }) => {
+    await ensureE2EPageReady(page);
+
+    const stamp = Date.now();
+    const parentSummary = `E2E Payload parent ${stamp}`;
+    const childSummary = `E2E Payload child ${stamp}`;
+    const parent = await createDraftTaskViaApi(page, projectId, parentSummary);
+    const child = await createDraftTaskViaApi(page, projectId, childSummary);
+    createdTaskIds.push(parent.id, child.id);
+
+    await linkSubtaskViaApi(page, parent, child.id);
+
+    const token = await getAuthToken(page);
+    expect(token).toBeTruthy();
+    const origin = process.env.BASE_URL || 'http://localhost';
+    const response = await page.request.get(`${origin}/api/tasks/`, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: {
+        project_id: String(projectId),
+        include_subtasks: 'true',
+        search: childSummary,
+      },
+    });
+
+    expect(response.ok()).toBe(true);
+    const body = await response.json();
+    const tasks = Array.isArray(body) ? body : body.results;
+    const childPayload = tasks.find((task: { id: number }) => task.id === child.id);
+
+    expect(childPayload?.parent_relationship).toEqual([{
+      parent_task_id: parent.id,
+      parent_task_slug: parent.slug,
+      parent_task_summary: parentSummary,
+    }]);
+    // Normalize only generated fixture identity; preserve the API structure.
+    expect(JSON.stringify({
+      is_subtask: childPayload.is_subtask,
+      parent_relationship: childPayload.parent_relationship.map((relation: {
+        parent_task_id: number;
+        parent_task_slug: string;
+        parent_task_summary: string;
+      }) => ({
+        ...relation,
+        parent_task_id: '<parent-id>',
+        parent_task_slug: '<parent-slug>',
+        parent_task_summary: '<parent-summary>',
+      })),
+    }, null, 2) + '\n').toMatchSnapshot('task-list-parent-payload.txt');
+  });
+
   test('parent picker shows inline error when move returns hierarchy cycle 422', async ({ page }) => {
     await ensureE2EPageReady(page);
 
