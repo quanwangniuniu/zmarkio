@@ -26,10 +26,12 @@ TEST_CACHES = {
 
 def make_mock_redis(registry: dict):
     """
-    Build a MagicMock that simulates sorted-set operations using a plain dict
-    {jti_bytes: score}.  `registry` is shared so callers can inspect state.
+    Build a MagicMock that simulates sorted-set, KV, and hash operations.
+    `registry` (sorted set) is shared so callers can inspect state.
     """
     mock = MagicMock()
+    kv_store = {}    # for set/exists/delete (blacklist keys)
+    hash_store = {}  # for hset/hgetall (session metadata)
 
     def zadd(key, mapping):
         for member, score in mapping.items():
@@ -56,12 +58,44 @@ def make_mock_redis(registry: dict):
         b = member.encode() if isinstance(member, str) else member
         registry.pop(b, None)
 
+    def set_(key, value, ex=None, **kwargs):
+        kv_store[key] = value
+
+    def exists(*keys):
+        return sum(1 for k in keys if k in kv_store)
+
+    def delete(*keys):
+        for k in keys:
+            kv_store.pop(k, None)
+            hash_store.pop(k, None)
+
+    def hset(name, key=None, value=None, mapping=None, **kwargs):
+        if name not in hash_store:
+            hash_store[name] = {}
+        if mapping:
+            for k, v in mapping.items():
+                bk = k.encode() if isinstance(k, str) else k
+                bv = v.encode() if isinstance(v, str) else v
+                hash_store[name][bk] = bv
+        elif key is not None:
+            bk = key.encode() if isinstance(key, str) else key
+            bv = value.encode() if isinstance(value, str) else value
+            hash_store[name][bk] = bv
+
+    def hgetall(name):
+        return hash_store.get(name, {})
+
     mock.zadd.side_effect = zadd
     mock.zcard.side_effect = zcard
     mock.zpopmin.side_effect = zpopmin
     mock.zrange.side_effect = zrange
     mock.zrem.side_effect = zrem
     mock.expire.return_value = True
+    mock.set.side_effect = set_
+    mock.exists.side_effect = exists
+    mock.delete.side_effect = delete
+    mock.hset.side_effect = hset
+    mock.hgetall.side_effect = hgetall
     return mock
 
 
