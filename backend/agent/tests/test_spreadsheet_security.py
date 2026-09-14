@@ -66,7 +66,9 @@ class SpreadsheetInsightsSecurityTests(TestCase):
 
     def test_insights_allowed_after_per_spreadsheet_consent(self):
         grant_ai_consent(self.user, self.spreadsheet)
-        with patch("agent.services._call_gemini_spreadsheet_insights") as mock_call:
+        with patch("core.services.gemini_client._get_api_key", return_value="test-key"), patch(
+            "agent.services._call_gemini_spreadsheet_insights"
+        ) as mock_call:
             mock_call.return_value = {
                 "summary": "ok", "recommendations": [], "anomalies": [],
                 "recommended_tasks": [],
@@ -74,8 +76,9 @@ class SpreadsheetInsightsSecurityTests(TestCase):
             chunks = self._run_insights()
         self.assertFalse([c for c in chunks if c["type"] == "error"])
 
+    @patch("core.services.gemini_client._get_api_key", return_value="test-key")
     @patch("agent.services._call_gemini_spreadsheet_insights")
-    def test_insights_routes_through_call_llm_and_audits(self, mock_call):
+    def test_insights_routes_through_call_llm_and_audits(self, mock_call, _mock_key):
         grant_ai_consent(self.user, self.spreadsheet)
         mock_call.return_value = {
             "summary": "ok", "recommendations": [], "anomalies": [],

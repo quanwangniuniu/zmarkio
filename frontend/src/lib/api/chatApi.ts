@@ -1,5 +1,5 @@
 // Chat API client
-import api from '../api';
+import api, { UPLOAD_TIMEOUT_MS } from '../api';
 import {
   formatFileSize,
   getFileTypeFromMime,
@@ -119,6 +119,9 @@ export async function uploadAttachment(
   formData.append('file', file);
 
   const response = await api.post('/api/chat/attachments/', formData, {
+    // Attachments can include large files (video); the shared client's 10s
+    // default is too short for an upload over a slow connection.
+    timeout: UPLOAD_TIMEOUT_MS,
     headers: {
       'Content-Type': 'multipart/form-data',
     },

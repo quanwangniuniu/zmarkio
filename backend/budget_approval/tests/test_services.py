@@ -401,6 +401,70 @@ class TestProcessApproval:
         assert audit['replaced_step'] == 1
         assert 'replaced_step=1' in (result.notes or "")
 
+    def test_org_admin_override_does_not_double_advance_after_task_sync(
+        self, budget_request_under_review, org_admin, user2, user3, project
+    ):
+        """make_approval advances the task before budget sync; override must not skip a step."""
+        from budget_approval.approver_access import format_org_admin_override_marker
+        from task.models import ApprovalChain, ApprovalChainStep, ApprovalRecord, Task
+
+        task = budget_request_under_review.task
+        chain = ApprovalChain.objects.create(
+            name="Buyer → Lead → Client",
+            project=project,
+            task_type="budget",
+        )
+        ApprovalChainStep.objects.create(chain=chain, order=1, approver=user2)
+        ApprovalChainStep.objects.create(chain=chain, order=2, approver=user3)
+        task.approval_chain = chain
+        task.current_approval_step = 1
+        task.current_approver = user2
+        if task.status == Task.Status.DRAFT:
+            task.submit()
+            task.start_review()
+        elif task.status == Task.Status.SUBMITTED:
+            task.start_review()
+        task.save(
+            update_fields=['approval_chain', 'current_approval_step', 'current_approver', 'status']
+        )
+        assert task.status == Task.Status.UNDER_REVIEW
+
+        # Simulate task.views.make_approval: record step 1 override, then advance task.
+        marker = format_org_admin_override_marker(
+            user_id=org_admin.id,
+            decision='approve',
+            replaced_step=1,
+        )
+        ApprovalRecord.objects.create(
+            task=task,
+            approved_by=org_admin,
+            is_approved=True,
+            comment=marker,
+            step_number=1,
+        )
+        task.approve()
+        task.forward_to_next()
+        task.current_approver = user3
+        task.current_approval_step = 2
+        task.save(update_fields=['current_approver', 'current_approval_step', 'status'])
+
+        with patch('budget_approval.services.budget_notifications'):
+            result = BudgetRequestService.process_approval(
+                budget_request_under_review,
+                org_admin,
+                is_approved=True,
+                comment="Override step 1",
+                next_approver=user3,
+            )
+
+        assert result.status == BudgetRequestStatus.UNDER_REVIEW
+        assert result.current_approver_id == user3.id
+        task_row = task.__class__.objects.filter(pk=task.pk).values(
+            'current_approval_step', 'current_approver_id'
+        ).get()
+        assert task_row['current_approval_step'] == 2
+        assert task_row['current_approver_id'] == user3.id
+
     def test_stale_step1_approver_conflicts_after_override_advances(
         self, budget_request_under_review, org_admin, user2, user3, project
     ):
