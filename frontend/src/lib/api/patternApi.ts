@@ -1,4 +1,4 @@
-import api from '../api';
+import api, { LLM_TIMEOUT_MS } from '../api';
 import { AiConsentRequiredError, aiConsentSpreadsheetId, isAiConsentRequired } from './aiConsentApi';
 import { Id } from '@/types/common';
 import {
@@ -83,7 +83,7 @@ export const PatternAPI = {
       response = await api.post<{ steps: Array<Record<string, any>>; error?: string }>(
         `/api/spreadsheet/sheets/${sheetId}/generate-pattern-steps/`,
         { instruction },
-        { timeout: 60000 }  // Gemini can take 15-30s; override the global 10s default
+        { timeout: LLM_TIMEOUT_MS }  // Gemini can take 15-30s; override the global 10s default
       );
     } catch (err) {
       if (isAiConsentRequired(err)) throw new AiConsentRequiredError(aiConsentSpreadsheetId(err));
