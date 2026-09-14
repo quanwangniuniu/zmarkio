@@ -14,6 +14,10 @@ function resolveBackendOrigin() {
   return base;
 }
 
+function resolveDecisionServiceOrigin() {
+  return (process.env.DECISION_SERVICE_URL || 'http://decision-service:8080').trim().replace(/\/$/, '');
+}
+
 /**
  * Segment after /api/ as requested by the client, preserving a trailing slash.
  * Next [...path] drops the final empty segment when the URL ends with /, which breaks
@@ -35,7 +39,10 @@ async function proxyRequest(request, params, method) {
   const searchParams = url.searchParams.toString();
   const contentType = request.headers.get('content-type') || '';
   const backendUrl = resolveBackendOrigin();
-  const targetUrl = `${backendUrl}/api/${path}${searchParams ? `?${searchParams}` : ''}`;
+  const targetOrigin = path === 'decisions' || path.startsWith('decisions/')
+    ? resolveDecisionServiceOrigin()
+    : backendUrl;
+  const targetUrl = `${targetOrigin}/api/${path}${searchParams ? `?${searchParams}` : ''}`;
 
   try {
     const hasBody = !['GET', 'HEAD'].includes(method);
@@ -46,6 +53,12 @@ async function proxyRequest(request, params, method) {
       }),
       ...(request.headers.get('cookie') && {
         'Cookie': request.headers.get('cookie')
+      }),
+      ...(request.headers.get('x-project-id') && {
+        'x-project-id': request.headers.get('x-project-id')
+      }),
+      ...(request.headers.get('x-organization-token') && {
+        'X-Organization-Token': request.headers.get('x-organization-token')
       }),
       ...(contentType && { 'Content-Type': contentType }),
     };
