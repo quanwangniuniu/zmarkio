@@ -8,6 +8,7 @@ from django.core.cache import cache as django_cache
 logger = logging.getLogger(__name__)
 from django.db import transaction
 from django.db.models import Count, Q
+from django.contrib.postgres.search import SearchQuery, SearchRank
 from django.utils import timezone as dj_timezone
 from django.utils.text import slugify
 
@@ -105,7 +106,12 @@ def apply_meeting_knowledge_filters(qs, filters: dict):
 
     q = filters.get("q")
     if q:
-        qs = qs.filter(Q(title__icontains=q) | Q(summary__icontains=q))
+        search_query = SearchQuery(q)
+        qs = (
+            qs.filter(search_vector=search_query)
+            .annotate(rank=SearchRank("search_vector", search_query))
+            .order_by("-rank")
+        )
 
     mt = filters.get("meeting_type")
     if mt:

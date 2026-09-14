@@ -68,8 +68,8 @@ export default function MeetingsFilterBar({
             type="search"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search meetings…"
-            aria-label="Search meetings"
+            placeholder="Search titles, summaries & transcripts…"
+            aria-label="Search titles, summaries and transcripts"
             className="w-full rounded-md border border-gray-200 bg-white py-1.5 pl-8 pr-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
           />
         </div>
