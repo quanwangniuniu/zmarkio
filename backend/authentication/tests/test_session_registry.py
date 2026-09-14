@@ -185,6 +185,27 @@ class TestEvictSession(TestCase):
         SessionRegistry.evict_session(1, "jti-z")
         self.redis.delete.assert_called_with("session:meta:jti-z")
 
+    def test_evict_sends_websocket_revocation(self):
+        mock_sync_send = MagicMock()
+        mock_async_to_sync = MagicMock(return_value=mock_sync_send)
+        mock_channel_layer = MagicMock()
+
+        with patch("channels.layers.get_channel_layer", return_value=mock_channel_layer):
+            with patch("asgiref.sync.async_to_sync", mock_async_to_sync):
+                SessionRegistry.evict_session(42, "jti-ws")
+
+        mock_async_to_sync.assert_called_once_with(mock_channel_layer.group_send)
+        mock_sync_send.assert_called_once_with(
+            "chat_user_42",
+            {"type": "user_session_revoked", "reason": "session_evicted"},
+        )
+
+    def test_evict_skips_websocket_when_no_channel_layer(self):
+        with patch("channels.layers.get_channel_layer", return_value=None):
+            # Should not raise even without a channel layer
+            SessionRegistry.evict_session(1, "jti-no-ws")
+        self.assertTrue(SessionRegistry.is_evicted("jti-no-ws"))
+
 
 @override_settings(CACHES=TEST_CACHES)
 class TestListSessions(TestCase):

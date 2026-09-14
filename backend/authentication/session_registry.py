@@ -1,7 +1,10 @@
+import logging
 import time
 from typing import cast
 from redis import Redis
 from django_redis import get_redis_connection
+
+logger = logging.getLogger(__name__)
 
 TOKEN_TTL = 60 * 60 * 24 * 4 # 4 days, same as JWT refresh token lifetime
 
@@ -58,6 +61,24 @@ class SessionRegistry:
         # Delete metadata
         meta_key = META_KEY.format(jti=jti)
         redis.delete(meta_key)
+
+        # Notify active WebSocket connections to disconnect immediately
+        try:
+            from asgiref.sync import async_to_sync
+            from channels.layers import get_channel_layer
+            channel_layer = get_channel_layer()
+            if channel_layer is not None:
+                async_to_sync(channel_layer.group_send)(
+                    f'chat_user_{user_id}',
+                    {
+                        'type': 'user_session_revoked',
+                        'reason': 'session_evicted',
+                    },
+                )
+        except Exception:
+            logger.exception(
+                "Failed to emit session eviction websocket for user %s", user_id
+            )
 
     @staticmethod
     def is_evicted(jti) -> bool:
