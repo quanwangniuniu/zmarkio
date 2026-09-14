@@ -1,9 +1,16 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import toast from 'react-hot-toast';
 import { useChatWebSocket } from '@/hooks/useChatWebSocket';
 import { useAuthStore } from '@/lib/authStore';
 import { useChatStore } from '@/lib/chatStore';
 import type { Chat, Message } from '@/types/chat';
+import { getChat, getChats, resolveLegacyChatSlug } from '@/lib/api/chatApi';
+
+jest.mock('@/lib/api/chatApi', () => ({
+  getChat: jest.fn(),
+  getChats: jest.fn(),
+  resolveLegacyChatSlug: jest.fn(),
+}));
 
 jest.mock('react-hot-toast', () => ({
   __esModule: true,
@@ -84,6 +91,34 @@ describe('useChatWebSocket access revocation', () => {
       id: 'chat-access-revoked-12',
     });
     expect(onChatAccessRevoked).toHaveBeenCalledWith(expect.objectContaining({ chat_id: 12 }));
+    unmount();
+  });
+
+  it('adds a newly granted room without reconnecting', async () => {
+    const grantedChat = { id: 13, slug: 'new-room', project_id: 1 } as Chat;
+    (getChats as jest.Mock).mockResolvedValue({
+      count: 1, next: null, previous: null, results: [grantedChat],
+    });
+    const onChatAccessGranted = jest.fn();
+    const { unmount } = renderHook(() => useChatWebSocket(100, { onChatAccessGranted }));
+
+    act(() => {
+      MockWebSocket.instances[0].receive({
+        type: 'chat_access_granted', chat_id: 13, chat_slug: 'new-room', project_id: 1,
+        project_slug: 'med-234-project',
+        reason: 'participant_added',
+      });
+    });
+
+    await waitFor(() => {
+      expect(useChatStore.getState().chatsByProject[1]).toContainEqual(grantedChat);
+      expect(useChatStore.getState().chatsByProject['med-234-project']).toContainEqual(grantedChat);
+    });
+    expect(getChats).toHaveBeenCalledWith({ project_id: 1, limit: 100 });
+    expect(resolveLegacyChatSlug).not.toHaveBeenCalled();
+    expect(getChat).not.toHaveBeenCalled();
+    expect(onChatAccessGranted).toHaveBeenCalledWith(expect.objectContaining({ chat_id: 13 }));
+    expect(MockWebSocket.instances[0].close).not.toHaveBeenCalled();
     unmount();
   });
 });

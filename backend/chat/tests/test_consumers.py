@@ -452,6 +452,42 @@ class TestChatConsumer:
         finally:
             await _disconnect_communicators(communicator)
 
+    async def test_chat_group_access_is_granted_on_addition(self, db, settings):
+        """A newly added participant sees the room without reconnecting."""
+        from channels.db import database_sync_to_async
+
+        settings.CHAT_CHANNEL_GROUPS_ENABLED = True
+
+        user = await self._create_user('granteduser', 'granted@example.com')
+        org = await self._create_organization('Grant Org')
+        project = await self._create_project(org, 'Grant Project')
+        chat = await self._create_chat(project, ChatType.GROUP)
+
+        token = str(AccessToken.for_user(user))
+        application = JWTAuthMiddleware(URLRouter(websocket_urlpatterns))
+        communicator = WebsocketCommunicator(application, f'/ws/chat/{user.id}/?token={token}')
+        try:
+            connected, _ = await communicator.connect()
+            assert connected
+            await communicator.receive_json_from(timeout=5)  # presence_snapshot
+
+            @database_sync_to_async
+            def add():
+                ChatParticipant.objects.create(chat=chat, user=user, is_active=True)
+
+            await add()
+            granted = await communicator.receive_json_from(timeout=1)
+            assert granted == {
+                'type': 'chat_access_granted',
+                'chat_id': chat.id,
+                'chat_slug': chat.slug,
+                'project_id': project.id,
+                'project_slug': project.slug,
+                'reason': 'participant_added',
+            }
+        finally:
+            await _disconnect_communicators(communicator)
+
     async def test_outbox_digest_returns_committed_client_message_ids(self, db):
         """Reconnect outbox_digest should ack server-committed client message ids."""
         from asgiref.sync import sync_to_async

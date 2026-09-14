@@ -630,13 +630,25 @@ def notify_chat_membership_changed(chat_id: int, user_ids: Iterable[int]) -> Non
     if not user_ids or not getattr(settings, 'CHAT_CHANNEL_GROUPS_ENABLED', False):
         return
     try:
+        chat_identity = (
+            Chat.objects.filter(pk=chat_id)
+            .values('slug', 'project_id', 'project__slug')
+            .first()
+        )
         channel_layer = get_channel_layer()
         if channel_layer is None:
             return
+        event = {'type': 'chat_membership_changed', 'chat_id': int(chat_id)}
+        if chat_identity:
+            event.update({
+                'chat_slug': chat_identity['slug'],
+                'project_id': chat_identity['project_id'],
+                'project_slug': chat_identity['project__slug'],
+            })
         broadcast_event_to_user_groups_sync(
             channel_layer,
             user_ids,
-            {'type': 'chat_membership_changed', 'chat_id': int(chat_id)},
+            event,
         )
     except Exception:
         # Never let a revocation broadcast undo a committed membership change.

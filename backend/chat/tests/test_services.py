@@ -134,7 +134,13 @@ def test_membership_change_notifies_affected_users(settings):
     event = broadcast.call_args.args[2]
     # The user who lost access must be told too, or their socket keeps the group.
     assert set(notified_user_ids) == {staying.id, leaving.id}
-    assert event == {'type': 'chat_membership_changed', 'chat_id': chat.id}
+    assert event == {
+        'type': 'chat_membership_changed',
+        'chat_id': chat.id,
+        'chat_slug': chat.slug,
+        'project_id': project.id,
+        'project_slug': project.slug,
+    }
 
 
 def test_membership_change_is_silent_while_chat_groups_are_disabled(settings):

@@ -857,7 +857,17 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
         try:
             delta = await self.sync_chat_groups()
             chat_id = int(event['chat_id'])
-            if delta is not None and chat_group_name(chat_id) in delta.removed:
+            group_name = chat_group_name(chat_id)
+            if delta is not None and group_name in delta.added:
+                await self.send(text_data=json.dumps({
+                    'type': 'chat_access_granted',
+                    'chat_id': chat_id,
+                    'chat_slug': event.get('chat_slug'),
+                    'project_id': event.get('project_id'),
+                    'project_slug': event.get('project_slug'),
+                    'reason': 'participant_added',
+                }))
+            elif delta is not None and group_name in delta.removed:
                 # This socket carries all of the user's chats. Revoke only the
                 # removed room so their other chat subscriptions stay online.
                 await self.send(text_data=json.dumps({
