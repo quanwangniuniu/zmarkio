@@ -1,4 +1,5 @@
 import { type Page, type Locator, expect } from '@playwright/test';
+import { readStoredProject, type StoredProject } from './project-storage';
 
 function isProjectsListGetResponse(resp: { url(): string; request(): { method(): string } }): boolean {
   const url = new URL(resp.url());
@@ -70,43 +71,32 @@ export async function waitForTasksPageReady(page: Page) {
   });
 }
 
-export async function getActiveProjectSlug(page: Page): Promise<string> {
-  const slug = await page.evaluate(() => {
-    try {
-      const raw = localStorage.getItem('project-storage');
-      if (!raw) return null;
-      return (JSON.parse(raw) as { state?: { activeProject?: { slug?: string } } })?.state?.activeProject?.slug ?? null;
-    } catch {
-      return null;
-    }
-  });
-  if (!slug) throw new Error('No active project slug found in store');
-  return slug;
+async function waitForStoredProject(page: Page): Promise<StoredProject> {
+  let project: StoredProject | null = null;
+  await expect.poll(async () => {
+    const rawValues = await page.evaluate(() => [
+      localStorage.getItem('project-storage-v1'),
+      localStorage.getItem('project-storage'),
+    ]);
+    project = readStoredProject(rawValues);
+    return project !== null;
+  }, {
+    message: 'No complete active project found after storage hydration',
+    timeout: 15_000,
+    intervals: [100, 250, 500],
+  }).toBe(true);
+  return project!;
 }
 
-/**
- * Read active project id from persisted store after workspace bootstrap.
- * Lighter than navigateToTasksAndSelectProject — use in beforeAll when tests
- * navigate to tasks themselves.
- */
+export async function getActiveProjectSlug(page: Page): Promise<string> {
+  return (await waitForStoredProject(page)).slug;
+}
+
+/** Read a complete project after workspace bootstrap and storage hydration. */
 export async function getActiveProjectIdFromStore(page: Page): Promise<number> {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await waitForWorkspaceReady(page);
-
-  const projectId: number | null = await page.evaluate(() => {
-    try {
-      const raw = localStorage.getItem('project-storage');
-      if (!raw) return null;
-      return (JSON.parse(raw) as any)?.state?.activeProject?.id ?? null;
-    } catch {
-      return null;
-    }
-  });
-
-  if (!projectId) {
-    throw new Error('No active project found in store — ensure the test user has at least one project');
-  }
-  return projectId;
+  return (await waitForStoredProject(page)).id;
 }
 
 /**
@@ -118,19 +108,7 @@ export async function navigateToTasksAndSelectProject(page: Page): Promise<numbe
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await waitForWorkspaceReady(page);
 
-  const projectId: number | null = await page.evaluate(() => {
-    try {
-      const raw = localStorage.getItem('project-storage');
-      if (!raw) return null;
-      return (JSON.parse(raw) as any)?.state?.activeProject?.id ?? null;
-    } catch {
-      return null;
-    }
-  });
-
-  if (!projectId) throw new Error('No active project found in store — ensure the test user has at least one project');
-
-  const projectSlug = await getActiveProjectSlug(page);
+  const { id: projectId, slug: projectSlug } = await waitForStoredProject(page);
   await page.goto(`/projects/${encodeURIComponent(projectSlug)}/tasks`, {
     waitUntil: 'domcontentloaded',
   });

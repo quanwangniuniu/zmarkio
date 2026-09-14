@@ -12,7 +12,17 @@ from django.core.cache import cache
 from datetime import datetime
 from django.core.exceptions import ValidationError
 from django.db import DatabaseError, transaction
-from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, Value, When
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    Value,
+    When,
+)
 from rest_framework.views import APIView
 from rest_framework.parsers import MultiPartParser, FormParser
 from django.shortcuts import get_object_or_404
@@ -193,6 +203,24 @@ class TaskViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
                 TaskPin.objects.filter(task_id=OuterRef('pk'), user=user)
             ),
         )
+        include_subtasks_param = self.request.query_params.get('include_subtasks', 'false')
+        include_subtasks = include_subtasks_param.lower() == 'true'
+        if getattr(self, 'action', None) == 'list' and include_subtasks:
+            # Fetch parent relationships for the paginated task set in one
+            # query. Django evaluates this prefetch after pagination slices the
+            # base queryset, so it is limited to tasks on the current page.
+            queryset = queryset.prefetch_related(
+                Prefetch(
+                    'parent_relationship',
+                    queryset=TaskHierarchy.objects.select_related(
+                        'parent_task'
+                    ).only(
+                        'id', 'child_task_id', 'parent_task_id',
+                        'parent_task__id', 'parent_task__slug', 'parent_task__summary',
+                    ).order_by('pk'),
+                    to_attr='prefetched_parent_relationships',
+                )
+            )
         accessible_project_ids = set(
             ProjectMember.objects.filter(
                 user=user,
@@ -392,9 +420,6 @@ class TaskViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         # Exclude subtasks - only show parent tasks in the listing
         # A task is a subtask if its is_subtask field is True (persistent even after parent deletion)
         # Allow including subtasks if explicitly requested (e.g., for subtask selection)
-        include_subtasks_param = self.request.query_params.get('include_subtasks', 'false')
-        include_subtasks = include_subtasks_param.lower() == 'true'
-
         if not include_subtasks:
             # Exclude all tasks that have is_subtask=True
             queryset = queryset.filter(is_subtask=False)
