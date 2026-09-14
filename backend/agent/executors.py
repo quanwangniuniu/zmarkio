@@ -4,22 +4,24 @@ Step executors — strategy pattern for workflow step types.
 Each step_type maps to an Executor subclass that encapsulates
 the logic for that particular action.
 """
+import json
 import logging
 import os
 from django.core.cache import cache
 import time
 import anthropic
+from .agent_utils import json_input
+from .llm_client import call_llm as _call_llm_unified
 from core.services.gemini_client import GeminiRetriesExhausted
-
 
 logger = logging.getLogger(__name__)
 
 def retry_policy(max_retries=3,  retry_delay= 5,on_exhausted='fail'):
 
     """
-    retry_policy is a decorator that wraps a function with retry logic. 
-    It attempts to execute the function up to max_retries times in case of 
-    specific exceptions (anthropic.APITimeoutError or RuntimeError). 
+    retry_policy is a decorator that wraps a function with retry logic.
+    It attempts to execute the function up to max_retries times in case of
+    specific exceptions (anthropic.APITimeoutError or RuntimeError).
     If all retries are exhausted, it returns a StepResult indicating failure or skip based on the on_exhausted parameter.
 
     Args:
@@ -100,7 +102,7 @@ class BaseStepExecutor:
 
 class AnalyzeDataExecutor(BaseStepExecutor):
     """Runs the Dify->Claude analysis fallback chain via _run_analysis()."""
-    
+
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='fail')
     def execute(self, input_data):
         from .services import _run_analysis
@@ -109,12 +111,12 @@ class AnalyzeDataExecutor(BaseStepExecutor):
         if not spreadsheet_data:
             return StepResult(success=False, error='No spreadsheet_data in input')
 
+        from .generation_registry import (
+            GenerationValidationError,
+            filter_sse_analysis_payload,
+            normalize_generation_outputs,
+        )
         try:
-            from .generation_registry import (
-                GenerationValidationError,
-                filter_sse_analysis_payload,
-                normalize_generation_outputs,
-            )
 
             user_id = str(self.orchestrator.user.id)
             success_criteria = (
@@ -193,11 +195,11 @@ class CallDifyExecutor(BaseStepExecutor):
 
 class CallLLMExecutor(BaseStepExecutor):
     """Calls Claude directly, supports per-step config override."""
-    
+
     #Anthropic API call has default retry logic, so the retry policy is simple to avoid double retrying.
     @retry_policy(max_retries=1, retry_delay=0, on_exhausted='fail')
     def execute(self, input_data):
-        from .services import _call_llm, _get_llm_client
+        from .services import _ANALYSIS_SYSTEM_PROMPT, _get_llm_client
 
         spreadsheet_data = input_data.get('spreadsheet_data', input_data)
         try:
@@ -205,12 +207,22 @@ class CallLLMExecutor(BaseStepExecutor):
             if not client:
                 return StepResult(success=False, error='No LLM API key configured')
 
-            result = _call_llm(client, spreadsheet_data, agent_session=self.orchestrator.session)
+            result = _call_llm_unified(
+                provider="anthropic",
+                model="claude-sonnet-5",
+                user_prompt=json_input(spreadsheet_data),
+                system_prompt=_ANALYSIS_SYSTEM_PROMPT,
+                agent_session=self.orchestrator.session,
+            )
+            # The billed caller returns text and usage; downstream steps need the JSON object.
+            analysis = json.loads(result['text'])
+            if not isinstance(analysis, dict):
+                raise ValueError('Analysis response must be a JSON object')
 
             return StepResult(
                 success=True,
                 output_data={
-                    'analysis_result': result,
+                    'analysis_result': analysis,
                     'spreadsheet_data': spreadsheet_data,
                 },
                 sse_events=[{'type': 'text', 'content': 'LLM analysis completed.'}],
@@ -364,7 +376,7 @@ class CreateTasksExecutor(BaseStepExecutor):
 
 class GenerateMiroSnapshotExecutor(BaseStepExecutor):
     """Generate a validated Miro snapshot from workflow context via Gemini."""
-    
+
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='fail')
     def execute(self, input_data):
         from .miro_generation import (

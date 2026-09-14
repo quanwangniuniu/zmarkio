@@ -87,12 +87,13 @@ def auto_categorize_by_name(canonical_name: str) -> str:
     if not canonical_name or canonical_name == CAT_UNKNOWN:
         return CAT_UNKNOWN
 
-    tokens = set(re.split(r'[\s_\-]+', canonical_name.lower()))
+    normalized_name = re.sub(r'[\s\-]+', '_', canonical_name.lower()).strip('_')
+    padded_name = f'_{normalized_name}_'
 
     for category, keywords in _AUTO_CATEGORY_RULES:
         for kw in keywords:
-            # Check if any keyword is a substring of the canonical_name or a token
-            if kw in tokens or kw in canonical_name.lower():
+            normalized_keyword = re.sub(r'[\s\-]+', '_', kw.lower()).strip('_')
+            if f'_{normalized_keyword}_' in padded_name:
                 return category
 
     return CAT_UNKNOWN
