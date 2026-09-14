@@ -26,12 +26,44 @@ export function resolveApiBaseUrl(): string {
   return API_BASE_URL;
 }
 
+/**
+ * Named timeout tiers, in milliseconds, for calls through the shared `api`
+ * client. Most endpoints are ordinary CRUD and finish well under a second,
+ * so the client defaults to DEFAULT_TIMEOUT_MS. A known-slow endpoint should
+ * pass the matching tier as `{ timeout: ... }` on that specific call rather
+ * than inventing a new local constant — grep for these names before adding
+ * one, since the class of request you're timing has probably shown up
+ * before.
+ *
+ * - LLM_TIMEOUT_MS: a single LLM-backed generation call (e.g. one Gemini/
+ *   Vertex request analyzing an existing sheet/instruction).
+ * - LLM_BATCH_TIMEOUT_MS: heavier or multi-item LLM generation (batch content
+ *   generation, multi-step previews).
+ * - SYNC_TIMEOUT_MS: a request that synchronously calls out to an external
+ *   platform (ad platform, calendar, etc.) before responding.
+ * - UPLOAD_TIMEOUT_MS: uploading a user-provided file (attachments, media).
+ * - LONG_REQUEST_TIMEOUT_MS: safety net for rare, exceptionally long
+ *   operations (large batch writes) that are otherwise expected to be fast.
+ *
+ * For anything that can run past a couple of minutes regardless of timeout
+ * length — batch generation, full account syncs — prefer a job-and-poll
+ * endpoint (kick off the work, return a job id, poll for status) over
+ * stretching the timeout further; a timeout is the wrong tool once the
+ * operation is that long.
+ */
+export const DEFAULT_TIMEOUT_MS = 10_000;
+export const LLM_TIMEOUT_MS = 60_000;
+export const LLM_BATCH_TIMEOUT_MS = 120_000;
+export const SYNC_TIMEOUT_MS = 120_000;
+export const UPLOAD_TIMEOUT_MS = 60_000;
+export const LONG_REQUEST_TIMEOUT_MS = 300_000;
+
 // Create axios instance for API calls
 // indexes: null => array params serialize as repeated keys (e.g. status=A&status=B)
 // so Django QueryDict.getlist('status') works; default axios uses status[]=... which Django ignores.
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: DEFAULT_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json, text/plain, */*',
