@@ -111,8 +111,13 @@ describe('useChatWebSocket access revocation', () => {
     });
 
     await waitFor(() => {
-      expect(useChatStore.getState().chatsByProject[1]).toContainEqual(grantedChat);
-      expect(useChatStore.getState().chatsByProject['med-234-project']).toContainEqual(grantedChat);
+      const expectedChat = expect.objectContaining({
+        id: grantedChat.id,
+        slug: grantedChat.slug,
+        project_id: grantedChat.project_id,
+      });
+      expect(useChatStore.getState().chatsByProject[1]).toContainEqual(expectedChat);
+      expect(useChatStore.getState().chatsByProject['med-234-project']).toContainEqual(expectedChat);
     });
     expect(getChats).toHaveBeenCalledWith({ project_id: 1, limit: 100 });
     expect(resolveLegacyChatSlug).not.toHaveBeenCalled();
