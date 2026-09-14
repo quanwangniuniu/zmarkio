@@ -1,7 +1,6 @@
 import time
 from typing import cast
 from redis import Redis
-from django.core.cache import cache
 from django_redis import get_redis_connection
 
 TOKEN_TTL = 60 * 60 * 24 * 4 # 4 days, same as JWT refresh token lifetime
@@ -23,7 +22,12 @@ class SessionRegistry:
         redis.expire(register_key, TOKEN_TTL)
 
         # Store session metadata
-        cache.set(meta_key, meta, timeout=TOKEN_TTL)
+        redis.hset(meta_key, mapping={
+            "ip": meta.get("ip", ""),
+            "user_agent": meta.get("user_agent", ""),
+            "created_at": meta.get("created_at", "")
+        })
+        redis.expire(meta_key, TOKEN_TTL)
 
         # Check if over cap, evict oldest
         evicted = []
@@ -33,9 +37,9 @@ class SessionRegistry:
             evicted = [item[0].decode() for item in oldest]
             for evicted_jti in evicted:
                 blacklist_key = BLACKLIST_KEY.format(jti=evicted_jti)
-                cache.set(blacklist_key, True, timeout=TOKEN_TTL)
+                redis.set(blacklist_key, 1, ex=TOKEN_TTL)
                 meta_key = META_KEY.format(jti=evicted_jti)
-                cache.delete(meta_key)
+                redis.delete(meta_key)
 
         return evicted
 
@@ -46,20 +50,21 @@ class SessionRegistry:
         redis = cast(Redis, get_redis_connection("default"))
 
         # Add to blacklist
-        cache.set(blacklist_key, True, timeout=TOKEN_TTL)
+        redis.set(blacklist_key, 1, ex=TOKEN_TTL)
 
         # Remove from registry
         redis.zrem(register_key, jti)
 
         # Delete metadata
         meta_key = META_KEY.format(jti=jti)
-        cache.delete(meta_key)
+        redis.delete(meta_key)
 
     @staticmethod
     def is_evicted(jti) -> bool:
+        redis = cast(Redis, get_redis_connection("default"))
         blacklist_key = BLACKLIST_KEY.format(jti=jti)
-        return cache.get(blacklist_key) is not None
-
+        return redis.exists(blacklist_key) > 0
+    
     @staticmethod
     def list_sessions(user_id) -> list[dict]:
         redis = cast(Redis, get_redis_connection("default"))
@@ -71,8 +76,13 @@ class SessionRegistry:
         for jti_bytes in jtis:
             jti = jti_bytes.decode()
             meta_key = META_KEY.format(jti=jti)
-            meta = cache.get(meta_key) or {}
-            sessions.append({"jti": jti, **meta})
+            meta_dict = redis.hgetall(meta_key)
+            sessions.append({
+                "jti": jti,
+                "ip": (meta_dict.get(b"ip") or b"").decode(),
+                "user_agent": (meta_dict.get(b"user_agent") or b"").decode(),
+                "created_at": (meta_dict.get(b"created_at") or b"").decode(),
+                })
 
         return sessions
 
@@ -83,7 +93,7 @@ class SessionRegistry:
         redis = cast(Redis, get_redis_connection("default"))
         removed = redis.zrem(register_key, jti)
         meta_key = META_KEY.format(jti=jti)
-        cache.delete(meta_key)
+        redis.delete(meta_key)
         return removed
 
     @staticmethod

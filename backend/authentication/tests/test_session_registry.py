@@ -21,11 +21,14 @@ TEST_CACHES = {
 
 
 class FakeSortedSet:
-    """Minimal sorted-set backed by a plain dict {member: score}."""
+    """Minimal Redis fake covering sorted-set, key-value, and hash operations."""
 
     def __init__(self):
         self._data: dict[bytes, float] = {}
+        self._kv: dict[str, object] = {}
+        self._hashes: dict[str, dict] = {}
 
+    # --- sorted set ---
     def zadd(self, key, mapping):
         for member, score in mapping.items():
             self._data[member.encode() if isinstance(member, str) else member] = score
@@ -53,9 +56,33 @@ class FakeSortedSet:
     def expire(self, key, ttl):
         pass
 
+    # --- key-value (blacklist) ---
+    def set(self, key, value, ex=None):
+        self._kv[key] = value
+
+    def exists(self, key):
+        return 1 if key in self._kv or key in self._hashes else 0
+
+    def delete(self, *keys):
+        for k in keys:
+            self._kv.pop(k, None)
+            self._hashes.pop(k, None)
+
+    # --- hash (metadata) ---
+    def hset(self, key, mapping=None):
+        if mapping:
+            self._hashes[key] = {k: v for k, v in mapping.items()}
+
+    def hgetall(self, key):
+        raw = self._hashes.get(key, {})
+        return {
+            (k.encode() if isinstance(k, str) else k): (v.encode() if isinstance(v, str) else v)
+            for k, v in raw.items()
+        }
+
 
 def make_fake_redis():
-    """Return a MagicMock whose sorted-set methods delegate to FakeSortedSet."""
+    """Return a MagicMock whose Redis methods delegate to FakeSortedSet."""
     fake = FakeSortedSet()
     mock = MagicMock()
     mock.zadd.side_effect = fake.zadd
@@ -64,6 +91,11 @@ def make_fake_redis():
     mock.zrange.side_effect = fake.zrange
     mock.zrem.side_effect = fake.zrem
     mock.expire.side_effect = fake.expire
+    mock.set.side_effect = fake.set
+    mock.exists.side_effect = fake.exists
+    mock.delete.side_effect = fake.delete
+    mock.hset.side_effect = fake.hset
+    mock.hgetall.side_effect = fake.hgetall
     return mock
 
 
@@ -88,11 +120,13 @@ class TestRegisterSession(TestCase):
         self.assertEqual(evicted, [])
         self.redis.zadd.assert_called_once()
 
-    def test_register_stores_meta_in_cache(self):
+    def test_register_stores_meta_in_redis_hash(self):
         meta = {"ip": "1.2.3.4", "user_agent": "Chrome"}
         SessionRegistry.register_session(1, "jti-b", meta, cap=5)
-        stored = cache.get("session:meta:jti-b")
-        self.assertEqual(stored, meta)
+        self.redis.hset.assert_called_once_with(
+            "session:meta:jti-b",
+            mapping={"ip": "1.2.3.4", "user_agent": "Chrome", "created_at": ""},
+        )
 
     def test_no_eviction_under_cap(self):
         for i in range(3):
@@ -145,11 +179,11 @@ class TestEvictSession(TestCase):
         sessions = SessionRegistry.list_sessions(1)
         self.assertEqual(sessions, [])
 
-    def test_evict_removes_meta_from_cache(self):
+    def test_evict_removes_meta_from_redis(self):
         meta = {"ip": "9.9.9.9"}
         SessionRegistry.register_session(1, "jti-z", meta, cap=5)
         SessionRegistry.evict_session(1, "jti-z")
-        self.assertIsNone(cache.get("session:meta:jti-z"))
+        self.redis.delete.assert_called_with("session:meta:jti-z")
 
 
 @override_settings(CACHES=TEST_CACHES)
@@ -219,7 +253,7 @@ class TestRemoveSession(TestCase):
         meta = {"ip": "1.1.1.1"}
         SessionRegistry.register_session(1, "jti-rm3", meta, cap=5)
         SessionRegistry.remove_session(1, "jti-rm3")
-        self.assertIsNone(cache.get("session:meta:jti-rm3"))
+        self.redis.delete.assert_called_with("session:meta:jti-rm3")
 
 
 @override_settings(CACHES=TEST_CACHES)
