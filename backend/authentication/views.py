@@ -318,9 +318,7 @@ class LoginView(APIView):
         }
         try:
             cap = user.current_organization.max_concurrent_sessions if user.current_organization else 5
-            evicted_jtis = SessionRegistry.register_session(user.pk, jti, meta, cap)
-            for evicted_jti in evicted_jtis:
-                SessionRegistry.evict_session(user.pk, evicted_jti)
+            SessionRegistry.register_session(user.pk, jti, meta, cap)
         except Exception:
             logger.exception("Failed to register session in Redis for user %s", user.pk)
 

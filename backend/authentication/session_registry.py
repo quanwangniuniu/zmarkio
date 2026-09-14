@@ -31,6 +31,11 @@ class SessionRegistry:
         if excess > 0:
             oldest = redis.zpopmin(register_key, count=excess)
             evicted = [item[0].decode() for item in oldest]
+            for evicted_jti in evicted:
+                blacklist_key = BLACKLIST_KEY.format(jti=evicted_jti)
+                cache.set(blacklist_key, True, timeout=TOKEN_TTL)
+                meta_key = META_KEY.format(jti=evicted_jti)
+                cache.delete(meta_key)
 
         return evicted
 
