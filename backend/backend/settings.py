@@ -452,6 +452,16 @@ RAG_RETRIEVAL_MIN_SIMILARITY = config(
     cast=lambda v: float(v) if v not in (None, '') else None,
 )
 
+# Reliability backstop for a lost Celery publish / never-reconciled indexing
+# attempt (rag.tasks.reconcile_dirty_rag_states, MED-264 Problem 7). How long
+# a DocumentIndexState row may sit with dirty_since set before the periodic
+# reconciler re-enqueues it -- comfortably longer than normal indexing
+# latency (embedding call + chunking), so an in-flight, healthy attempt is
+# never duplicated; short enough that a genuinely lost enqueue still
+# converges promptly. Not near-real-time by design -- see the Celery Beat
+# schedule entry for this task.
+RAG_RECONCILE_STALE_SECONDS = config('RAG_RECONCILE_STALE_SECONDS', default=600, cast=int)
+
 # Dify LLM Platform integration (kept for reference / backward compat)
 DIFY_API_URL = config('DIFY_API_URL', default='')
 DIFY_API_KEY = config('DIFY_API_KEY', default='')
@@ -845,6 +855,15 @@ CELERY_BEAT_SCHEDULE = {
     'csm-notify-sla-breaches': {
         'task': 'csm.tasks.notify_sla_breaches',
         'schedule': crontab(minute='*/15'),
+        'options': {'timezone': 'UTC'},
+    },
+    # RAG reliability backstop (MED-264 Problem 7): re-enqueues indexing for
+    # any source still dirty after RAG_RECONCILE_STALE_SECONDS. A reliability
+    # sweep, not a near-real-time path -- normal indexing already runs via
+    # the signal -> on_commit -> Celery route within seconds.
+    'reconcile-dirty-rag-states': {
+        'task': 'rag.tasks.reconcile_dirty_rag_states',
+        'schedule': timedelta(minutes=10),
         'options': {'timezone': 'UTC'},
     },
 }

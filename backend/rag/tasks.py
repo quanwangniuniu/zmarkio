@@ -20,19 +20,31 @@ Three retry layers, deliberately kept separate rather than merged:
      across a longer provider outage — layer 1's retries are already
      exhausted by the time FAILED is returned, so this is a second, slower
      layer on top, not a duplicate of the same wait.
+
+reconcile_dirty_rag_states (MED-264 Problem 7 reliability fix) is a fourth,
+independent layer: none of the three above help if a source mutation's
+Celery `.delay()` publish itself was lost (broker unreachable at enqueue
+time) or a worker crashed before ever reaching this module's retry logic —
+in that case no task, and therefore none of these retry layers, ever ran at
+all. See rag.indexing.mark_source_dirty / DocumentIndexState.dirty_since for
+the durable marker this task scans.
 """
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from celery import shared_task
+from django.conf import settings
+from django.utils import timezone
 
+from core.models import Organization
 from core.services.tenant import slug_to_schema_name
 from core.tenant_context import tenant_schema_context
 from meetings.models import Meeting
 from notion_editor.models import DraftProjectLink
 from rag.indexing import IndexOutcome, index_source_document
-from rag.models import DocumentSourceType
+from rag.models import DocumentIndexState, DocumentSourceType
 from retrospective.models import RetrospectiveStatus, RetrospectiveTask
 
 logger = logging.getLogger(__name__)
@@ -142,3 +154,76 @@ def rebuild_project_index(org_slug: str, project_id: int) -> None:
     (agent.tasks, chat.tasks).
     """
     rebuild_project_index_task.delay(slug_to_schema_name(org_slug), project_id)
+
+
+@shared_task
+def reconcile_dirty_rag_states():
+    """Periodic reliability backstop (MED-264 Problem 7): re-enqueues
+    `index_document_task` for every `DocumentIndexState` row that has been
+    dirty (see `rag.indexing.mark_source_dirty`) for longer than
+    `settings.RAG_RECONCILE_STALE_SECONDS`, across every tenant.
+
+    This covers sources that remain dirty because the initial Celery publish
+    was lost, or because an enqueued indexing attempt never successfully
+    reconciled the source (for example after worker/task failures). The
+    reconciler does not need to distinguish those cases: a sufficiently old
+    `dirty_since` means reconciliation is still owed, regardless of why.
+
+    Deliberately does no embedding/extraction/reconciliation itself — it
+    only decides WHAT to re-enqueue, then hands each one to the exact same
+    `index_document_task` every signal already uses, relying entirely on
+    `index_source_document`'s existing idempotency/concurrency protection
+    for what happens next (a genuinely-stale source re-embeds; a
+    since-resolved one is a fast SKIPPED_UNCHANGED/METADATA_REFRESHED no-op;
+    a since-deleted/moved-away one is cleaned up via the existing
+    EXCLUDED/MOVED branch).
+
+    Works regardless of `status` (COMPLETE/PENDING/FAILED) — `dirty_since`
+    is the sole source of truth for "reconciliation is still owed" (see
+    `DocumentIndexState`'s class docstring for why `status` alone cannot
+    safely stand in for this: a `FAILED` row can coexist with already-
+    current, still-valid chunks if the source was reverted after the failed
+    attempt, and a `PENDING` row may simply be a worker still in flight).
+
+    Iterates every `Organization`/tenant schema. No existing fleet-wide
+    iteration helper was found elsewhere in this codebase to reuse (checked
+    before writing this) — every other per-tenant Celery Beat task either
+    operates on public-schema models or, like `rebuild_project_index_task`,
+    is scoped to one already-known tenant by its caller. This composes the
+    same primitives `rebuild_project_index` already uses
+    (`slug_to_schema_name` + `tenant_schema_context`) across every
+    organization instead of one.
+    """
+    threshold = timezone.now() - timedelta(seconds=settings.RAG_RECONCILE_STALE_SECONDS)
+    reenqueued = 0
+
+    for org in Organization.objects.all():
+        tenant_schema = slug_to_schema_name(org.slug)
+        with tenant_schema_context(tenant_schema):
+            stale_rows = list(
+                DocumentIndexState.objects.filter(
+                    dirty_since__isnull=False,
+                    dirty_since__lt=threshold,
+                ).values_list('project_id', 'source_type', 'source_id')
+            )
+
+        for project_id, source_type, source_id in stale_rows:
+            try:
+                index_document_task.delay(
+                    tenant_schema=tenant_schema,
+                    project_id=project_id,
+                    source_type=source_type,
+                    source_id=source_id,
+                )
+            except Exception:
+                logger.exception(
+                    'RAG reconcile_dirty_rag_states failed to enqueue tenant_schema=%s project_id=%s '
+                    'source_type=%s source_id=%s -- leaving dirty_since set for the next periodic run',
+                    tenant_schema, project_id, source_type, source_id,
+                )
+                continue
+            reenqueued += 1
+
+    if reenqueued:
+        logger.info('RAG reconcile_dirty_rag_states re-enqueued %d stale-dirty source(s)', reenqueued)
+    return reenqueued

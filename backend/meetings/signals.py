@@ -16,15 +16,46 @@ Enqueue reliability (best-effort, not guaranteed)
 `transaction.on_commit(...)` guarantees a worker never observes an
 uncommitted source change, but the DB commit and the Celery `.delay()`
 publish are two separate operations, not one atomic unit. The enqueue
-functions below catch and log any exception from `.delay()` rather than
-letting it propagate (so a broker outage never fails the user-facing
-request that triggered the signal) — which means a specific indexing event
-CAN be silently missed if the broker is unreachable at that moment. There is
-no transactional outbox here for MED-264 (deliberately out of scope). What
-recovers a missed event: a later save/delete of the same source firing
-another signal successfully, or an ops-triggered `rag.tasks.rebuild_project_index`
-picking it up. This is best-effort delivery with rebuild-based recovery, not
-guaranteed at-least-once delivery.
+helpers below catch and log exceptions from Celery `.delay()` rather than
+propagating them, so a broker outage does not fail the user-facing request
+that triggered the signal.
+
+MED-264 Problem 7 reliability handling:
+
+Each RAG-relevant mutation synchronously calls
+`rag.indexing.mark_source_dirty` before registering its
+`transaction.on_commit` enqueue callback. This records that the source has
+not yet been confirmed reconciled independently of whether the subsequent
+Celery publish succeeds.
+
+The dirty marker is deliberately separate from
+`DocumentIndexState.status`: status describes an indexing attempt's
+lifecycle, while `dirty_since` records an unresolved source mutation.
+
+`rag.tasks.reconcile_dirty_rag_states`, scheduled via Celery Beat, scans for
+sources whose dirty marker has remained unresolved beyond
+`settings.RAG_RECONCILE_STALE_SECONDS` and re-enqueues the existing
+`index_document_task`. This provides automatic bounded recovery for lost
+Celery publishes and indexing attempts that never successfully reconcile,
+without introducing a transactional outbox.
+
+The dirty-marker write is not claimed to be strictly atomic with every
+Meeting/MeetingDocument mutation. Several existing mutation paths use
+Django's default autocommit, leaving a narrow process-crash window between
+the business write and the signal-side marker write. Closing that window
+would require broader transaction changes across unrelated business paths
+and is intentionally outside this fix.
+
+For hard deletes and soft-delete/exclusion transitions, the signal also
+attempts `rag.indexing.clear_source_index` synchronously. This is a DB-only
+fast path that re-verifies the source's current state while holding the RAG
+state lock before removing derived chunks, avoiding stale-cleanup races such
+as exclude -> re-include or project A -> B -> A.
+
+The synchronous clear is a latency optimization, not the reliability
+mechanism itself: `dirty_since` plus the periodic reconciler remains the
+backstop when immediate cleanup or the initial Celery publish does not
+complete successfully.
 
 `current_tenant_schema()` reads the schema already active on this
 connection — inside a request, TenantSchemaMiddleware has already set it
@@ -44,6 +75,13 @@ logger = logging.getLogger(__name__)
 
 
 def _enqueue_meeting_index(project_id: int, meeting_id: int) -> None:
+    from rag.indexing import mark_source_dirty
+
+    try:
+        mark_source_dirty(project_id, DocumentSourceType.MEETING, str(meeting_id))
+    except Exception:
+        logger.exception('Failed to mark RAG state dirty for meeting %s', meeting_id)
+
     tenant_schema = current_tenant_schema()
 
     def enqueue() -> None:
@@ -61,9 +99,28 @@ def _enqueue_meeting_index(project_id: int, meeting_id: int) -> None:
     transaction.on_commit(enqueue)
 
 
+def _synchronous_meeting_cleanup(project_id: int, meeting_id: int) -> None:
+    """DB-only fast path for a hard delete or a soft-delete/exclusion
+    transition -- see module docstring. Never lets a failure here propagate
+    into the request that triggered it, matching the `.delay()` convention
+    above.
+    """
+    from rag.indexing import clear_source_index
+
+    try:
+        clear_source_index(project_id, DocumentSourceType.MEETING, str(meeting_id))
+    except Exception:
+        logger.exception('Failed synchronous RAG cleanup for meeting %s', meeting_id)
+
+
 @receiver(post_save, sender=Meeting)
 def handle_meeting_saved(sender, instance: Meeting, **kwargs) -> None:
     _enqueue_meeting_index(instance.project_id, instance.id)
+    if instance.is_deleted:
+        # Soft-delete/exclusion transition -- extract_meeting() already
+        # excludes is_deleted=True Meetings, so the async task would reach
+        # the same EXCLUDED outcome; this just removes that latency window.
+        _synchronous_meeting_cleanup(instance.project_id, instance.id)
 
 
 @receiver(post_delete, sender=Meeting)
@@ -73,6 +130,7 @@ def handle_meeting_deleted(sender, instance: Meeting, **kwargs) -> None:
     # is a plain column already loaded on `instance` -- no relation query,
     # no cascade-ordering concern.
     _enqueue_meeting_index(instance.project_id, instance.id)
+    _synchronous_meeting_cleanup(instance.project_id, instance.id)
 
 
 @receiver(pre_delete, sender=MeetingDocument)

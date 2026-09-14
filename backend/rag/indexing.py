@@ -111,6 +111,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 from rag.chunking import chunk_text
 from rag.embeddings import FRAMING_VERSION, active_embedding_identity, embed_document_chunks
@@ -189,6 +190,14 @@ def _clear_locked(state: DocumentIndexState, project_id: int, source_type: str, 
     Caller MUST already hold select_for_update() on `state` in an open
     transaction — this function only mutates, it does not itself lock or
     re-verify anything.
+
+    Clears `dirty_since` (MED-264 Problem 7): every caller of this function
+    (`_enter_pending`, `_reconcile_success`, `_reconcile_failure`, and the
+    synchronous `clear_source_index` fast path below) only reaches it after
+    confirming — while holding this same lock — that exclusion/absence/
+    move-away is the source's CURRENT condition, so the derived state
+    genuinely now matches reality, which is precisely when a dirty marker
+    is allowed to clear.
     """
     DocumentChunk.objects.filter(
         project_id=project_id, source_type=source_type, source_id=source_id,
@@ -198,7 +207,115 @@ def _clear_locked(state: DocumentIndexState, project_id: int, source_type: str, 
     state.indexed_pipeline_hash = None
     state.indexed_source_updated_at = None
     state.last_error = ''
+    state.dirty_since = None
     state.save()
+
+
+def mark_source_dirty(project_id: int, source_type: str, source_id: str) -> None:
+    """Durably record that (project_id, source_type, source_id) has a
+    mutation not yet confirmed reconciled into DocumentChunk (MED-264
+    Problem 7 reliability fix).
+
+    Called synchronously from the signal layer — NOT deferred via
+    `transaction.on_commit` — so the write happens as early as possible.
+    This is deliberately NOT claimed to be strictly atomic with the business
+    mutation that triggered it: many existing source-mutation call paths run
+    under Django's default autocommit (no enclosing `transaction.atomic()`),
+    so a process crash in the narrow window between the source write and
+    this write could still leave a mutation unmarked. That residual window
+    is accepted rather than solved here (see meetings/notion_editor/
+    retrospective `signals.py` docstrings) — closing it fully would require
+    auditing and atomic-wrapping unrelated business call sites across three
+    apps, out of scope for this fix. What this DOES close is the originally
+    reported gap: a lost/failed Celery `.delay()` publish, or a worker
+    crash, can no longer leave a source silently un-reconciled forever,
+    because the marker's own durability does not depend on the broker at all.
+
+    Idempotent and race-safe: preserves the EARLIEST unresolved `dirty_since`
+    rather than the most recent, via a conditional `UPDATE ... WHERE
+    dirty_since IS NULL` (never a Python-side read-modify-write) — this is
+    what the reconciler's staleness threshold measures against ("how long
+    has this been unresolved", not "when was the most recent edit").
+
+    Does NOT touch `indexed_content_hash`, `indexed_pipeline_hash`, `status`,
+    or delete any chunks — marking dirty only ever adds information, it
+    never makes a decision about what to do with it (that remains
+    `index_source_document`'s job, run later, async).
+
+    Must be called with the correct tenant schema already active on the
+    current DB connection, same convention as `index_source_document`.
+    """
+    now = timezone.now()
+    state, created = DocumentIndexState.objects.get_or_create(
+        project_id=project_id, source_type=source_type, source_id=source_id,
+        defaults={'dirty_since': now},
+    )
+    if not created:
+        DocumentIndexState.objects.filter(pk=state.pk, dirty_since__isnull=True).update(dirty_since=now)
+
+
+def clear_source_index(project_id: int, source_type: str, source_id: str) -> None:
+    """Synchronous, DB-only fast path that removes any derived RAG rows for
+    (project_id, source_type, source_id) — MED-264 Problem 7 reliability fix.
+
+    For delete/exclusion/move-away events, this is what keeps deleted or
+    moved-away content from remaining retrievable while waiting for the
+    async `index_document_task` to eventually confirm the same thing via
+    `index_source_document`'s EXCLUDED/MOVED branch — this function just
+    removes that latency window. It is a fast path, not the sole guarantee:
+    callers must still call `mark_source_dirty` alongside it, so the
+    periodic reconciler remains the backstop if this specific statement is
+    itself lost to the same narrow autocommit crash window described in
+    `mark_source_dirty`'s docstring.
+
+    Re-verifies the exclusion/absence/move-away condition FRESH, while
+    holding the lock, using the exact same `extract_source` classification
+    `_enter_pending`/`_reconcile_success`/`_reconcile_failure` already use —
+    it does not duplicate or reinvent that logic, and it does not trust
+    whatever condition the calling signal observed before the lock was
+    requested. This matters because the caller's belief can go stale between
+    "the signal decided to call this" and "the lock was actually granted":
+    e.g. a Draft moved A -> B -> A, or a source excluded then re-included,
+    where a DELAYED, stale cleanup call for the OLD condition could
+    otherwise land after a newer, legitimate reconcile and destroy
+    currently-valid chunks (and incorrectly clear a dirty marker that may
+    still be owed). If the fresh check shows the source is valid again for
+    THIS project, this is a deliberate no-op: it does not touch chunks and
+    does not clear `dirty_since` — the still-enqueued async
+    `index_document_task` (and, as a backstop, the reconciler) remain
+    responsible for reconciling whatever the current state actually is.
+
+    Reuses the exact same locked `_clear_locked` the async indexing flow
+    uses, under the same `(project, source_type, source_id)` row lock every
+    other `rag.indexing` mutator takes — so a genuine clear here is exactly
+    as idempotent as the async path (a second call finds nothing left to
+    delete and is a harmless no-op) and cannot race unsafely against a
+    concurrently-running `index_document_task` for the same source; they
+    simply serialize on the row lock.
+
+    Never makes an embedding/provider call or any other network call — the
+    only extra work versus a blind clear is the same DB-only `extract_source`
+    read `_enter_pending` already performs on every call.
+
+    Must be called with the correct tenant schema already active, same
+    convention as `index_source_document`. Callers are responsible for their
+    own exception handling — like a failed `.delay()`, a failure here must
+    never propagate into the business request that triggered it.
+    """
+    with transaction.atomic():
+        state, _created = DocumentIndexState.objects.select_for_update().get_or_create(
+            project_id=project_id, source_type=source_type, source_id=source_id,
+        )
+        fresh = extract_source(source_type, source_id)
+        if fresh is not None and fresh.project_id == project_id:
+            # No longer applicable: some newer mutation already
+            # re-established (or re-confirmed) this source for this exact
+            # project while this call was waiting for the lock. Clearing now
+            # would destroy valid, current content. Leave state/chunks
+            # exactly as they are -- the async path and/or reconciler own
+            # reconciling whatever is actually current.
+            return
+        _clear_locked(state, project_id, source_type, source_id)
 
 
 def _resolve_unchanged_state(
@@ -391,6 +508,14 @@ def _reconcile_success(
         state.indexed_pipeline_hash = attempted_pipeline_hash
         state.indexed_source_updated_at = fresh.updated_at
         state.last_error = ''
+        # MED-264 Problem 7: only reached once the SUPERSEDED guards above
+        # have confirmed this attempt is embedding the current, not-yet-
+        # superseded content -- i.e. the exact point where a dirty marker
+        # (if any) is now genuinely resolved, never before it. A losing/
+        # obsolete run never reaches this line (see the SUPERSEDED returns
+        # above), so it can never incorrectly clear a dirty marker that
+        # belongs to a newer mutation.
+        state.dirty_since = None
         state.save()
 
     return IndexResult(IndexOutcome.INDEXED)

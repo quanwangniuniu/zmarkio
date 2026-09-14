@@ -20,18 +20,23 @@ code supplies the correct, finite `max_retries`/`countdown` bounds is what
 demonstrates the design cannot retry indefinitely -- Celery itself is what
 actually refuses further retries once a bound is exceeded.
 """
-from unittest.mock import MagicMock, patch
+import logging
+from datetime import timedelta
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from celery.exceptions import Retry
+from django.test import override_settings
+from django.utils import timezone
 
 from rag.indexing import IndexOutcome, IndexResult
-from rag.models import DocumentChunk, DocumentSourceType
+from rag.models import DocumentChunk, DocumentIndexState, DocumentIndexStatus, DocumentSourceType
 from rag.tasks import (
     _SUPERSEDED_MAX_RETRIES,
     _SUPERSEDED_RETRY_COUNTDOWN_SECONDS,
     _failed_retry_countdown,
     index_document_task,
+    reconcile_dirty_rag_states,
     rebuild_project_index_task,
 )
 from retrospective.models import RetrospectiveStatus
@@ -216,3 +221,204 @@ class TestRebuildProjectIndexTaskEnumeration:
         mock_task.delay.assert_called_once()
         mock_task.assert_not_called()  # never invoked synchronously/inline
         assert DocumentChunk.objects.count() == 0  # no indexing actually ran
+
+
+@pytest.mark.django_db
+class TestReconcileDirtyRagStates:
+    """Single-org tests for the dirty-row scan / re-enqueue / per-row
+    failure isolation. `tenant_schema_context` is patched out to a no-op,
+    so `Organization.objects.all()` is also pinned to exactly
+    `[project.organization]` (never left to "however many Organizations
+    happen to exist in the test DB") -- with the schema switch neutered,
+    a second stray Organization would make every test in this class query
+    the SAME (test-connection) schema twice and silently double-count.
+    Multi-org scoping itself is proven separately, by mocking, in
+    `TestReconcileDirtyRagStatesPerOrgIsolation` below.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _restrict_to_project_org(self, project):
+        with patch('rag.tasks.Organization.objects.all', return_value=[project.organization]):
+            yield
+
+    def _dirty_row(self, project, source_type, source_id, age_seconds, **kwargs):
+        return DocumentIndexState.objects.create(
+            project=project,
+            source_type=source_type,
+            source_id=source_id,
+            dirty_since=timezone.now() - timedelta(seconds=age_seconds),
+            **kwargs,
+        )
+
+    @patch('rag.tasks.slug_to_schema_name')
+    @patch('rag.tasks.tenant_schema_context')
+    def test_reenqueues_only_rows_dirty_past_the_stale_threshold(self, mock_ctx, mock_slug, project):
+        mock_slug.return_value = 'public'
+        self._dirty_row(project, DocumentSourceType.MEETING, 'stale', age_seconds=700)
+        self._dirty_row(project, DocumentSourceType.NOTION_DRAFT, 'fresh', age_seconds=10)
+        DocumentIndexState.objects.create(
+            project=project, source_type=DocumentSourceType.RETROSPECTIVE, source_id='clean', dirty_since=None,
+        )
+
+        with override_settings(RAG_RECONCILE_STALE_SECONDS=600), patch('rag.tasks.index_document_task') as mock_task:
+            result = reconcile_dirty_rag_states()
+
+        assert result == 1
+        mock_task.delay.assert_called_once_with(
+            tenant_schema='public', project_id=project.id,
+            source_type=DocumentSourceType.MEETING, source_id='stale',
+        )
+
+    @patch('rag.tasks.slug_to_schema_name')
+    @patch('rag.tasks.tenant_schema_context')
+    def test_stale_dirty_row_with_status_failed_is_still_reenqueued(self, mock_ctx, mock_slug, project):
+        """dirty_since, not status, is the sole trigger (see
+        DocumentIndexState's class docstring) -- a FAILED row can coexist
+        with already-current chunks if the source was reverted after the
+        failed attempt, so status must never gate re-enqueueing.
+        """
+        mock_slug.return_value = 'public'
+        self._dirty_row(
+            project, DocumentSourceType.MEETING, 'failed-src', age_seconds=700,
+            status=DocumentIndexStatus.FAILED,
+        )
+
+        with override_settings(RAG_RECONCILE_STALE_SECONDS=600), patch('rag.tasks.index_document_task') as mock_task:
+            result = reconcile_dirty_rag_states()
+
+        assert result == 1
+        mock_task.delay.assert_called_once_with(
+            tenant_schema='public', project_id=project.id,
+            source_type=DocumentSourceType.MEETING, source_id='failed-src',
+        )
+
+    @patch('rag.tasks.slug_to_schema_name')
+    @patch('rag.tasks.tenant_schema_context')
+    def test_one_delay_failure_does_not_block_remaining_dirty_rows(self, mock_ctx, mock_slug, project):
+        """The core reliability fix under test: an exception from one row's
+        `.delay()` (e.g. broker unreachable at publish time) must not abort
+        the loop -- every other stale-dirty row still gets attempted.
+        """
+        mock_slug.return_value = 'public'
+        self._dirty_row(project, DocumentSourceType.MEETING, 'a', age_seconds=700)
+        self._dirty_row(project, DocumentSourceType.NOTION_DRAFT, 'b', age_seconds=700)
+
+        with override_settings(RAG_RECONCILE_STALE_SECONDS=600), patch('rag.tasks.index_document_task') as mock_task:
+            mock_task.delay.side_effect = [RuntimeError('broker unreachable'), None]
+            result = reconcile_dirty_rag_states()
+
+        assert mock_task.delay.call_count == 2  # both rows were attempted despite the first failing
+        assert result == 1  # only the successful publish is counted
+
+    @patch('rag.tasks.slug_to_schema_name')
+    @patch('rag.tasks.tenant_schema_context')
+    def test_delay_failure_does_not_clear_dirty_since(self, mock_ctx, mock_slug, project):
+        mock_slug.return_value = 'public'
+        row = self._dirty_row(project, DocumentSourceType.MEETING, 'a', age_seconds=700)
+        original_dirty_since = row.dirty_since
+
+        with override_settings(RAG_RECONCILE_STALE_SECONDS=600), patch('rag.tasks.index_document_task') as mock_task:
+            mock_task.delay.side_effect = RuntimeError('broker unreachable')
+            reconcile_dirty_rag_states()
+
+        row.refresh_from_db()
+        # dirty_since is the retry mechanism for the next periodic run -- a
+        # failed publish must leave it untouched, not merely non-null.
+        assert row.dirty_since == original_dirty_since
+
+    @patch('rag.tasks.slug_to_schema_name')
+    @patch('rag.tasks.tenant_schema_context')
+    def test_delay_failure_is_logged_with_tenant_project_source_identity(
+        self, mock_ctx, mock_slug, project, caplog,
+    ):
+        mock_slug.return_value = 'org_schema'
+        self._dirty_row(project, DocumentSourceType.MEETING, 'm1', age_seconds=700)
+
+        with override_settings(RAG_RECONCILE_STALE_SECONDS=600), \
+                patch('rag.tasks.index_document_task') as mock_task, \
+                caplog.at_level(logging.ERROR, logger='rag.tasks'):
+            mock_task.delay.side_effect = RuntimeError('broker unreachable')
+            reconcile_dirty_rag_states()
+
+        [record] = [r for r in caplog.records if 'failed to enqueue' in r.getMessage()]
+        message = record.getMessage()
+        assert 'org_schema' in message
+        assert str(project.id) in message
+        assert DocumentSourceType.MEETING in message
+        assert 'm1' in message
+
+    @patch('rag.tasks.slug_to_schema_name')
+    @patch('rag.tasks.tenant_schema_context')
+    def test_returns_zero_and_does_not_log_when_nothing_is_dirty(self, mock_ctx, mock_slug, project, caplog):
+        mock_slug.return_value = 'public'
+
+        with patch('rag.tasks.index_document_task') as mock_task, caplog.at_level(logging.INFO, logger='rag.tasks'):
+            result = reconcile_dirty_rag_states()
+
+        assert result == 0
+        mock_task.delay.assert_not_called()
+        assert not any('re-enqueued' in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.unit
+class TestReconcileDirtyRagStatesPerOrgIsolation:
+    """Proves the org loop treats each Organization's dirty-row set
+    independently (correct tenant_schema per row, no cross-org bleed).
+
+    This CANNOT be proven by creating two real Organizations under
+    `tenant_schema_context` mocked out to a no-op: with the context manager
+    neutered, every org iteration would query whatever schema the test
+    connection actually has active (a single shared schema), so a naive
+    two-org django_db test would see the SAME rows on every iteration --
+    passing or failing for the wrong reason, not because per-org scoping
+    is (or isn't) correct. Real per-schema isolation is exercised by
+    Postgres schema-switching itself (`core.tenant_context`), not by this
+    task's own logic, so it doesn't need re-proving here.
+
+    Instead, `Organization` and `DocumentIndexState` are mocked directly:
+    `DocumentIndexState.objects.filter(...).values_list(...)` is given a
+    distinct canned row set per call via `side_effect`, one call per org
+    loop iteration. That directly proves the loop pairs each org with its
+    OWN query result and its OWN `tenant_schema`, without depending on (or
+    faking) real multi-schema Postgres behavior.
+    """
+
+    @patch('rag.tasks.index_document_task')
+    @patch('rag.tasks.Organization')
+    @patch('rag.tasks.DocumentIndexState')
+    @patch('rag.tasks.tenant_schema_context')
+    @patch('rag.tasks.slug_to_schema_name')
+    def test_scans_every_organization_with_its_own_row_set(
+        self, mock_slug, mock_ctx, mock_state_model, mock_org_model, mock_task,
+    ):
+        org1 = MagicMock(slug='org-one')
+        org2 = MagicMock(slug='org-two')
+        mock_org_model.objects.all.return_value = [org1, org2]
+        mock_slug.side_effect = lambda slug: f'schema_{slug}'
+
+        mock_state_model.objects.filter.return_value.values_list.side_effect = [
+            [(101, DocumentSourceType.MEETING, 'm1')],
+            [(202, DocumentSourceType.MEETING, 'm2')],
+        ]
+
+        result = reconcile_dirty_rag_states()
+
+        assert result == 2
+        assert mock_task.delay.call_count == 2
+        mock_task.delay.assert_any_call(
+            tenant_schema='schema_org-one', project_id=101,
+            source_type=DocumentSourceType.MEETING, source_id='m1',
+        )
+        mock_task.delay.assert_any_call(
+            tenant_schema='schema_org-two', project_id=202,
+            source_type=DocumentSourceType.MEETING, source_id='m2',
+        )
+
+        # tenant_schema_context entered exactly once per expected schema,
+        # in org-iteration order.
+        assert mock_ctx.call_args_list == [call('schema_org-one'), call('schema_org-two')]
+        assert mock_ctx.return_value.__enter__.call_count == 2
+
+        # The dirty-state queryset was executed exactly once per organization.
+        assert mock_state_model.objects.filter.call_count == 2
+        assert mock_state_model.objects.filter.return_value.values_list.call_count == 2

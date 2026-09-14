@@ -134,6 +134,25 @@ class DocumentIndexState(models.Model):
     `indexed_source_updated_at` is kept only for observability/debugging
     (e.g. "when did the underlying row last change vs. when did we last
     index it") — it is not a correctness guard.
+
+    `dirty_since` (MED-264 Problem 7 reliability fix) is a DIFFERENT axis
+    from `status` and must not be conflated with it: `status` is the
+    indexing-attempt lifecycle (pending/complete/failed), owned entirely by
+    `rag.indexing`'s locked worker-side flow. `dirty_since` durably records
+    "a source mutation has occurred that has not yet been confirmed
+    reconciled into the derived RAG index" — set synchronously by the
+    signal layer at mutation time (see meetings/notion_editor/retrospective
+    `signals.py`), independent of whether the subsequent Celery enqueue
+    actually succeeds. It is the reconciliation backstop for a lost
+    `.delay()` publish: a periodic task re-enqueues any row where this has
+    been set for longer than a stale threshold, regardless of `status`
+    (including `FAILED`, which `status` alone cannot safely be used to
+    detect — a `FAILED` row can coexist with already-current, still-valid
+    chunks if the source was reverted after the failed attempt). Cleared
+    only when the currently-live source state has actually been
+    successfully reconciled (`_reconcile_success`) or confirmed
+    excluded/gone/moved (`_clear_locked`) — never merely because a
+    (possibly losing/obsolete) attempt finished.
     """
 
     project = models.ForeignKey(
@@ -169,6 +188,16 @@ class DocumentIndexState(models.Model):
         help_text="Observability only: the source row's updated_at as of the last successful index. Not used for the skip decision.",
     )
     last_error = models.TextField(blank=True, default='')
+    dirty_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Set when a source mutation has occurred that is not yet confirmed "
+            "reconciled into DocumentChunk. NULL means the last successful "
+            "reconcile (or confirmed exclusion) is believed current. Distinct "
+            "from `status`: see class docstring."
+        ),
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -177,6 +206,16 @@ class DocumentIndexState(models.Model):
             models.UniqueConstraint(
                 fields=['project', 'source_type', 'source_id'],
                 name='rag_index_state_unique_source',
+            ),
+        ]
+        indexes = [
+            # Partial index: only dirty rows are ever scanned by the
+            # reconciler (rag.tasks.reconcile_dirty_rag_states), so indexing
+            # the (usually large majority) NULL rows would be pure waste.
+            models.Index(
+                fields=['dirty_since'],
+                name='rag_index_state_dirty_since',
+                condition=models.Q(dirty_since__isnull=False),
             ),
         ]
 

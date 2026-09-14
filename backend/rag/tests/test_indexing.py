@@ -29,8 +29,10 @@ from rag.indexing import (
     _enter_pending,
     _reconcile_failure,
     _reconcile_success,
+    clear_source_index,
     current_pipeline_hash,
     index_source_document,
+    mark_source_dirty,
 )
 from rag.models import DocumentChunk, DocumentIndexState, DocumentIndexStatus, DocumentSourceType
 
@@ -53,6 +55,13 @@ def _bare_meeting(make_meeting, make_meeting_document, text=WORKED_TEXT, **kwarg
     return meeting
 
 
+def _linked_draft(make_draft, make_draft_link, make_content_block, project):
+    draft = make_draft(title='')
+    make_draft_link(draft, project)
+    make_content_block(draft, text=WORKED_TEXT, order=0)
+    return draft
+
+
 def _vector(dims=None):
     return [0.0] * (dims or settings.RAG_EMBEDDING_DIMENSIONS)
 
@@ -73,6 +82,9 @@ def _assert_state_cleared(project, source_type, source_id):
     assert state.indexed_pipeline_hash is None
     assert state.indexed_source_updated_at is None
     assert state.last_error == ''
+    # MED-264 Problem 7: confirmed-exclusion is exactly when a dirty marker
+    # (if any) is allowed to clear -- see _clear_locked's docstring.
+    assert state.dirty_since is None
 
 
 @pytest.mark.usefixtures('small_pipeline_settings')
@@ -441,16 +453,10 @@ class TestProjectIsolation:
 
 @pytest.mark.usefixtures('small_pipeline_settings')
 class TestDraftOwnershipMovement:
-    def _linked_draft(self, make_draft, make_draft_link, make_content_block, project):
-        draft = make_draft(title='')
-        make_draft_link(draft, project)
-        make_content_block(draft, text=WORKED_TEXT, order=0)
-        return draft
-
     def test_move_old_project_cleanup_then_new_project_index(
         self, make_draft, make_draft_link, make_content_block, project, project_b, mock_embed,
     ):
-        draft = self._linked_draft(make_draft, make_draft_link, make_content_block, project)
+        draft = _linked_draft(make_draft, make_draft_link, make_content_block, project)
         first = index_source_document(project.id, DocumentSourceType.NOTION_DRAFT, str(draft.id))
         assert first.outcome == IndexOutcome.INDEXED
 
@@ -468,10 +474,350 @@ class TestDraftOwnershipMovement:
             project=project_b, source_type=DocumentSourceType.NOTION_DRAFT, source_id=str(draft.id),
         ).count() == 4
 
+
+@pytest.mark.usefixtures('small_pipeline_settings')
+class TestMarkSourceDirty:
+    """rag.indexing.mark_source_dirty (MED-264 Problem 7)."""
+
+    def test_marks_a_brand_new_row_dirty(self, project):
+        assert not DocumentIndexState.objects.filter(
+            project=project, source_type=DocumentSourceType.MEETING, source_id='no-row-yet',
+        ).exists()
+
+        mark_source_dirty(project.id, DocumentSourceType.MEETING, 'no-row-yet')
+
+        state = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id='no-row-yet',
+        )
+        assert state.dirty_since is not None
+        # A freshly created row must not look like a completed/authoritative
+        # index -- mark_source_dirty only ever adds information.
+        assert state.status == DocumentIndexStatus.PENDING
+        assert state.indexed_content_hash is None
+        assert state.indexed_pipeline_hash is None
+
+    def test_marks_an_existing_clean_row_dirty(self, make_meeting, make_meeting_document, project, mock_embed):
+        meeting = _bare_meeting(make_meeting, make_meeting_document)
+        index_source_document(project.id, DocumentSourceType.MEETING, str(meeting.id))
+        state = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+        )
+        assert state.dirty_since is None  # clean after a successful index
+
+        mark_source_dirty(project.id, DocumentSourceType.MEETING, str(meeting.id))
+
+        state.refresh_from_db()
+        assert state.dirty_since is not None
+        # Marking dirty must never touch the hashes/status a successful
+        # index just committed -- it only adds a "not yet reconciled" flag.
+        assert state.status == DocumentIndexStatus.COMPLETE
+        assert state.indexed_content_hash is not None
+
+    def test_marking_dirty_twice_preserves_the_earliest_timestamp(self, project):
+        mark_source_dirty(project.id, DocumentSourceType.MEETING, 'm1')
+        first = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id='m1',
+        ).dirty_since
+        assert first is not None
+
+        mark_source_dirty(project.id, DocumentSourceType.MEETING, 'm1')
+
+        second = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id='m1',
+        ).dirty_since
+        # Not merely "still set" -- the EARLIEST unresolved timestamp must
+        # survive a second, later mark, since that's what the reconciler's
+        # staleness threshold measures against.
+        assert second == first
+
+
+@pytest.mark.usefixtures('small_pipeline_settings')
+class TestDirtyClearingIntegration:
+    """Dirty-marker clearing must only ever happen at a genuinely finalized
+    commit point (MED-264 Problem 7) -- never merely because SOME attempt
+    finished.
+    """
+
+    def test_successful_reconcile_clears_dirty_since(self, make_meeting, make_meeting_document, project, mock_embed):
+        meeting = _bare_meeting(make_meeting, make_meeting_document)
+        mark_source_dirty(project.id, DocumentSourceType.MEETING, str(meeting.id))
+
+        result = index_source_document(project.id, DocumentSourceType.MEETING, str(meeting.id))
+
+        assert result.outcome == IndexOutcome.INDEXED
+        state = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+        )
+        assert state.dirty_since is None
+
+    def test_failed_indexing_does_not_clear_dirty_since(
+        self, make_meeting, make_meeting_document, project, mock_embed,
+    ):
+        meeting = _bare_meeting(make_meeting, make_meeting_document)
+        index_source_document(project.id, DocumentSourceType.MEETING, str(meeting.id))  # first success
+
+        document = meeting.document
+        document.content = REPLACEMENT_TEXT
+        document.save()
+        mark_source_dirty(project.id, DocumentSourceType.MEETING, str(meeting.id))
+        mock_embed.side_effect = RuntimeError('boom')
+
+        result = index_source_document(project.id, DocumentSourceType.MEETING, str(meeting.id))
+
+        assert result.outcome == IndexOutcome.FAILED
+        state = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+        )
+        assert state.status == DocumentIndexStatus.FAILED
+        assert state.dirty_since is not None  # still owed -- nothing reconciled it
+
+    def test_superseded_failure_run_does_not_clear_a_newer_mutations_dirty_marker(
+        self, make_meeting, make_meeting_document, project,
+    ):
+        """Mirrors TestConcurrentWinnerInvariant's winner/loser construction,
+        but asserts on dirty_since instead of status/indexed_content_hash: a
+        losing/obsolete FAILED reconcile call for OLD content must not clear
+        a dirty marker that was set by a NEWER mutation after the winner
+        already committed.
+        """
+        meeting = _bare_meeting(make_meeting, make_meeting_document)
+
+        gate = _enter_pending(project.id, DocumentSourceType.MEETING, str(meeting.id))
+        assert gate.resolved is None
+        chunks = chunk_text(gate.text)
+        vectors = [_vector() for _ in chunks]
+
+        winner = _reconcile_success(
+            project.id, DocumentSourceType.MEETING, str(meeting.id),
+            attempted_content_hash=gate.content_hash, attempted_pipeline_hash=gate.pipeline_hash,
+            chunks=chunks, vectors=vectors,
+        )
+        assert winner.outcome == IndexOutcome.INDEXED
+
+        # A newer mutation happens AFTER the winner committed -- e.g. the
+        # real signal-layer mark_source_dirty call for a subsequent edit
+        # that hasn't been embedded yet.
+        mark_source_dirty(project.id, DocumentSourceType.MEETING, str(meeting.id))
+        newer_dirty_since = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+        ).dirty_since
+        assert newer_dirty_since is not None
+
+        # A late/obsolete duplicate worker for the OLD (already-superseded)
+        # content_hash fails and arrives here after the fact.
+        loser = _reconcile_failure(
+            project.id, DocumentSourceType.MEETING, str(meeting.id),
+            attempted_content_hash=gate.content_hash, attempted_pipeline_hash=gate.pipeline_hash,
+            error='late duplicate-worker failure',
+        )
+
+        assert loser.outcome == IndexOutcome.SUPERSEDED
+        state = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+        )
+        assert state.dirty_since == newer_dirty_since  # untouched, not cleared
+
+    def test_superseded_success_run_does_not_clear_a_newer_mutations_dirty_marker(
+        self, make_meeting, make_meeting_document, project,
+    ):
+        """Same shape as the SUPERSEDED-via-failure test above, but for the
+        OTHER path that can return SUPERSEDED: a duplicate SUCCESSFUL
+        reconcile for already-finalized OLD content (e.g. a retried/
+        duplicate Celery delivery of the same original task) arriving after
+        a newer mutation has already been marked dirty must not clear that
+        newer dirty marker either -- _already_finalized_for_content must
+        short-circuit before ever reaching the dirty_since = None line.
+        """
+        meeting = _bare_meeting(make_meeting, make_meeting_document)
+
+        gate = _enter_pending(project.id, DocumentSourceType.MEETING, str(meeting.id))
+        assert gate.resolved is None
+        chunks = chunk_text(gate.text)
+        vectors = [_vector() for _ in chunks]
+
+        winner = _reconcile_success(
+            project.id, DocumentSourceType.MEETING, str(meeting.id),
+            attempted_content_hash=gate.content_hash, attempted_pipeline_hash=gate.pipeline_hash,
+            chunks=chunks, vectors=vectors,
+        )
+        assert winner.outcome == IndexOutcome.INDEXED
+
+        mark_source_dirty(project.id, DocumentSourceType.MEETING, str(meeting.id))
+        newer_dirty_since = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+        ).dirty_since
+        assert newer_dirty_since is not None
+
+        # Late duplicate SUCCESSFUL reconcile for the same (now stale,
+        # already-committed) content_hash and vectors.
+        loser = _reconcile_success(
+            project.id, DocumentSourceType.MEETING, str(meeting.id),
+            attempted_content_hash=gate.content_hash, attempted_pipeline_hash=gate.pipeline_hash,
+            chunks=chunks, vectors=vectors,
+        )
+
+        assert loser.outcome == IndexOutcome.SUPERSEDED
+        state = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+        )
+        assert state.dirty_since == newer_dirty_since  # untouched, not cleared
+
+
+@pytest.mark.usefixtures('small_pipeline_settings')
+class TestClearSourceIndex:
+    """rag.indexing.clear_source_index -- the synchronous, DB-only fast path
+    signal handlers call for delete/exclusion/move-away events (MED-264
+    Problem 7). See its own docstring for why it re-verifies via a fresh
+    extract_source() call while holding the lock rather than trusting the
+    caller's belief.
+    """
+
+    def test_genuine_exclusion_removes_chunks_and_clears_dirty_since(
+        self, make_meeting, make_meeting_document, project, mock_embed,
+    ):
+        meeting = _bare_meeting(make_meeting, make_meeting_document)
+        index_source_document(project.id, DocumentSourceType.MEETING, str(meeting.id))
+        meeting.is_deleted = True
+        meeting.save()
+        mark_source_dirty(project.id, DocumentSourceType.MEETING, str(meeting.id))
+
+        clear_source_index(project.id, DocumentSourceType.MEETING, str(meeting.id))
+
+        _assert_state_cleared(project, DocumentSourceType.MEETING, str(meeting.id))
+
+    def test_no_prior_row_is_safe_and_creates_a_clean_state(self, project):
+        # No DocumentChunk/DocumentIndexState exists at all for this source
+        # -- e.g. a delete signal firing for a source that was never
+        # actually indexed. Not a literal no-op: get_or_create still creates
+        # a DocumentIndexState row (via the same lock-acquisition path every
+        # other rag.indexing mutator uses) -- but nothing is deleted and the
+        # resulting row is in a clean, cleared shape, not a dirty one.
+        # A numeric string -- Meeting's PK is an integer AutoField, and
+        # production source_ids are always str(real_pk), never arbitrary text.
+        never_indexed_id = '888888'
+        clear_source_index(project.id, DocumentSourceType.MEETING, never_indexed_id)
+
+        assert not DocumentChunk.objects.filter(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=never_indexed_id,
+        ).exists()
+        state = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=never_indexed_id,
+        )
+        assert state.status == DocumentIndexStatus.COMPLETE
+        assert state.indexed_content_hash is None
+        assert state.dirty_since is None
+
+    def test_stale_clear_does_not_delete_a_currently_valid_index(
+        self, make_meeting, make_meeting_document, project, mock_embed,
+    ):
+        """Regression test for the race identified before implementation:
+        a delayed, stale clear_source_index call for a condition that no
+        longer holds (e.g. queued when a source looked excluded/moved-away,
+        but the lock wasn't granted until AFTER a newer mutation already
+        re-established it) must be a no-op, not a destructive clear.
+
+        Here: a Meeting is currently valid, indexed, and has a pending
+        (newer) dirty marker -- exactly the state a stale caller could
+        observe an OLD exclusion belief against. clear_source_index must
+        re-verify fresh under the lock and refuse to touch it.
+        """
+        meeting = _bare_meeting(make_meeting, make_meeting_document)
+        index_source_document(project.id, DocumentSourceType.MEETING, str(meeting.id))
+        mark_source_dirty(project.id, DocumentSourceType.MEETING, str(meeting.id))
+        dirty_since_before = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+        ).dirty_since
+
+        clear_source_index(project.id, DocumentSourceType.MEETING, str(meeting.id))
+
+        assert DocumentChunk.objects.filter(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+        ).count() == len(WORKED_CHUNKS)
+        state = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.MEETING, source_id=str(meeting.id),
+        )
+        assert state.status == DocumentIndexStatus.COMPLETE
+        assert state.indexed_content_hash is not None
+        assert state.dirty_since == dirty_since_before  # NOT cleared
+
+    def test_draft_moved_a_to_b_to_a_stale_old_project_clear_does_not_delete_reestablished_index(
+        self, make_draft, make_draft_link, make_content_block, project, project_b, mock_embed,
+    ):
+        """The exact DraftProjectLink A -> B -> A scenario from the design
+        review: a delayed clear_source_index(A, ...) call from the FIRST
+        move (A -> B) must not destroy chunks that a SECOND, later move
+        (B -> A) has since legitimately re-established for project A.
+        """
+        draft = make_draft(title='')
+        link = make_draft_link(draft, project)
+        make_content_block(draft, text=WORKED_TEXT, order=0)
+
+        # Move 1: A -> B.
+        first = index_source_document(project.id, DocumentSourceType.NOTION_DRAFT, str(draft.id))
+        assert first.outcome == IndexOutcome.INDEXED
+        link.project = project_b
+        link.save()
+        old_side_of_move_1 = index_source_document(project.id, DocumentSourceType.NOTION_DRAFT, str(draft.id))
+        assert old_side_of_move_1.outcome == IndexOutcome.MOVED
+        new_side_of_move_1 = index_source_document(project_b.id, DocumentSourceType.NOTION_DRAFT, str(draft.id))
+        assert new_side_of_move_1.outcome == IndexOutcome.INDEXED
+
+        # Move 2: B -> A (the causally-later, legitimate re-establishment of
+        # project A's index for this draft).
+        link.project = project
+        link.save()
+        old_side_of_move_2 = index_source_document(project_b.id, DocumentSourceType.NOTION_DRAFT, str(draft.id))
+        assert old_side_of_move_2.outcome == IndexOutcome.MOVED
+        new_side_of_move_2 = index_source_document(project.id, DocumentSourceType.NOTION_DRAFT, str(draft.id))
+        assert new_side_of_move_2.outcome == IndexOutcome.INDEXED
+        assert DocumentChunk.objects.filter(
+            project=project, source_type=DocumentSourceType.NOTION_DRAFT, source_id=str(draft.id),
+        ).count() == 4
+
+        # The delayed, now-stale synchronous cleanup call from move 1's OLD
+        # side (project A) finally "acquires the lock" here -- project A is
+        # valid again by this point, so this must no-op.
+        clear_source_index(project.id, DocumentSourceType.NOTION_DRAFT, str(draft.id))
+
+        assert DocumentChunk.objects.filter(
+            project=project, source_type=DocumentSourceType.NOTION_DRAFT, source_id=str(draft.id),
+        ).count() == 4
+        state = DocumentIndexState.objects.get(
+            project=project, source_type=DocumentSourceType.NOTION_DRAFT, source_id=str(draft.id),
+        )
+        assert state.status == DocumentIndexStatus.COMPLETE
+        assert state.indexed_content_hash is not None
+
+    def test_never_touches_another_projects_rows(self, project, project_b):
+        fake_source_id = '999999'
+        now = timezone.now()
+        for proj in (project, project_b):
+            DocumentChunk.objects.create(
+                project=proj, source_type=DocumentSourceType.MEETING, source_id=fake_source_id,
+                chunk_index=0, content='seed', embedding=None, source_updated_at=now,
+                citation_metadata={'title': 'seed'},
+            )
+            DocumentIndexState.objects.create(
+                project=proj, source_type=DocumentSourceType.MEETING, source_id=fake_source_id,
+                status=DocumentIndexStatus.COMPLETE,
+                indexed_content_hash='deadbeef', indexed_pipeline_hash='deadbeef',
+            )
+
+        clear_source_index(project.id, DocumentSourceType.MEETING, fake_source_id)
+
+        _assert_state_cleared(project, DocumentSourceType.MEETING, fake_source_id)
+        assert DocumentChunk.objects.filter(
+            project=project_b, source_type=DocumentSourceType.MEETING, source_id=fake_source_id,
+        ).count() == 1
+        state_b = DocumentIndexState.objects.get(
+            project=project_b, source_type=DocumentSourceType.MEETING, source_id=fake_source_id,
+        )
+        assert state_b.indexed_content_hash == 'deadbeef'
+
     def test_move_new_project_index_then_old_project_cleanup_same_end_state(
         self, make_draft, make_draft_link, make_content_block, project, project_b, mock_embed,
     ):
-        draft = self._linked_draft(make_draft, make_draft_link, make_content_block, project)
+        draft = _linked_draft(make_draft, make_draft_link, make_content_block, project)
         first = index_source_document(project.id, DocumentSourceType.NOTION_DRAFT, str(draft.id))
         assert first.outcome == IndexOutcome.INDEXED
 
