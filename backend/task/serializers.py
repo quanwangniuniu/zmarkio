@@ -466,7 +466,19 @@ class TaskSerializer(serializers.ModelSerializer):
         """Get parent relationship information for subtasks"""
         if not obj.is_subtask:
             return None
-        hierarchy = obj.parent_relationship.select_related('parent_task').first()
+
+        prefetched_relationships = getattr(
+            obj,
+            'prefetched_parent_relationships',
+            None,
+        )
+        if prefetched_relationships is None:
+            # Detail and other non-list serializers do not use the list-only
+            # prefetch, so retain the existing lookup as a safe fallback.
+            hierarchy = obj.parent_relationship.select_related('parent_task').first()
+        else:
+            hierarchy = prefetched_relationships[0] if prefetched_relationships else None
+
         if hierarchy:
             parent = hierarchy.parent_task
             return [{
