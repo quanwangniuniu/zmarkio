@@ -40,6 +40,12 @@ class Organization(TimeStampedModel):
         # is released and both the INSERT and the CREATE SCHEMA are rolled back
         # — satisfying the AC "no org record without a corresponding schema".
         with transaction.atomic():
+            if is_new:
+                from core.services.tenant import lock_tenant_provisioning
+                # Acquire before INSERT: deferred tenant foreign keys need a
+                # stronger lock on this shared table. Concurrent INSERTs would
+                # otherwise deadlock while each transaction upgrades its lock.
+                lock_tenant_provisioning()
             super().save(*args, **kwargs)
             if is_new:
                 # Synchronous by design: must share this transaction so that

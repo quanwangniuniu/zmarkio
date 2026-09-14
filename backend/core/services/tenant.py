@@ -6,14 +6,14 @@ are centralised here so that no other module needs to know about schema names
 or safe identifier quoting.
 
 Usage:
-    Called exclusively from Organization.save() inside a transaction.atomic() block.
-    The caller owns the transaction; DDL failures roll back both the schema DDL
-    and the Organization INSERT atomically (PostgreSQL DDL is transactional).
+    Organization.save() locks provisioning before its INSERT, then calls this
+    service inside the same transaction. Management commands may call the service
+    directly. DDL failures roll back atomically (PostgreSQL DDL is transactional).
 """
 
 import re
 
-from django.db import connection
+from django.db import connection, transaction
 from psycopg2 import sql as psql
 
 
@@ -65,12 +65,24 @@ def rename_tenant_schema(old_slug: str, new_slug: str) -> None:
         )
 
 
+def lock_tenant_provisioning() -> None:
+    """Serialize provisioning until the enclosing transaction commits or rolls back.
+
+    Call inside atomic(), before inserting an Organization. Tenant foreign-key
+    DDL locks shared public tables, so a per-tenant lock would not prevent the
+    lock-upgrade deadlock. The two keys namespace this application's DDL lock.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [0x5A4D4152, 0x54454E54])
+
+
+@transaction.atomic
 def provision_tenant_schema(slug: str) -> None:
     """
     Create a PostgreSQL schema and populate it with all tenant tables.
 
-    MUST be called from within a transaction.atomic() block (enforced by
-    Organization.save()). If CREATE SCHEMA or any table creation fails, the
+    Owns an atomic block for standalone callers, nesting safely inside
+    Organization.save(). If CREATE SCHEMA or any table creation fails, the
     surrounding atomic() rolls back both the DDL and the org INSERT atomically.
 
     This is intentionally synchronous (not Celery): schema creation must be
@@ -81,6 +93,7 @@ def provision_tenant_schema(slug: str) -> None:
         slug: The Organization.slug value (already validated and set before
               this function is called).
     """
+    lock_tenant_provisioning()
     schema_name = slug_to_schema_name(slug)
 
     with connection.cursor() as cursor:
@@ -104,7 +117,8 @@ def _create_tenant_tables(schema_name: str) -> None:
     """
     Use Django's SchemaEditor to create all tenant model tables inside the
     given schema. search_path is set for the duration of this call and
-    reset in the finally block to prevent connection pool pollution.
+    reset on success. On failure the provisioning transaction rolls it back;
+    issuing cleanup SQL in the aborted transaction would mask the original error.
 
     SchemaEditor.create_model() issues CREATE TABLE, adds indexes and
     constraints — all within the current transaction so failures roll back.
@@ -115,15 +129,15 @@ def _create_tenant_tables(schema_name: str) -> None:
     with connection.cursor() as cursor:
         cursor.execute('SET search_path TO %s, public', [schema_name])
 
-    try:
-        with connection.schema_editor() as editor:
-            for model in get_tenant_models():
-                if not _table_exists(model._meta.db_table, schema_name):
-                    editor.create_model(model)
-    finally:
-        # Always reset to public so the connection is returned clean to the pool.
-        with connection.cursor() as cursor:
-            cursor.execute('SET search_path TO public')
+    # Provisioning owns the transaction. SchemaEditor.__exit__ runs deferred DDL
+    # before exiting its own atomic block, which would leak that block on error.
+    with connection.schema_editor(atomic=False) as editor:
+        for model in get_tenant_models():
+            if not _table_exists(model._meta.db_table, schema_name):
+                editor.create_model(model)
+
+    with connection.cursor() as cursor:
+        cursor.execute('SET search_path TO public')
 
 
 def _table_exists(table_name: str, schema_name: str) -> bool:

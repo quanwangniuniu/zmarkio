@@ -1208,11 +1208,17 @@ class DeleteAccountView(APIView):
             from access_control.models import UserRole, ModuleApprover
             from task.models import Task
 
+            # A deleted project can leave a stale cross-schema reference on the user.
+            try:
+                active_project = user.active_project
+            except Project.DoesNotExist:
+                active_project = None
+
             safe_emit_audit_event(
                 event_type="authentication.account_deleted",
                 actor=user,
                 organization=getattr(user, "current_organization", None),
-                project=getattr(user, "active_project", None),
+                project=active_project,
                 target_type="user",
                 target_id=user.id,
                 before=audit_context,
