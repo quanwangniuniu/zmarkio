@@ -2,6 +2,8 @@ import logging
 
 from celery import shared_task
 from django.contrib.postgres.search import SearchVector
+from django.db.models import Value
+from django.db.models.functions import Coalesce
 from django_redis import get_redis_connection
 
 logger = logging.getLogger(__name__)
@@ -16,9 +18,9 @@ def update_meeting_search_vector(self, meeting_id: int) -> None:
 
     with redis.lock(lock_key, timeout=30):
         updated = Meeting.objects.filter(pk=meeting_id).update(
-            search_vector=SearchVector("title", weight="A")
-            + SearchVector("summary", weight="B")
-            + SearchVector("transcript", weight="C"),
+            search_vector=SearchVector(Coalesce("title", Value("")), weight="A")
+            + SearchVector(Coalesce("summary", Value("")), weight="B")
+            + SearchVector(Coalesce("transcript", Value("")), weight="C"),
         )
 
     if not updated:
