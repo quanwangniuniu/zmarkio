@@ -1,0 +1,37 @@
+name: decision-service
+type: Microsoft.App/containerApps
+properties:
+  configuration:
+    ingress:
+      external: false
+      targetPort: 8080
+    secrets:
+      - name: decision-db-connection-string
+        value: "<set-in-azure>"
+      - name: jwt-signing-key
+        value: "<set-in-azure>"
+  template:
+    containers:
+      - name: decision-service
+        image: "<registry>/decision-service:<tag>"
+        env:
+          - name: ASPNETCORE_URLS
+            value: "http://+:8080"
+          - name: DECISION_SERVICE_STORAGE
+            value: "postgres"
+          - name: DECISION_DB_CONNECTION_STRING
+            secretRef: decision-db-connection-string
+          - name: DJANGO_JWT_SIGNING_KEY
+            secretRef: jwt-signing-key
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /health
+              port: 8080
+          - type: Readiness
+            httpGet:
+              path: /health
+              port: 8080
+    scale:
+      minReplicas: 1
+      maxReplicas: 5

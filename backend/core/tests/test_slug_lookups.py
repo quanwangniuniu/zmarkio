@@ -181,15 +181,6 @@ class SlugOnlyApiLookupTest(APITestCase):
         response = self.client.get(f"/api/projects/{self.project.slug}/meetings/{self.meeting.id}/")
         self.assertEqual(response.status_code, 404)
 
-    def test_decision_slug_url_resolves(self):
-        response = self.client.get(f"/api/decisions/{self.decision.slug}/", HTTP_X_PROJECT_ID=str(self.project.id))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["id"], self.decision.id)
-
-    def test_decision_numeric_url_is_rejected(self):
-        response = self.client.get(f"/api/decisions/{self.decision.id}/", HTTP_X_PROJECT_ID=str(self.project.id))
-        self.assertEqual(response.status_code, 404)
-
     def test_spreadsheet_slug_url_resolves(self):
         response = self.client.get(f"/api/spreadsheet/spreadsheets/{self.spreadsheet.slug}/")
         self.assertEqual(response.status_code, 200)
