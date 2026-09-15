@@ -8,10 +8,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
-from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.password_validation import (
+    UserAttributeSimilarityValidator,
+    get_default_password_validators,
+    validate_password,
+)
 from django.core.exceptions import ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
-from .serializers import UserProfileSerializer, OrganizationTokenRefreshSerializer
+from .serializers import UserProfileSerializer, OrganizationTokenRefreshSerializer, PasswordValidationSerializer
 from .login_security import LoginSecurityService
 from .password_rotation import get_password_rotation_status
 from .services import refresh_organization_access_token
@@ -30,7 +34,7 @@ from core.services.tenant import slug_to_schema_name
 from google_auth_oauthlib.flow import Flow  # For OAuth start (generating auth URL)
 from requests_oauthlib import OAuth2Session  # For OAuth callback (token exchange)
 from django.core.mail import send_mail
-from django.utils import timezone
+from django.utils import timezone, translation
 from core.services.auth_tokens import build_user_refresh_token
 import datetime
 import requests
@@ -74,6 +78,37 @@ def build_google_oauth_state() -> str:
         ttl_seconds=GOOGLE_AUTH_STATE_TTL_SECONDS,
     )
 
+class PasswordValidationView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    @translation.override('en')
+    def post(self, request):
+        serializer = PasswordValidationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        password = data['password']
+        user = User(email=data['email'], username=data['username'])
+        rules = []
+        for validator in get_default_password_validators():
+            errors = []
+            if password:
+                try:
+                    validator.validate(password, user=user)
+                except ValidationError as exc:
+                    errors = list(exc.messages)
+            help_text = str(validator.get_help_text())
+            if isinstance(validator, UserAttributeSimilarityValidator):
+                help_text += ' (Username, Email)'
+            rules.append({
+                'id': validator.__class__.__name__,
+                'help_text': help_text,
+                'valid': not errors if password else None,
+                'errors': errors,
+            })
+        return Response({'rules': rules})
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class RegisterView(APIView):
     permission_classes = []  
@@ -95,13 +130,14 @@ class RegisterView(APIView):
         # Validate password using Django's password validators
         # Create a temporary user object for validation context
         temp_user = User(email=email, username=username)
-        try:
-            validate_password(password, user=temp_user)
-        except ValidationError as e:
-            return Response({
-                "error": "Password validation failed",
-                "details": list(e.messages)
-            }, status=400)
+        with translation.override('en'):
+            try:
+                validate_password(password, user=temp_user)
+            except ValidationError as e:
+                return Response({
+                    "error": "Password validation failed",
+                    "details": list(e.messages)
+                }, status=400)
 
         # MULTI-ORG: Users must create or join an organization during onboarding
         # No longer auto-create organization during registration

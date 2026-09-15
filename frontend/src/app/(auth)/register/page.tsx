@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AuthFormWrapper from '@/components/auth/AuthFormWrapper';
@@ -8,6 +8,7 @@ import AuthFeedback from '@/components/auth/AuthFeedback';
 import AuthFields from '@/components/auth/AuthFields';
 import AuthSubmit from '@/components/auth/AuthSubmit';
 import RegisterSuccessMessage from '@/components/auth/RegisterSuccessMessage';
+import PasswordRequirements from '@/components/auth/PasswordRequirements';
 import useAuth from '@/hooks/useAuth';
 import { useAuthStore } from '@/lib/authStore';
 import { validateRegistrationForm, hasValidationErrors } from '@/utils/validation';
@@ -33,19 +34,25 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [registrationSuccess, setRegistrationSuccess] = useState<boolean>(false);
   const [registrationMessage, setRegistrationMessage] = useState<string>('');
+  const inputVersion = useRef(0);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
+    if (name === 'password' || name === 'username' || name === 'email') {
+      inputVersion.current += 1;
+    }
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
     
     // Clear error when user starts typing
-    if (errors[name as keyof FormValidation]) {
+    if (errors[name as keyof FormValidation] ||
+      ((name === 'username' || name === 'email') && errors.password)) {
       setErrors(prev => ({
         ...prev,
-        [name]: ''
+        [name]: '',
+        ...((name === 'username' || name === 'email') ? { password: '' } : {}),
       }));
     }
   };
@@ -75,6 +82,7 @@ export default function RegisterPage() {
     
     console.log('Submitting registration data:', { ...requestData, password: '[HIDDEN]' });
     
+    const submittedVersion = inputVersion.current;
     const result = await register(requestData);
 
     if (result.success) {
@@ -89,7 +97,9 @@ export default function RegisterPage() {
       setRegistrationMessage(result.data?.message || 'Registration successful! Your account is ready to use.');
     } else {
       setLoading(false);
-      setErrors({ general: result.error });
+      if (!result.fieldErrors?.password || submittedVersion === inputVersion.current) {
+        setErrors(result.fieldErrors || { general: result.error });
+      }
     }
   };
 
@@ -176,6 +186,13 @@ export default function RegisterPage() {
               value: formData.password,
               onChange: handleChange,
               error: errors.password,
+              description: (
+                <PasswordRequirements
+                  password={formData.password}
+                  username={formData.username}
+                  email={formData.email}
+                />
+              ),
               required: true,
               placeholder: 'Create a password (min 8 characters)',
             },

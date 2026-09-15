@@ -8,6 +8,22 @@ from stripe_meta.models import Subscription
 
 User = get_user_model()
 
+
+class PasswordValidationStringField(serializers.Field):
+    default_error_messages = {'invalid': 'Not a valid string.'}
+
+    def to_internal_value(self, data):
+        if not isinstance(data, str):
+            self.fail('invalid')
+        return data
+
+
+class PasswordValidationSerializer(serializers.Serializer):
+    password = PasswordValidationStringField(default='')
+    username = PasswordValidationStringField(default='')
+    email = PasswordValidationStringField(default='')
+
+
 class OrganizationSerializer(serializers.ModelSerializer):
     plan_id = serializers.SerializerMethodField()
     

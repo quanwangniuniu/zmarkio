@@ -57,6 +57,64 @@ components:
           type: string
           example: "Success message"
 paths:
+  /auth/password/validate/:
+    post:
+      summary: Preview the configured registration password requirements
+      description: Checks each existing password validator without creating an account. An empty or omitted password returns requirements with null validity; username and email supply the same similarity context as registration.
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  default: ''
+                  description: Preserved exactly, including surrounding whitespace.
+                username:
+                  type: string
+                  default: ''
+                email:
+                  type: string
+                  default: ''
+                  description: May be incomplete while the registration form is being filled.
+      responses:
+        '200':
+          description: Requirements and individual validation results, including all actual validator messages.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rules]
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, help_text, valid, errors]
+                      properties:
+                        id:
+                          type: string
+                          description: Configured validator class name.
+                          example: MinimumLengthValidator
+                        help_text:
+                          type: string
+                          example: Your password must contain at least 8 characters.
+                        valid:
+                          type: boolean
+                          nullable: true
+                          description: Null when the password is empty; otherwise whether this rule passed.
+                        errors:
+                          type: array
+                          items:
+                            type: string
+                          example: []
+        '400':
+          description: The request must be an object with string password, username, and email fields when supplied.
   /auth/register/:
     post:
       summary: Register a new user and trigger email verification

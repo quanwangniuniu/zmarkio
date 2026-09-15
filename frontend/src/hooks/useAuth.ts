@@ -109,11 +109,18 @@ export default function useAuth() {
       return { success: false, error: loginResult.error };
     } catch (error: any) {
       let message = 'Registration failed';
+      const passwordError = error.response?.status === 400 &&
+        error.response?.data?.error === 'Password validation failed';
 
       if (error.response?.status === 400) {
         const errorMsg = error.response.data?.error || '';
 
-        if (errorMsg.includes('Missing fields')) {
+        if (passwordError) {
+          const details = error.response.data.details;
+          message = Array.isArray(details) && details.length > 0
+            ? details.join(' ')
+            : errorMsg;
+        } else if (errorMsg.includes('Missing fields')) {
           message = 'Please fill in all required fields (username, email, and password)';
         } else if (errorMsg.includes('Password too short')) {
           message = 'Password must be at least 8 characters long';
@@ -129,7 +136,11 @@ export default function useAuth() {
       }
 
       toast.error(message);
-      return { success: false, error: message };
+      return {
+        success: false,
+        error: message,
+        ...(passwordError ? { fieldErrors: { password: message } } : {}),
+      };
     }
   };
 
