@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildWsUrl } from '@/lib/ws';
 import { useAuthStore } from '@/lib/authStore';
 import { useChatStore } from '@/lib/chatStore';
+import { getChat, getChats, resolveLegacyChatSlug } from '@/lib/api/chatApi';
 import type { MessageLinkPreview } from '@/types/chat';
+import toast from 'react-hot-toast';
 
 // WebSocket message types (server -> client)
 export type ChatWsEventType =
@@ -18,6 +20,8 @@ export type ChatWsEventType =
   | 'presence_snapshot'
   | 'in_app_notification'
   | 'user_session_revoked'
+  | 'chat_access_revoked'
+  | 'chat_access_granted'
   | 'error'
   | 'outbox_ack'
   | 'pong'
@@ -28,6 +32,9 @@ export interface ChatWsEvent<T = any> {
   payload?: T;
   // Specific fields for different event types
   chat_id?: number;
+  chat_slug?: string;
+  project_id?: number;
+  project_slug?: string;
   user_id?: number;
   is_online?: boolean;
   is_typing?: boolean;
@@ -55,6 +62,8 @@ export interface UseChatWebSocketHandlers {
   onPresenceUpdate?: (e: ChatWsEvent) => void;
   onPresenceSnapshot?: (e: ChatWsEvent) => void;
   onInAppNotification?: (e: ChatWsEvent) => void;
+  onChatAccessRevoked?: (e: ChatWsEvent) => void;
+  onChatAccessGranted?: (e: ChatWsEvent) => void;
   onError?: (e: ChatWsEvent) => void;
   onUnknownEvent?: (e: ChatWsEvent) => void;
   onOpen?: () => void;
@@ -168,6 +177,43 @@ export function useChatWebSocket(
                 window.location.href = '/login';
               }
               break;
+            case 'chat_access_revoked': {
+              const chatId = Number(data.chat_id);
+              if (Number.isFinite(chatId)) {
+                useChatStore.getState().removeChat(chatId);
+                toast.error('You were removed from this chat', {
+                  id: `chat-access-revoked-${chatId}`,
+                });
+              }
+              handlersRef.current.onChatAccessRevoked?.(data);
+              break;
+            }
+            case 'chat_access_granted': {
+              const chatId = Number(data.chat_id);
+              if (Number.isFinite(chatId)) {
+                void (async () => {
+                  try {
+                    const projectId = Number(data.project_id);
+                    if (Number.isFinite(projectId) && projectId > 0) {
+                      const response = await getChats({ project_id: projectId, limit: 100 });
+                      const store = useChatStore.getState();
+                      store.setChatsForProject(projectId, response.results);
+                      if (data.project_slug) {
+                        store.setChatsForProject(data.project_slug, response.results);
+                      }
+                    } else {
+                      const slug = data.chat_slug || await resolveLegacyChatSlug(chatId);
+                      const chat = await getChat(slug);
+                      useChatStore.getState().addChat(chat);
+                    }
+                  } catch (error) {
+                    console.error('[ChatWS] failed to load granted chat', error);
+                  }
+                })();
+              }
+              handlersRef.current.onChatAccessGranted?.(data);
+              break;
+            }
             case 'error':
               handlersRef.current.onError?.(data);
               break;

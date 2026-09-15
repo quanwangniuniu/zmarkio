@@ -9,7 +9,6 @@ import os
 import subprocess
 import tempfile
 from .models import Chat, ChatParticipant, ChatStar, Message, MessageMention, MessageStatus, ChatType, ChannelVisibility, MessageAttachment, MessageReaction, PinnedMessage, SavedMessage, ScheduledMessage
-from .services import ChatService
 from core.models import ProjectMember, Project
 from core.slug_mixins import resolve_project_pk
 
@@ -1021,8 +1020,6 @@ class ChatCreateSerializer(serializers.ModelSerializer):
                 is_active=True
             )
 
-        ChatService.invalidate_presence_recipients_for_chat(chat)
-        
         return chat
 
 
