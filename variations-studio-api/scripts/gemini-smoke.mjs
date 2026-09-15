@@ -59,6 +59,12 @@ const candidates = [
     url: `${VERTEX}/projects/${project}/locations/${location}/publishers/google/models/${model}:streamGenerateContent`,
     headers: { 'x-goog-api-key': apiKey },
   },
+  {
+    id: 'vertex-project-header-generate',
+    usedBy: 'Django backend/ad_copy_variation/aistudio_client.py (after MED-356 fix)',
+    url: `${VERTEX}/projects/${project}/locations/${location}/publishers/google/models/${model}:generateContent`,
+    headers: { 'x-goog-api-key': apiKey },
+  },
 ];
 
 function redact(text) {

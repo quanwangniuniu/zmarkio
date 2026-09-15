@@ -1,9 +1,9 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import requests
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -968,3 +968,49 @@ class TenantRegistrationTests(SimpleTestCase):
         from core.tenant_config import get_tenant_models
 
         self.assertIn(AdCopyVariation, get_tenant_models())
+
+
+@override_settings(GEMINI_API_KEY='AQ.test-key')
+class GeminiClientRequestTests(SimpleTestCase):
+    """MED-356: every other test patches call_aistudio_json, so nothing checked
+    the real URL. The key is a Vertex key; AI Studio returns 403 for it."""
+
+    def _ok_response(self):
+        response = MagicMock()
+        response.status_code = 200
+        response.json.return_value = {
+            'candidates': [{'content': {'parts': [{'text': '{"hook": "h"}'}]}}],
+        }
+        return response
+
+    @patch('ad_copy_variation.aistudio_client.requests.post')
+    def test_calls_project_scoped_vertex_with_header_key(self, mock_post):
+        from core.services.gemini_client import _GEMINI_BASE
+
+        from .aistudio_client import call_aistudio_json
+
+        mock_post.return_value = self._ok_response()
+
+        self.assertEqual(call_aistudio_json('system', 'user'), {'hook': 'h'})
+
+        url = mock_post.call_args.args[0]
+        self.assertEqual(url, f'{_GEMINI_BASE}/gemini-2.5-flash-lite:generateContent')
+        self.assertIn('/projects/', url)
+        self.assertIn('/locations/', url)
+        self.assertNotIn('generativelanguage.googleapis.com', url)
+        self.assertNotIn('key=', url)
+        self.assertEqual(mock_post.call_args.kwargs['headers']['x-goog-api-key'], 'AQ.test-key')
+
+    @patch('ad_copy_variation.aistudio_client.requests.post')
+    def test_http_error_is_raised(self, mock_post):
+        from .aistudio_client import call_aistudio_json
+
+        response = MagicMock()
+        response.status_code = 403
+        response.text = 'blocked'
+        response.raise_for_status.side_effect = _http_error(403)
+        mock_post.return_value = response
+
+        with self.assertLogs('ad_copy_variation.aistudio_client', level='ERROR'):
+            with self.assertRaises(requests.HTTPError):
+                call_aistudio_json('system', 'user')
