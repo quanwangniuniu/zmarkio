@@ -63,9 +63,7 @@ function SidebarStory({
           isLoading={isLoading}
           error={error}
           onCalendarItemClick={(calendarId) => {
-            setActiveCalendarId((prev) =>
-              prev === calendarId ? null : calendarId,
-            );
+            setActiveCalendarId(calendarId);
           }}
           activeEventTypes={activeEventTypes}
           onToggleActivityType={(type) => {
