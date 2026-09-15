@@ -13,6 +13,11 @@ export interface DedupeToastQueueItem {
   /** Normalized message used for rendering + dedupe stability */
   message: string;
   type: ToastTag;
+  /**
+   * Optional caller-provided operation scope (e.g. "klaviyo.create").
+   * Same message + different operation must not merge.
+   */
+  operation?: string;
   count: number;
 }
 
@@ -36,10 +41,21 @@ function fnv1a32(str: string): number {
   return hash >>> 0;
 }
 
-export function computeToastDedupeKey(message: string, type: ToastTag): string {
+/**
+ * Dedupe contract:
+ * - Same type + same normalized message + same operation → same key (merge / count++)
+ * - Different type, message, or operation → different key (do not merge)
+ * - `operation` is optional; omit only when message alone is enough to identify the action.
+ */
+export function computeToastDedupeKey(
+  message: string,
+  type: ToastTag,
+  operation?: string,
+): string {
   const normalized = normalizeToastMessage(message);
   const hash = fnv1a32(normalized);
-  return `${type}:${hash.toString(16)}`;
+  const op = (operation ?? "").trim();
+  return op ? `${type}:${hash.toString(16)}:${op}` : `${type}:${hash.toString(16)}`;
 }
 
 interface NotificationStore {
@@ -63,10 +79,14 @@ interface NotificationStore {
   // Toast dedupe state
   toastQueue: Record<string, DedupeToastQueueItem>;
   /**
-   * Increment count for the dedupeKey derived from message+type.
+   * Increment count for the dedupeKey derived from message+type(+optional operation).
    * Returns the effective dedupeKey and updated count.
    */
-  incrementToast: (params: { message: string; type: ToastTag }) => { dedupeKey: string; count: number };
+  incrementToast: (params: {
+    message: string;
+    type: ToastTag;
+    operation?: string;
+  }) => { dedupeKey: string; count: number };
   /** Reset toast queue state (intended for unit tests). */
   resetToastQueue: () => void;
 }
@@ -84,8 +104,9 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
 
   toastQueue: {},
-  incrementToast: ({ message, type }) => {
-    const dedupeKey = computeToastDedupeKey(message, type);
+  incrementToast: ({ message, type, operation }) => {
+    const op = (operation ?? "").trim() || undefined;
+    const dedupeKey = computeToastDedupeKey(message, type, op);
     const normalized = normalizeToastMessage(message);
     let nextCount = 1;
 
@@ -99,6 +120,7 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
             dedupeKey,
             message: normalized,
             type,
+            operation: op,
             count: nextCount,
           },
         },

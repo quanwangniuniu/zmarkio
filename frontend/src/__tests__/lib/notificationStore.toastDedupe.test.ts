@@ -55,5 +55,46 @@ describe("notificationStore — toast dedupe semantics", () => {
     expect(useNotificationStore.getState().toastQueue[keyError].count).toBe(1);
     expect(useNotificationStore.getState().toastQueue[keySuccess].count).toBe(1);
   });
+
+  it("same message but different operation does not merge", () => {
+    const message = "Network error";
+    const type: ToastTag = "error";
+    const keyCreate = computeToastDedupeKey(message, type, "klaviyo.create");
+    const keyDelete = computeToastDedupeKey(message, type, "klaviyo.delete");
+
+    expect(keyCreate).not.toBe(keyDelete);
+
+    useNotificationStore.getState().incrementToast({
+      message,
+      type,
+      operation: "klaviyo.create",
+    });
+    useNotificationStore.getState().incrementToast({
+      message,
+      type,
+      operation: "klaviyo.delete",
+    });
+
+    expect(useNotificationStore.getState().toastQueue[keyCreate].count).toBe(1);
+    expect(useNotificationStore.getState().toastQueue[keyDelete].count).toBe(1);
+  });
+
+  it("same message+operation accumulates across retries", () => {
+    const message = "Failed to create template. Please try again.";
+    const type: ToastTag = "error";
+    const operation = "klaviyo.create";
+
+    useNotificationStore.getState().incrementToast({ message, type, operation });
+    useNotificationStore.getState().incrementToast({ message, type, operation });
+    const { dedupeKey, count } = useNotificationStore
+      .getState()
+      .incrementToast({ message, type, operation });
+
+    expect(count).toBe(3);
+    expect(useNotificationStore.getState().toastQueue[dedupeKey].count).toBe(3);
+    expect(useNotificationStore.getState().toastQueue[dedupeKey].operation).toBe(
+      operation,
+    );
+  });
 });
 

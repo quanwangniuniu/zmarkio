@@ -82,7 +82,9 @@ export default function KlaviyoV2Page() {
       toast.success(`Moved "${deleteTarget.title}" to trash`);
       setDeleteTarget(null);
     } catch (err) {
-      toast.error('Failed to delete draft. Please try again.');
+      toastDeduped.error('Failed to delete draft. Please try again.', {
+        operation: 'klaviyo.delete',
+      });
     } finally {
       setDeleteBusy(false);
     }
@@ -104,7 +106,9 @@ export default function KlaviyoV2Page() {
       }
     } catch (err) {
       // Retries of the same create failure merge into one toast with a count badge.
-      toastDeduped.error('Failed to create template. Please try again.');
+      toastDeduped.error('Failed to create template. Please try again.', {
+        operation: 'klaviyo.create',
+      });
       setCreating(false);
     }
   };
