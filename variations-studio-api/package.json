@@ -11,7 +11,8 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3010",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "smoke:gemini": "node scripts/gemini-smoke.mjs"
   },
   "dependencies": {
     "jose": "^5.10.0",
