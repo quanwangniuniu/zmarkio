@@ -6384,6 +6384,8 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       {/* Scrollable Grid Container: only this div scrolls (page/body do not). min-h-0/min-w-0 so flex gives stable size; ResizeObserver on gridRef updates visible range on resize. */}
       <div
         ref={gridRef}
+        role="region"
+        aria-label="Spreadsheet grid"
         data-testid="spreadsheet-grid"
         className="flex-1 min-h-0 min-w-0 border border-gray-300 bg-white spreadsheet-scroll-container"
         style={{
