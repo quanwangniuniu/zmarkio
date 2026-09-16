@@ -96,5 +96,26 @@ describe("notificationStore — toast dedupe semantics", () => {
       operation,
     );
   });
+
+  it("starts again at 1 after the toast entry is cleared", () => {
+    const message = "Network error";
+    const type: ToastTag = "error";
+    const operation = "klaviyo.create";
+    const { dedupeKey } = useNotificationStore
+      .getState()
+      .incrementToast({ message, type, operation });
+    useNotificationStore.getState().incrementToast({ message, type, operation });
+
+    expect(useNotificationStore.getState().toastQueue[dedupeKey].count).toBe(2);
+
+    useNotificationStore.getState().clearToast(dedupeKey);
+    expect(useNotificationStore.getState().toastQueue[dedupeKey]).toBeUndefined();
+
+    const next = useNotificationStore
+      .getState()
+      .incrementToast({ message, type, operation });
+    expect(next.count).toBe(1);
+    expect(useNotificationStore.getState().toastQueue[next.dedupeKey].count).toBe(1);
+  });
 });
 

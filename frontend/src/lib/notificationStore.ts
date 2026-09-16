@@ -87,6 +87,11 @@ interface NotificationStore {
     type: ToastTag;
     operation?: string;
   }) => { dedupeKey: string; count: number };
+  /**
+   * Drop one dedupe entry after its toast is dismissed or times out,
+   * so the next identical error starts again at count 1.
+   */
+  clearToast: (dedupeKey: string) => void;
   /** Reset toast queue state (intended for unit tests). */
   resetToastQueue: () => void;
 }
@@ -129,6 +134,12 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
 
     return { dedupeKey, count: nextCount };
   },
+  clearToast: (dedupeKey) =>
+    set((state) => {
+      if (!state.toastQueue[dedupeKey]) return state;
+      const { [dedupeKey]: _removed, ...toastQueue } = state.toastQueue;
+      return { toastQueue };
+    }),
   resetToastQueue: () =>
     set({
       toastQueue: {},
