@@ -85,6 +85,31 @@ def make_mock_redis(registry: dict):
     def hgetall(name):
         return hash_store.get(name, {})
 
+    def eval(script, numkeys, *args):
+        register_key = args[0]
+        jti = args[1]
+        score = float(args[2])
+        cap = int(args[3])
+        ttl = int(args[4])
+        blacklist_prefix = args[5]
+        meta_prefix = args[6]
+
+        zadd(register_key, {jti: score})
+
+        count = zcard(register_key)
+        excess = count - cap
+
+        evicted = []
+        if excess > 0:
+            oldest = zpopmin(register_key, excess)
+            for member, _ in oldest:
+                evicted_jti = member.decode() if isinstance(member, bytes) else member
+                set_(blacklist_prefix + evicted_jti, 1, ex=ttl)
+                delete(meta_prefix + evicted_jti)
+                evicted.append(evicted_jti.encode() if isinstance(evicted_jti, str) else evicted_jti)
+
+        return evicted
+
     mock.zadd.side_effect = zadd
     mock.zcard.side_effect = zcard
     mock.zpopmin.side_effect = zpopmin
@@ -96,6 +121,7 @@ def make_mock_redis(registry: dict):
     mock.delete.side_effect = delete
     mock.hset.side_effect = hset
     mock.hgetall.side_effect = hgetall
+    mock.eval.side_effect = eval
     return mock
 
 
