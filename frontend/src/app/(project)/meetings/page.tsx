@@ -205,6 +205,7 @@ export default function MeetingsV2Page() {
               onCompletedSortChange={setCompletedSort}
               projectId={projectId}
               onCreate={() => setCreateOpen(true)}
+              searchQuery={debouncedSearch}
             />
           )}
 

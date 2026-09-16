@@ -598,6 +598,56 @@ def _sync_layer3_summary(row: ZoomMeetingData, webhook_uuid: str) -> None:
     )
 
 
+def _parse_vtt_to_text(vtt: str) -> str:
+    """Strip VTT timestamps and metadata, return plain transcript text."""
+    lines = []
+    for line in vtt.splitlines():
+        line = line.strip()
+        if not line or line == "WEBVTT" or "-->" in line or line.isdigit():
+            continue
+        lines.append(line)
+
+    return " ".join(lines)
+
+def _sync_layer3_transcript(row: ZoomMeetingData, webhook_uuid: str) -> None:
+    """Layer 3 (transcript event): download VTT transcript and store on Meeting."""
+    del webhook_uuid
+    user = row.zoom_host_user
+    if not user:
+        raise ValueError("ZoomMeetingData has no zoom_host_user.")
+    mid = (row.zoom_meeting_id or "").strip()
+    if not mid:
+        raise ValueError("Missing zoom_meeting_id for transcript.")
+
+    credential = get_valid_credential(user=user)
+    data = zoom_api_get(user=user, path=f"/meetings/{mid}/recordings")
+
+    transcript_text = ""
+    for f in data.get("recording_files") or []:
+        if not isinstance(f, dict):
+            continue
+        if f.get("file_type") == "TRANSCRIPT":
+            download_url = f.get("download_url")
+
+            if not download_url:
+                continue
+
+            resp = requests.get(
+                download_url,
+                headers={"Authorization": f"Bearer {credential.get_access_token()}"},
+                timeout=60
+            )
+
+            resp.raise_for_status()
+            transcript_text = _parse_vtt_to_text(resp.text)
+            break
+
+    if transcript_text:
+        with transaction.atomic():
+            meeting = row.meeting
+            meeting.transcript = transcript_text
+            meeting.save(update_fields=["transcript"])
+
 def sync_zoom_meeting_for_event(
     zoom_meeting_data_id: int,
     event_type: str,
@@ -619,6 +669,8 @@ def sync_zoom_meeting_for_event(
         _sync_layer3_summary(row, webhook_uuid)
     elif et == EVENT_TRANSCRIPT_COMPLETED:
         _sync_layer3_participants(row, webhook_uuid)
+        from zoom_integration.tasks import sync_meeting_transcript
+        sync_meeting_transcript.delay(zoom_meeting_data_id) # type: ignore[operator]
     else:
         logging.getLogger(__name__).info(
             "zoom sync: ignored event_type=%s zoom_meeting_data_id=%s",
