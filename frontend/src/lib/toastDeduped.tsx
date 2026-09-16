@@ -23,7 +23,7 @@ function showDedupedToast(
   message: string,
   options?: DedupedToastOptions,
 ): DedupeToastResult {
-  const { operation, onClose, ...toastOptions } = options ?? {};
+  const { operation, ...toastOptions } = options ?? {};
   const { dedupeKey, count } = useNotificationStore.getState().incrementToast({
     message,
     type,
@@ -38,11 +38,7 @@ function showDedupedToast(
     <DedupeToastContent message={displayMessage} count={count} type={type} />
   );
 
-  const handleClose: ToastOptions['onClose'] = (data) => {
-    useNotificationStore.getState().clearToast(dedupeKey);
-    onClose?.(data);
-  };
-  const toastOpts = { ...toastOptions, id: toastId, onClose: handleClose };
+  const toastOpts = { ...toastOptions, id: toastId };
 
   switch (type) {
     case 'success':

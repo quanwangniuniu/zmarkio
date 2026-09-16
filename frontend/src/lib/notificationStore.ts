@@ -90,6 +90,7 @@ interface NotificationStore {
   /**
    * Drop one dedupe entry after its toast is dismissed or times out,
    * so the next identical error starts again at count 1.
+   * Called by ToastDedupeCleaner; react-hot-toast has no onClose option.
    */
   clearToast: (dedupeKey: string) => void;
   /** Reset toast queue state (intended for unit tests). */
