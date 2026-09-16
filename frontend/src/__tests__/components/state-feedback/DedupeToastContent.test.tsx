@@ -6,7 +6,7 @@ describe('DedupeToastContent', () => {
     render(<DedupeToastContent message="Network error" count={1} type="error" />);
 
     expect(screen.getByTestId('toast-error')).toBeInTheDocument();
-    expect(screen.getByText('Network error')).toBeInTheDocument();
+    expect(screen.getAllByText('Network error').length).toBeGreaterThan(0);
   });
 
   it('does not show count badge when count is 1', () => {
@@ -19,6 +19,18 @@ describe('DedupeToastContent', () => {
     render(<DedupeToastContent message="Network error" count={4} type="error" />);
 
     expect(screen.getByTestId('toast-count-badge')).toHaveTextContent('×4');
+    expect(screen.getByTestId('toast-live-announcement')).toHaveTextContent(
+      'Network error. Repeated 4 times.',
+    );
+  });
+
+  it('announces the message without a repeat count when count is 1', () => {
+    render(<DedupeToastContent message="Network error" count={1} type="error" />);
+
+    const toast = screen.getByTestId('toast-error');
+    expect(toast).toHaveAttribute('aria-live', 'polite');
+    expect(screen.getByTestId('toast-live-announcement')).toHaveTextContent('Network error');
+    expect(screen.getByTestId('toast-live-announcement')).not.toHaveTextContent('Repeated');
   });
 
   it('uses type-specific test id for success toasts', () => {
