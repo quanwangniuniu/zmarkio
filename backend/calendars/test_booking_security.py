@@ -6,7 +6,12 @@ from django.core import signing
 from calendars.booking_tokens import make_cancel_token, SALT
 from calendars.booking_write import cancel_booking_events, create_booking_events
 from calendars.models import BookingLink, Event, EventAttendee
-from calendars.test_public_booking import PublicBookingTestBase, in_org, next_weekday_at
+from calendars.test_public_booking import (
+    PublicBookingTestBase,
+    feed_token,
+    in_org,
+    next_weekday_at,
+)
 
 
 class BookingSecurityTests(PublicBookingTestBase):
@@ -22,12 +27,12 @@ class BookingSecurityTests(PublicBookingTestBase):
             self.assertEqual(Event.objects.count(), 1)
 
     def test_token_cannot_be_used_on_another_link_sharing_the_calendar(self):
-        token = self.book().json()["cancel_token"]
+        booked = self.book().json()
         with in_org(self.org):
             BookingLink.objects.create(organization=self.org, owner=self.user,
                 calendar=self.calendar, slug="other", title="Other")
-        self.assertEqual(self.client.post(f"/api/public/book/{self.org.slug}/other/cancel/", {"token": token}, format="json").status_code, 404)
-        self.assertEqual(self.client.get(f"/api/public/book/{self.org.slug}/other/calendar.ics", {"token": token}).status_code, 404)
+        self.assertEqual(self.client.post(f"/api/public/book/{self.org.slug}/other/cancel/", {"token": booked["cancel_token"]}, format="json").status_code, 404)
+        self.assertEqual(self.client.get(f"/api/public/book/{self.org.slug}/other/calendar.ics", {"token": feed_token(booked)}).status_code, 404)
         with in_org(self.org):
             self.assertFalse(Event.objects.get().is_deleted)
 
@@ -42,13 +47,13 @@ class BookingSecurityTests(PublicBookingTestBase):
             self.assertEqual(self.client.post(self.availability_url + "cancel/", {"token": token}, format="json").status_code, 404)
 
     def test_feed_and_cancel_survive_link_rename_and_delete(self):
-        token = self.book().json()["cancel_token"]
+        booked = self.book().json()
         with in_org(self.org):
             self.link.slug = "renamed"
             self.link.is_deleted = True
             self.link.save()
-        self.assertEqual(self.client.get(self.availability_url + "calendar.ics", {"token": token}).status_code, 200)
-        self.assertEqual(self.client.post(self.availability_url + "cancel/", {"token": token}, format="json").status_code, 200)
+        self.assertEqual(self.client.get(self.availability_url + "calendar.ics", {"token": feed_token(booked)}).status_code, 200)
+        self.assertEqual(self.client.post(self.availability_url + "cancel/", {"token": booked["cancel_token"]}, format="json").status_code, 200)
 
     def test_broker_failure_does_not_report_committed_booking_as_failed(self):
         with patch("calendars.views.send_booking_confirmation_task.delay", side_effect=RuntimeError("broker down")), patch("calendars.views.export_event_to_google_task.delay", side_effect=RuntimeError("broker down")):

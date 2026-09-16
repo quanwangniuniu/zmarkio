@@ -17,11 +17,13 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from calendars.booking_write import (
+    BOOKING_SOURCE,
     GUEST_ROLE,
     HOST_PRIMARY_ROLE,
     MIRROR_ROLE,
     PERSONAL_ROLE,
     TEAM_ROLE,
+    booking_siblings,
     calendars_for_booking_availability,
     cancel_booking_events,
     create_booking_events,
@@ -34,6 +36,7 @@ from calendars.models import BookingLink, Calendar, Event
 from calendars.test_public_booking import (
     FREEBUSY_PATH,
     WEEKDAY_WINDOWS,
+    feed_token,
     in_org,
     next_weekday_at,
 )
@@ -245,6 +248,46 @@ class BookingWriteHelpersTests(TestCase):
             if row["title"] == "Intro with Grace"
         ]
         assert titles == ["Intro with Grace"]
+
+    def test_a_booking_row_without_a_group_is_flagged_not_silently_split(self):
+        # Both copies are written with one group id inside a single
+        # transaction, so a booking row without one was changed outside the
+        # app. Cancelling it would then miss the other copy, and the week view
+        # would show the booking twice - say so rather than treating it as a
+        # lone booking.
+        start = timezone.now() + timedelta(days=1)
+        orphan = Event.objects.create(
+            organization=self.org,
+            calendar=self.primary,
+            created_by=self.host,
+            title="Intro Call",
+            start_datetime=start,
+            end_datetime=start + timedelta(minutes=30),
+            timezone="UTC",
+            metadata={"source": BOOKING_SOURCE},
+        )
+
+        with self.assertLogs("calendars.booking_write", level="WARNING") as logs:
+            siblings = list(booking_siblings(orphan))
+
+        assert [row.pk for row in siblings] == [orphan.pk]
+        assert "booking_group" in logs.output[0]
+
+    def test_an_ordinary_event_without_a_group_is_not_flagged(self):
+        # Only bookings carry a group; warning on anything else would log on
+        # every ordinary event deletion.
+        start = timezone.now() + timedelta(days=1)
+        plain = Event.objects.create(
+            organization=self.org,
+            calendar=self.primary,
+            created_by=self.host,
+            title="Team sync",
+            start_datetime=start,
+            end_datetime=start + timedelta(minutes=30),
+            timezone="UTC",
+        )
+        with self.assertNoLogs("calendars.booking_write", level="WARNING"):
+            assert list(booking_siblings(plain)) == [plain]
 
     def test_cancel_soft_deletes_the_booking(self):
         start = timezone.now() + timedelta(days=1)
@@ -540,7 +583,7 @@ class PublicBookingHostDiaryTests(TestCase):
     def test_feed_accepts_the_primary_event_token(self):
         _start, booked = self._book()
         response = self.client.get(
-            f"{self.availability_url}calendar.ics?token={booked['cancel_token']}"
+            f"{self.availability_url}calendar.ics?token={feed_token(booked)}"
         )
         assert response.status_code == status.HTTP_200_OK
         assert "BEGIN:VEVENT" in response.content.decode()

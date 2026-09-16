@@ -5,7 +5,7 @@ import uuid
 from django.core import signing
 from django.test import TestCase
 
-from calendars.booking_tokens import SALT, make_cancel_token, read_cancel_token
+from calendars.booking_tokens import SALT, make_cancel_token, make_feed_token, read_cancel_token, read_feed_token
 
 
 class BookingTokenTests(TestCase):
@@ -38,3 +38,16 @@ class BookingTokenTests(TestCase):
         except signing.SignatureExpired:
             raised = True
         assert raised
+
+    def test_a_feed_token_round_trips_to_its_event(self):
+        event_id = uuid.uuid4()
+        assert read_feed_token(make_feed_token(event_id)) == str(event_id)
+
+    def test_a_cancel_token_is_not_accepted_as_a_feed_token(self):
+        # A subscription URL travels further than the guest: calendar servers
+        # fetch and store it, and a shared calendar exposes it. Only the
+        # read-only token may open the feed.
+        assert read_feed_token(make_cancel_token(uuid.uuid4())) is None
+
+    def test_a_feed_token_cannot_cancel(self):
+        assert read_cancel_token(make_feed_token(uuid.uuid4())) is None

@@ -7,11 +7,15 @@ prove the caller owns a booking and must never expose cancellation tokens.
 
 from __future__ import annotations
 
+import logging
+
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from .booking_write import BOOKING_SOURCE, GUEST_ROLE, event_belongs_to_booking_link
 from .models import Event, EventAttendee
+
+logger = logging.getLogger(__name__)
 
 
 def _digits(value: str) -> str:
@@ -49,7 +53,15 @@ def _upcoming_guest_attendees(link) -> QuerySet[EventAttendee]:
 def _dedupe_canonical(events: list[Event]) -> list[Event]:
     by_group: dict[str, Event] = {}
     for event in events:
-        group = (event.metadata or {}).get("booking_group") or str(event.pk)
+        group = (event.metadata or {}).get("booking_group")
+        if not group:
+            # Only booking rows reach here, so a missing group means the row was
+            # changed outside the app. Falling back to the pk still lists the
+            # booking, but its copies can no longer be recognised as one.
+            logger.warning(
+                "booking event %s has no booking_group; listing it on its own", event.pk
+            )
+            group = str(event.pk)
         existing = by_group.get(group)
         if existing is None:
             by_group[group] = event

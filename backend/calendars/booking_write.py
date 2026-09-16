@@ -12,6 +12,7 @@ share `metadata.booking_group` so cancel and time edits cover every copy.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime
 
@@ -19,6 +20,8 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 
 from .models import Calendar, Event, EventAttendee
+
+logger = logging.getLogger(__name__)
 
 BOOKING_SOURCE = "booking_link"
 HOST_PRIMARY_ROLE = "host_primary"
@@ -142,8 +145,19 @@ def event_belongs_to_booking_link(event, link) -> bool:
 
 
 def booking_siblings(event):
-    group = (event.metadata or {}).get("booking_group")
+    meta = event.metadata or {}
+    group = meta.get("booking_group")
     if not group:
+        if meta.get("source") == BOOKING_SOURCE:
+            # Every booking writes its copies with one group id inside a single
+            # transaction, so a booking row without one was changed outside the
+            # app. Cancelling or moving this copy will not reach the other, and
+            # the week view will show the booking twice. Say so rather than
+            # quietly treating it as a lone event.
+            logger.warning(
+                "booking event %s has no booking_group; its other copy will not follow it",
+                event.pk,
+            )
         return Event.objects.filter(pk=event.pk)
     return Event.objects.filter(
         organization=event.organization,

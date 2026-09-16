@@ -37,9 +37,16 @@ def make_feed_token(event_id) -> str:
 
 
 def read_feed_token(token: str) -> str | None:
-    # Previously issued subscriptions used cancel tokens. Keep those working;
-    # newly issued feed tokens carry read-only authority.
-    return _read_token(token, FEED_SALT) or read_cancel_token(token)
+    """
+    Only a feed token opens the feed.
+
+    Subscriptions from before feed tokens existed carried a cancel token in the
+    URL, and those stop resolving here. Nothing has shipped yet, so such links
+    only exist in QA runs, and accepting them would keep a token that can call
+    the meeting off circulating as a subscription URL - which is the thing a
+    read-only feed token exists to avoid.
+    """
+    return _read_token(token, FEED_SALT)
 
 
 def _read_token(token, salt):

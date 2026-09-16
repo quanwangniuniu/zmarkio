@@ -9,6 +9,7 @@ payload, and no double-booking.
 from contextlib import contextmanager
 from datetime import time, timedelta
 from unittest.mock import patch
+from urllib.parse import unquote
 
 from django.contrib.auth import get_user_model
 from django.core import mail
@@ -42,6 +43,17 @@ def in_org(org):
     """
     with tenant_schema_context(slug_to_schema_name(org.slug)):
         yield
+
+
+def feed_token(booked) -> str:
+    """
+    The read-only token from a booking's subscription URL.
+
+    `feed_url` is absolute and webcal://, and its token is percent-encoded
+    because a signed token contains a colon. Tests address the API by path, so
+    take the last segment and decode it.
+    """
+    return unquote(booked["feed_url"].rsplit("/", 1)[-1]).removesuffix(".ics")
 
 
 def next_weekday_at(hour: int, days_ahead: int = 3):
@@ -410,6 +422,22 @@ class PublicBookingCreateTests(PublicBookingTestBase):
         with in_org(self.org):
             assert Event.objects.filter(calendar=self.calendar).count() == 1
 
+    def test_a_rejected_booking_queues_no_work(self):
+        # The export is queued with transaction.on_commit inside the booking
+        # transaction. A rejected booking must not leave a task behind that
+        # would export an event for a booking that never happened.
+        start = next_weekday_at(10)
+        with patch(FREEBUSY_PATH, return_value=[]):
+            first = self.client.post(self.booking_url, self._payload(start), format="json")
+            assert first.status_code == status.HTTP_201_CREATED, first.json()
+            with patch("calendars.views.export_event_to_google_task") as task:
+                with self.captureOnCommitCallbacks(execute=True):
+                    second = self.client.post(
+                        self.booking_url, self._payload(start), format="json"
+                    )
+        assert second.status_code == status.HTTP_409_CONFLICT
+        assert not task.delay.called
+
     def test_slot_outside_working_hours_is_rejected(self):
         with patch(FREEBUSY_PATH, return_value=[]):
             response = self.client.post(
@@ -667,7 +695,7 @@ class PublicBookingCancelTests(PublicBookingTestBase):
         assert again.status_code == status.HTTP_201_CREATED, again.json()
 
     def test_the_feed_serves_the_booking_as_a_calendar(self):
-        token = self._book()["cancel_token"]
+        token = feed_token(self._book())
         response = self.client.get(f"{self.availability_url}calendar.ics?token={token}")
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Type"].startswith("text/calendar")
@@ -677,26 +705,34 @@ class PublicBookingCancelTests(PublicBookingTestBase):
 
     def test_the_feed_accepts_the_token_in_the_path(self):
         # Outlook desktop drops ?token= on internet calendars.
-        token = self._book()["cancel_token"]
+        token = feed_token(self._book())
         response = self.client.get(f"{self.availability_url}{token}.ics")
         assert response.status_code == status.HTTP_200_OK
         assert "BEGIN:VEVENT" in response.content.decode()
+
+    def test_a_cancel_token_does_not_open_the_feed(self):
+        # A subscription URL ends up on calendar servers and in shared
+        # calendars, so only the read-only token may resolve it.
+        booked = self._book()
+        response = self.client.get(
+            f"{self.availability_url}calendar.ics?token={booked['cancel_token']}"
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_the_feed_reports_a_cancellation_so_subscribers_drop_it(self):
         # This is the only way a guest with no account hears that the host
         # called the meeting off.
         booked = self._book()
+        token = feed_token(booked)
         self.client.post(
             self.cancel_url, {"token": booked["cancel_token"]}, format="json"
         )
-        response = self.client.get(
-            f"{self.availability_url}calendar.ics?token={booked['cancel_token']}"
-        )
+        response = self.client.get(f"{self.availability_url}calendar.ics?token={token}")
         assert response.status_code == status.HTTP_200_OK
         assert "STATUS:CANCELLED" in response.content.decode()
 
     def test_the_feed_is_not_cached_or_the_cancellation_never_lands(self):
-        token = self._book()["cancel_token"]
+        token = feed_token(self._book())
         response = self.client.get(f"{self.availability_url}calendar.ics?token={token}")
         assert "no-store" in response["Cache-Control"]
 
