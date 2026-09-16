@@ -12,6 +12,35 @@ REGISTER_KEY = "session:registry:{user_id}"
 META_KEY = "session:meta:{jti}"
 BLACKLIST_KEY = "session:blacklist:{jti}"
 
+REGISTER_AND_EVICT_LUA = """
+local register_key = KEYS[1]
+local jti = ARGV[1]
+local score = ARGV[2]
+local cap = tonumber(ARGV[3])
+local ttl = tonumber(ARGV[4])
+local blacklist_prefix = ARGV[5]
+local meta_prefix = ARGV[6]
+
+redis.call("ZADD", register_key, score, jti)
+redis.call("EXPIRE", register_key, ttl)
+
+local count = redis.call("ZCARD", register_key)
+local excess = count - cap
+
+local evicted = {}
+if excess > 0 then
+    local oldest = redis.call("ZPOPMIN", register_key, excess)
+    for i = 1, #oldest, 2 do
+        local evicted_jti = oldest[i]
+        redis.call("SET", blacklist_prefix .. evicted_jti, 1, "EX", ttl)
+        redis.call("DEL", meta_prefix .. evicted_jti)
+        table.insert(evicted, evicted_jti)
+    end
+end
+
+return evicted
+"""
+
 class SessionRegistry:
 
     @staticmethod
@@ -20,29 +49,26 @@ class SessionRegistry:
         register_key = REGISTER_KEY.format(user_id = user_id)
         meta_key = META_KEY.format(jti = jti)
 
-        # Add new session to sorted set, score = current timestamp
-        redis.zadd(register_key, {jti: time.time()})
-        redis.expire(register_key, TOKEN_TTL)
-
-        # Store session metadata
         redis.hset(meta_key, mapping={
             "ip": meta.get("ip", ""),
             "user_agent": meta.get("user_agent", ""),
-            "created_at": meta.get("created_at", "")
+            "created_at": meta.get("created_at", ""),
         })
         redis.expire(meta_key, TOKEN_TTL)
 
-        # Check if over cap, evict oldest
-        evicted = []
-        excess = redis.zcard(register_key) - cap
-        if excess > 0:
-            oldest = redis.zpopmin(register_key, count=excess)
-            evicted = [item[0].decode() for item in oldest]
-            for evicted_jti in evicted:
-                blacklist_key = BLACKLIST_KEY.format(jti=evicted_jti)
-                redis.set(blacklist_key, 1, ex=TOKEN_TTL)
-                meta_key = META_KEY.format(jti=evicted_jti)
-                redis.delete(meta_key)
+        evicted_raw = redis.eval(
+            REGISTER_AND_EVICT_LUA,
+            1,
+            register_key,
+            jti,
+            time.time(),
+            cap,
+            TOKEN_TTL,
+            "session:blacklist:",
+            "session:meta:"
+        )
+
+        evicted = [v.decode() for v in evicted_raw]
 
         return evicted
 

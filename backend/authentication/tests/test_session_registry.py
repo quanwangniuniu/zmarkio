@@ -80,6 +80,33 @@ class FakeSortedSet:
             for k, v in raw.items()
         }
 
+    # --- eval (simulate REGISTER_AND_EVICT_LUA) ---
+    def eval(self, script, numkeys, *args):
+        register_key = args[0]
+        jti = args[1]
+        score = float(args[2])
+        cap = int(args[3])
+        ttl = int(args[4])
+        blacklist_prefix = args[5]
+        meta_prefix = args[6]
+
+        self.zadd(register_key, {jti: score})
+        self.expire(register_key, ttl)
+
+        count = self.zcard(register_key)
+        excess = count - cap
+
+        evicted = []
+        if excess > 0:
+            oldest = self.zpopmin(register_key, excess)
+            for member, _ in oldest:
+                evicted_jti = member.decode() if isinstance(member, bytes) else member
+                self.set(blacklist_prefix + evicted_jti, 1, ex=ttl)
+                self.delete(meta_prefix + evicted_jti)
+                evicted.append(evicted_jti.encode() if isinstance(evicted_jti, str) else evicted_jti)
+
+        return evicted
+
 
 def make_fake_redis():
     """Return a MagicMock whose Redis methods delegate to FakeSortedSet."""
@@ -96,6 +123,7 @@ def make_fake_redis():
     mock.delete.side_effect = fake.delete
     mock.hset.side_effect = fake.hset
     mock.hgetall.side_effect = fake.hgetall
+    mock.eval.side_effect = fake.eval
     return mock
 
 
@@ -118,7 +146,7 @@ class TestRegisterSession(TestCase):
     def test_register_stores_jti_in_sorted_set(self):
         evicted = SessionRegistry.register_session(1, "jti-a", {}, cap=5)
         self.assertEqual(evicted, [])
-        self.redis.zadd.assert_called_once()
+        self.redis.eval.assert_called_once()
 
     def test_register_stores_meta_in_redis_hash(self):
         meta = {"ip": "1.2.3.4", "user_agent": "Chrome"}
