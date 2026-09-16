@@ -24,6 +24,11 @@ jobs:
   lighthouse:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # packages: write so the image builds below can export their layer cache to
+    # GHCR instead of the GitHub Actions cache (MED-322).
+    permissions:
+      contents: read
+      packages: write
     env:
       # https://docs.docker.com/build/ci/github-actions/build-summary/#disable-job-summary
       DOCKER_BUILD_SUMMARY: false
@@ -47,14 +52,43 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Branch names contain characters that are illegal in a Docker tag ("/"
+      # most of all), so derive a tag-safe scope. Read the ref through env
+      # rather than interpolating it into the script, since a branch name is
+      # attacker-controlled text.
+      - name: Compute cache scope
+        env:
+          RAW_REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          SCOPE=$(printf '%s' "$RAW_REF" | tr -c 'a-zA-Z0-9_.-' '-' | cut -c1-100)
+          echo "CACHE_SCOPE=$SCOPE" >> "$GITHUB_ENV"
+          echo "Buildx cache scope: $SCOPE"
+
+      # MED-322: these builds used cache-from/to: type=gha, whose mode=max blobs
+      # were consuming the repo's entire 10 GB Actions cache quota (10.27 GB
+      # across 84 entries, i.e. permanently evicting). GHCR storage is free and
+      # unlimited for public repos and does not count against that quota, so the
+      # layer cache lives there and the Actions cache is left for npm/pip/
+      # Playwright. Writes are scoped per branch so branches stop overwriting
+      # each other's cache; reads fall back to the trunk branches.
       - name: Build backend image
         uses: docker/build-push-action@v7
         with:
           context: ./backend
           tags: mediajira-backend:${{ github.sha }}
           load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository }}/backend:lhcache-${{ env.CACHE_SCOPE }}
+            type=registry,ref=ghcr.io/${{ github.repository }}/backend:lhcache-prod-preview
+            type=registry,ref=ghcr.io/${{ github.repository }}/backend:lhcache-main
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/backend:lhcache-${{ env.CACHE_SCOPE }},mode=max,ignore-error=true
 
       # The runner ran out of disk exporting the frontend image ("no space left
       # on device"); free buildx storage between the two image builds (mirrors
@@ -68,8 +102,11 @@ jobs:
           context: ./frontend
           tags: mediajira-frontend:${{ github.sha }}
           load: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository }}/frontend:lhcache-${{ env.CACHE_SCOPE }}
+            type=registry,ref=ghcr.io/${{ github.repository }}/frontend:lhcache-prod-preview
+            type=registry,ref=ghcr.io/${{ github.repository }}/frontend:lhcache-main
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/frontend:lhcache-${{ env.CACHE_SCOPE }},mode=max,ignore-error=true
 
       - name: Create CI environment file
         run: |
