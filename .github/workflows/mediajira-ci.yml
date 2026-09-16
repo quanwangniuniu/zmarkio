@@ -604,6 +604,11 @@ jobs:
                   slug=ORG_SLUG,
                   defaults={"name": "CI Budget E2E Org", "is_active": True},
               )
+              # MED-327: apiAuthHeaders re-logs in on every API call, so the
+              # requester accumulates many sessions across 6 sequential tests.
+              # Set a high cap so eviction never blacklists the browser token.
+              org.max_concurrent_sessions = 100
+              org.save(update_fields=["max_concurrent_sessions", "updated_at"])
               provision_tenant_schema(org.slug)
 
               anchor, _ = User.objects.get_or_create(
