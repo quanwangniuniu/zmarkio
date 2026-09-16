@@ -10,7 +10,7 @@ import {
   ApiResponse,
   PaginatedResponse
 } from '@/types/permission';
-import { readPersistedAuthState, refreshAccessToken } from '@/lib/api';
+import { endSession, getSharedRefreshedToken, readPersistedAuthState } from '@/lib/api';
 
 // API settings — base must point at access_control namespace so /roles/, /organizations/, etc. resolve correctly.
 // Default to a same-origin relative path so it works through nginx -> local backend in every
@@ -86,10 +86,15 @@ class ApiClient {
         if (response.status === 401 && allowRefresh) {
           const refreshToken = readPersistedAuthState()?.state?.refreshToken;
           if (refreshToken) {
-            const accessToken = await refreshAccessToken(refreshToken);
+            // Shared with the axios clients: one refresh for concurrent 401s, and a
+            // rejected refresh ends the session inside getSharedRefreshedToken.
+            const accessToken = await getSharedRefreshedToken(refreshToken);
             if (accessToken) {
               return this.requestWithAuth<T>(endpoint, options, false);
             }
+          } else if (headers.has('Authorization')) {
+            // Sent a token but have nothing to refresh it with: the session is dead.
+            endSession();
           }
         }
 
