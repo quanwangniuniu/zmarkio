@@ -10,6 +10,49 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 if not settings.configured:
     django.setup()
 
+# PBKDF2 is deliberately slow, and tests create users and log in thousands of
+# times. No test depends on the hashing algorithm, so use a fast one (MED-447).
+settings.PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    """Keep only one CI shard's tests when PYTEST_SHARD_INDEX/COUNT are set.
+
+    Whole modules go to the shard with the fewest tests so far, so every
+    collected test lands in exactly one shard (no hand-kept path lists that a
+    new app could miss) and `--dist loadscope` still sees complete modules.
+    The assignment only depends on the collected node ids, so every xdist
+    worker computes the same split.
+    """
+    index = os.environ.get('PYTEST_SHARD_INDEX')
+    count = os.environ.get('PYTEST_SHARD_COUNT')
+    if index is None or count is None:
+        return
+    index, count = int(index), int(count)
+    if not 0 <= index < count:
+        raise pytest.UsageError(
+            f'PYTEST_SHARD_INDEX={index} is outside 0..{count - 1}'
+        )
+
+    modules = {}
+    for item in items:
+        modules.setdefault(item.nodeid.split('::')[0], []).append(item)
+
+    loads = [0] * count
+    shard_of = {}
+    for path in sorted(modules, key=lambda p: (-len(modules[p]), p)):
+        shard = min(range(count), key=lambda i: (loads[i], i))
+        shard_of[path] = shard
+        loads[shard] += len(modules[path])
+
+    selected = [i for i in items if shard_of[i.nodeid.split('::')[0]] == index]
+    deselected = [i for i in items if shard_of[i.nodeid.split('::')[0]] != index]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+    items[:] = selected
+
+
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
