@@ -63,6 +63,19 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      # MED-322: ~/.npm (setup-node cache: npm) only skips the download.
+      # npm ci still unpacks ~2400 packages into node_modules, so a warm
+      # ~/.npm cut 129s to 123s — well under the 30% warmup target.
+      # Cache node_modules itself and skip npm ci on an exact lockfile hit.
+      # No restore-keys: a partial restore of a different lockfile would be
+      # wiped by npm ci anyway. Miss path still has ~/.npm as fallback.
+      # Key matches chromatic.yml so the two jobs share one entry.
+      - name: Cache frontend node_modules
+        id: frontend-node-modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
       # Install dependencies using npm ci
       # npm ci is strict:
       # - Fails if package-lock.json and package.json are out of sync
@@ -70,6 +83,10 @@ jobs:
       # - Ensures reproducible builds
       - name: Install dependencies (strict mode)
         run: |
+          if [ "${{ steps.frontend-node-modules.outputs.cache-hit }}" = "true" ]; then
+            echo "node_modules cache hit; skipping npm ci."
+            exit 0
+          fi
           cd frontend
           npm ci || (echo "npm ci failed, retrying once (e.g. esbuild ETXTBSY)..." && rm -rf node_modules && sleep 2 && npm ci)
       # Install depcheck globally
@@ -736,6 +753,15 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # Same node_modules key as code_scan / chromatic (MED-322). Exact hit
+      # skips npm ci; see the code_scan step for why ~/.npm is not enough.
+      - name: Cache frontend node_modules
+        id: frontend-node-modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
+
       # Read the resolved version straight out of the lockfile so the cache key
       # is available before node_modules exists (MED-322).
       - name: Resolve Playwright version
@@ -761,7 +787,11 @@ jobs:
       - name: Install Playwright (Chromium only)
         working-directory: frontend
         run: |
-          npm ci
+          if [ "${{ steps.frontend-node-modules.outputs.cache-hit }}" = "true" ]; then
+            echo "node_modules cache hit; skipping npm ci."
+          else
+            npm ci
+          fi
           if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
             echo "Playwright browser cache hit; installing OS dependencies only."
             npx playwright install-deps chromium

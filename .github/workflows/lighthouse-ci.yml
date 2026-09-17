@@ -228,15 +228,27 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install frontend dependencies and run Lighthouse
+      # MED-322: skip npm ci on an exact node_modules hit. Same key as
+      # mediajira-ci.yml / chromatic.yml. See code_scan for why ~/.npm is not enough.
+      - name: Cache frontend node_modules
+        id: frontend-node-modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
+
+      - name: Install frontend dependencies
+        if: steps.frontend-node-modules.outputs.cache-hit != 'true'
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run Lighthouse
         working-directory: frontend
         env:
           LHCI_AUTH_EMAIL: ${{ secrets.LHCI_AUTH_EMAIL }}
           LHCI_AUTH_PASSWORD: ${{ secrets.LHCI_AUTH_PASSWORD }}
           CI: true
-        run: |
-          npm ci
-          npm run lighthouse:local
+        run: npm run lighthouse:local
 
       - name: Upload Lighthouse reports
         if: always()
