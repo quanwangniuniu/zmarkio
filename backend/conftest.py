@@ -1,5 +1,6 @@
 """Shared backend test fixtures for CSM and experience_group tests."""
 
+import json
 import os
 
 import django
@@ -19,11 +20,14 @@ settings.PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 def pytest_collection_modifyitems(config, items):
     """Keep only one CI shard's tests when PYTEST_SHARD_INDEX/COUNT are set.
 
-    Whole modules go to the shard with the fewest tests so far, so every
-    collected test lands in exactly one shard (no hand-kept path lists that a
-    new app could miss) and `--dist loadscope` still sees complete modules.
-    The assignment only depends on the collected node ids, so every xdist
-    worker computes the same split.
+    Whole modules go to the shard with the least expected run time so far, so
+    every collected test lands in exactly one shard (no hand-kept path lists
+    that a new app could miss) and `--dist loadscope` still sees complete
+    modules. Expected time comes from test_durations.json (seconds per module,
+    measured in CI); modules missing from it count as the average seconds per
+    test times their test count. A stale file only makes shards less even, it
+    never drops tests. The assignment only depends on the collected node ids
+    and that file, so every xdist worker computes the same split.
     """
     index = os.environ.get('PYTEST_SHARD_INDEX')
     count = os.environ.get('PYTEST_SHARD_COUNT')
@@ -39,12 +43,23 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         modules.setdefault(item.nodeid.split('::')[0], []).append(item)
 
-    loads = [0] * count
+    durations_path = os.path.join(os.path.dirname(__file__), 'test_durations.json')
+    try:
+        with open(durations_path) as f:
+            durations = json.load(f)
+    except FileNotFoundError:
+        durations = {}
+    known = [p for p in modules if p in durations]
+    known_tests = sum(len(modules[p]) for p in known)
+    per_test = sum(durations[p] for p in known) / known_tests if known_tests else 1.0
+    expected = {p: durations.get(p, per_test * len(modules[p])) for p in modules}
+
+    loads = [0.0] * count
     shard_of = {}
-    for path in sorted(modules, key=lambda p: (-len(modules[p]), p)):
+    for path in sorted(modules, key=lambda p: (-expected[p], p)):
         shard = min(range(count), key=lambda i: (loads[i], i))
         shard_of[path] = shard
-        loads[shard] += len(modules[path])
+        loads[shard] += expected[path]
 
     selected = [i for i in items if shard_of[i.nodeid.split('::')[0]] == index]
     deselected = [i for i in items if shard_of[i.nodeid.split('::')[0]] != index]
