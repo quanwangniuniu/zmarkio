@@ -103,27 +103,20 @@ def provision_tenant_schema(slug: str) -> None:
 def _create_tenant_tables(schema_name: str) -> None:
     """
     Use Django's SchemaEditor to create all tenant model tables inside the
-    given schema. search_path is set for the duration of this call and
-    reset in the finally block to prevent connection pool pollution.
+    given schema. search_path is switched only for this call and then restored
+    to whatever the caller had selected (not hard-coded back to public).
 
     SchemaEditor.create_model() issues CREATE TABLE, adds indexes and
     constraints — all within the current transaction so failures roll back.
     """
     from core.tenant_config import get_tenant_models
+    from core.tenant_context import tenant_schema_context
 
-    # SET search_path accepts string literals (%s), so psycopg2 quoting is safe.
-    with connection.cursor() as cursor:
-        cursor.execute('SET search_path TO %s, public', [schema_name])
-
-    try:
+    with tenant_schema_context(schema_name):
         with connection.schema_editor() as editor:
             for model in get_tenant_models():
                 if not _table_exists(model._meta.db_table, schema_name):
                     editor.create_model(model)
-    finally:
-        # Always reset to public so the connection is returned clean to the pool.
-        with connection.cursor() as cursor:
-            cursor.execute('SET search_path TO public')
 
 
 def _table_exists(table_name: str, schema_name: str) -> bool:

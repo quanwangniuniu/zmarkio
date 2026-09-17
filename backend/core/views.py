@@ -512,9 +512,9 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
 
         if not organization:
             organization = self._auto_create_organization(user)
-            # provision_tenant_schema() resets search_path to 'public' in its
-            # finally block. Switch back to the new org's schema so that Project
-            # and ProjectMember are created in the correct tenant schema.
+            # Organization.save() restores the previous search_path afterwards
+            # (typically public when the user had no org). Switch to the new
+            # org's schema so Project and ProjectMember land in that tenant.
             schema_name = slug_to_schema_name(organization.slug)
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -2469,8 +2469,9 @@ class CreateOrganizationView(APIView):
         }
         """
         from django.utils.text import slugify
-        from django.db import connection, transaction
+        from django.db import transaction
         from core.services.tenant import slug_to_schema_name
+        from core.tenant_context import tenant_schema_context
         from customer.models import CustomerOrganisation
         from csm.models import CustomerUser
 
@@ -2537,10 +2538,7 @@ class CreateOrganizationView(APIView):
             # Switch to tenant schema to create roles
             schema_name = slug_to_schema_name(organization.slug)
 
-            with connection.cursor() as cursor:
-                cursor.execute(f'SET search_path TO {schema_name}, public')
-
-            try:
+            with tenant_schema_context(schema_name):
                 from access_control.models import Role as AccessRole, UserRole
 
                 # Create Organization Admin role (level=2)
@@ -2558,9 +2556,6 @@ class CreateOrganizationView(APIView):
                     defaults={"level": 30}
                 )
                 UserRole.objects.get_or_create(user=user, role=default_role)
-            finally:
-                with connection.cursor() as cursor:
-                    cursor.execute('SET search_path TO public')
 
         serializer = OrganizationSerializer(organization, context={'request': request})
         return Response({
@@ -2611,8 +2606,9 @@ class JoinOrganizationBySlugView(APIView):
             "slug": "acme-corp"
         }
         """
-        from django.db import connection, transaction
+        from django.db import transaction
         from core.services.tenant import slug_to_schema_name
+        from core.tenant_context import tenant_schema_context
 
         slug = request.data.get('slug', '').strip()
         if not slug:
@@ -2663,10 +2659,7 @@ class JoinOrganizationBySlugView(APIView):
             # Create default Media Buyer role in tenant schema
             schema_name = slug_to_schema_name(organization.slug)
 
-            with connection.cursor() as cursor:
-                cursor.execute(f'SET search_path TO {schema_name}, public')
-
-            try:
+            with tenant_schema_context(schema_name):
                 from access_control.models import Role, UserRole
                 default_role, _ = Role.objects.get_or_create(
                     organization=organization,
@@ -2674,9 +2667,6 @@ class JoinOrganizationBySlugView(APIView):
                     defaults={"level": 30}
                 )
                 UserRole.objects.get_or_create(user=user, role=default_role)
-            finally:
-                with connection.cursor() as cursor:
-                    cursor.execute('SET search_path TO public')
 
         log_org_activity(
             organization,
