@@ -5,6 +5,7 @@ import {
   LoginResponse,
   RegisterRequest,
   RegisterResponse,
+  PasswordValidationRule,
   User,
   AuthError,
   GoogleAuthResponse,
@@ -400,6 +401,22 @@ export function getSharedRefreshedToken(refreshToken: string): Promise<string | 
   });
 }
 
+// Prevent duplicate banners when the interceptor fires more than once for the
+// same eviction event (original request + one retry).
+let _sessionEvictedPending = false;
+
+function notifySessionEvicted() {
+  if (_sessionEvictedPending) return;
+  _sessionEvictedPending = true;
+
+  try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch (_) {}
+  clearAuthSessionStorage();
+  clearCookieValue(AUTH_COOKIE_KEY);
+  try { sessionStorage.setItem('session_evicted', '1'); } catch (_) {}
+
+  window.location.href = '/login';
+}
+
 // Request interceptor to add auth token to requests
 api.interceptors.request.use(
   (config) => {
@@ -484,6 +501,15 @@ api.interceptors.response.use(
         // (A rejected refresh already ended it inside getSharedRefreshedToken.)
         if (!refreshToken && config.headers.Authorization) endSession();
       }
+
+      // Session was explicitly revoked or exceeded concurrent limit.
+      // Show a top banner on the current page, then redirect to login.
+      // Return a never-resolving promise so the component's catch block never
+      // fires — this keeps the current page visible while the toast is shown.
+      if (typeof window !== 'undefined' && responseData?.code === 'session_evicted') {
+        notifySessionEvicted();
+        return new Promise(() => {});
+      }
     }
 
     const quotaCode = responseData?.code;
@@ -521,6 +547,14 @@ export const authAPI = {
   
   register: async (userData: RegisterRequest): Promise<RegisterResponse> => {
     const response = await api.post('/auth/register/', userData);
+    return response.data;
+  },
+
+  validatePassword: async (
+    userData: Pick<RegisterRequest, 'username' | 'email' | 'password'>,
+    signal?: AbortSignal,
+  ): Promise<{ rules: PasswordValidationRule[] }> => {
+    const response = await api.post('/auth/password/validate/', userData, { signal });
     return response.data;
   },
   
@@ -589,6 +623,16 @@ export const authAPI = {
     const response = await api.delete('/auth/me/delete/', {
       data: { confirm: 'DELETE MY ACCOUNT', refresh_token: refreshToken },
     });
+    return response.data;
+  },
+
+  getSessions: async (): Promise<{ jti: string; ip: string; user_agent: string; created_at: string }[]> => {
+    const response = await api.get('/auth/sessions/');
+    return response.data;
+  },
+
+  revokeSession: async (jti: string): Promise<{ message: string }> => {
+    const response = await api.delete(`/auth/sessions/${jti}/`);
     return response.data;
   },
 };
