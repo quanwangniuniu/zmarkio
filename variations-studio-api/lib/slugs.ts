@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto';
 
-import { listSlugs } from '@/lib/variationStore';
+import { prisma } from '@/lib/prisma';
+import { listSlugs, type SqlClient } from '@/lib/variationStore';
 
 function slugify(value: string): string {
   return value
@@ -34,8 +35,9 @@ export function makeSlug(sourceValue: string, used: Set<string>): string {
 
 export async function allocateSlugs(
   schema: string,
-  headlines: string[]
+  headlines: string[],
+  db: SqlClient = prisma
 ): Promise<string[]> {
-  const used = new Set(await listSlugs(schema));
+  const used = new Set(await listSlugs(schema, db));
   return headlines.map((headline) => makeSlug(headline, used));
 }

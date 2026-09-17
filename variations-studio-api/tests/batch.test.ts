@@ -1,12 +1,19 @@
 import { POST as generate } from '@/app/api/ad_copy_variation/variations/generate/route';
 import { callGeminiJson, isGeminiQuotaError } from '@/src/ai/providers/gemini';
+import { randomUUID } from 'crypto';
+
+import { allocateSlugs } from '@/lib/slugs';
 import { prisma } from '@/lib/prisma';
 import {
   countVariations,
   findVariationsByIdsAnyProject,
+  insertVariations,
+  type SqlClient,
+  type VariationInsert,
 } from '@/lib/variationStore';
 
 import {
+  createTestVariation,
   setupStudioFixture,
   teardownStudioFixture,
   type StudioFixture,
@@ -19,6 +26,12 @@ jest.mock('@/src/ai/providers/gemini', () => ({
   isGeminiQuotaError: jest.fn(() => false),
 }));
 
+jest.mock('@/lib/slugs', () => {
+  const actual = jest.requireActual('@/lib/slugs');
+  return { ...actual, allocateSlugs: jest.fn(actual.allocateSlugs) };
+});
+
+const slugsMock = allocateSlugs as jest.MockedFunction<typeof allocateSlugs>;
 const geminiMock = callGeminiJson as jest.MockedFunction<typeof callGeminiJson>;
 const quotaMock = isGeminiQuotaError as jest.MockedFunction<
   typeof isGeminiQuotaError
@@ -147,5 +160,94 @@ describe('batch generate failure handling', () => {
     expect(new Set(rows.map((row) => row.batchId)).size).toBe(1);
     expect(rows[0].batchId).toBe(body.batch_id);
     expect(rows.map((row) => row.batchPosition).sort()).toEqual([0, 1, 2]);
+  });
+});
+
+describe('batch persistence', () => {
+  function insertRow(position: number, label: string): VariationInsert {
+    return {
+      sourceMode: 'custom',
+      sourceRef: '',
+      hook: `${label} hook`,
+      headline: `${label} headline`,
+      description: `${label} description`,
+      cta: 'LEARN_MORE',
+      instruction: '',
+      modelName: 'fixture',
+      promptVersion: 'fixture',
+      batchId: randomUUID(),
+      batchPosition: position,
+      status: 'draft',
+      createdById: BigInt(fixture.memberUserId),
+      creativeId: null,
+      projectId: fixture.projectA,
+      slug: `studio-test-${randomUUID()}`,
+    };
+  }
+
+  it('persists nothing when row 3 of 5 fails to insert', async () => {
+    geminiMock.mockResolvedValue(copy('Generated'));
+    const existing = await createTestVariation({
+      schema: fixture.schema,
+      projectId: fixture.projectA,
+      userId: fixture.memberUserId,
+      status: 'draft',
+    });
+    // Collide row 3 with an existing slug so the unique constraint rejects it
+    // after rows 1 and 2 would already have been written by a per-row insert.
+    slugsMock.mockImplementationOnce(async (_schema, headlines) =>
+      headlines.map((_, index) =>
+        index === 2 ? existing.slug : `studio-test-${randomUUID()}`
+      )
+    );
+    const before = await countVariations(fixture.schema, {
+      projectId: fixture.projectA,
+    });
+
+    await expect(generateBatch(5)).rejects.toThrow();
+
+    const after = await countVariations(fixture.schema, {
+      projectId: fixture.projectA,
+    });
+    expect(after).toBe(before);
+  });
+
+  it('writes a whole batch in a single statement', async () => {
+    let statements = 0;
+    const countingClient: SqlClient = {
+      $queryRaw: ((...args: Parameters<typeof prisma.$queryRaw>) => {
+        statements += 1;
+        return prisma.$queryRaw(...args);
+      }) as typeof prisma.$queryRaw,
+      $executeRaw: prisma.$executeRaw.bind(prisma),
+    };
+    const rows = [0, 1, 2, 3, 4].map((position) => insertRow(position, `Row ${position}`));
+
+    const saved = await insertVariations(fixture.schema, rows, countingClient);
+
+    expect(statements).toBe(1);
+    expect(saved).toHaveLength(5);
+  });
+
+  it('returns rows in batch_position order regardless of input order', async () => {
+    const rows = [4, 3, 2, 1, 0].map((position) => insertRow(position, `Row ${position}`));
+
+    const saved = await insertVariations(fixture.schema, rows);
+
+    expect(saved.map((row) => row.batchPosition)).toEqual([0, 1, 2, 3, 4]);
+    expect(saved.map((row) => row.headline)).toEqual(
+      [0, 1, 2, 3, 4].map((position) => `Row ${position} headline`)
+    );
+  });
+
+  it('returns generate results in batch_position order', async () => {
+    geminiMock.mockResolvedValue(copy('Generated'));
+
+    const response = await generateBatch(5);
+
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    const results = body.results as { batch_position: number }[];
+    expect(results.map((row) => row.batch_position)).toEqual([0, 1, 2, 3, 4]);
   });
 });
