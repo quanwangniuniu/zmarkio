@@ -1,14 +1,32 @@
 'use client';
 
+import React from 'react';
 import Link from 'next/link';
 import { useBuildUrl } from '@/lib/buildUrl';
 import { CalendarDays, FileText, ListChecks, Users } from 'lucide-react';
 import type { MeetingListItem } from '@/types/meeting';
 import MeetingStatusPill from './MeetingStatusPill';
 
+const SNIPPET_SOURCE_LABEL: Record<string, string> = {
+  transcript: 'Transcript',
+  summary: 'Summary',
+};
+
+function highlightTitle(title: string, query?: string): React.ReactNode {
+  if (!query?.trim()) return title;
+  const regex = new RegExp(`(${query.trim()})`, 'gi');
+  const parts = title.split(regex);
+  return parts.map((part, i) =>
+    regex.test(part)
+      ? <mark key={i} className="rounded bg-yellow-100 px-0.5 font-semibold text-yellow-800">{part}</mark>
+      : part
+  );
+}
+
 interface Props {
   meeting: MeetingListItem;
   projectId: number | string;
+  searchQuery?: string;
 }
 
 function formatScheduled(dateIso: string | null): string {
@@ -22,7 +40,7 @@ function formatScheduled(dateIso: string | null): string {
   });
 }
 
-export default function MeetingCard({ meeting, projectId }: Props) {
+export default function MeetingCard({ meeting, projectId, searchQuery }: Props) {
   const buildUrl = useBuildUrl();
   const decisions =
     meeting.generated_decisions_count ?? meeting.decision_count ?? 0;
@@ -39,7 +57,7 @@ export default function MeetingCard({ meeting, projectId }: Props) {
     >
       <div className="flex items-start justify-between gap-3">
         <h3 className="line-clamp-1 text-[15px] font-semibold text-gray-900">
-          {meeting.title || 'Untitled meeting'}
+          {highlightTitle(meeting.title || 'Untitled meeting', meeting.snippet_source === 'title' ? searchQuery : undefined)}
         </h3>
         <MeetingStatusPill status={meeting.status} />
       </div>
@@ -82,6 +100,22 @@ export default function MeetingCard({ meeting, projectId }: Props) {
           <span className="italic text-gray-400">· archived</span>
         )}
       </div>
+
+      {searchQuery && meeting.search_snippet && meeting.snippet_source !== 'title' && (
+        <div className="mt-2 border-t border-gray-50 pt-2">
+          {meeting.snippet_source && SNIPPET_SOURCE_LABEL[meeting.snippet_source] && (
+            <span className="mb-1 inline-block text-[10px] font-medium uppercase tracking-wide text-gray-400">
+              {SNIPPET_SOURCE_LABEL[meeting.snippet_source]}
+            </span>
+          )}
+          <p
+            className="line-clamp-2 text-xs text-gray-500 [&_mark]:rounded [&_mark]:bg-yellow-100 [&_mark]:px-0.5 [&_mark]:font-semibold [&_mark]:text-yellow-800"
+            // search_snippet contains only <mark> tags from PostgreSQL SearchHeadline — safe
+            // eslint-disable-next-line react/no-danger
+            dangerouslySetInnerHTML={{ __html: meeting.search_snippet }}
+          />
+        </div>
+      )}
     </Link>
   );
 }

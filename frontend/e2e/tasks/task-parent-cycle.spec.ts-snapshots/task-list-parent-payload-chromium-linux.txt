@@ -1,0 +1,10 @@
+{
+  "is_subtask": true,
+  "parent_relationship": [
+    {
+      "parent_task_id": "<parent-id>",
+      "parent_task_slug": "<parent-slug>",
+      "parent_task_summary": "<parent-summary>"
+    }
+  ]
+}

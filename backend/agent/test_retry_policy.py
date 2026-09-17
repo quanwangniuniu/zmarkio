@@ -122,11 +122,15 @@ class LLMRetryPolicyTests(TestCase):
         self.assertTrue(result.skipped)
     
     
-    @patch('agent.services._call_llm')
+    # The executor now uses the unified caller; patch its local import alias.
+    @patch('agent.executors._call_llm_unified', autospec=True)
     @patch('agent.services._get_llm_client')
     def test_call_llm_success_unused_retries(self, mock_get_client, mock_call_llm):
         mock_get_client.return_value = MagicMock()
-        mock_call_llm.return_value = {"result": "analysis complete"}
+        mock_call_llm.return_value = {
+            "text": '{"anomalies": [], "recommended_tasks": []}',
+            "usage": {"input": 10, "output": 2},
+        }
 
         step = _StepStub('call_llm')
         orchestrator = _OrchestratorStub()
@@ -180,7 +184,7 @@ class LLMRetryPolicyTests(TestCase):
 
 
     @patch('agent.executors.time.sleep')
-    @patch('agent.services._call_llm')
+    @patch('agent.executors._call_llm_unified', autospec=True)
     @patch('agent.services._get_llm_client')
     def test_call_llm_anthropic_timeout_no_extra_retries(
         self, mock_get_client, mock_call_llm, mock_sleep,
@@ -207,9 +211,6 @@ class LLMRetryPolicyTests(TestCase):
 
 
     
-
-
-
 
 
 
