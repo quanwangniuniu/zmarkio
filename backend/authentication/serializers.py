@@ -8,6 +8,37 @@ from stripe_meta.models import Subscription
 
 User = get_user_model()
 
+
+class PasswordValidationStringField(serializers.Field):
+    default_error_messages = {
+        'invalid': 'Not a valid string.',
+        'max_length': 'Ensure this field has no more than {max_length} characters.',
+        'blank': 'This field cannot be blank.',
+    }
+
+    def __init__(self, *args, max_length, trim_whitespace=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_length = max_length
+        self.trim_whitespace = trim_whitespace
+
+    def to_internal_value(self, data):
+        if not isinstance(data, str):
+            self.fail('invalid')
+        if self.trim_whitespace and data:
+            data = data.strip()
+            if not data:
+                self.fail('blank')
+        if len(data) > self.max_length:
+            self.fail('max_length', max_length=self.max_length)
+        return data
+
+
+class PasswordValidationSerializer(serializers.Serializer):
+    password = PasswordValidationStringField(default='', max_length=256)
+    username = PasswordValidationStringField(default='', max_length=150, trim_whitespace=True)
+    email = PasswordValidationStringField(default='', max_length=254, trim_whitespace=True)
+
+
 class OrganizationSerializer(serializers.ModelSerializer):
     plan_id = serializers.SerializerMethodField()
     

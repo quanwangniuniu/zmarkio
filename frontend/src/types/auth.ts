@@ -73,6 +73,13 @@ export interface RegisterResponse {
   organization_access_token?: string;
 }
 
+export interface PasswordValidationRule {
+  id: string;
+  help_text: string;
+  valid: boolean | null;
+  errors: string[];
+}
+
 // Google OAuth types
 export interface GoogleAuthResponse {
   message: string;
@@ -115,6 +122,7 @@ export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: string;
+  fieldErrors?: FormValidation;
   statusCode?: number;
   errorCode?: string;
   retry_after_seconds?: number;
