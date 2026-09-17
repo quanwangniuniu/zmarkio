@@ -66,6 +66,7 @@ class SpreadsheetInsightsSecurityTests(TestCase):
 
     def test_insights_allowed_after_per_spreadsheet_consent(self):
         grant_ai_consent(self.user, self.spreadsheet)
+        # Stub the key check so CI without GEMINI_API_KEY still reaches the mocked LLM.
         with patch("core.services.gemini_client._get_api_key", return_value="test-key"), patch(
             "agent.services._call_gemini_spreadsheet_insights"
         ) as mock_call:

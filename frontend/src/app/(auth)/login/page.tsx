@@ -48,6 +48,19 @@ function LoginPageContent() {
   }, []);
 
   useEffect(() => {
+    try {
+      if (sessionStorage.getItem('session_evicted')) {
+        sessionStorage.removeItem('session_evicted');
+        toast.error('Your session has been revoked. Please log in again.', {
+          position: 'top-center',
+          duration: 4000,
+          style: { background: '#1e293b', color: '#fff', fontWeight: 500, minWidth: '320px' },
+        });
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
     if (!initialized || authLoading) return;
     if (isAuthenticated) {
       router.replace('/overview');

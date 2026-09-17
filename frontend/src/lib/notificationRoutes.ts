@@ -23,6 +23,30 @@ export function parseProjectIdFromActionUrl(actionUrl: string): number | string 
   return undefined;
 }
 
+/** A named guest being asked to book — not a host notice, not a real meeting. */
+export function isBookingLinkInvite(notification: NotificationItem): boolean {
+  const fromBooking =
+    notification.related_object_type?.toLowerCase() === "booking_link" ||
+    notification.metadata?.source === "booking_link";
+  return fromBooking && notification.event_type === "meeting_participant_added";
+}
+
+/** `/book/<org>/<slug>` — the only page with a date/time picker. */
+export function bookingInvitePath(notification: NotificationItem): string | null {
+  const orgSlug = String(notification.metadata?.organization_slug || "").trim();
+  const linkSlug = String(notification.metadata?.link_slug || "").trim();
+  if (orgSlug && linkSlug) {
+    return `/book/${encodeURIComponent(orgSlug)}/${encodeURIComponent(linkSlug)}`;
+  }
+  const fromAction = (notification.action_url || "").match(
+    /^\/book\/([^/?#]+)\/([^/?#]+)/,
+  );
+  if (fromAction) {
+    return `/book/${fromAction[1]}/${fromAction[2]}`;
+  }
+  return null;
+}
+
 export function extractNotificationProjectId(
   notification: NotificationItem
 ): number | string | undefined {
@@ -171,6 +195,23 @@ export function buildNotificationFullPageTarget(
       ? nestedProjectPath(projectId, `/decisions/${decisionKey}`)
       : `/decisions/${decisionKey}`;
     return { href, requiresProjectSwitch: false };
+  }
+
+  if (objectType === "booking_link") {
+    // Named guest: the public page is where they pick a time. The owner
+    // manager is empty for them. A host cancel without a re-invite is
+    // notice-only — do not send them back to the picker.
+    if (isBookingLinkInvite(notification)) {
+      if (notification.metadata?.can_rebook === false) {
+        return { href: "/calendar", requiresProjectSwitch: false };
+      }
+      const href = bookingInvitePath(notification);
+      if (href) {
+        return { href, requiresProjectSwitch: false };
+      }
+      return { href: "/calendar", requiresProjectSwitch: false };
+    }
+    return { href: "/calendar/booking-links", requiresProjectSwitch: false };
   }
 
   if (objectType === "budget_request") {

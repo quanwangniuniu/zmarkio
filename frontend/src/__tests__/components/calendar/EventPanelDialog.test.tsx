@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { EventPanelDialog } from "@/components/calendar/EventPanelDialog";
 import { CalendarAPI } from "@/lib/api/calendarApi";
 
@@ -8,8 +8,11 @@ jest.mock("@/lib/api/calendarApi", () => ({
     updateEvent: jest.fn(),
     updateEventInstance: jest.fn(),
     splitEventSeries: jest.fn(),
+    // A booking event loads its guest on open; none here keeps the panel empty.
+    listEventAttendees: jest.fn().mockResolvedValue([]),
   },
   extractUserDescription: (value: string) => value,
+  extractNavigationMetadata: () => null,
 }));
 
 const calendars = [
@@ -196,6 +199,40 @@ describe("EventPanelDialog recurrence UI", () => {
         "evt-4",
         "2026-06-30T09:00:00.000Z",
         expect.objectContaining({ title: "Only this one" }),
+      );
+    });
+  });
+
+  it("lets the host cancel a booked meeting from the event panel", async () => {
+    const onDelete = jest.fn().mockResolvedValue(undefined);
+
+    render(
+      <EventPanelDialog
+        {...baseProps}
+        mode="view"
+        onDelete={onDelete}
+        event={{
+          id: "booked-1",
+          calendar_id: "cal-1",
+          title: "Intro call",
+          start_datetime: "2026-06-30T09:00:00.000Z",
+          end_datetime: "2026-06-30T09:30:00.000Z",
+          is_all_day: false,
+          is_recurring: false,
+          metadata: { source: "booking_link" },
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("calendar-booking-note")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("calendar-cancel-meeting"));
+    const confirmTitle = screen.getByText("Cancel this meeting?");
+    const confirmDialog = confirmTitle.closest(".fixed") as HTMLElement;
+    fireEvent.click(within(confirmDialog).getByRole("button", { name: "Cancel meeting" }));
+
+    await waitFor(() => {
+      expect(onDelete).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "booked-1" }),
       );
     });
   });
