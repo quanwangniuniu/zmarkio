@@ -757,6 +757,13 @@ jobs:
             python manage.py migrate --noinput --settings=backend.ci_settings
           "
 
+      # The ci_settings migrate above applies nothing (settings.py sets __all__,
+      # so `from .settings import *` brings in no INSTALLED_APPS). The single-job
+      # pipeline only got a migrated database from the studio step's plain
+      # migrate, so apply migrations explicitly here.
+      - name: Apply migrations for budget E2E
+        run: docker compose exec -T backend python manage.py migrate --noinput
+
       # Budget approval Playwright E2E (MED-315): real backend via nginx, isolated fixtures per test.
       # Reload next start before E2E so HTML and runtime chunks agree (kept from
       # the single-job pipeline, where a verification build replaced .next).
