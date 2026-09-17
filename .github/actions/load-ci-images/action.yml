@@ -1,0 +1,43 @@
+name: Load CI images
+description: >
+  Download the images built by the build_images job and load them into Docker,
+  so docker compose (run with --no-build) uses them instead of rebuilding.
+
+inputs:
+  images:
+    description: Space-separated subset of "backend frontend db" to load.
+    required: false
+    default: backend frontend db
+
+runs:
+  using: composite
+  steps:
+    - name: Download backend image
+      if: contains(inputs.images, 'backend')
+      uses: actions/download-artifact@v4
+      with:
+        name: ci-image-backend
+        path: ${{ runner.temp }}/ci-images
+
+    - name: Download frontend image
+      if: contains(inputs.images, 'frontend')
+      uses: actions/download-artifact@v4
+      with:
+        name: ci-image-frontend
+        path: ${{ runner.temp }}/ci-images
+
+    - name: Download database images
+      if: contains(inputs.images, 'db')
+      uses: actions/download-artifact@v4
+      with:
+        name: ci-image-db
+        path: ${{ runner.temp }}/ci-images
+
+    - name: Load images into Docker
+      shell: bash
+      run: |
+        for archive in "$RUNNER_TEMP"/ci-images/*.tar.zst; do
+          echo "Loading $archive"
+          zstd -dc "$archive" | docker load
+        done
+        rm -rf "$RUNNER_TEMP/ci-images"

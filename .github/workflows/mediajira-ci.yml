@@ -12,6 +12,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+# Image names follow <project>-<service>, which build_images tags to match.
+env:
+  COMPOSE_PROJECT_NAME: mediajira
+
 jobs:
   block:
     runs-on: ubuntu-latest
@@ -199,7 +203,11 @@ jobs:
 
           echo "No deleted or renamed Django migration files detected."
 
-  image_scan:
+  # Builds the backend, frontend and database images once per run and hands
+  # them to image_scan and every test job as artifacts (MED-447). Before this,
+  # application_test, image_scan and Lighthouse each built them, and docker
+  # compose rebuilt them once more inside application_test.
+  build_images:
     needs: block
     if: always() && needs.block.result != 'failure'
     runs-on: ubuntu-latest
@@ -229,12 +237,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Build backend image with cache
+      # Tagged with the names docker compose derives from COMPOSE_PROJECT_NAME,
+      # so `docker compose up --no-build` uses these images directly.
       - name: Build backend image
         uses: docker/build-push-action@v5
         with:
           context: ./backend
-          tags: mediajira-backend:${{ github.sha }}
+          tags: mediajira-backend:latest
           load: true
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache
           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache,mode=max
@@ -242,18 +251,80 @@ jobs:
       - name: Free disk space before frontend build
         run: docker buildx prune -af --keep-storage 2GB
 
-      # Build frontend image with cache
       - name: Build frontend image
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
-          tags: mediajira-frontend:${{ github.sha }}
+          tags: mediajira-frontend:latest
           load: true
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache
           cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache,mode=max
 
-      - name: Prune buildx cache
-        run: docker buildx prune -af --keep-storage 4GB
+      - name: Build database images
+        run: |
+          # compose needs the env_file to exist to parse docker-compose.yml
+          touch .env
+          docker compose --profile ci build db pgbackrest
+
+      - name: Export images
+        run: |
+          mkdir -p "$RUNNER_TEMP/ci-images"
+          docker save mediajira-backend | zstd -T0 -3 -o "$RUNNER_TEMP/ci-images/backend.tar.zst"
+          docker save mediajira-frontend | zstd -T0 -3 -o "$RUNNER_TEMP/ci-images/frontend.tar.zst"
+          docker save mediajira-db mediajira-pgbackrest | zstd -T0 -3 -o "$RUNNER_TEMP/ci-images/db.tar.zst"
+          ls -lh "$RUNNER_TEMP/ci-images"
+
+      - name: Upload backend image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-image-backend
+          path: ${{ runner.temp }}/ci-images/backend.tar.zst
+          compression-level: 0
+          retention-days: 1
+          overwrite: true
+
+      - name: Upload frontend image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-image-frontend
+          path: ${{ runner.temp }}/ci-images/frontend.tar.zst
+          compression-level: 0
+          retention-days: 1
+          overwrite: true
+
+      - name: Upload database images
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-image-db
+          path: ${{ runner.temp }}/ci-images/db.tar.zst
+          compression-level: 0
+          retention-days: 1
+          overwrite: true
+
+  image_scan:
+    needs: build_images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Free disk space on runner
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Load CI images
+        uses: ./.github/actions/load-ci-images
+        with:
+          images: backend frontend
 
       # Install Trivy
       - name: Install Trivy
@@ -270,29 +341,34 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p devops/trivy
-          trivy image --exit-code 0 --severity HIGH,CRITICAL --format json -o devops/trivy/trivy-backend-report.json mediajira-backend:${{ github.sha }}
+          trivy image --exit-code 0 --severity HIGH,CRITICAL --format json -o devops/trivy/trivy-backend-report.json mediajira-backend:latest
 
 
       # Run Trivy scan for frontend image
       - name: Run Trivy scan (frontend)
         continue-on-error: true
         run: |
-          trivy image --exit-code 0 --severity HIGH,CRITICAL --format json -o devops/trivy/trivy-frontend-report.json mediajira-frontend:${{ github.sha }}
+          trivy image --exit-code 0 --severity HIGH,CRITICAL --format json -o devops/trivy/trivy-frontend-report.json mediajira-frontend:latest
 
       - name: Upload Trivy reports
         if: always()
         uses: actions/upload-artifact@v4
-        with: 
+        with:
           name: trivy-scan-reports-${{ github.sha }}
           path: |
             devops/trivy/*report*
-  application_test:
-    needs: block
-    if: always() && needs.block.result != 'failure'
+
+  # The backend suite is split into 4 shards by module (see the
+  # pytest_collection_modifyitems hook in backend/conftest.py). Shards skip the
+  # coverage gate; backend_coverage combines their data and enforces it.
+  backend_tests:
+    name: backend_tests (shard ${{ matrix.shard }})
+    needs: build_images
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - name: Free disk space on runner
         uses: jlumbroso/free-disk-space@main
@@ -308,129 +384,14 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - name: Load CI images
+        uses: ./.github/actions/load-ci-images
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      # Rebuild images using cache from registry (no 10GB GHA limit)
-      - name: Build backend image
-        uses: docker/build-push-action@v5
+          images: backend db
+      - name: Start CI stack
+        uses: ./.github/actions/start-ci-stack
         with:
-          context: ./backend
-          tags: mediajira-backend:${{ github.sha }}
-          load: true
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache,mode=max
-
-      - name: Free disk space before frontend build
-        run: docker buildx prune -af --keep-storage 2GB
-
-      - name: Build frontend image
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          tags: mediajira-frontend:${{ github.sha }}
-          load: true
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache,mode=max
-
-      # Create a CI environment file with the necessary environment variables
-      # Django secret key is generated based on the current commit hash
-      # Database credentials use test defaults for CI environment
-      # Database host is set to db service in docker-compose.yml
-      # Debug is set to False
-      # Allowed hosts are set to localhost, 127.0.0.1, 0.0.0.0
-      # Celery broker URL and result backend are set to redis service in docker-compose.yml
-      - name: Create CI environment file
-        run: |
-          cat > .env << EOF
-          SECRET_KEY=test-secret-key-for-ci-${{ github.sha }}
-          POSTGRES_DB=mediajira_test_db
-          POSTGRES_USER=postgres
-          POSTGRES_PASSWORD=test_password
-          POSTGRES_PORT=5432
-          DB_HOST=db
-          API_BASE_URL=http://nginx
-          DEBUG=False
-          ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
-          CELERY_BROKER_URL=redis://redis:6379/0
-          CELERY_RESULT_BACKEND=redis://redis:6379/0
-          CLAMAV_HOST=clamav
-          CLAMAV_PORT=3310
-          FRONTEND_CLEAR_NEXT=1
-          EOF
-
-      # Start all services
-      - name: Start all services
-        run: |
-          docker compose --profile ci --env-file .env up -d
-
-      # Start database and wait for it to be ready
-      - name: wait for database and redis to be ready
-        run: |
-          # wait for database to be ready with proper health check
-          echo "Waiting for database to be ready..."
-          timeout=180
-          counter=0
-          while [ $counter -lt $timeout ]; do
-            if docker compose --profile ci exec -T db pg_isready -U postgres > /dev/null 2>&1; then
-              echo "Database is ready!"
-              break
-            fi
-            echo "Database not ready yet, waiting... ($counter/$timeout)"
-            sleep 2
-            counter=$((counter + 2))
-          done
-
-          if [ $counter -eq $timeout ]; then
-            echo "Database failed to start within $timeout seconds"
-            docker compose --profile ci logs db
-            exit 1
-          fi
-
-          # wait for redis to be ready
-          echo "Waiting for Redis to be ready..."
-          redis_timeout=30
-          redis_counter=0
-          while [ $redis_counter -lt $redis_timeout ]; do
-            if docker compose --profile ci exec -T redis redis-cli ping > /dev/null 2>&1; then
-              echo "Redis is ready!"
-              break
-            fi
-            echo "Redis not ready yet, waiting... ($redis_counter/$redis_timeout)"
-            sleep 1
-            redis_counter=$((redis_counter + 1))
-          done
-
-          if [ $redis_counter -eq $redis_timeout ]; then
-            echo "Redis failed to start within $redis_timeout seconds"
-            docker compose --profile ci logs redis
-            exit 1
-          fi
-
-          # wait for clamav to be ready
-          echo "Waiting for ClamAV to be ready..."
-          clamav_timeout=60
-          clamav_counter=0
-          while [ $clamav_counter -lt $clamav_timeout ]; do
-            if docker compose --profile ci exec -T clamav clamdscan --version > /dev/null 2>&1; then
-              echo "ClamAV is ready!"
-              break
-            fi
-            echo "ClamAV not ready yet, waiting... ($clamav_counter/$clamav_timeout)"
-            sleep 2
-            clamav_counter=$((clamav_counter + 2))
-          done
-
-          if [ $clamav_counter -eq $clamav_timeout ]; then
-            echo "ClamAV failed to start within $clamav_timeout seconds"
-            docker compose --profile ci logs clamav
-            exit 1
-          fi
+          services: db redis clamav backend
 
       - name: Run migration checks and backend tests (Postgres)
         run: |
@@ -442,11 +403,11 @@ jobs:
           "
 
       # Run backend tests in containerized environment
-      - name: Run backend tests in containerized environment
+      - name: Run backend tests in containerized environment (shard ${{ matrix.shard }})
         # continue-on-error: true
         run: |
           # run tests in the built backend image
-          docker compose exec backend sh -c "
+          docker compose exec -e PYTEST_SHARD_INDEX=${{ matrix.shard }} -e PYTEST_SHARD_COUNT=4 backend sh -c "
             echo 'Running migrations...' &&
             python manage.py makemigrations core&&
             python manage.py migrate core&&
@@ -459,8 +420,127 @@ jobs:
             python manage.py makemigrations user_preferences&&
             python manage.py migrate user_preferences&&
             echo 'Running pytest tests...' &&
-            pytest -v
+            pytest -v -n logical --cov-fail-under=0
            "
+
+      - name: Export coverage data
+        run: |
+          mkdir -p coverage-data
+          docker compose cp backend:/app/.coverage coverage-data/.coverage.shard-${{ matrix.shard }}
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-shard-${{ matrix.shard }}
+          path: coverage-data/
+          include-hidden-files: true
+          retention-days: 1
+          overwrite: true
+
+      # Cleanup containers and volumes
+      - name: Cleanup containers
+        if: always()
+        run: |
+          echo "Cleaning up containers and volumes..."
+          # A prior step may have failed before the ".env" file was created.
+          # docker compose still needs it to resolve the "env_file" directive,
+          # and this cleanup must never fail the job, so guard both.
+          [ -f .env ] || touch .env
+          docker compose --profile ci --env-file .env down -v || true
+          echo "Cleaning up unused Docker resources..."
+          docker system prune -f || true
+
+  backend_coverage:
+    needs: [build_images, backend_tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Load CI images
+        uses: ./.github/actions/load-ci-images
+        with:
+          images: backend
+
+      - name: Download shard coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: backend-coverage-shard-*
+          path: coverage-data
+          merge-multiple: true
+
+      - name: Combine coverage and enforce the gate
+        run: |
+          count=$(ls coverage-data/.coverage.shard-* 2>/dev/null | wc -l)
+          if [ "$count" -ne 4 ]; then
+            echo "Expected coverage data from 4 shards, found $count"
+            exit 1
+          fi
+          docker run --rm -v "$PWD/coverage-data:/coverage-data:ro" --entrypoint sh mediajira-backend -c '
+            set -e
+            cd /app
+            cp /coverage-data/.coverage.shard-* .
+            coverage combine
+            coverage report --fail-under=85
+          '
+
+  backend_serial_tests:
+    needs: build_images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space on runner
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Load CI images
+        uses: ./.github/actions/load-ci-images
+        with:
+          images: backend db
+      - name: Start CI stack
+        uses: ./.github/actions/start-ci-stack
+        with:
+          services: db redis clamav backend
+
+      - name: Run migration checks and backend tests (Postgres)
+        run: |
+          docker compose exec backend sh -c "
+            echo 'Checking for missing migrations...' &&
+            python manage.py makemigrations --check --dry-run --settings=backend.ci_settings &&
+            echo 'Applying migrations...' &&
+            python manage.py migrate --noinput --settings=backend.ci_settings
+          "
+
+      # Every collected test must belong to exactly one backend_tests shard.
+      # Collection needs the database, so this runs here rather than in
+      # backend_coverage.
+      - name: Check shards cover the whole suite
+        run: |
+          docker compose exec -T backend sh -c '
+            set -e
+            collect() { pytest --collect-only -qq -n 0 --no-cov -p no:cacheprovider | grep "::" | sort; }
+            collect > /tmp/all.txt
+            for i in 0 1 2 3; do
+              PYTEST_SHARD_INDEX=$i PYTEST_SHARD_COUNT=4 collect > /tmp/shard-$i.txt
+              echo "shard $i: $(wc -l < /tmp/shard-$i.txt) tests"
+            done
+            sort /tmp/shard-*.txt > /tmp/union.txt
+            echo "full suite: $(wc -l < /tmp/all.txt) tests"
+            if [ ! -s /tmp/all.txt ]; then echo "No tests collected"; exit 1; fi
+            if [ -n "$(uniq -d /tmp/union.txt)" ]; then echo "Tests collected by more than one shard:"; uniq -d /tmp/union.txt; exit 1; fi
+            if ! cmp -s /tmp/all.txt /tmp/union.txt; then echo "Shards do not match the full suite:"; diff /tmp/all.txt /tmp/union.txt; exit 1; fi
+            echo "Shards partition the full suite."
+          '
 
       # Run tests that are excluded from the parallel run above.
       # These file-upload integration tests, asset scan Celery tasks, and budget
@@ -475,18 +555,89 @@ jobs:
             pytest -v -o addopts='' --ds=backend.settings --timeout=600 metric_upload/tests/integration asset/tests/test_tasks.py budget_approval/tests/test_concurrency.py
            "
 
+      # Cleanup containers and volumes
+      - name: Cleanup containers
+        if: always()
+        run: |
+          echo "Cleaning up containers and volumes..."
+          # A prior step may have failed before the ".env" file was created.
+          # docker compose still needs it to resolve the "env_file" directive,
+          # and this cleanup must never fail the job, so guard both.
+          [ -f .env ] || touch .env
+          docker compose --profile ci --env-file .env down -v || true
+          echo "Cleaning up unused Docker resources..."
+          docker system prune -f || true
+
+  frontend_tests:
+    needs: build_images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space on runner
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Load CI images
+        uses: ./.github/actions/load-ci-images
+        with:
+          images: frontend
+
       # Run frontend tests in container
       - name: Run frontend tests in container
         run: |
-          # run tests in the built frontend image
-          # connect to the same network as backend services
-          docker compose exec frontend sh -c "
+          # run tests in the built frontend image; they need no backend services
+          docker run --rm --entrypoint sh mediajira-frontend -c "
             echo 'Running frontend linting...' &&
             npx next lint --max-warnings 9999 &&
             echo 'Building frontend application...' &&
             npm run build &&
             echo 'Running frontend tests...' &&
             npm test
+          "
+
+  studio_tests:
+    needs: build_images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space on runner
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Load CI images
+        uses: ./.github/actions/load-ci-images
+        with:
+          images: backend db
+      - name: Start CI stack
+        uses: ./.github/actions/start-ci-stack
+        with:
+          services: db redis clamav backend
+
+      - name: Run migration checks and backend tests (Postgres)
+        run: |
+          docker compose exec backend sh -c "
+            echo 'Checking for missing migrations...' &&
+            python manage.py makemigrations --check --dry-run --settings=backend.ci_settings &&
+            echo 'Applying migrations...' &&
+            python manage.py migrate --noinput --settings=backend.ci_settings
           "
 
       # The Studio service is a separate Next.js app that talks to the same
@@ -556,9 +707,59 @@ jobs:
               npm test
             "
 
+      # Cleanup containers and volumes
+      - name: Cleanup containers
+        if: always()
+        run: |
+          echo "Cleaning up containers and volumes..."
+          # A prior step may have failed before the ".env" file was created.
+          # docker compose still needs it to resolve the "env_file" directive,
+          # and this cleanup must never fail the job, so guard both.
+          [ -f .env ] || touch .env
+          docker compose --profile ci --env-file .env down -v || true
+          echo "Cleaning up unused Docker resources..."
+          docker system prune -f || true
+
+  budget_e2e:
+    needs: build_images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free disk space on runner
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Load CI images
+        uses: ./.github/actions/load-ci-images
+        with:
+          images: backend frontend db
+      - name: Start CI stack
+        uses: ./.github/actions/start-ci-stack
+        with:
+          extra-env: |
+            FRONTEND_CLEAR_NEXT=1
+
+      - name: Run migration checks and backend tests (Postgres)
+        run: |
+          docker compose exec backend sh -c "
+            echo 'Checking for missing migrations...' &&
+            python manage.py makemigrations --check --dry-run --settings=backend.ci_settings &&
+            echo 'Applying migrations...' &&
+            python manage.py migrate --noinput --settings=backend.ci_settings
+          "
+
       # Budget approval Playwright E2E (MED-315): real backend via nginx, isolated fixtures per test.
-      # The verification build replaces .next while next start is still serving
-      # its previous build. Reload it before E2E so HTML and runtime chunks agree.
+      # Reload next start before E2E so HTML and runtime chunks agree (kept from
+      # the single-job pipeline, where a verification build replaced .next).
       - name: Restart frontend after verification build
         run: docker compose restart frontend
 
@@ -798,6 +999,145 @@ jobs:
           docker compose --profile ci --env-file .env down -v || true
           echo "Cleaning up unused Docker resources..."
           docker system prune -f || true
+
+  # Moved here from the separate Lighthouse CI workflow so it reuses the images
+  # from build_images instead of building its own (MED-447).
+  lighthouse:
+    needs: build_images
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # Force all JS actions onto the Node 24 runtime.
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    steps:
+      - name: Free disk space on runner
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: true
+          swap-storage: false
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Load CI images
+        uses: ./.github/actions/load-ci-images
+        with:
+          images: backend frontend db
+      - name: Start CI stack
+        uses: ./.github/actions/start-ci-stack
+        with:
+          extra-env: |
+            OTEL_SDK_DISABLED=true
+            OTEL_TRACES_EXPORTER=none
+            OTEL_METRICS_EXPORTER=none
+            OTEL_LOGS_EXPORTER=none
+
+      # Run without --settings=backend.ci_settings — see LIGHTHOUSE_README.md § CI design decisions.
+      - name: Run migrations (Postgres)
+        run: |
+          docker compose exec backend sh -c "
+            python manage.py makemigrations --noinput &&
+            python manage.py makemigrations --merge --noinput &&
+            python manage.py migrate --noinput
+          "
+
+      # Plans (Free/Team) are seeded by migration 0004_seed_token_plans during the
+      # migrate step above; initialize_default_plans() was removed in the SMP-560
+      # token-billing redesign, so the old explicit seed step is gone.
+
+      - name: Verify backend is ready
+        run: |
+          for i in $(seq 1 30); do
+            if docker compose --profile ci exec -T backend python manage.py shell -c "from django.contrib.auth.models import User; print('DB OK')" > /dev/null 2>&1; then
+              echo "Backend ready."
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose --profile ci logs backend --tail 100
+          exit 1
+
+      - name: Wait for app on localhost
+        run: |
+          for i in $(seq 1 90); do
+            if curl -fsS --max-time 5 http://localhost/ > /dev/null 2>&1; then
+              echo "OK"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose --profile ci logs nginx --tail 80 || true
+          docker compose --profile ci logs frontend --tail 80 || true
+          exit 1
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies and run Lighthouse
+        working-directory: frontend
+        env:
+          LHCI_AUTH_EMAIL: ${{ secrets.LHCI_AUTH_EMAIL }}
+          LHCI_AUTH_PASSWORD: ${{ secrets.LHCI_AUTH_PASSWORD }}
+          CI: true
+        run: |
+          npm ci
+          npm run lighthouse:local
+
+      - name: Upload Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: lighthouse-reports-${{ github.sha }}
+          path: frontend/.lighthouseci/
+          if-no-files-found: warn
+          retention-days: 14
+          include-hidden-files: true
+
+      - name: Docker compose logs (on failure)
+        if: failure()
+        run: |
+          docker compose --profile ci ps -a || true
+          docker compose --profile ci logs backend --tail 250 || true
+          docker compose --profile ci logs nginx --tail 120 || true
+
+      # Cleanup containers and volumes
+      - name: Cleanup containers
+        if: always()
+        run: |
+          echo "Cleaning up containers and volumes..."
+          # A prior step may have failed before the ".env" file was created.
+          # docker compose still needs it to resolve the "env_file" directive,
+          # and this cleanup must never fail the job, so guard both.
+          [ -f .env ] || touch .env
+          docker compose --profile ci --env-file .env down -v || true
+          echo "Cleaning up unused Docker resources..."
+          docker system prune -f || true
+
+  # Keeps the application_test check name and the deploy/notify gates working
+  # now that the tests run as separate parallel jobs.
+  application_test:
+    needs: [build_images, backend_tests, backend_coverage, backend_serial_tests, frontend_tests, studio_tests, budget_e2e]
+    if: ${{ !cancelled() && needs.build_images.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check application test jobs
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          if echo "$RESULTS" | jq -e 'any(.[]; .result != "success")' > /dev/null; then
+            echo "One or more application test jobs did not succeed."
+            exit 1
+          fi
 
   deploy:
     needs: [block, migration_guard, code_scan, image_scan, application_test]
