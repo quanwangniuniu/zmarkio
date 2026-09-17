@@ -15,6 +15,7 @@ import {
   getTaskStatusChangeSVODescription,
   isTaskDueDateEditNotification,
 } from "@/lib/taskNotificationCopy";
+import { isBookingLinkInvite } from "@/lib/notificationRoutes";
 
 interface DrawerActivitySummaryProps {
   notification: NotificationItem;
@@ -92,8 +93,20 @@ function getActivityDescription(
     case "meeting_created":
       return <>{actor} created a new meeting.</>;
     case "meeting_updated":
+      if (notification.metadata?.cancelled_by_host && notification.metadata?.can_rebook === false) {
+        return <>{actor} cancelled your booking after changing availability.</>;
+      }
+      if (notification.metadata?.source === "booking_link") {
+        return <>{actor} updated a booking.</>;
+      }
       return <>{actor} updated the meeting details.</>;
     case "meeting_participant_added":
+      if (isBookingLinkInvite(notification)) {
+        if (notification.metadata?.cancelled_by_host) {
+          return <>{actor} updated availability — pick a new time.</>;
+        }
+        return <>{actor} invited you to book a time.</>;
+      }
       return <>You were added as a participant to this meeting.</>;
     case "meeting_participant_removed":
       return <>{actor} removed you from this meeting.</>;

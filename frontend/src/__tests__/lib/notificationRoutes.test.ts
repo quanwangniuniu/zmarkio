@@ -168,6 +168,78 @@ describe("notificationRoutes — slug routing", () => {
     expect(target?.href).not.toContain("/decisions/12");
   });
 
+  it("maps a booking-link invite to the public book page", () => {
+    const target = buildNotificationFullPageTarget(
+      makeNotification({
+        related_object_type: "booking_link",
+        related_object_id: "abc",
+        event_type: "meeting_participant_added",
+        action_url: "/calendar/booking-links",
+        metadata: { organization_slug: "gmail", link_slug: "standup2" },
+      })
+    );
+    expect(target).toEqual({
+      href: "/book/gmail/standup2",
+      requiresProjectSwitch: false,
+    });
+  });
+
+  it("maps a host booking-link notice to the manager, not the public page", () => {
+    const target = buildNotificationFullPageTarget(
+      makeNotification({
+        related_object_type: "booking_link",
+        related_object_id: "abc",
+        event_type: "meeting_created",
+        action_url: "/calendar/booking-links",
+        metadata: { organization_slug: "gmail", link_slug: "standup2" },
+      })
+    );
+    expect(target?.href).toBe("/calendar/booking-links");
+  });
+
+  it("does not send a booking-link invitee to the empty manager page", () => {
+    const target = buildNotificationFullPageTarget(
+      makeNotification({
+        related_object_type: "booking_link",
+        related_object_id: "abc",
+        event_type: "meeting_participant_added",
+        action_url: "/calendar/booking-links",
+        metadata: {},
+      })
+    );
+    expect(target?.href).toBe("/calendar");
+  });
+
+  it("does not send a closed booking invite back to the picker", () => {
+    const target = buildNotificationFullPageTarget(
+      makeNotification({
+        related_object_type: "booking_link",
+        related_object_id: "abc",
+        event_type: "meeting_participant_added",
+        action_url: "/book/gmail/standup2",
+        metadata: {
+          organization_slug: "gmail",
+          link_slug: "standup2",
+          can_rebook: false,
+        },
+      })
+    );
+    expect(target?.href).toBe("/calendar");
+  });
+
+  it("recovers the book page from the invite action URL when metadata is empty", () => {
+    const target = buildNotificationFullPageTarget(
+      makeNotification({
+        related_object_type: "booking_link",
+        related_object_id: "abc",
+        event_type: "meeting_participant_added",
+        action_url: "/book/gmail/standup3",
+        metadata: {},
+      })
+    );
+    expect(target?.href).toBe("/book/gmail/standup3");
+  });
+
   it("prefers task_slug from metadata for a budget_request notification", () => {
     const target = buildNotificationFullPageTarget(
       makeNotification({
