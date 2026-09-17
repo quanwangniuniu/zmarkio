@@ -365,6 +365,8 @@ jobs:
     name: backend_tests (shard ${{ matrix.shard }})
     needs: build_images
     runs-on: ubuntu-latest
+    # Backstop for hangs in DB setup, which timeout_func_only below exempts.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -393,7 +395,10 @@ jobs:
         with:
           services: db redis clamav backend
 
-      # Run backend tests in containerized environment
+      # Run backend tests in containerized environment.
+      # timeout_func_only: with 4 workers creating their test databases at once,
+      # per-worker DB setup takes ~9 min and hit the 600s per-test timeout
+      # (run 35218580787), so the timeout covers only the test body here.
       - name: Run backend tests in containerized environment (shard ${{ matrix.shard }})
         # continue-on-error: true
         run: |
@@ -411,7 +416,7 @@ jobs:
             python manage.py makemigrations user_preferences&&
             python manage.py migrate user_preferences&&
             echo 'Running pytest tests...' &&
-            pytest -v -n logical --cov-fail-under=0
+            pytest -v -n logical --cov-fail-under=0 -o timeout_func_only=true
            "
 
       - name: Export coverage data
