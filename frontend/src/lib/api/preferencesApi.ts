@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { getSharedRefreshedToken, readPersistedAuthState, resolveApiBaseUrl } from '../api';
+import { endSession, getSharedRefreshedToken, readPersistedAuthState, resolveApiBaseUrl } from '../api';
 import {
   UserPreferences,
   UserPreferencesUpdate,
@@ -56,6 +56,9 @@ api.interceptors.response.use(
         config.headers.Authorization = `Bearer ${accessToken}`;
         return api(config);
       }
+      // Sent a token but have nothing to refresh it with: the session is dead.
+      // (A rejected refresh already ended it inside getSharedRefreshedToken.)
+      if (!refreshToken && config.headers.Authorization) endSession();
     }
     return Promise.reject(error);
   }

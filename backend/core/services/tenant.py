@@ -113,31 +113,86 @@ def provision_tenant_schema(slug: str) -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def _create_tenant_tables(schema_name: str) -> None:
     """
     Use Django's SchemaEditor to create all tenant model tables inside the
-    given schema. search_path is set for the duration of this call and
-    reset on success. On failure the provisioning transaction rolls it back;
-    issuing cleanup SQL in the aborted transaction would mask the original error.
+    given schema. search_path is switched only for this call and then restored
+    to whatever the caller had selected (not hard-coded back to public).
 
     SchemaEditor.create_model() issues CREATE TABLE, adds indexes and
     constraints — all within the current transaction so failures roll back.
     """
     from core.tenant_config import get_tenant_models
 
-    # SET search_path accepts string literals (%s), so psycopg2 quoting is safe.
+    # Repair commands also call this helper directly, outside provisioning.
+    lock_tenant_provisioning()
+
+    # Preserve the full caller path, including any additional schemas. On error,
+    # the enclosing provisioning transaction restores it through rollback; do
+    # not issue cleanup SQL in an aborted transaction and mask the DDL error.
     with connection.cursor() as cursor:
+        cursor.execute('SHOW search_path')
+        previous_search_path = cursor.fetchone()[0]
         cursor.execute('SET search_path TO %s, public', [schema_name])
 
-    # Provisioning owns the transaction. SchemaEditor.__exit__ runs deferred DDL
-    # before exiting its own atomic block, which would leak that block on error.
+    # Provisioning owns the transaction. Deferred DDL runs in __exit__, where
+    # an editor-owned atomic block could leak if that DDL raises.
     with connection.schema_editor(atomic=False) as editor:
         for model in get_tenant_models():
             if not _table_exists(model._meta.db_table, schema_name):
                 editor.create_model(model)
+            else:
+                _add_missing_columns(editor, model, schema_name)
 
     with connection.cursor() as cursor:
-        cursor.execute('SET search_path TO public')
+        cursor.execute("SELECT set_config('search_path', %s, false)", [previous_search_path])
+
+
+def _existing_columns(table_name: str, schema_name: str) -> set[str]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            """,
+            [schema_name, table_name],
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+
+def _add_missing_columns(editor, model, schema_name: str) -> None:
+    """
+    Bring an existing tenant table up to date with its model.
+
+    Creating tables was never enough on its own. Django's migrations are
+    recorded once, in `public`, so a migration that adds a column to a tenant
+    model runs there and nowhere else - and this function used to skip any
+    table that already existed. The result was a schema reporting "up to date"
+    while silently missing columns, which surfaces much later as
+    `column ... does not exist` on a perfectly ordinary query.
+
+    Strictly additive: it adds columns and auto-created many-to-many tables,
+    and never alters or drops anything. Repairing a genuine type change still
+    needs a human.
+    """
+    present = _existing_columns(model._meta.db_table, schema_name)
+
+    for field in model._meta.local_fields:
+        if field.column and field.column not in present:
+            editor.add_field(model, field)
+
+    # A model that gains a many-to-many needs its join table, which is a table
+    # in its own right rather than a column on this one.
+    for field in model._meta.local_many_to_many:
+        through = getattr(field.remote_field, 'through', None)
+        if (
+            through is not None
+            and through._meta.auto_created
+            and not _table_exists(through._meta.db_table, schema_name)
+        ):
+            editor.create_model(through)
 
 
 def _table_exists(table_name: str, schema_name: str) -> bool:

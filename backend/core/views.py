@@ -512,9 +512,9 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
 
         if not organization:
             organization = self._auto_create_organization(user)
-            # provision_tenant_schema() resets search_path to 'public' in its
-            # finally block. Switch back to the new org's schema so that Project
-            # and ProjectMember are created in the correct tenant schema.
+            # Organization.save() restores the previous search_path afterwards
+            # (typically public when the user had no org). Switch to the new
+            # org's schema so Project and ProjectMember land in that tenant.
             schema_name = slug_to_schema_name(organization.slug)
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -1720,6 +1720,44 @@ class OrganizationDetailView(APIView):
             'recent_activity': activity_data,
         })
 
+    def patch(self, request, org_id):
+        """
+        PATCH /api/core/organizations/<org_id>/
+        Updates organization settings (admin only).
+        Currently supports: max_concurrent_sessions
+        """
+        user = request.user
+        resolved_id = resolve_pk_for(Organization, org_id)
+
+        if not can_user_access_organization(user, resolved_id):
+            return Response(
+                {'error': 'You do not have access to this organization.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        org = get_object_or_404(Organization, id=resolved_id)
+
+        original_org_id = user.current_organization_id
+        user.current_organization_id = resolved_id
+        if not is_org_admin(user):
+            user.current_organization_id = original_org_id
+            return Response({'error': 'Only organization admins can update settings.'}, status=status.HTTP_403_FORBIDDEN)
+        user.current_organization_id = original_org_id
+
+        cap = request.data.get('max_concurrent_sessions')
+        if cap is None:
+            return Response({'error': 'max_concurrent_sessions is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            cap = int(cap)
+            if cap < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            return Response({'error': 'max_concurrent_sessions must be a positive integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        org.max_concurrent_sessions = cap
+        org.save(update_fields=['max_concurrent_sessions', 'updated_at'])
+        return Response({'max_concurrent_sessions': org.max_concurrent_sessions})
+
     def delete(self, request, org_id):
         """
         DELETE /api/core/organizations/<org_id>/
@@ -2469,8 +2507,9 @@ class CreateOrganizationView(APIView):
         }
         """
         from django.utils.text import slugify
-        from django.db import connection, transaction
+        from django.db import transaction
         from core.services.tenant import slug_to_schema_name
+        from core.tenant_context import tenant_schema_context
         from customer.models import CustomerOrganisation
         from csm.models import CustomerUser
 
@@ -2537,10 +2576,7 @@ class CreateOrganizationView(APIView):
             # Switch to tenant schema to create roles
             schema_name = slug_to_schema_name(organization.slug)
 
-            with connection.cursor() as cursor:
-                cursor.execute(f'SET search_path TO {schema_name}, public')
-
-            try:
+            with tenant_schema_context(schema_name):
                 from access_control.models import Role as AccessRole, UserRole
 
                 # Create Organization Admin role (level=2)
@@ -2558,9 +2594,6 @@ class CreateOrganizationView(APIView):
                     defaults={"level": 30}
                 )
                 UserRole.objects.get_or_create(user=user, role=default_role)
-            finally:
-                with connection.cursor() as cursor:
-                    cursor.execute('SET search_path TO public')
 
         serializer = OrganizationSerializer(organization, context={'request': request})
         return Response({
@@ -2611,8 +2644,9 @@ class JoinOrganizationBySlugView(APIView):
             "slug": "acme-corp"
         }
         """
-        from django.db import connection, transaction
+        from django.db import transaction
         from core.services.tenant import slug_to_schema_name
+        from core.tenant_context import tenant_schema_context
 
         slug = request.data.get('slug', '').strip()
         if not slug:
@@ -2663,10 +2697,7 @@ class JoinOrganizationBySlugView(APIView):
             # Create default Media Buyer role in tenant schema
             schema_name = slug_to_schema_name(organization.slug)
 
-            with connection.cursor() as cursor:
-                cursor.execute(f'SET search_path TO {schema_name}, public')
-
-            try:
+            with tenant_schema_context(schema_name):
                 from access_control.models import Role, UserRole
                 default_role, _ = Role.objects.get_or_create(
                     organization=organization,
@@ -2674,9 +2705,6 @@ class JoinOrganizationBySlugView(APIView):
                     defaults={"level": 30}
                 )
                 UserRole.objects.get_or_create(user=user, role=default_role)
-            finally:
-                with connection.cursor() as cursor:
-                    cursor.execute('SET search_path TO public')
 
         log_org_activity(
             organization,

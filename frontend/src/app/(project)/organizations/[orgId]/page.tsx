@@ -117,6 +117,10 @@ function OrgDetailContent() {
   const [inviteSuccess, setInviteSuccess] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
+  // Session cap edit state
+  const [sessionCapDraft, setSessionCapDraft] = useState<string>('');
+  const [sessionCapSaving, setSessionCapSaving] = useState(false);
+
   useEffect(() => {
     const id = params.orgId;
     if (!id) {
@@ -915,6 +919,52 @@ function OrgDetailContent() {
                 </div>
               )}
             </div>
+
+            {/* Settings Card — admin only */}
+            {(['admin', 'owner'] as string[]).includes(org.user_role ?? '') && (
+              <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-4">Settings</p>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Max concurrent sessions per user</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={sessionCapDraft !== '' ? sessionCapDraft : (org.max_concurrent_sessions ?? 5)}
+                      onChange={(e) => setSessionCapDraft(e.target.value)}
+                      disabled={sessionCapSaving}
+                      className="w-20 text-sm px-2 py-1.5 rounded-md border border-gray-200 focus:outline-none focus:ring-1 focus:ring-[#3CCED7] disabled:opacity-50"
+                    />
+                    <button
+                      type="button"
+                      disabled={sessionCapSaving || sessionCapDraft === '' || Number(sessionCapDraft) === org.max_concurrent_sessions}
+                      onClick={async () => {
+                        const cap = Number(sessionCapDraft);
+                        if (!cap || cap < 1) return;
+                        setSessionCapSaving(true);
+                        try {
+                          await OrganizationAPI.updateOrgSettings(org.id, { max_concurrent_sessions: cap });
+                          setOrg((prev) => prev ? { ...prev, max_concurrent_sessions: cap } : prev);
+                          setSessionCapDraft('');
+                          toast.success('Session limit updated.');
+                        } catch {
+                          toast.error('Failed to update session limit.');
+                        } finally {
+                          setSessionCapSaving(false);
+                        }
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium rounded-md bg-[#3CCED7] text-white hover:opacity-90 transition disabled:opacity-40"
+                    >
+                      {sessionCapSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Save'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-1.5">
+                    When a user exceeds this limit, their oldest session is automatically revoked.
+                  </p>
+                </div>
+              </div>
+            )}
 
           </div>
         </div>

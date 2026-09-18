@@ -9,7 +9,9 @@ from django.db import DatabaseError, connection, connections, transaction
 from psycopg2 import sql
 
 from core.models import Organization
-from core.services.tenant import provision_tenant_schema, slug_to_schema_name
+from core.services.tenant import (
+    _create_tenant_tables, provision_tenant_schema, slug_to_schema_name,
+)
 
 
 pytestmark = [
@@ -41,6 +43,7 @@ def test_five_concurrent_organization_creates_commit_complete_tenants(tenant_slu
         try:
             with connection.cursor() as cursor:
                 cursor.execute("SET statement_timeout TO '45s'")
+                cursor.execute("SET search_path TO public")
             start.wait(timeout=10)
             # Signup already has an outer transaction. The provisioning lock
             # must survive Organization.save()'s nested atomic block.
@@ -84,12 +87,20 @@ def test_five_concurrent_organization_creates_commit_complete_tenants(tenant_slu
             assert cursor.fetchone()[0] == 1
 
 
-@pytest.mark.parametrize("create_organization", [True, False])
+@pytest.mark.parametrize("caller_is_tenant", [True, False])
+@pytest.mark.parametrize("entrypoint", ["organization", "provision", "repair"])
 def test_deferred_ddl_failure_preserves_error_and_rolls_back_schema(
-    tenant_slugs, create_organization,
+    tenant_slugs, entrypoint, caller_is_tenant,
 ):
     """A failed deferred FK must not be masked by search_path cleanup SQL."""
     slug = tenant_slugs[0]
+    caller_schema = slug_to_schema_name(tenant_slugs[1])
+    with connection.cursor() as cursor:
+        cursor.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(caller_schema)))
+        if entrypoint == 'repair':
+            cursor.execute(sql.SQL('CREATE SCHEMA {}').format(
+                sql.Identifier(slug_to_schema_name(slug)),
+            ))
 
     def fail_deferred_fk(execute, statement, params, many, context):
         if str(statement).startswith("ALTER TABLE") and "REFERENCES" in str(statement):
@@ -101,12 +112,20 @@ def test_deferred_ddl_failure_preserves_error_and_rolls_back_schema(
     def provision_with_failure():
         try:
             with connection.cursor() as cursor:
+                if caller_is_tenant:
+                    cursor.execute(
+                        sql.SQL('SET search_path TO {}, public, pg_catalog').format(
+                            sql.Identifier(caller_schema)
+                        )
+                    )
                 cursor.execute("SHOW search_path")
                 original_search_path = cursor.fetchone()[0]
             with connection.execute_wrapper(fail_deferred_fk):
                 with pytest.raises(DatabaseError) as raised:
-                    if create_organization:
+                    if entrypoint == "organization":
                         Organization.objects.create(name=slug, slug=slug)
+                    elif entrypoint == "repair":
+                        _create_tenant_tables(slug_to_schema_name(slug))
                     else:
                         # Management commands provision existing tenants directly.
                         provision_tenant_schema(slug)
@@ -131,4 +150,53 @@ def test_deferred_ddl_failure_preserves_error_and_rolls_back_schema(
         cursor.execute("SELECT count(*) FROM pg_namespace WHERE nspname = %s", [
             slug_to_schema_name(slug),
         ])
+        assert cursor.fetchone()[0] == (1 if entrypoint == 'repair' else 0)
+        cursor.execute(
+            'SELECT count(*) FROM information_schema.tables WHERE table_schema = %s',
+            [slug_to_schema_name(slug)],
+        )
         assert cursor.fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("direct_repair", [False, True])
+@pytest.mark.parametrize("reprovision", [False, True])
+def test_provisioning_restores_full_caller_path_and_repairs_existing_tables(
+    tenant_slugs, reprovision, direct_repair,
+):
+    """Keep MED-402 caller context and additive tenant repair when merging."""
+    caller_slug, target_slug = tenant_slugs[:2]
+    provision_tenant_schema(caller_slug)
+    target_schema = slug_to_schema_name(target_slug)
+    if reprovision:
+        provision_tenant_schema(target_slug)
+        with connection.cursor() as cursor:
+            cursor.execute(sql.SQL('ALTER TABLE {}.core_team DROP COLUMN "desc"').format(
+                sql.Identifier(target_schema),
+            ))
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(sql.SQL('SET search_path TO {}, public, pg_catalog').format(
+                sql.Identifier(slug_to_schema_name(caller_slug)),
+            ))
+            cursor.execute('SHOW search_path')
+            previous_path = cursor.fetchone()[0]
+        if direct_repair:
+            with connection.cursor() as cursor:
+                cursor.execute(sql.SQL('CREATE SCHEMA IF NOT EXISTS {}').format(
+                    sql.Identifier(target_schema),
+                ))
+            _create_tenant_tables(target_schema)
+        else:
+            provision_tenant_schema(target_slug)
+        with connection.cursor() as cursor:
+            cursor.execute('SHOW search_path')
+            assert cursor.fetchone()[0] == previous_path
+            cursor.execute(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = %s AND table_name = 'core_team' AND column_name = 'desc'",
+                [target_schema],
+            )
+            assert cursor.fetchone() == ('desc',)
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute('SET search_path TO public')

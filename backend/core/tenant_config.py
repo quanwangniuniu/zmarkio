@@ -195,6 +195,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         CalendarSettings,
         Notification as CalendarsNotification,
         CalendarEvent,
+        BookingLink,
     )
 
     # ------------------------------------------------------------------
@@ -362,6 +363,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         CalendarSettings,
         CalendarsNotification,
         CalendarEvent,
+        BookingLink,            # depends on Calendar
         CampaignCalendarLink,   # depends on Campaign + Event
         # access_control
         RolePermission,
