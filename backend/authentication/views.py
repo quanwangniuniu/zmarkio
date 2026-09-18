@@ -27,10 +27,11 @@ from core.services.audit_events import safe_emit_audit_event
 from access_control.models import UserRole
 from stripe_meta.permissions import generate_organization_access_token
 from django.conf import settings
-from django.db import transaction, connection
+from django.db import transaction
 from django.db.models import F
 from django.contrib.sessions.models import Session
 from core.services.tenant import slug_to_schema_name
+from core.tenant_context import tenant_schema_context
 from google_auth_oauthlib.flow import Flow  # For OAuth start (generating auth URL)
 from requests_oauthlib import OAuth2Session  # For OAuth callback (token exchange)
 from django.core.mail import send_mail
@@ -183,26 +184,16 @@ class RegisterView(APIView):
                 }
             )
 
-            # Assign default Media Buyer role in tenant schema
-            from django.db import connection
-            from core.services.tenant import slug_to_schema_name
+            # Assign default Media Buyer role in tenant schema, then restore
+            # whatever search_path this request already had.
             schema_name = slug_to_schema_name(organization.slug)
-
-            # Temporarily switch to tenant schema to create Role and UserRole
-            with connection.cursor() as cursor:
-                cursor.execute(f'SET search_path TO {schema_name}, public')
-
-            try:
+            with tenant_schema_context(schema_name):
                 default_role, _ = Role.objects.get_or_create(
                     organization=organization,
                     name="Media Buyer",
                     defaults={"level": 30}
                 )
                 UserRole.objects.get_or_create(user=user, role=default_role)
-            finally:
-                # Reset to public schema
-                with connection.cursor() as cursor:
-                    cursor.execute('SET search_path TO public')
 
             # Create CustomerOrganisation + admin CustomerUser so CSM features work
             from customer.models import CustomerOrganisation
@@ -474,18 +465,13 @@ class SsoCallbackView(APIView):
                 # schema's access_control_userrole resolves to the tenant's
                 # core_role table (not the public one).
                 _schema = slug_to_schema_name(organization.slug)
-                with connection.cursor() as _cur:
-                    _cur.execute(f'SET search_path TO {_schema}, public')
-                try:
+                with tenant_schema_context(_schema):
                     default_role, _ = Role.objects.get_or_create(
                         organization=organization,
                         name="Media Buyer",
                         defaults={"level": 30}
                     )
                     UserRole.objects.get_or_create(user=user, role=default_role)
-                finally:
-                    with connection.cursor() as _cur:
-                        _cur.execute('SET search_path TO public')
                 
                 # Generate JWT tokens
                 refresh = build_user_refresh_token(user)
