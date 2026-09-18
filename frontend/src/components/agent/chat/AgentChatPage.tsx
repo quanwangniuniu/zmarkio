@@ -10,6 +10,12 @@ import { ActionBar } from "./ActionBar"
 import OnboardingTokenIntro from "./OnboardingTokenIntro"
 import type { PendingExternalApproval } from "./ExternalApprovalModal"
 import { AgentAPI } from "@/lib/api/agentApi"
+import { PatternAPI, PatternAgentError } from "@/lib/api/patternApi"
+import { PivotAPI, PivotAgentError } from "@/lib/api/pivotApi"
+import { AiConsentAPI, AiConsentRequiredError, type AiConsentTarget } from "@/lib/api/aiConsentApi"
+import ConfirmModal from "@/components/ui/ConfirmModal"
+import { SpreadsheetAPI } from "@/lib/api/spreadsheetApi"
+import { generatePivotSheetName } from "@/lib/spreadsheet/pivot"
 import {
   setAgentMessageBoardWaitingForFileAnalysisResponse,
   setAgentMessageBoardRenderEffectsCompletedOnQuit,
@@ -31,6 +37,7 @@ import type {
 } from "@/types/agent"
 import { useGenerationOutputs } from "@/hooks/useGenerationOutputs"
 import { GenerationOutputsSettings } from "./GenerationOutputsSettings"
+import { AgentWorkflowBanner } from "./AgentWorkflowBanner"
 import { AGENT_MESSAGES } from "@/lib/agentMessages"
 import type { StepProgressItem } from "./StepProgress"
 import type { TaskGenerationStatus } from "./TaskListCard"
@@ -39,9 +46,11 @@ import {
   AGENT_PANEL_OPENED_EVENT,
   consumeCalendarPreload,
   consumeDraftPreload,
+  consumeSpreadsheetPreload,
   shouldAutoSendDraftPreload,
   type CalendarPreload,
   type DraftPreload,
+  type SpreadsheetPreload,
 } from "@/lib/agentLaunchContext"
 import { getPendingMiroWorkflowRunIds } from "@/lib/agentMiroBoardStatus"
 import { agentMiroBoardHref } from "@/lib/agentMiroBoardHref"
@@ -106,6 +115,200 @@ function broadcastRestoredAnomalies(messages: AgentMessage[]) {
   }
 }
 
+/** Build a spreadsheet detail URL from persisted message metadata. */
+function buildSpreadsheetNavigateHref(
+  data?: AgentMessage["data"]
+): string | undefined {
+  if (!data) return undefined
+  if (data.url) return data.url
+  if (data.spreadsheet_id != null && data.project_id != null) {
+    return `/spreadsheets/${data.spreadsheet_id}?project_id=${data.project_id}`
+  }
+  return undefined
+}
+
+function parseUploadedFileName(content: string): string | undefined {
+  const match = content.match(/^Uploaded "(.+)"$/)
+  return match?.[1]
+}
+
+/** Human-readable timestamp for auto-generated session titles, e.g. "Aug 26, 3:45 PM". */
+function formatSessionTimestamp(date: Date = new Date()): string {
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
+function spreadsheetUploadNavigateLabel(fileName: string): string {
+  return `Uploaded "${fileName}"`
+}
+
+/** Sheet identity the workflow banner needs for the spreadsheet-analysis flow. */
+type SheetWorkContext = {
+  spreadsheetId: number
+  sheetId: number
+  sheetName: string
+  spreadsheetName: string
+}
+
+function sheetWorkContextFromPreload(preload: SpreadsheetPreload): SheetWorkContext {
+  return {
+    spreadsheetId: preload.spreadsheetId,
+    sheetId: preload.sheetId,
+    sheetName: preload.sheetName,
+    spreadsheetName: preload.spreadsheetName,
+  }
+}
+
+/** Restore the persisted spreadsheet-analysis sheet context (survives refresh). */
+function readStoredSheetWorkContext(): SheetWorkContext | null {
+  if (typeof window === "undefined") return null
+  const raw = sessionStorage.getItem("agent-session-spreadsheet-context")
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<SheetWorkContext>
+    if (
+      typeof parsed.spreadsheetId === "number" &&
+      typeof parsed.sheetId === "number" &&
+      typeof parsed.sheetName === "string" &&
+      typeof parsed.spreadsheetName === "string"
+    ) {
+      return parsed as SheetWorkContext
+    }
+  } catch {
+    /* ignore malformed value */
+  }
+  return null
+}
+
+/**
+ * Which sheet the pattern- or pivot-generation board is working on. Persisted
+ * (like the spreadsheet-analysis context) so the workflow banner still names
+ * the sheet after a page reload — these modes otherwise keep everything in
+ * volatile component state and come back blank.
+ */
+type GenerationModeContext = {
+  mode: "pattern_generation" | "pivot_table_generation"
+  spreadsheetId: string | number | null
+  sheetId: number
+  sheetName: string | null
+  spreadsheetName: string | null
+}
+
+const GENERATION_MODE_CONTEXT_KEY = "agent-generation-mode-context"
+
+function readStoredGenerationModeContext(): GenerationModeContext | null {
+  if (typeof window === "undefined") return null
+  const raw = sessionStorage.getItem(GENERATION_MODE_CONTEXT_KEY)
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw) as Partial<GenerationModeContext>
+    if (
+      (parsed.mode === "pattern_generation" ||
+        parsed.mode === "pivot_table_generation") &&
+      typeof parsed.sheetId === "number"
+    ) {
+      return {
+        mode: parsed.mode,
+        spreadsheetId: parsed.spreadsheetId ?? null,
+        sheetId: parsed.sheetId,
+        sheetName: typeof parsed.sheetName === "string" ? parsed.sheetName : null,
+        spreadsheetName:
+          typeof parsed.spreadsheetName === "string" ? parsed.spreadsheetName : null,
+      }
+    }
+  } catch {
+    /* ignore malformed value */
+  }
+  return null
+}
+
+/**
+ * Generation-mode marker stamped onto the NL pattern/pivot transcript messages
+ * (via AgentAPI.appendMessage `data`). Lets a session reopened from sidebar
+ * history rehydrate its workflow banner + mode — the volatile component state /
+ * per-tab sessionStorage copy is gone by then.
+ */
+type GenerationModeMarker = {
+  generation_mode: "pattern_generation" | "pivot_table_generation"
+  spreadsheet_id: string | number | null
+  sheet_id: number
+  sheet_name: string | null
+  spreadsheet_name: string | null
+}
+
+/** Newest pattern/pivot generation marker in a restored transcript, if any. */
+function findGenerationModeMarker(
+  messages: AgentMessage[]
+): GenerationModeMarker | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const d = messages[i]?.data as
+      | {
+          generation_mode?: unknown
+          spreadsheet_id?: unknown
+          sheet_id?: unknown
+          sheet_name?: unknown
+          spreadsheet_name?: unknown
+        }
+      | null
+      | undefined
+    if (
+      (d?.generation_mode === "pattern_generation" ||
+        d?.generation_mode === "pivot_table_generation") &&
+      typeof d.sheet_id === "number"
+    ) {
+      return {
+        generation_mode: d.generation_mode,
+        spreadsheet_id:
+          typeof d.spreadsheet_id === "number" || typeof d.spreadsheet_id === "string"
+            ? d.spreadsheet_id
+            : null,
+        sheet_id: d.sheet_id,
+        sheet_name: typeof d.sheet_name === "string" ? d.sheet_name : null,
+        spreadsheet_name:
+          typeof d.spreadsheet_name === "string" ? d.spreadsheet_name : null,
+      }
+    }
+  }
+  return null
+}
+
+/** Move spreadsheet link from user upload rows onto the next assistant bubble. */
+function attachSpreadsheetNavFromUploads(messages: ChatMessage[]): ChatMessage[] {
+  const result = messages.map((m) => ({ ...m }))
+  for (let i = 0; i < result.length; i++) {
+    const upload = result[i]
+    if (upload.role !== "user" || upload.type !== "file_uploaded") continue
+
+    const navigateHref = upload.navigateHref
+    const fileName = upload.fileName ?? parseUploadedFileName(upload.content)
+    if (!navigateHref || !fileName) continue
+
+    for (let j = i + 1; j < result.length; j++) {
+      if (result[j].role !== "assistant") continue
+      if (!result[j].navigateLabel) {
+        result[j] = {
+          ...result[j],
+          navigateTo: "spreadsheet",
+          navigateLabel: spreadsheetUploadNavigateLabel(fileName),
+          navigateHref,
+        }
+      }
+      break
+    }
+
+    result[i] = { ...upload, navigateHref: undefined }
+  }
+  return result
+}
+
+function prepareRestoredMessages(messages: ChatMessage[]): ChatMessage[] {
+  return attachSpreadsheetNavFromUploads(dedupeMiroGenerationStartedMessages(messages))
+}
+
 /** Restore a persisted AgentMessage into a ChatMessage with correct type & navigation. */
 function restoreMessage(m: AgentMessage): ChatMessage {
   let type: ChatMessage["type"] = "text"
@@ -113,13 +316,21 @@ function restoreMessage(m: AgentMessage): ChatMessage {
   let navigateLabel: string | undefined
   let navigateDisabled = false
   let navigateHref: string | undefined
+  let fileName: string | undefined
   let approval: PendingExternalApproval | undefined
   const isFollowUpPrompt = m.message_type === "follow_up_prompt"
 
 
   const eventType = m.data?.event_type
 
-  if (m.message_type === "calendar_invite") {
+  if (
+    m.role === "user" &&
+    (m.data?.original_filename || /^Uploaded "/.test(m.content))
+  ) {
+    type = "file_uploaded"
+    fileName = m.data?.original_filename ?? parseUploadedFileName(m.content)
+    navigateHref = buildSpreadsheetNavigateHref(m.data)
+  } else if (m.message_type === "calendar_invite") {
     type = "calendar_invite"
   } else if (eventType === "miro_generation_started") {
     type = "miro_status"
@@ -133,6 +344,14 @@ function restoreMessage(m: AgentMessage): ChatMessage {
     navigateHref = agentMiroBoardHref(m.data)
   } else if (eventType === "miro_generation_failed") {
     type = "error"
+  } else if ((m.data as { kind?: string } | null | undefined)?.kind === "spreadsheet_summary") {
+    type = "spreadsheet_summary"
+  } else if (
+    m.message_type === "analysis" &&
+    (m.data as { spreadsheet_id?: number } | null | undefined)?.spreadsheet_id != null &&
+    Array.isArray(m.data?.anomalies)
+  ) {
+    type = "spreadsheet_anomalies"
   } else if (m.message_type === "analysis" || hasPersistedAnalysisPayload(m.data)) {
     type = "analysis"
   } else if (m.message_type === "task_created" || m.data?.task_ids) {
@@ -196,6 +415,9 @@ function restoreMessage(m: AgentMessage): ChatMessage {
     eventType,
     workflowRunId: m.data?.workflow_run_id,
     approval,
+    fileName,
+    spreadsheetId: m.data?.spreadsheet_id,
+    sheetId: m.data?.sheet_id,
   }
 }
 
@@ -321,6 +543,7 @@ function appendMiroResultMessage(prev: ChatMessage[], event: SSEEvent): ChatMess
 let _calendarAutoSendFired = false
 // Same one-shot guard for a staged draft context (Draft → Agent).
 let _draftAutoSendFired = false
+let _spreadsheetAutoSendFired = false
 
 type AgentChatPageProps = {
   /** Hide title + approval row; used when the floating window title bar shows them. */
@@ -331,11 +554,31 @@ export function AgentChatPage({ embeddedInFloating = false }: AgentChatPageProps
   const router = useRouter()
   const buildUrl = useBuildUrl()
   const { setActiveView, floatingChat, toggleMaximize, setFloatingSessionId } = useAgentLayout()
+  // Pattern/pivot generation modes keep their sheet identity in component state,
+  // which a page reload wipes. Read the persisted copy once so the mode (and its
+  // workflow banner) can be rehydrated below.
+  const storedGenerationModeContext = useMemo(() => readStoredGenerationModeContext(), [])
+  const storedPatternContext =
+    storedGenerationModeContext?.mode === "pattern_generation"
+      ? storedGenerationModeContext
+      : null
+  const storedPivotContext =
+    storedGenerationModeContext?.mode === "pivot_table_generation"
+      ? storedGenerationModeContext
+      : null
   const [sessionId, setSessionIdState] = useState<string | null>(null)
   const [projectId, setProjectId] = useState<string | null>(null)
+  // Set when an AI-analysis call needs consent (reactive: a request was refused;
+  // proactive: entering pattern/pivot mode for a not-yet-consented sheet). The
+  // callback re-runs the original action once consent is granted (a no-op for
+  // the proactive case — the user just proceeds).
+  const [aiConsentRetry, setAiConsentRetry] = useState<null | (() => void)>(null)
+  const [aiConsentSubmitting, setAiConsentSubmitting] = useState(false)
+  // What the pending consent prompt is for (one-time per spreadsheet).
+  const [consentTarget, setConsentTarget] = useState<AiConsentTarget | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
-  const [hasStarted, setHasStarted] = useState(false)
+  const [hasStarted, setHasStarted] = useState(storedGenerationModeContext != null)
   const [stepProgress, setStepProgress] = useState<StepProgressItem[]>([])
   const [stepState, setStepState] = useState<WorkflowStepState>({
     analysisComplete: false,
@@ -345,7 +588,45 @@ export function AgentChatPage({ embeddedInFloating = false }: AgentChatPageProps
   })
   const [followUpAvailable, setFollowUpAvailable] = useState(false)
   const [followUpStarted, setFollowUpStarted] = useState(false)
-  const [sessionTitle, setSessionTitle] = useState("Chat")
+  const [sessionTitle, setSessionTitle] = useState(
+    storedPatternContext
+      ? "Pattern Generation"
+      : storedPivotContext
+        ? "Pivot Table Generation"
+        : "Chat"
+  )
+  const [patternGenerationSheetId, setPatternGenerationSheetId] = useState<number | null>(
+    storedPatternContext?.sheetId ?? null
+  )
+  const [patternGenerationSheetName, setPatternGenerationSheetName] = useState<string | null>(
+    storedPatternContext?.sheetName ?? null
+  )
+  const [patternGenerationSpreadsheetName, setPatternGenerationSpreadsheetName] = useState<string | null>(
+    storedPatternContext?.spreadsheetName ?? null
+  )
+  // Separate ref for the pattern-generation sidebar session — never wired into the main
+  // session restore / polling flow so it can't clobber the local chat state.
+  const patternGenerationSessionIdRef = useRef<string | null>(null)
+  const [pivotGenerationSpreadsheetId, setPivotGenerationSpreadsheetId] = useState<string | number | null>(
+    storedPivotContext?.spreadsheetId ?? null
+  )
+  const [pivotGenerationSheetId, setPivotGenerationSheetId] = useState<number | null>(
+    storedPivotContext?.sheetId ?? null
+  )
+  const [pivotGenerationSheetName, setPivotGenerationSheetName] = useState<string | null>(
+    storedPivotContext?.sheetName ?? null
+  )
+  const [pivotGenerationSpreadsheetName, setPivotGenerationSpreadsheetName] = useState<string | null>(
+    storedPivotContext?.spreadsheetName ?? null
+  )
+  // Separate ref for the pivot-generation sidebar session — mirrors patternGenerationSessionIdRef.
+  const pivotGenerationSessionIdRef = useRef<string | null>(null)
+  // Pattern/pivot sessions created before the transcript marker existed: the
+  // sheet binding is unrecoverable, but the title still identifies the workflow,
+  // so the banner shows a label-only variant (see applySessionState + workflowBanner).
+  const [historicalGenerationMode, setHistoricalGenerationMode] = useState<
+    "pattern_generation" | "pivot_table_generation" | null
+  >(null)
   const [approvalRequired, setApprovalRequired] = useState(false)
   const [generatedTaskIndexes, setGeneratedTaskIndexes] = useState<number[]>([])
   const [skippedTaskIndexes, setSkippedTaskIndexes] = useState<number[]>([])
@@ -434,6 +715,123 @@ export function AgentChatPage({ embeddedInFloating = false }: AgentChatPageProps
     }
     return preload
   })
+  const [pendingSpreadsheetPreload, setPendingSpreadsheetPreload] = useState<SpreadsheetPreload | null>(() => {
+    const preload = consumeSpreadsheetPreload()
+    if (preload) {
+      _spreadsheetAutoSendFired = false
+    }
+    return preload
+  })
+  // Which sheet the spreadsheet-analysis workflow is working on, kept for the
+  // session lifetime (and across refresh) so the chat-board workflow banner stays
+  // accurate. Pattern/pivot modes track the sheet in their own state below.
+  const [sessionSpreadsheetContext, setSessionSpreadsheetContext] =
+    useState<SheetWorkContext | null>(() => {
+      if (pendingSpreadsheetPreload) {
+        return sheetWorkContextFromPreload(pendingSpreadsheetPreload)
+      }
+      return readStoredSheetWorkContext()
+    })
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (sessionSpreadsheetContext) {
+      sessionStorage.setItem(
+        "agent-session-spreadsheet-context",
+        JSON.stringify(sessionSpreadsheetContext)
+      )
+    } else {
+      sessionStorage.removeItem("agent-session-spreadsheet-context")
+    }
+  }, [sessionSpreadsheetContext])
+  // On a hard reload the useState initializer above may run before
+  // sessionStorage is readable (SSR/hydration), leaving the workflow banner on
+  // a generic session. Re-hydrate once on mount so "continuing a spreadsheet
+  // analysis session" survives refresh. Guarded so it never resurrects a
+  // context that an incoming preload is about to replace or clear.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (pendingSpreadsheetPreload) return
+    setSessionSpreadsheetContext((prev) => prev ?? readStoredSheetWorkContext())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // Persist the active pattern/pivot generation sheet so the workflow banner
+  // still names it after a page reload (see readStoredGenerationModeContext).
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    let ctx: GenerationModeContext | null = null
+    if (patternGenerationSheetId != null) {
+      ctx = {
+        mode: "pattern_generation",
+        spreadsheetId: null,
+        sheetId: patternGenerationSheetId,
+        sheetName: patternGenerationSheetName,
+        spreadsheetName: patternGenerationSpreadsheetName,
+      }
+    } else if (pivotGenerationSheetId != null) {
+      ctx = {
+        mode: "pivot_table_generation",
+        spreadsheetId: pivotGenerationSpreadsheetId,
+        sheetId: pivotGenerationSheetId,
+        sheetName: pivotGenerationSheetName,
+        spreadsheetName: pivotGenerationSpreadsheetName,
+      }
+    }
+    if (ctx) {
+      sessionStorage.setItem(GENERATION_MODE_CONTEXT_KEY, JSON.stringify(ctx))
+    } else {
+      sessionStorage.removeItem(GENERATION_MODE_CONTEXT_KEY)
+    }
+  }, [
+    patternGenerationSheetId,
+    patternGenerationSheetName,
+    patternGenerationSpreadsheetName,
+    pivotGenerationSpreadsheetId,
+    pivotGenerationSheetId,
+    pivotGenerationSheetName,
+    pivotGenerationSpreadsheetName,
+  ])
+  // Belt-and-suspenders re-hydrate on mount, in case the initializer above ran
+  // before sessionStorage was readable (SSR/hydration). Only fills gaps — never
+  // overrides a mode the user is already in.
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const stored = readStoredGenerationModeContext()
+    if (!stored) return
+    if (patternGenerationSheetId != null || pivotGenerationSheetId != null) return
+    if (sessionStorage.getItem("agent-session-id")) return
+    if (stored.mode === "pattern_generation") {
+      setPatternGenerationSheetId(stored.sheetId)
+      setPatternGenerationSheetName(stored.sheetName)
+      setPatternGenerationSpreadsheetName(stored.spreadsheetName)
+      setSessionTitle("Pattern Generation")
+    } else {
+      setPivotGenerationSpreadsheetId(stored.spreadsheetId)
+      setPivotGenerationSheetId(stored.sheetId)
+      setPivotGenerationSheetName(stored.sheetName)
+      setPivotGenerationSpreadsheetName(stored.spreadsheetName)
+      setSessionTitle("Pivot Table Generation")
+    }
+    setHasStarted(true)
+    setMessages((prev) =>
+      prev.length > 0
+        ? prev
+        : [
+            {
+              id: `${stored.mode}-restored-${Date.now()}`,
+              role: "assistant",
+              type: "text",
+              content:
+                stored.mode === "pattern_generation"
+                  ? "You are back in **Pattern Generation Mode** for this sheet. Describe the change you want and I will generate the pattern steps."
+                  : "You are back in **Pivot Table Generation Mode** for this spreadsheet. Describe the pivot table you want and I will generate it as a new sheet.",
+            },
+          ]
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // Pattern/pivot generation run as synchronous API calls (no SSE stream), so the
+  // banner needs its own "actively processing" flag for those modes.
+  const [isWorkflowGenerating, setIsWorkflowGenerating] = useState(false)
   // Persist calendar context for the lifetime of this session so follow-up messages
   // also go through the calendar workflow, not the generic fallback.
   const [sessionCalendarContext, setSessionCalendarContext] = useState<Record<string, unknown> | null>(
@@ -465,6 +863,8 @@ export function AgentChatPage({ embeddedInFloating = false }: AgentChatPageProps
   }, [sessionDraftContext])
 
   const handleSendMessageRef = useRef<typeof handleSendMessage | null>(null)
+  // Last spreadsheet-insights preload, so a consent prompt can re-run the analysis.
+  const lastSpreadsheetPreloadRef = useRef<SpreadsheetPreload | null>(null)
   const isAwaitingFollowUp = followUpStarted && !isStreaming
   const inputPlaceholder = isAwaitingFollowUp
     ? "Ask one follow-up question about the analysis, or include an exact username/email for forwarding..."
@@ -478,6 +878,7 @@ export function AgentChatPage({ embeddedInFloating = false }: AgentChatPageProps
       .find(
         (message) =>
           message.type === "analysis" ||
+          message.type === "spreadsheet_anomalies" ||
           (Array.isArray(message.recommendedTasks) && message.recommendedTasks.length > 0)
       )?.id ?? null
   const [renderFinishSignal, setRenderFinishSignal] = useState(0)
@@ -547,10 +948,10 @@ export function AgentChatPage({ embeddedInFloating = false }: AgentChatPageProps
         return
       }
       autoActionQueueRef.current = queue
-      if (queue.includes("create_tasks")) {
+      if (queue.includes("create_tasks") && !requiresApproval) {
         setTaskGenerationStatus("generating")
       }
-      if (queue.includes("create_decisions")) {
+      if (queue.includes("create_decisions") && !requiresApproval) {
         setDecisionGenerationStatus("generating")
       }
       tryRunNextAutoAction()
@@ -656,7 +1057,7 @@ export function AgentChatPage({ embeddedInFloating = false }: AgentChatPageProps
         latestRecommendedTasksRef.current = restored[i].recommendedTasks || null
       }
     }
-    setMessages(dedupeMiroGenerationStartedMessages(restored))
+    setMessages(prepareRestoredMessages(restored))
     setFollowUpAvailable(Boolean(session.follow_up_available))
     setFollowUpStarted(Boolean(session.follow_up_started))
     setSessionTitle((session.title && session.title.trim()) || "Chat")
@@ -726,6 +1127,86 @@ export function AgentChatPage({ embeddedInFloating = false }: AgentChatPageProps
       }
     }
     setStepState(restoredStepState)
+    // Reconcile the spreadsheet-analysis banner context with the loaded session:
+    // keep the name-carrying context when it matches, replace it when a different
+    // sheet was analyzed, drop it when this session is not a spreadsheet analysis.
+    const restoredInsightsMsg = [...session.messages]
+      .reverse()
+      .find(
+        (m) =>
+          m.message_type === "analysis" &&
+          (m.data as { spreadsheet_id?: number } | null | undefined)?.spreadsheet_id != null
+      )
+    const restoredInsightsSpreadsheetId =
+      (restoredInsightsMsg?.data as { spreadsheet_id?: number } | undefined)?.spreadsheet_id ?? null
+    const restoredInsightsSheetId =
+      (restoredInsightsMsg?.data as { sheet_id?: number } | undefined)?.sheet_id ?? null
+    setSessionSpreadsheetContext((prev) => {
+      if (restoredInsightsSpreadsheetId == null) return null
+      if (
+        prev &&
+        prev.spreadsheetId === restoredInsightsSpreadsheetId &&
+        prev.sheetId === restoredInsightsSheetId
+      ) {
+        return prev
+      }
+      return {
+        spreadsheetId: restoredInsightsSpreadsheetId,
+        sheetId: restoredInsightsSheetId ?? 0,
+        sheetName: "",
+        spreadsheetName: "",
+      }
+    })
+    // Rehydrate pattern/pivot generation mode when the session is reopened from
+    // sidebar history (that path restores these as a generic chat otherwise):
+    //  1. transcript marker  -> full restore (banner names + functional
+    //     continuation), see findGenerationModeMarker.
+    //  2. no marker but the title identifies the workflow -> pre-marker session;
+    //     show the banner label only (the sheet binding is unrecoverable, so
+    //     continuing starts a fresh mode from the spreadsheet).
+    //  3. neither -> clear every mode so a stale banner can't linger.
+    const generationMarker = findGenerationModeMarker(session.messages)
+    const restoredTitle = (session.title ?? "").trim()
+    if (generationMarker?.generation_mode === "pattern_generation") {
+      setHistoricalGenerationMode(null)
+      patternGenerationSessionIdRef.current = String(session.id)
+      setPatternGenerationSheetId(generationMarker.sheet_id)
+      setPatternGenerationSheetName(generationMarker.sheet_name)
+      setPatternGenerationSpreadsheetName(generationMarker.spreadsheet_name)
+      pivotGenerationSessionIdRef.current = null
+      setPivotGenerationSpreadsheetId(null)
+      setPivotGenerationSheetId(null)
+      setPivotGenerationSheetName(null)
+      setPivotGenerationSpreadsheetName(null)
+    } else if (generationMarker?.generation_mode === "pivot_table_generation") {
+      setHistoricalGenerationMode(null)
+      pivotGenerationSessionIdRef.current = String(session.id)
+      setPivotGenerationSpreadsheetId(generationMarker.spreadsheet_id)
+      setPivotGenerationSheetId(generationMarker.sheet_id)
+      setPivotGenerationSheetName(generationMarker.sheet_name)
+      setPivotGenerationSpreadsheetName(generationMarker.spreadsheet_name)
+      patternGenerationSessionIdRef.current = null
+      setPatternGenerationSheetId(null)
+      setPatternGenerationSheetName(null)
+      setPatternGenerationSpreadsheetName(null)
+    } else {
+      patternGenerationSessionIdRef.current = null
+      setPatternGenerationSheetId(null)
+      setPatternGenerationSheetName(null)
+      setPatternGenerationSpreadsheetName(null)
+      pivotGenerationSessionIdRef.current = null
+      setPivotGenerationSpreadsheetId(null)
+      setPivotGenerationSheetId(null)
+      setPivotGenerationSheetName(null)
+      setPivotGenerationSpreadsheetName(null)
+      if (restoredTitle.startsWith("Pattern Generation")) {
+        setHistoricalGenerationMode("pattern_generation")
+      } else if (restoredTitle.startsWith("Pivot Table Generation")) {
+        setHistoricalGenerationMode("pivot_table_generation")
+      } else {
+        setHistoricalGenerationMode(null)
+      }
+    }
     const restoredOutputs = restoreGenerationOutputsFromMessages(session.messages)
     if (restoredOutputs) {
       requestedGenerationOutputsRef.current = restoredOutputs
@@ -890,7 +1371,7 @@ export function AgentChatPage({ embeddedInFloating = false }: AgentChatPageProps
           latestRecommendedTasksRef.current = restored[i].recommendedTasks || null
         }
       }
-      setMessages(dedupeMiroGenerationStartedMessages(restored))
+      setMessages(prepareRestoredMessages(restored))
       const hasAnalysis = session.messages.some(
         (message) =>
           message.message_type === "analysis" || hasPersistedAnalysisPayload(message.data)
@@ -1007,35 +1488,65 @@ export function AgentChatPage({ embeddedInFloating = false }: AgentChatPageProps
 
   // Calendar context staged while the panel was closed (Calendar → Ask Agent).
   useEffect(() => {
-    const onPanelOpened = () => {
-      const preload = consumeCalendarPreload()
-      if (!preload) {
-        return
-      }
+    const resetForPreload = () => {
       sessionLoadRequestRef.current += 1
       invalidateActiveStreams()
       resetTransientChatUiState()
       setSessionId(null)
       sessionStorage.removeItem("agent-session-calendar-context")
+      sessionStorage.removeItem("agent-session-spreadsheet-context")
+      setSessionSpreadsheetContext(null)
+      // Leaving any pattern/pivot generation mode when a preload takes over.
+      setPatternGenerationSheetId(null)
+      setPatternGenerationSheetName(null)
+      setPatternGenerationSpreadsheetName(null)
+      patternGenerationSessionIdRef.current = null
+      setPivotGenerationSpreadsheetId(null)
+      setPivotGenerationSheetId(null)
+      setPivotGenerationSheetName(null)
+      setPivotGenerationSpreadsheetName(null)
+      pivotGenerationSessionIdRef.current = null
+      setHistoricalGenerationMode(null)
       setMessages([])
       setHasStarted(false)
       setFollowUpAvailable(false)
       setFollowUpStarted(false)
       setSessionTitle("Chat")
       setApprovalRequired(getApprovalPref())
-setStepState({
-      analysisComplete: false,
-      anomaliesConfirmed: false,
-      tasksCreated: false,
-      decisionsCreated: false,
-    })
+      setStepState({
+        analysisComplete: false,
+        anomaliesConfirmed: false,
+        tasksCreated: false,
+        decisionsCreated: false,
+      })
       setGeneratedTaskIndexes([])
       setSkippedTaskIndexes([])
       setCreatedTaskIdByIndex({})
       setTaskGenerationStatus("idle")
-      setSessionCalendarContext(preload.context)
-      setPendingCalendarPreload(preload)
-      _calendarAutoSendFired = false
+    }
+
+    const onPanelOpened = () => {
+      const calendarPreload = consumeCalendarPreload()
+      if (calendarPreload) {
+        resetForPreload()
+        setSessionCalendarContext(calendarPreload.context)
+        setPendingCalendarPreload(calendarPreload)
+        setPendingSpreadsheetPreload(null)
+        setSessionSpreadsheetContext(null)
+        _calendarAutoSendFired = false
+        return
+      }
+
+      const spreadsheetPreload = consumeSpreadsheetPreload()
+      if (!spreadsheetPreload) {
+        return
+      }
+      resetForPreload()
+      setSessionCalendarContext(null)
+      setPendingCalendarPreload(null)
+      setPendingSpreadsheetPreload(spreadsheetPreload)
+      setSessionSpreadsheetContext(sheetWorkContextFromPreload(spreadsheetPreload))
+      _spreadsheetAutoSendFired = false
     }
 
     // Draft → Agent (Open in Agent / Ask Agent from a draft).
@@ -1076,6 +1587,23 @@ setStepState({
 
   // Listen for sidebar events
   useEffect(() => {
+    // Proactively prompt for AI consent when entering a generation mode for a
+    // sheet the user hasn't consented to yet, instead of waiting for the first
+    // request to be refused. The AI_CONSENT_REQUIRED catch blocks stay as a
+    // backstop (restored sessions, revoked consent, races).
+    const promptSpreadsheetConsentIfNeeded = (sheetId: number | null | undefined) => {
+      if (sheetId == null) return
+      AiConsentAPI.get({ sheetId })
+        .then((status) => {
+          if (status.consented) return
+          setConsentTarget((cur) => cur ?? { sheetId })
+          setAiConsentRetry((cur) => cur ?? (() => {}))
+        })
+        .catch(() => {
+          /* network / access error — the reactive 403 path will handle it */
+        })
+    }
+
     const handleNewChat = () => {
       sessionLoadRequestRef.current += 1
       invalidateActiveStreams()
@@ -1084,6 +1612,19 @@ setStepState({
       setProjectId(null)
       sessionStorage.removeItem("agent-session-calendar-context")
       sessionStorage.removeItem("agent-session-draft-context")
+      sessionStorage.removeItem("agent-session-spreadsheet-context")
+      setSessionSpreadsheetContext(null)
+      setIsWorkflowGenerating(false)
+      setPatternGenerationSheetId(null)
+      setPatternGenerationSheetName(null)
+      setPatternGenerationSpreadsheetName(null)
+      patternGenerationSessionIdRef.current = null
+      setPivotGenerationSpreadsheetId(null)
+      setPivotGenerationSheetId(null)
+      setPivotGenerationSheetName(null)
+      setPivotGenerationSpreadsheetName(null)
+      pivotGenerationSessionIdRef.current = null
+      setHistoricalGenerationMode(null)
       setMessages([])
       setSessionCalendarContext(null)
       setSessionDraftContext(null)
@@ -1107,11 +1648,108 @@ setStepState({
       void loadSessionById(String(detail.sessionId))
     }
 
+    const handlePatternGenerationMode = (e: Event) => {
+      const detail = (e as CustomEvent<{ sheetId?: number; sheetName?: string; spreadsheetName?: string }>).detail
+      sessionLoadRequestRef.current += 1
+      invalidateActiveStreams()
+      resetTransientChatUiState()
+      setSessionId(null)
+      sessionStorage.removeItem("agent-session-calendar-context")
+      sessionStorage.removeItem("agent-session-spreadsheet-context")
+      setSessionSpreadsheetContext(null)
+      setIsWorkflowGenerating(false)
+      pivotGenerationSessionIdRef.current = null
+      setPivotGenerationSpreadsheetId(null)
+      setPivotGenerationSheetId(null)
+      setPivotGenerationSheetName(null)
+      setPivotGenerationSpreadsheetName(null)
+      patternGenerationSessionIdRef.current = null
+      setHistoricalGenerationMode(null)
+      setPatternGenerationSheetId(detail?.sheetId ?? null)
+      setPatternGenerationSheetName(detail?.sheetName ?? null)
+      setPatternGenerationSpreadsheetName(detail?.spreadsheetName ?? null)
+      setMessages([
+        {
+          id: `pattern-mode-${Date.now()}`,
+          role: "assistant",
+          type: "text",
+          content:
+            "You are now in **Pattern Generation Mode**. Please describe the action you would like to implement for the current spreadsheet — for example, \"add a column K that sums I and J, then highlight rows where K > 1000\". I will generate the pattern steps automatically.",
+        },
+      ])
+      setSessionCalendarContext(null)
+      setHasStarted(true)
+      setFollowUpAvailable(false)
+      setFollowUpStarted(false)
+      setSessionTitle("Pattern Generation")
+      setApprovalRequired(false)
+      setStepState({
+        analysisComplete: false,
+        anomaliesConfirmed: false,
+        tasksCreated: false,
+        decisionsCreated: false,
+      })
+      promptSpreadsheetConsentIfNeeded(detail?.sheetId)
+    }
+
+    const handlePivotGenerationMode = (e: Event) => {
+      const detail = (e as CustomEvent<{
+        spreadsheetId?: string | number
+        sheetId?: number
+        sheetName?: string
+        spreadsheetName?: string
+      }>).detail
+      sessionLoadRequestRef.current += 1
+      invalidateActiveStreams()
+      resetTransientChatUiState()
+      setSessionId(null)
+      sessionStorage.removeItem("agent-session-calendar-context")
+      sessionStorage.removeItem("agent-session-spreadsheet-context")
+      setSessionSpreadsheetContext(null)
+      setIsWorkflowGenerating(false)
+      patternGenerationSessionIdRef.current = null
+      setPatternGenerationSheetId(null)
+      setPatternGenerationSheetName(null)
+      setPatternGenerationSpreadsheetName(null)
+      pivotGenerationSessionIdRef.current = null
+      setHistoricalGenerationMode(null)
+      setPivotGenerationSpreadsheetId(detail?.spreadsheetId ?? null)
+      setPivotGenerationSheetId(detail?.sheetId ?? null)
+      setPivotGenerationSheetName(detail?.sheetName ?? null)
+      setPivotGenerationSpreadsheetName(detail?.spreadsheetName ?? null)
+      setMessages([
+        {
+          id: `pivot-mode-${Date.now()}`,
+          role: "assistant",
+          type: "text",
+          content:
+            "You are now in **Pivot Table Generation Mode**. Describe the pivot table you want — for example, \"summarize total revenue by region and month\". I will generate it as a new sheet in this spreadsheet.",
+        },
+      ])
+      setSessionCalendarContext(null)
+      setHasStarted(true)
+      setFollowUpAvailable(false)
+      setFollowUpStarted(false)
+      setSessionTitle("Pivot Table Generation")
+      setApprovalRequired(false)
+      setStepState({
+        analysisComplete: false,
+        anomaliesConfirmed: false,
+        tasksCreated: false,
+        decisionsCreated: false,
+      })
+      promptSpreadsheetConsentIfNeeded(detail?.sheetId)
+    }
+
     window.addEventListener("agent:new-chat", handleNewChat)
     window.addEventListener("agent:load-session", handleLoadSession)
+    window.addEventListener("agent:pattern-generation-mode", handlePatternGenerationMode)
+    window.addEventListener("agent:pivot-generation-mode", handlePivotGenerationMode)
     return () => {
       window.removeEventListener("agent:new-chat", handleNewChat)
       window.removeEventListener("agent:load-session", handleLoadSession)
+      window.removeEventListener("agent:pattern-generation-mode", handlePatternGenerationMode)
+      window.removeEventListener("agent:pivot-generation-mode", handlePivotGenerationMode)
     }
   }, [invalidateActiveStreams, loadSessionById, resetTransientChatUiState, setSessionId])
 
@@ -1154,7 +1792,7 @@ setStepState({
     addMessage({
       id: userMsgId,
       role: "user",
-      content: `Uploaded ${file.name}`,
+      content: spreadsheetUploadNavigateLabel(file.name),
       type: "file_uploaded",
       fileName: file.name,
     })
@@ -1210,9 +1848,24 @@ setStepState({
             requestedGenerationOutputsRef.current = fromServer as GenerationOutputKey[]
             setRequestedGenerationOutputs(fromServer as GenerationOutputKey[])
           }
+          const spreadsheetId = event.data?.spreadsheet_id
+          const navigateHref =
+            event.data?.url ??
+            (spreadsheetId != null && event.data?.project_id != null
+              ? `/spreadsheets/${spreadsheetId}?project_id=${event.data.project_id}`
+              : undefined)
+          updateMessage(userMsgId, {
+            spreadsheetId,
+            sheetId: event.data?.sheet_id,
+          })
           // File confirmed uploaded — update thinking message
           updateMessage(aiMsgId, {
             content: event.content || "File uploaded. Analyzing...",
+            navigateTo: navigateHref ? "spreadsheet" : undefined,
+            navigateLabel: navigateHref
+              ? spreadsheetUploadNavigateLabel(file.name)
+              : undefined,
+            navigateHref,
           })
         } else if (event.type === "step_progress" && event.data) {
           const { step_order, step_name, total_steps, status } = event.data
@@ -1347,6 +2000,27 @@ setStepState({
         } else if (event.type === "error") {
           setAgentMessageBoardWaitingForFileAnalysisResponse(requestSessionId, false)
           updateMessage(aiMsgId, { content: event.content || "An error occurred.", type: "error" })
+          const errData = event.data as
+            | { code?: string; spreadsheet_id?: number }
+            | undefined
+          if (errData?.code === "AI_CONSENT_REQUIRED") {
+            const preload = lastSpreadsheetPreloadRef.current
+            const ssId = errData.spreadsheet_id ?? preload?.spreadsheetId
+            setConsentTarget(
+              typeof ssId === "number" && Number.isFinite(ssId)
+                ? { spreadsheetId: ssId }
+                : preload?.sheetId != null
+                  ? { sheetId: preload.sheetId }
+                  : null
+            )
+            setAiConsentRetry(() => () => {
+              if (!preload) return
+              _spreadsheetAutoSendFired = false
+              handleSendMessageRef.current?.(
+                preload.message, undefined, undefined, undefined, undefined, undefined, preload,
+              )
+            })
+          }
         } else if (event.type === "done") {
           // Stream ended: stop the revisit thinking state.
           setAgentMessageBoardWaitingForFileAnalysisResponse(requestSessionId, false)
@@ -1704,7 +2378,250 @@ setStepState({
     workflowId?: string,
     action?: AgentAction,
     reuseAiMsgId?: string,
+    spreadsheetPreload?: SpreadsheetPreload,
   ) => {
+    // Pivot generation mode: call the NL→PivotConfig API, then create the pivot
+    // sheet using the same SpreadsheetAPI calls the manual "Create pivot sheet"
+    // flow uses (page.tsx handleCreatePivotSheet), instead of the regular agent.
+    if (pivotGenerationSpreadsheetId != null && pivotGenerationSheetId != null) {
+      const userMsgId = `user-${Date.now()}`
+      addMessage({ id: userMsgId, role: "user", content: text, type: "text" })
+      const thinkingId = `ai-${Date.now()}`
+      addMessage({ id: thinkingId, role: "assistant", content: "Generating pivot table…", type: "text" })
+
+      if (!pivotGenerationSessionIdRef.current) {
+        try {
+          const session = await AgentAPI.createSession({ approval_required: getApprovalPref() })
+          const sid = String(session.id)
+          pivotGenerationSessionIdRef.current = sid
+          const title = `Pivot Table Generation - ${formatSessionTimestamp()}`
+          await AgentAPI.updateSession(sid, { title })
+          setSessionTitle(title)
+          window.dispatchEvent(new CustomEvent("agent:sessions-changed"))
+        } catch {
+          // Non-fatal — sidebar tracking failed but generation can still proceed
+        }
+      }
+
+      // Persist the transcript on the backend session (best-effort) so the
+      // sidebar history survives navigating away and reopening this board.
+      const pivotSid = pivotGenerationSessionIdRef.current
+      if (pivotSid) {
+        AgentAPI.appendMessage(pivotSid, {
+          role: "user",
+          content: text,
+          // Marker so reopening this session from history can rehydrate the
+          // pivot workflow banner + mode (see findGenerationModeMarker).
+          data: {
+            generation_mode: "pivot_table_generation",
+            spreadsheet_id: pivotGenerationSpreadsheetId,
+            sheet_id: pivotGenerationSheetId,
+            sheet_name: pivotGenerationSheetName,
+            spreadsheet_name: pivotGenerationSpreadsheetName,
+          },
+        }).catch(() => {})
+      }
+
+      setIsWorkflowGenerating(true)
+      try {
+        const config = await PivotAPI.generatePivotConfig(pivotGenerationSheetId, text)
+        const sheetsResp = await SpreadsheetAPI.listSheets(pivotGenerationSpreadsheetId)
+        const existingNames = (sheetsResp.results || []).map((s) => s.name)
+        const sheetName = generatePivotSheetName(existingNames)
+
+        const newSheet = await SpreadsheetAPI.createSheet(pivotGenerationSpreadsheetId, { name: sheetName })
+        await SpreadsheetAPI.resizeSheet(pivotGenerationSpreadsheetId, newSheet.id, 100, 26)
+        await SpreadsheetAPI.upsertPivotConfig(pivotGenerationSpreadsheetId, newSheet.id, {
+          sourceSheetId: pivotGenerationSheetId,
+          rows: config.rows_config,
+          columns: config.columns_config,
+          values: config.values_config,
+          showGrandTotalRow: config.show_grand_total_row,
+        })
+        await SpreadsheetAPI.recomputePivot(pivotGenerationSpreadsheetId, newSheet.id)
+
+        // Tell an open spreadsheet detail view to pull in the freshly created
+        // pivot sheet without a full reload.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("agent:pivot-sheet-created", {
+              detail: { spreadsheetId: pivotGenerationSpreadsheetId, sheetId: newSheet.id },
+            })
+          )
+        }
+
+        const rowsSummary = config.rows_config.join(", ")
+        const valuesSummary = config.values_config
+          .map((v) => `${v.aggregation}(${v.field})`)
+          .join(", ")
+        const columnsSummary = config.columns_config.length
+          ? ` split by ${config.columns_config
+              .map((c) => (typeof c === "string" ? c : c.field))
+              .join(", ")}`
+          : ""
+
+        const doneContent = `Done! I've created a new pivot sheet **"${sheetName}"** grouped by ${rowsSummary}${columnsSummary}, aggregating ${valuesSummary}.`
+        updateMessage(thinkingId, {
+          content: doneContent,
+          navigateTo: "spreadsheet",
+          navigateLabel: "Open spreadsheet",
+          navigateHref: `/spreadsheets/${pivotGenerationSpreadsheetId}`,
+        })
+        if (pivotSid) {
+          AgentAPI.appendMessage(pivotSid, { role: "assistant", content: doneContent }).catch(() => {})
+        }
+      } catch (err) {
+        if (err instanceof AiConsentRequiredError) {
+          updateMessage(thinkingId, {
+            content: "AI analysis needs to be enabled for this spreadsheet first.",
+            type: "error",
+          })
+          setConsentTarget(
+            err.spreadsheetId != null
+              ? { spreadsheetId: err.spreadsheetId }
+              : pivotGenerationSheetId != null
+                ? { sheetId: pivotGenerationSheetId }
+                : null
+          )
+          setAiConsentRetry(() => () => handleSendMessageRef.current?.(text))
+          setIsWorkflowGenerating(false)
+          return
+        }
+        let msg = "Generation failed: Unable to generate a pivot table. Please try rephrasing your request."
+        if (err instanceof PivotAgentError) {
+          msg = `Invalid request: ${err.message}`
+        } else if (err instanceof Error) {
+          const axiosData = (err as any)?.response?.data
+          if (axiosData?.error) {
+            msg = `Generation failed: ${axiosData.error}`
+          } else if (err.message) {
+            msg = `Generation failed: ${err.message}`
+          }
+        }
+        updateMessage(thinkingId, { content: msg, type: "error" })
+        if (pivotSid) {
+          AgentAPI.appendMessage(pivotSid, { role: "assistant", content: msg, message_type: "error" }).catch(() => {})
+        }
+      } finally {
+        setIsWorkflowGenerating(false)
+      }
+      return
+    }
+
+    // Pattern generation mode: call the NL→steps API instead of the regular agent.
+    if (patternGenerationSheetId != null) {
+      const userMsgId = `user-${Date.now()}`
+      addMessage({ id: userMsgId, role: "user", content: text, type: "text" })
+      const thinkingId = `ai-${Date.now()}`
+      addMessage({ id: thinkingId, role: "assistant", content: "Generating pattern steps…", type: "text" })
+
+      // Create a sidebar session on first message. We use a separate ref (not setSessionId)
+      // so the main session restore / polling flow is never triggered and cannot clobber
+      // the local pattern-generation chat state.
+      if (!patternGenerationSessionIdRef.current) {
+        try {
+          const session = await AgentAPI.createSession({ approval_required: getApprovalPref() })
+          const sid = String(session.id)
+          patternGenerationSessionIdRef.current = sid
+          const title = `Pattern Generation - ${formatSessionTimestamp()}`
+          await AgentAPI.updateSession(sid, { title })
+          setSessionTitle(title)
+          window.dispatchEvent(new CustomEvent("agent:sessions-changed"))
+        } catch {
+          // Non-fatal — sidebar tracking failed but generation can still proceed
+        }
+      }
+
+      // Persist the transcript on the backend session (best-effort) so the
+      // sidebar history survives navigating away and reopening this board.
+      const patternSid = patternGenerationSessionIdRef.current
+      if (patternSid) {
+        AgentAPI.appendMessage(patternSid, {
+          role: "user",
+          content: text,
+          // Marker so reopening this session from history can rehydrate the
+          // pattern workflow banner + mode (see findGenerationModeMarker).
+          data: {
+            generation_mode: "pattern_generation",
+            spreadsheet_id: null,
+            sheet_id: patternGenerationSheetId,
+            sheet_name: patternGenerationSheetName,
+            spreadsheet_name: patternGenerationSpreadsheetName,
+          },
+        }).catch(() => {})
+      }
+
+      setIsWorkflowGenerating(true)
+      try {
+        const steps = await PatternAPI.generatePatternSteps(patternGenerationSheetId, text)
+        const doneContent = `Done! I've generated **${steps.length} pattern step${steps.length !== 1 ? 's' : ''}** and added them to the Pattern Agent panel. You can review, reorder, or apply them from there.`
+        updateMessage(thinkingId, {
+          content: doneContent,
+        })
+        if (patternSid) {
+          AgentAPI.appendMessage(patternSid, { role: "assistant", content: doneContent }).catch(() => {})
+        }
+        window.dispatchEvent(
+          new CustomEvent('agent:pattern-steps-generated', {
+            detail: { sheetId: patternGenerationSheetId, steps },
+          })
+        )
+      } catch (err) {
+        if (err instanceof AiConsentRequiredError) {
+          updateMessage(thinkingId, {
+            content: "AI analysis needs to be enabled for this spreadsheet first.",
+            type: "error",
+          })
+          setConsentTarget(
+            err.spreadsheetId != null
+              ? { spreadsheetId: err.spreadsheetId }
+              : patternGenerationSheetId != null
+                ? { sheetId: patternGenerationSheetId }
+                : null
+          )
+          setAiConsentRetry(() => () => handleSendMessageRef.current?.(text))
+          setIsWorkflowGenerating(false)
+          return
+        }
+        let msg = "Generation failed: Unable to generate pattern steps. Please try rephrasing your instruction."
+        if (err instanceof PatternAgentError) {
+          msg = `Invalid request: ${err.message}`
+        } else if (err instanceof Error) {
+          const axiosData = (err as any)?.response?.data
+          if (axiosData?.error) {
+            msg = `Generation failed: ${axiosData.error}`
+          } else if (err.message) {
+            msg = `Generation failed: ${err.message}`
+          }
+        }
+        updateMessage(thinkingId, { content: msg, type: "error" })
+        if (patternSid) {
+          AgentAPI.appendMessage(patternSid, { role: "assistant", content: msg, message_type: "error" }).catch(() => {})
+        }
+      } finally {
+        setIsWorkflowGenerating(false)
+      }
+      return
+    }
+
+    if (spreadsheetPreload) {
+      if (generationOutputsSelected.length === 0) return
+      const outputsForSpreadsheet = [...generationOutputsSelected]
+      requestedGenerationOutputsRef.current = outputsForSpreadsheet
+      setRequestedGenerationOutputs(outputsForSpreadsheet)
+      setStepState({
+        analysisComplete: false,
+        anomaliesConfirmed: false,
+        tasksCreated: false,
+        decisionsCreated: false,
+      })
+      setGeneratedTaskIndexes([])
+      setSkippedTaskIndexes([])
+      setCreatedTaskIdByIndex({})
+      autoExternalActionsTriggeredRef.current = false
+      autoActionQueueRef.current = []
+    }
+
     setHasStarted(true)
     // Use provided context or fall back to the session-level calendar context
     const effectiveCalendarContext = calendarContext ?? sessionCalendarContext ?? undefined
@@ -1763,6 +2680,13 @@ setStepState({
         ...(action ? { action } : {}),
         ...(effectiveCalendarContext ? { calendar_context: effectiveCalendarContext as any } : {}),
         ...(sessionDraftContext ? { draft_context: sessionDraftContext as any } : {}),
+        ...(spreadsheetPreload
+          ? {
+              action: "analyze_spreadsheet_insights" as const,
+              spreadsheet_id: spreadsheetPreload.spreadsheetId,
+              sheet_id: spreadsheetPreload.sheetId,
+            }
+          : {}),
         user_context: userContext || undefined,
       },
       (event: SSEEvent) => {
@@ -1793,6 +2717,56 @@ setStepState({
             userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             currentView: "week",
             currentDate: new Date().toISOString().split("T")[0],
+          })
+          return
+        }
+
+        if (event.type === "spreadsheet_summary") {
+          updateMessage(aiMsgId, { content: "", type: "text" })
+          addMessage({
+            id: `ai-sheet-summary-${Date.now()}`,
+            role: "assistant",
+            content: event.content || "",
+            type: "spreadsheet_summary",
+          })
+          return
+        }
+
+        if (event.type === "spreadsheet_anomalies" && event.data) {
+          const data = event.data as AnalysisResult & {
+            spreadsheet_id?: number
+            sheet_id?: number
+          }
+          const wantsTasks = requestedGenerationOutputsRef.current.includes("recommended_tasks")
+          const tasks = wantsTasks ? data.recommended_tasks : undefined
+          latestRecommendedTasksRef.current = tasks || null
+          setFollowUpAvailable(true)
+          setFollowUpStarted(false)
+          setStepState((prev) => ({
+            ...prev,
+            analysisComplete: true,
+            anomaliesConfirmed: true,
+          }))
+          setGeneratedTaskIndexes([])
+          setSkippedTaskIndexes([])
+          setCreatedTaskIdByIndex({})
+          addMessage({
+            id: `ai-sheet-anomalies-${Date.now()}`,
+            role: "assistant",
+            content: event.content || "",
+            type: "spreadsheet_anomalies",
+            anomalies: data.anomalies,
+            anomaliesConfirmed: true,
+            recommendedTasks: tasks,
+            spreadsheetId: data.spreadsheet_id,
+            sheetId: data.sheet_id,
+          })
+          if (wantsTasks) {
+            selectAllRecommendedTasks(tasks?.length ?? 0)
+          }
+          queueAutoExternalActionsAfterAnalysis({
+            analysis: data,
+            generationOutputs: requestedGenerationOutputsRef.current,
           })
           return
         }
@@ -2018,7 +2992,7 @@ setStepState({
         }
       }
     )
-  }, [sessionId, sessionCalendarContext, sessionDraftContext, addMessage, updateMessage, setMessages, setSessionId, refreshFollowUpState, refreshSession, getApprovalPref, embeddedInFloating, queueAutoExternalActionsAfterAnalysis])
+  }, [patternGenerationSheetId, patternGenerationSheetName, patternGenerationSpreadsheetName, pivotGenerationSpreadsheetId, pivotGenerationSheetId, pivotGenerationSheetName, pivotGenerationSpreadsheetName, sessionId, sessionCalendarContext, sessionDraftContext, generationOutputsSelected, addMessage, updateMessage, setMessages, setSessionId, refreshFollowUpState, refreshSession, getApprovalPref, embeddedInFloating, queueAutoExternalActionsAfterAnalysis])
 
   // Keep ref always pointing to the latest handleSendMessage
   handleSendMessageRef.current = handleSendMessage
@@ -2056,6 +3030,8 @@ setStepState({
     let contentParts: string[] = []
     const streamToken = activeStreamTokenRef.current
     const requestSessionId = String(sid)
+    let createTasksHadError = false
+    let createTasksSucceeded = false
 
     abortRef.current = AgentAPI.sendMessage(
       sid,
@@ -2102,6 +3078,7 @@ setStepState({
         }
 
         if (event.type === "task_created") {
+          createTasksSucceeded = true
           setStepState((prev) => ({ ...prev, tasksCreated: true }))
           setPendingTaskApproval(null)
           setTasksApprovalGenerating(false)
@@ -2185,11 +3162,17 @@ setStepState({
 
           if (kind === "task") {
             applyPendingTaskApproval(pending)
+            const draftTasks = (pending.draft as { recommended_tasks?: RecommendedTask[] })
+              ?.recommended_tasks
+            if (Array.isArray(draftTasks) && draftTasks.length > 0) {
+              updateMessage(aiMsgId, { recommendedTasks: draftTasks })
+            }
           } else if (kind === "decision_tree") {
             applyPendingDecisionApproval(pending)
           }
         }
         if (event.type === "error" && action === "create_tasks") {
+          createTasksHadError = true
           setTaskGenerationStatus("error")
         }
         if (event.type === "error" && action === "create_decisions") {
@@ -2200,6 +3183,7 @@ setStepState({
         if (activeStreamTokenRef.current !== streamToken) return
         if (String(sessionIdRef.current) !== requestSessionId) return
         if (action === "create_tasks") {
+          createTasksHadError = true
           setTaskGenerationStatus("error")
         }
         if (action === "create_decisions") {
@@ -2215,7 +3199,11 @@ setStepState({
         if (activeStreamTokenRef.current !== streamToken) return
         if (String(sessionIdRef.current) !== requestSessionId) return
         if (action === "create_tasks") {
-          setTaskGenerationStatus((status) => (status === "generating" ? "error" : status))
+          setTaskGenerationStatus((status) => {
+            if (status !== "generating") return status
+            if (createTasksHadError) return "error"
+            return "completed"
+          })
         }
         if (action === "create_decisions") {
           setDecisionGenerationStatus((status) => (status === "generating" ? "error" : status))
@@ -2433,12 +3421,91 @@ setStepState({
     handleSendMessageRef.current?.(pendingDraftPreload.message)
   }, [pendingDraftPreload, hasStarted])
 
+  // Auto-send spreadsheet insights when arriving from spreadsheet Analyze with AI.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!pendingSpreadsheetPreload || hasStarted) return
+    if (_spreadsheetAutoSendFired) return
+    _spreadsheetAutoSendFired = true
+    lastSpreadsheetPreloadRef.current = pendingSpreadsheetPreload
+    handleSendMessageRef.current?.(
+      pendingSpreadsheetPreload.message,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      pendingSpreadsheetPreload,
+    )
+  }, [pendingSpreadsheetPreload, hasStarted])
+
+  // Which spreadsheet workflow the chat board is currently working on (if any),
+  // used to render the sheet banner above the message list.
+  const workflowBanner = useMemo<
+    | {
+        workflow: "spreadsheet_analysis" | "pattern_generation" | "pivot_table_generation"
+        spreadsheetName?: string | null
+        sheetName?: string | null
+        busy: boolean
+      }
+    | null
+  >(() => {
+    if (patternGenerationSheetId != null) {
+      return {
+        workflow: "pattern_generation",
+        spreadsheetName: patternGenerationSpreadsheetName,
+        sheetName: patternGenerationSheetName,
+        busy: isWorkflowGenerating,
+      }
+    }
+    if (pivotGenerationSheetId != null) {
+      return {
+        workflow: "pivot_table_generation",
+        spreadsheetName: pivotGenerationSpreadsheetName,
+        sheetName: pivotGenerationSheetName,
+        busy: isWorkflowGenerating,
+      }
+    }
+    if (sessionSpreadsheetContext) {
+      return {
+        workflow: "spreadsheet_analysis",
+        spreadsheetName: sessionSpreadsheetContext.spreadsheetName,
+        sheetName: sessionSpreadsheetContext.sheetName,
+        busy: isStreaming,
+      }
+    }
+    // Pre-marker pattern/pivot session reopened from history: label-only banner
+    // (no recoverable sheet target).
+    if (historicalGenerationMode) {
+      return {
+        workflow: historicalGenerationMode,
+        spreadsheetName: null,
+        sheetName: null,
+        busy: false,
+      }
+    }
+    return null
+  }, [
+    patternGenerationSheetId,
+    patternGenerationSpreadsheetName,
+    patternGenerationSheetName,
+    pivotGenerationSheetId,
+    pivotGenerationSpreadsheetName,
+    pivotGenerationSheetName,
+    sessionSpreadsheetContext,
+    historicalGenerationMode,
+    isStreaming,
+    isWorkflowGenerating,
+  ])
+
   return (
     <div className="flex h-full flex-col">
       <OnboardingTokenIntro />
       {!embeddedInFloating && (
         <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 shrink-0 bg-background">
-          <h2 className="text-sm font-semibold truncate text-foreground">{sessionTitle}</h2>
+          <div className="flex items-center gap-2 min-w-0">
+            <h2 className="text-sm font-semibold truncate text-foreground">{sessionTitle}</h2>
+          </div>
           <div className="flex items-center gap-2 shrink-0">
             <GenerationOutputsSettings
               disabled={isStreaming}
@@ -2464,6 +3531,14 @@ setStepState({
             />
           </div>
         </div>
+      )}
+      {workflowBanner && (
+        <AgentWorkflowBanner
+          workflow={workflowBanner.workflow}
+          spreadsheetName={workflowBanner.spreadsheetName}
+          sheetName={workflowBanner.sheetName}
+          busy={workflowBanner.busy}
+        />
       )}
       {!hasStarted ? (
         <WelcomeScreen
@@ -2509,13 +3584,14 @@ setStepState({
           miroGenerateInFlight,
           onAction: handleAction,
           onConfirmColumns: handleConfirmColumns,
-          onConfirmAnomalies: handleConfirmAnomalies,
           onReupload: handleReupload,
           onResumeWorkflow: handleResumeWorkflow,
           latestAnalysisMessageId,
+          tasksCardMessageId: latestAnalysisMessageId,
           showFollowUpToggle: followUpAvailable || followUpStarted,
           followUpActive: followUpStarted,
           stepState,
+          bypassRevealQueue: patternGenerationSheetId != null || pivotGenerationSheetId != null,
           onNavigate: (view: string, msg?: ChatMessage) => {
         if (msg?.navigateHref && typeof window !== "undefined") {
           window.location.href = buildUrl(msg.navigateHref)
@@ -2542,6 +3618,37 @@ setStepState({
         disabled={isStreaming}
         placeholder={inputPlaceholder}
         helperText={inputHelperText}
+      />
+      <ConfirmModal
+        isOpen={aiConsentRetry != null}
+        type="info"
+        title="Enable AI analysis for this spreadsheet?"
+        message="Analyzing with AI sends the contents of this spreadsheet to AI Agent for processing. Your data is not used to train models. This choice is remembered for this spreadsheet."
+        confirmText="Enable AI analysis"
+        cancelText="Not now"
+        loading={aiConsentSubmitting}
+        onClose={() => {
+          if (!aiConsentSubmitting) {
+            setAiConsentRetry(null)
+            setConsentTarget(null)
+          }
+        }}
+        onConfirm={async () => {
+          if (consentTarget == null) {
+            setAiConsentRetry(null)
+            return
+          }
+          setAiConsentSubmitting(true)
+          try {
+            await AiConsentAPI.grant(consentTarget)
+            const retry = aiConsentRetry
+            setAiConsentRetry(null)
+            setConsentTarget(null)
+            retry?.()
+          } finally {
+            setAiConsentSubmitting(false)
+          }
+        }}
       />
     </div>
   )

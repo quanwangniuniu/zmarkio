@@ -83,6 +83,68 @@ class GenerationRegistryTests(TestCase):
         with self.assertRaises(GenerationValidationError):
             validate_analysis_response({}, frozenset({'recommended_tasks'}))
 
+    def test_validate_recommended_tasks_normalizes_type_and_priority(self):
+        data = {
+            'recommended_tasks': [
+                {
+                    'type': 'Alert',
+                    'summary': 'Fix spam complaints',
+                    'priority': 'High',
+                },
+            ],
+        }
+        result = validate_analysis_response(data, frozenset({'recommended_tasks'}))
+        task = result['recommended_tasks'][0]
+        self.assertEqual(task['type'], 'alert')
+        self.assertEqual(task['priority'], 'HIGH')
+
+    def test_validate_recommended_tasks_normalizes_highest_lowest_priority(self):
+        data = {
+            'recommended_tasks': [
+                {'type': 'report', 'summary': 'A', 'priority': 'HIGHEST'},
+                {'type': 'alert', 'summary': 'B', 'priority': 'LOWEST'},
+            ],
+        }
+        result = validate_analysis_response(data, frozenset({'recommended_tasks'}))
+        self.assertEqual(result['recommended_tasks'][0]['priority'], 'HIGH')
+        self.assertEqual(result['recommended_tasks'][1]['priority'], 'LOW')
+
+    def test_validate_recommended_tasks_rejects_invalid_type(self):
+        data = {
+            'recommended_tasks': [
+                {'type': 'not_a_real_type', 'summary': 'Bad', 'priority': 'HIGH'},
+            ],
+        }
+        with self.assertRaises(GenerationValidationError):
+            validate_analysis_response(data, frozenset({'recommended_tasks'}))
+
+    def test_validate_recommended_tasks_rejects_long_summary(self):
+        data = {
+            'recommended_tasks': [
+                {
+                    'type': 'alert',
+                    'summary': 'x' * 256,
+                    'priority': 'HIGH',
+                },
+            ],
+        }
+        with self.assertRaises(GenerationValidationError):
+            validate_analysis_response(data, frozenset({'recommended_tasks'}))
+
+    def test_validate_recommended_tasks_rejects_non_string_description(self):
+        data = {
+            'recommended_tasks': [
+                {
+                    'type': 'alert',
+                    'summary': 'Valid',
+                    'priority': 'HIGH',
+                    'description': 123,
+                },
+            ],
+        }
+        with self.assertRaises(GenerationValidationError):
+            validate_analysis_response(data, frozenset({'recommended_tasks'}))
+
     def _sample_decision_tree(self):
         return {
             'nodes': [

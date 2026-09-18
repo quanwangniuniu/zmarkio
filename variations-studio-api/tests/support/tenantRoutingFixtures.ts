@@ -123,12 +123,12 @@ async function createProject(args: {
       INSERT INTO ${tenantTable(schema, 'core_project')} (
         id, created_at, updated_at, is_deleted, name, description,
         project_type, work_model, advertising_platforms, objectives, kpis,
-        pacing_enabled, budget_config, audience_targeting,
+        pacing_enabled, ai_analysis_enabled, budget_config, audience_targeting,
         organization_id, owner_id, slug
       ) VALUES (
         ${id}, now(), now(), false, ${`Routing ${args.label}`}, '',
         '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb,
-        false, '{}'::jsonb, '{}'::jsonb,
+        false, true, '{}'::jsonb, '{}'::jsonb,
         ${args.organizationId}, ${BigInt(args.ownerId)}, ${slug}
       )`;
   }
@@ -153,9 +153,9 @@ async function ensureInactiveOrg(): Promise<{ id: bigint; slug: string }> {
   const name = `Studio Routing Inactive ${slug}`;
   const rows = await prisma.$queryRaw<{ id: bigint }[]>`
     INSERT INTO public.core_organization (
-      name, slug, is_active, is_deleted, is_parent, created_at, updated_at
+      name, slug, is_active, is_deleted, is_parent, created_at, updated_at, max_concurrent_sessions
     ) VALUES (
-      ${name}, ${slug}, false, false, false, now(), now()
+      ${name}, ${slug}, false, false, false, now(), now(), 5
     )
     RETURNING id`;
   return { id: rows[0].id, slug };

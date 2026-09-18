@@ -41,6 +41,34 @@ _TASK_TYPES = frozenset({
     'scaling', 'communication', 'retrospective', 'experiment', 'platform_policy_update',
 })
 _TASK_PRIORITIES = frozenset({'HIGH', 'MEDIUM', 'LOW'})
+_TASK_SUMMARY_MAX_LENGTH = 255
+
+# Common Gemini aliases → canonical task types.
+_TASK_TYPE_ALIASES: dict[str, str] = {
+    'planning': 'execution',
+    'plan': 'execution',
+    'setup': 'execution',
+    'launch': 'execution',
+    'campaign': 'execution',
+    'strategy': 'execution',
+    'media': 'execution',
+    'marketing': 'execution',
+    'creative': 'asset',
+    'content': 'asset',
+    'design': 'asset',
+    'reporting': 'report',
+    'analysis': 'report',
+    'analytics': 'report',
+    'research': 'experiment',
+    'test': 'experiment',
+    'testing': 'experiment',
+    'optimize': 'optimization',
+    'optimisation': 'optimization',
+    'scale': 'scaling',
+    'monitoring': 'alert',
+    'comms': 'communication',
+    'policy': 'platform_policy_update',
+}
 _RISK_LEVELS = frozenset({'LOW', 'MEDIUM', 'HIGH'})
 _DECISION_NODE_KEYS = frozenset({
     'ref', 'layer', 'title', 'parent_refs',
@@ -207,22 +235,100 @@ def build_analysis_prompt(requested: frozenset[str], criteria_block: str) -> str
     )
 
 
+def _normalize_recommended_task_type(value: Any) -> str:
+    """Map LLM task types to allowed _TASK_TYPES slugs."""
+    if value is None or value == '':
+        return 'execution'
+    text = str(value).strip().lower()
+    if text in _TASK_TYPES:
+        return text
+    if text in _TASK_TYPE_ALIASES:
+        return _TASK_TYPE_ALIASES[text]
+    if 'budget' in text:
+        return 'budget'
+    if 'asset' in text or 'creative' in text:
+        return 'asset'
+    if 'report' in text or 'readout' in text:
+        return 'report'
+    if 'experiment' in text or 'test' in text:
+        return 'experiment'
+    if 'optim' in text:
+        return 'optimization'
+    if 'scale' in text:
+        return 'scaling'
+    if 'retro' in text:
+        return 'retrospective'
+    return text
+
+
+def _normalize_recommended_task_priority(value: Any) -> str:
+    """Map LLM priorities to agent draft values HIGH|MEDIUM|LOW."""
+    if value is None or value == '':
+        return 'MEDIUM'
+    text = str(value).strip().upper()
+    if text == 'HIGHEST':
+        return 'HIGH'
+    if text == 'LOWEST':
+        return 'LOW'
+    if text in _TASK_PRIORITIES:
+        return text
+    return text
+
+
 def _validate_recommended_tasks(value: Any) -> list:
     if not isinstance(value, list):
         raise GenerationValidationError('recommended_tasks must be a list.')
+    normalized: list[dict[str, Any]] = []
     for idx, task in enumerate(value):
         if not isinstance(task, dict):
             raise GenerationValidationError(f'recommended_tasks[{idx}] must be an object.')
-        task_type = task.get('type')
-        if not isinstance(task_type, str) or task_type not in _TASK_TYPES:
+
+        raw_type = task.get('type')
+        if raw_type is None or (isinstance(raw_type, str) and not raw_type.strip()):
+            raise GenerationValidationError(f'recommended_tasks[{idx}].type is required.')
+        task_type = _normalize_recommended_task_type(raw_type)
+        if task_type not in _TASK_TYPES:
             raise GenerationValidationError(f'recommended_tasks[{idx}].type is invalid.')
-        summary = task.get('summary')
-        if not isinstance(summary, str) or not summary.strip():
+
+        summary_raw = task.get('summary')
+        if not isinstance(summary_raw, str) or not summary_raw.strip():
             raise GenerationValidationError(f'recommended_tasks[{idx}].summary is required.')
-        priority = task.get('priority')
-        if not isinstance(priority, str) or priority not in _TASK_PRIORITIES:
+        summary = summary_raw.strip()
+        if len(summary) > _TASK_SUMMARY_MAX_LENGTH:
+            raise GenerationValidationError(
+                f'recommended_tasks[{idx}].summary exceeds {_TASK_SUMMARY_MAX_LENGTH} characters.'
+            )
+
+        raw_priority = task.get('priority')
+        if raw_priority is None or (isinstance(raw_priority, str) and not raw_priority.strip()):
+            raise GenerationValidationError(f'recommended_tasks[{idx}].priority is required.')
+        priority = _normalize_recommended_task_priority(raw_priority)
+        if priority not in _TASK_PRIORITIES:
             raise GenerationValidationError(f'recommended_tasks[{idx}].priority is invalid.')
-    return value
+
+        normalized_task: dict[str, Any] = {
+            'type': task_type,
+            'summary': summary,
+            'priority': priority,
+        }
+        if 'description' in task and task['description'] is not None:
+            description_raw = task['description']
+            if not isinstance(description_raw, str):
+                raise GenerationValidationError(
+                    f'recommended_tasks[{idx}].description must be a string.'
+                )
+            description = description_raw.strip()
+            if description:
+                normalized_task['description'] = description
+        if 'index' in task:
+            normalized_task['index'] = task['index']
+        normalized.append(normalized_task)
+    return normalized
+
+
+def validate_recommended_tasks(value: Any) -> list:
+    """Public entry point for recommended_tasks validation + normalization."""
+    return _validate_recommended_tasks(value)
 
 
 def _validate_recommended_decision_tree(value: Any) -> dict:

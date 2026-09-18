@@ -100,6 +100,13 @@ class ImportedCSVFile(TimeStampedModel):
     row_count = models.IntegerField(default=0)
     column_count = models.IntegerField(default=0)
     file_size = models.BigIntegerField(default=0)
+    spreadsheet = models.ForeignKey(
+        'spreadsheet.Spreadsheet',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='imported_csv_files',
+    )
 
     class Meta:
         ordering = ['-created_at']

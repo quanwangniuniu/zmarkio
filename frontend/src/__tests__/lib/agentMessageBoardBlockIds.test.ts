@@ -122,8 +122,11 @@ describe("agentMessageBoardBlockIds", () => {
   it("matches per-message block ids from getAssistantMessageBlockIds", () => {
     const boardIds = getMessageBoardBlockIds([analysisMessage], {
       bottomCardsMessageId: "msg-analysis",
+      tasksCardMessageId: "msg-analysis",
     })
-    const messageIds = getAssistantMessageBlockIds(analysisMessage, {})
+    const messageIds = getAssistantMessageBlockIds(analysisMessage, {
+      tasksCardMessageId: "msg-analysis",
+    })
     expect(boardIds.slice(0, messageIds.length)).toEqual(messageIds)
   })
 
@@ -179,6 +182,7 @@ describe("agentMessageBoardBlockIds", () => {
 
     const ids = getMessageBoardBlockIds([analysisWithBoth], {
       bottomCardsMessageId: "msg-analysis",
+      tasksCardMessageId: "msg-analysis",
       wantsTasks: true,
       wantsDecisions: true,
     })

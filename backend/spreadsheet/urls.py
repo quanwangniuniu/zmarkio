@@ -52,4 +52,10 @@ urlpatterns = [
     path('patterns/<uuid:id>/', views.WorkflowPatternDetailView.as_view(), name='pattern-detail'),
     path('patterns/<uuid:id>/apply/', views.WorkflowPatternApplyView.as_view(), name='pattern-apply'),
     path('pattern-jobs/<uuid:job_id>/', views.PatternJobStatusView.as_view(), name='pattern-job-status'),
+
+    # Natural-language → PatternStep generation
+    path('sheets/<int:sheet_id>/generate-pattern-steps/', views.GeneratePatternStepsView.as_view(), name='generate-pattern-steps'),
+
+    # Natural-language → PivotConfig generation
+    path('sheets/<int:sheet_id>/generate-pivot-config/', views.GeneratePivotConfigView.as_view(), name='generate-pivot-config'),
 ]

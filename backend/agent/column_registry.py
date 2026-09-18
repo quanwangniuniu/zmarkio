@@ -87,12 +87,13 @@ def auto_categorize_by_name(canonical_name: str) -> str:
     if not canonical_name or canonical_name == CAT_UNKNOWN:
         return CAT_UNKNOWN
 
-    tokens = set(re.split(r'[\s_\-]+', canonical_name.lower()))
+    normalized_name = re.sub(r'[\s\-]+', '_', canonical_name.lower()).strip('_')
+    padded_name = f'_{normalized_name}_'
 
     for category, keywords in _AUTO_CATEGORY_RULES:
         for kw in keywords:
-            # Check if any keyword is a substring of the canonical_name or a token
-            if kw in tokens or kw in canonical_name.lower():
+            normalized_keyword = re.sub(r'[\s\-]+', '_', kw.lower()).strip('_')
+            if f'_{normalized_keyword}_' in padded_name:
                 return category
 
     return CAT_UNKNOWN
@@ -577,7 +578,7 @@ def _try_llm_fallback(headers: list, sample_rows: list = None, agent_session=Non
     """
     from stripe_meta.exceptions import QuotaError
     from agent.llm_client import call_llm as _call_llm_unified
-    from .gemini_client import _get_api_key as _gemini_key
+    from core.services.gemini_client import _get_api_key as _gemini_key
 
     if not _gemini_key():
         logger.warning("GEMINI_API_KEY not set; skipping LLM column detection")

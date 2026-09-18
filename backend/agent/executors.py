@@ -4,22 +4,24 @@ Step executors — strategy pattern for workflow step types.
 Each step_type maps to an Executor subclass that encapsulates
 the logic for that particular action.
 """
+import json
 import logging
 import os
 from django.core.cache import cache
 import time
 import anthropic
-from .gemini_client import GeminiRetriesExhausted
-
+from .agent_utils import json_input
+from .llm_client import call_llm as _call_llm_unified
+from core.services.gemini_client import GeminiRetriesExhausted
 
 logger = logging.getLogger(__name__)
 
 def retry_policy(max_retries=3,  retry_delay= 5,on_exhausted='fail'):
 
     """
-    retry_policy is a decorator that wraps a function with retry logic. 
-    It attempts to execute the function up to max_retries times in case of 
-    specific exceptions (anthropic.APITimeoutError or RuntimeError). 
+    retry_policy is a decorator that wraps a function with retry logic.
+    It attempts to execute the function up to max_retries times in case of
+    specific exceptions (anthropic.APITimeoutError or RuntimeError).
     If all retries are exhausted, it returns a StepResult indicating failure or skip based on the on_exhausted parameter.
 
     Args:
@@ -100,7 +102,7 @@ class BaseStepExecutor:
 
 class AnalyzeDataExecutor(BaseStepExecutor):
     """Runs the Dify->Claude analysis fallback chain via _run_analysis()."""
-    
+
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='fail')
     def execute(self, input_data):
         from .services import _run_analysis
@@ -109,12 +111,12 @@ class AnalyzeDataExecutor(BaseStepExecutor):
         if not spreadsheet_data:
             return StepResult(success=False, error='No spreadsheet_data in input')
 
+        from .generation_registry import (
+            GenerationValidationError,
+            filter_sse_analysis_payload,
+            normalize_generation_outputs,
+        )
         try:
-            from .generation_registry import (
-                GenerationValidationError,
-                filter_sse_analysis_payload,
-                normalize_generation_outputs,
-            )
 
             user_id = str(self.orchestrator.user.id)
             success_criteria = (
@@ -193,11 +195,11 @@ class CallDifyExecutor(BaseStepExecutor):
 
 class CallLLMExecutor(BaseStepExecutor):
     """Calls Claude directly, supports per-step config override."""
-    
+
     #Anthropic API call has default retry logic, so the retry policy is simple to avoid double retrying.
     @retry_policy(max_retries=1, retry_delay=0, on_exhausted='fail')
     def execute(self, input_data):
-        from .services import _call_llm, _get_llm_client
+        from .services import _ANALYSIS_SYSTEM_PROMPT, _get_llm_client
 
         spreadsheet_data = input_data.get('spreadsheet_data', input_data)
         try:
@@ -205,12 +207,22 @@ class CallLLMExecutor(BaseStepExecutor):
             if not client:
                 return StepResult(success=False, error='No LLM API key configured')
 
-            result = _call_llm(client, spreadsheet_data, agent_session=self.orchestrator.session)
+            result = _call_llm_unified(
+                provider="anthropic",
+                model="claude-sonnet-5",
+                user_prompt=json_input(spreadsheet_data),
+                system_prompt=_ANALYSIS_SYSTEM_PROMPT,
+                agent_session=self.orchestrator.session,
+            )
+            # The billed caller returns text and usage; downstream steps need the JSON object.
+            analysis = json.loads(result['text'])
+            if not isinstance(analysis, dict):
+                raise ValueError('Analysis response must be a JSON object')
 
             return StepResult(
                 success=True,
                 output_data={
-                    'analysis_result': result,
+                    'analysis_result': analysis,
                     'spreadsheet_data': spreadsheet_data,
                 },
                 sse_events=[{'type': 'text', 'content': 'LLM analysis completed.'}],
@@ -295,33 +307,30 @@ class CreateTasksExecutor(BaseStepExecutor):
             return StepResult(success=False, error='No analysis_result in input')
 
         try:
-            # Gate only applies when anomalies were detected: they must be
-            # reviewed + confirmed first. Zero-anomaly analyses proceed unchanged.
+            # Anomaly confirmation gate: analyses that surfaced anomalies must
+            # have them reviewed + confirmed before tasks are created, so
+            # data-quality issues are not committed downstream unreviewed. The
+            # lightweight in-sheet "spreadsheet insights" flow auto-confirms
+            # (anomalies_confirmed + _source='spreadsheet_insights') and is not
+            # blocked here. Zero-anomaly analyses proceed unchanged.
             had_anomalies = bool(analysis.get('anomalies'))
-            if had_anomalies and not analysis.get('anomalies_confirmed'):
+            is_insights_flow = analysis.get('_source') == 'spreadsheet_insights'
+            if (
+                had_anomalies
+                and not is_insights_flow
+                and not analysis.get('anomalies_confirmed')
+            ):
                 return StepResult(
                     success=False,
                     error='Anomalies must be confirmed before creating tasks.',
                 )
 
-            # All-excluded: anomalies existed but none were included -> no-op
-            # success so the workflow completes cleanly. Zero-detected-anomaly
-            # runs are NOT skipped (existing behaviour preserved).
-            reviewed = analysis.get('reviewed_anomalies') or []
-            included_anomalies = [a for a in reviewed if a.get('included', True)]
-            if had_anomalies and not included_anomalies:
-                return StepResult(
-                    success=True,
-                    output_data=input_data,
-                    sse_events=[{
-                        'type': 'text',
-                        'content': 'All anomalies were excluded; no tasks were created.',
-                    }],
-                )
-
             tasks_data = analysis.get('recommended_tasks', [])
             if not tasks_data:
                 return StepResult(success=False, error='No recommended_tasks in analysis.')
+
+            reviewed = analysis.get('reviewed_anomalies') or []
+            included_anomalies = [a for a in reviewed if a.get('included', True)]
 
             decision = self.workflow_run.decision
             draft = {'recommended_tasks': tasks_data}
@@ -367,7 +376,7 @@ class CreateTasksExecutor(BaseStepExecutor):
 
 class GenerateMiroSnapshotExecutor(BaseStepExecutor):
     """Generate a validated Miro snapshot from workflow context via Gemini."""
-    
+
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='fail')
     def execute(self, input_data):
         from .miro_generation import (
@@ -921,7 +930,7 @@ class GenerateCriteriaExecutor(BaseStepExecutor):
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='skip')
     def execute(self, input_data):
         import json
-        from .gemini_client import _get_api_key as _gemini_key
+        from core.services.gemini_client import _get_api_key as _gemini_key
         from .llm_client import call_llm as _call_llm_unified
 
         if not _gemini_key():

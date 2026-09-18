@@ -83,15 +83,19 @@ class TenantBackfillTests(TestCase):
 
     def test_copies_row_and_remaps_project_by_slug(self):
         public_project = self._project_in('public', 'Shared Campaign')
-        # Occupy org id=1 so the destination project cannot share the public pk.
+        # Pad the org schema so its project pk sequence is pushed past the
+        # public pk. The public sequence is process-global and not rolled back
+        # between tests, so public_project.id is not necessarily 1 — pad enough
+        # rows that the org project cannot land on the same pk.
         _set_path(self.schema)
         try:
-            Project(
-                name='Padding',
-                organization=self.org,
-                owner=self.user,
-                slug=f'padding-{uuid.uuid4().hex[:8]}',
-            ).save()
+            for _ in range(public_project.id):
+                Project(
+                    name='Padding',
+                    organization=self.org,
+                    owner=self.user,
+                    slug=f'padding-{uuid.uuid4().hex[:8]}',
+                ).save()
         finally:
             _set_path('public')
         org_project = self._project_in(self.schema, 'Shared Campaign')

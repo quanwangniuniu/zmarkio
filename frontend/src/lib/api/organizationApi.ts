@@ -94,6 +94,7 @@ export interface OrgDetail {
   usage: OrgUsage | null;
   usage_breakdown: OrgUsageBreakdownItem[];
   recent_activity: OrgActivityEvent[];
+  max_concurrent_sessions: number;
 }
 
 // Member returned by GET /api/core/organizations/<id>/members/
@@ -194,6 +195,13 @@ export const OrganizationAPI = {
   updateOrgSlug: (orgId: number, slug: string): Promise<{ slug: string; message: string }> => {
     return api
       .patch<{ slug: string; message: string }>(`/api/core/organizations/${orgId}/slug/`, { slug })
+      .then((response) => response.data);
+  },
+
+  // Update organization settings (admin only)
+  updateOrgSettings: (orgId: number, settings: { max_concurrent_sessions: number }): Promise<{ max_concurrent_sessions: number }> => {
+    return api
+      .patch<{ max_concurrent_sessions: number }>(`/api/core/organizations/${orgId}/`, settings)
       .then((response) => response.data);
   },
 

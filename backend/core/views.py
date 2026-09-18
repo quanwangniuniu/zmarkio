@@ -56,9 +56,6 @@ from core.serializers import (
     ProjectSummarySerializer,
     SwitchOrganizationSerializer,
 )
-from decision.models import Decision, DecisionEdge, DecisionTopicLabel
-from decision.serializers import DecisionEdgeSerializer, DecisionGraphNodeSerializer
-from decision.services import decision_topic_label as default_decision_topic_label, normalize_decision_topic
 from core.services.project_initialization import ProjectInitializationService
 from core.services.organization_activity import log_org_activity
 from core.services.audit_events import safe_emit_audit_event
@@ -515,9 +512,9 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
 
         if not organization:
             organization = self._auto_create_organization(user)
-            # provision_tenant_schema() resets search_path to 'public' in its
-            # finally block. Switch back to the new org's schema so that Project
-            # and ProjectMember are created in the correct tenant schema.
+            # Organization.save() restores the previous search_path afterwards
+            # (typically public when the user had no org). Switch to the new
+            # org's schema so Project and ProjectMember land in that tenant.
             schema_name = slug_to_schema_name(organization.slug)
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -823,121 +820,6 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
             'message': 'Active project updated successfully',
             'active_project': serializer.data
         })
-
-    @action(detail=True, methods=['get'], url_path='decisions/graph')
-    def decisions_graph(self, request, pk=None):
-        """Return decision graph (nodes + edges) for one project or all member projects."""
-        project = self.get_object()
-        scope = request.query_params.get('scope')
-        if scope == 'all_projects':
-            if request.user.is_superuser:
-                project_ids = Project.objects.filter(
-                    organization=project.organization,
-                    is_deleted=False,
-                ).values_list('id', flat=True)
-            else:
-                project_ids = ProjectMember.objects.filter(
-                    user=request.user,
-                    is_active=True,
-                    project__organization=project.organization,
-                    project__is_deleted=False,
-                ).values_list('project_id', flat=True)
-        else:
-            project_ids = [project.id]
-
-        nodes_qs = Decision.objects.filter(project_id__in=project_ids, is_deleted=False).select_related('project').order_by(
-            'project_id',
-            'project_seq',
-            'id',
-        )
-        edges_qs = DecisionEdge.objects.filter(
-            from_decision__project_id__in=project_ids,
-            to_decision__project_id__in=project_ids,
-        )
-        topic_labels = {
-            label.topic: label.title
-            for label in DecisionTopicLabel.objects.filter(
-                project=project,
-                is_deleted=False,
-            )
-        }
-        nodes = DecisionGraphNodeSerializer(
-            nodes_qs,
-            many=True,
-            context={"request": request, "topic_labels": topic_labels},
-        ).data
-        edges = DecisionEdgeSerializer(edges_qs, many=True).data
-        topics = [
-            {
-                "topic": topic,
-                "title": title,
-                "defaultTitle": default_decision_topic_label(topic),
-            }
-            for topic, title in sorted(topic_labels.items(), key=lambda item: item[1].lower())
-        ]
-        return Response({"nodes": nodes, "edges": edges, "topics": topics})
-
-    @action(
-        detail=True,
-        methods=['patch', 'post', 'delete'],
-        url_path=r'decision-topic-labels/(?P<topic>[^/.]+)',
-    )
-    def decision_topic_label(self, request, pk=None, topic=None):
-        """Create, rename, or remove a topic column title for this project view."""
-        project = self.get_object()
-        normalized_topic = normalize_decision_topic(topic)
-
-        if request.method == 'DELETE':
-            if Decision.objects.filter(
-                project=project,
-                topic=normalized_topic,
-                is_deleted=False,
-            ).exists():
-                return Response(
-                    {'detail': 'Only empty topics can be deleted.'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            DecisionTopicLabel.objects.filter(
-                project=project,
-                topic=normalized_topic,
-                is_deleted=False,
-            ).update(is_deleted=True)
-            return Response(status=status.HTTP_204_NO_CONTENT)
-
-        title = (request.data.get('title') or '').strip()
-        if not title:
-            return Response(
-                {'title': 'Title is required.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if len(title) > 80:
-            return Response(
-                {'title': 'Title must be 80 characters or fewer.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with transaction.atomic():
-            label, _ = DecisionTopicLabel.objects.update_or_create(
-                project=project,
-                topic=normalized_topic,
-                defaults={'title': title, 'is_deleted': False},
-            )
-            record_audit_entry(
-                actor=self.request.user if self.request.user.is_authenticated else None,
-                action='project.labels_updated',
-                target=project,
-                before=None,
-                after={'topic': normalized_topic, 'title': title},
-                organization=project.organization,
-                project=project,
-            )
-        return Response(
-            {
-                'topic': normalized_topic,
-                'title': label.title,
-                'defaultTitle': default_decision_topic_label(normalized_topic),
-            }
-        )
 
 
 class ProjectMemberViewSet(viewsets.ModelViewSet):
@@ -1838,6 +1720,44 @@ class OrganizationDetailView(APIView):
             'recent_activity': activity_data,
         })
 
+    def patch(self, request, org_id):
+        """
+        PATCH /api/core/organizations/<org_id>/
+        Updates organization settings (admin only).
+        Currently supports: max_concurrent_sessions
+        """
+        user = request.user
+        resolved_id = resolve_pk_for(Organization, org_id)
+
+        if not can_user_access_organization(user, resolved_id):
+            return Response(
+                {'error': 'You do not have access to this organization.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        org = get_object_or_404(Organization, id=resolved_id)
+
+        original_org_id = user.current_organization_id
+        user.current_organization_id = resolved_id
+        if not is_org_admin(user):
+            user.current_organization_id = original_org_id
+            return Response({'error': 'Only organization admins can update settings.'}, status=status.HTTP_403_FORBIDDEN)
+        user.current_organization_id = original_org_id
+
+        cap = request.data.get('max_concurrent_sessions')
+        if cap is None:
+            return Response({'error': 'max_concurrent_sessions is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            cap = int(cap)
+            if cap < 1:
+                raise ValueError
+        except (ValueError, TypeError):
+            return Response({'error': 'max_concurrent_sessions must be a positive integer.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        org.max_concurrent_sessions = cap
+        org.save(update_fields=['max_concurrent_sessions', 'updated_at'])
+        return Response({'max_concurrent_sessions': org.max_concurrent_sessions})
+
     def delete(self, request, org_id):
         """
         DELETE /api/core/organizations/<org_id>/
@@ -2587,8 +2507,9 @@ class CreateOrganizationView(APIView):
         }
         """
         from django.utils.text import slugify
-        from django.db import connection, transaction
+        from django.db import transaction
         from core.services.tenant import slug_to_schema_name
+        from core.tenant_context import tenant_schema_context
         from customer.models import CustomerOrganisation
         from csm.models import CustomerUser
 
@@ -2655,10 +2576,7 @@ class CreateOrganizationView(APIView):
             # Switch to tenant schema to create roles
             schema_name = slug_to_schema_name(organization.slug)
 
-            with connection.cursor() as cursor:
-                cursor.execute(f'SET search_path TO {schema_name}, public')
-
-            try:
+            with tenant_schema_context(schema_name):
                 from access_control.models import Role as AccessRole, UserRole
 
                 # Create Organization Admin role (level=2)
@@ -2676,9 +2594,6 @@ class CreateOrganizationView(APIView):
                     defaults={"level": 30}
                 )
                 UserRole.objects.get_or_create(user=user, role=default_role)
-            finally:
-                with connection.cursor() as cursor:
-                    cursor.execute('SET search_path TO public')
 
         serializer = OrganizationSerializer(organization, context={'request': request})
         return Response({
@@ -2729,8 +2644,9 @@ class JoinOrganizationBySlugView(APIView):
             "slug": "acme-corp"
         }
         """
-        from django.db import connection, transaction
+        from django.db import transaction
         from core.services.tenant import slug_to_schema_name
+        from core.tenant_context import tenant_schema_context
 
         slug = request.data.get('slug', '').strip()
         if not slug:
@@ -2781,10 +2697,7 @@ class JoinOrganizationBySlugView(APIView):
             # Create default Media Buyer role in tenant schema
             schema_name = slug_to_schema_name(organization.slug)
 
-            with connection.cursor() as cursor:
-                cursor.execute(f'SET search_path TO {schema_name}, public')
-
-            try:
+            with tenant_schema_context(schema_name):
                 from access_control.models import Role, UserRole
                 default_role, _ = Role.objects.get_or_create(
                     organization=organization,
@@ -2792,9 +2705,6 @@ class JoinOrganizationBySlugView(APIView):
                     defaults={"level": 30}
                 )
                 UserRole.objects.get_or_create(user=user, role=default_role)
-            finally:
-                with connection.cursor() as cursor:
-                    cursor.execute('SET search_path TO public')
 
         log_org_activity(
             organization,

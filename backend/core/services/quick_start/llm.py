@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Mapping
 
-from agent.gemini_client import call_gemini_json
+from core.services.gemini_client import call_gemini_json
 
 from core.services.quick_start.blueprint import normalize_selected_modules
 from core.services.quick_start.brief import build_campaign_brief

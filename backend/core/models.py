@@ -29,6 +29,7 @@ class Organization(TimeStampedModel):
     slug = models.SlugField(max_length=200, unique=True)
     is_active = models.BooleanField(default=True)
     stripe_customer_id = models.CharField(max_length=255, null=True, blank=True)
+    max_concurrent_sessions = models.PositiveBigIntegerField(default=5)
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
@@ -383,6 +384,10 @@ class Project(SluggedResourceModelMixin, TimeStampedModel):
     pacing_enabled = models.BooleanField(
         default=False,
         help_text="Whether pacing insights and alerts are enabled"
+    )
+    ai_analysis_enabled = models.BooleanField(
+        default=True,
+        help_text="Whether AI-assisted spreadsheet analysis is available for this project"
     )
     budget_config = models.JSONField(
         default=dict,

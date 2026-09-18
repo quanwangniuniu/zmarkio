@@ -10,11 +10,12 @@ interface Props {
   projectId: Id | null;
   projectName?: string | null;
   spreadsheetName?: string | null;
+  backHref?: string;
 }
 
-export default function SpreadsheetBreadcrumb({ projectId, projectName, spreadsheetName }: Props) {
+export default function SpreadsheetBreadcrumb({ projectId, projectName, spreadsheetName, backHref }: Props) {
   const buildUrl = useBuildUrl();
-  const listHref = buildUrl('/spreadsheets');
+  const listHref = backHref ?? buildUrl('/spreadsheets');
   return (
     <nav
       aria-label="Breadcrumb"

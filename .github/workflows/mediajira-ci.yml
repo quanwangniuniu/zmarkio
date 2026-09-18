@@ -361,6 +361,7 @@ jobs:
           CELERY_RESULT_BACKEND=redis://redis:6379/0
           CLAMAV_HOST=clamav
           CLAMAV_PORT=3310
+          FRONTEND_CLEAR_NEXT=1
           EOF
 
       # Start all services
@@ -474,7 +475,14 @@ jobs:
             pytest -v -o addopts='' --ds=backend.settings --timeout=600 metric_upload/tests/integration asset/tests/test_tasks.py budget_approval/tests/test_concurrency.py
            "
 
-      # Run frontend tests in container
+      # Run frontend tests in container.
+      # Local equivalent (from repo):
+      #   cd frontend && npm run test:ci
+      # That runs Jest with --coverage and enforces coverageThreshold in
+      # frontend/jest.config.js. Inspect the terminal Coverage summary, or
+      # coverage/coverage-summary.json / coverage/lcov-report/index.html after
+      # a local run. New unit tests must mock network (jest.mock / fetch mocks);
+      # do not hit real services from CI.
       - name: Run frontend tests in container
         run: |
           # run tests in the built frontend image
@@ -484,8 +492,8 @@ jobs:
             npx next lint --max-warnings 9999 &&
             echo 'Building frontend application...' &&
             npm run build &&
-            echo 'Running frontend tests...' &&
-            npm test
+            echo 'Running frontend tests with coverage gate...' &&
+            npm run test:ci
           "
 
       # The Studio service is a separate Next.js app that talks to the same
@@ -555,14 +563,249 @@ jobs:
               npm test
             "
 
+      # Budget approval Playwright E2E (MED-315): real backend via nginx, isolated fixtures per test.
+      # The verification build replaces .next while next start is still serving
+      # its previous build. Reload it before E2E so HTML and runtime chunks agree.
+      - name: Restart frontend after verification build
+        run: docker compose restart frontend
+
+      - name: Wait for nginx (budget E2E)
+        run: |
+          echo "Waiting for nginx to serve the stack..."
+          timeout=120
+          counter=0
+          while [ $counter -lt $timeout ]; do
+            if curl --max-time 5 -fsS http://localhost/health > /dev/null 2>&1 && \
+               curl --max-time 5 -fsS http://localhost/login > /dev/null 2>&1; then
+              echo "nginx is ready!"
+              exit 0
+            fi
+            echo "nginx not ready yet, waiting... ($counter/$timeout)"
+            sleep 2
+            counter=$((counter + 2))
+          done
+          echo "nginx failed to become healthy within ${timeout}s"
+          docker compose logs nginx
+          docker compose logs frontend
+          exit 1
+
+      - name: Provision budget E2E anchor user
+        run: |
+          docker compose exec -T backend sh <<'EOS'
+          set -e
+          python manage.py shell <<'PY'
+          from django.contrib.auth import get_user_model
+          from django.db.models.signals import post_save
+
+          from core.models import Organization, OrganizationMembership, Project, ProjectMember
+          from core.services.tenant import provision_tenant_schema, slug_to_schema_name
+          from core.tenant_context import tenant_schema_context
+          from stripe_meta.signals import create_default_subscription
+
+          User = get_user_model()
+          ANCHOR_EMAIL = "ci-budget-anchor@example.com"
+          ORG_SLUG = "ci-budget-e2e-org"
+
+          post_save.disconnect(create_default_subscription, sender=Organization)
+          try:
+              org, _ = Organization.objects.get_or_create(
+                  slug=ORG_SLUG,
+                  defaults={"name": "CI Budget E2E Org", "is_active": True},
+              )
+              # MED-327: apiAuthHeaders re-logs in on every API call, so the
+              # requester accumulates many sessions across 6 sequential tests.
+              # Set a high cap so eviction never blacklists the browser token.
+              org.max_concurrent_sessions = 100
+              org.save(update_fields=["max_concurrent_sessions", "updated_at"])
+              provision_tenant_schema(org.slug)
+
+              anchor, _ = User.objects.get_or_create(
+                  email=ANCHOR_EMAIL,
+                  defaults={
+                      "username": "ci-budget-anchor",
+                      "organization": org,
+                      "current_organization": org,
+                      "is_verified": True,
+                      "password_set": True,
+                  },
+              )
+              anchor.organization = org
+              anchor.current_organization = org
+              anchor.is_verified = True
+              anchor.password_set = True
+              anchor.set_password("password123!")
+              anchor.save()
+
+              OrganizationMembership.objects.update_or_create(
+                  user=anchor,
+                  organization=org,
+                  defaults={"role": "admin", "is_active": True},
+              )
+
+              schema = slug_to_schema_name(org.slug)
+              with tenant_schema_context(schema):
+                  project, _ = Project.objects.get_or_create(
+                      organization=org,
+                      name="CI Budget Anchor Project",
+                      defaults={"owner": anchor},
+                  )
+                  ProjectMember.objects.update_or_create(
+                      user=anchor,
+                      project=project,
+                      defaults={"role": "owner", "is_active": True},
+                  )
+              anchor.active_project = project
+              anchor.save(update_fields=["active_project"])
+              print("budget E2E anchor ready:", anchor.email, "project_id=", project.id)
+          finally:
+              post_save.connect(create_default_subscription, sender=Organization)
+          PY
+          EOS
+
+      - name: Generate budget E2E fixtures
+        run: |
+          set -e
+          mkdir -p frontend/e2e/budget/fixtures
+          docker compose exec -T backend python manage.py issue_budget_e2e_fixtures \
+            --allow-outside-debug \
+            --anchor-email=ci-budget-anchor@example.com \
+            > frontend/e2e/budget/fixtures/budget-e2e-fixtures.json
+          python3 -c "
+          import json
+          data = json.load(open('frontend/e2e/budget/fixtures/budget-e2e-fixtures.json'))
+          assert data.get('users', {}).get('requester', {}).get('access_token'), 'missing requester access_token'
+          print('budget E2E fixtures ready for org', data.get('organization_slug'))
+          "
+
+      - name: Set up Node for budget Playwright E2E
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Playwright (Chromium only)
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Restart frontend with a clean Next cache for budget E2E
+        run: |
+          docker compose restart frontend
+
+          echo "Waiting for frontend to rebuild after clearing .next..."
+          timeout=180
+          counter=0
+          while [ $counter -lt $timeout ]; do
+            if curl -fsS http://localhost/tasks > /dev/null 2>&1; then
+              echo "frontend is ready!"
+              exit 0
+            fi
+            echo "frontend not ready yet, waiting... ($counter/$timeout)"
+            sleep 3
+            counter=$((counter + 3))
+          done
+
+          echo "frontend failed to become ready within ${timeout}s"
+          docker compose logs frontend
+          exit 1
+
+      # The restarts above only wait for HTML. This also fetches every Next.js
+      # chunk the login page references, so a stale build fails here with a
+      # clear message instead of as a Playwright timeout. It runs after the last
+      # restart so it checks the same server the E2E run talks to.
+      - name: Verify frontend browser assets (budget E2E)
+        run: |
+          if ! python3 - <<'PY'
+          import time
+          from html.parser import HTMLParser
+          from urllib.parse import urljoin, urlsplit
+          from urllib.request import urlopen
+
+          base_url = "http://localhost"
+          deadline = time.monotonic() + 120
+
+          class Scripts(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.urls = set()
+
+              def handle_starttag(self, tag, attrs):
+                  src = dict(attrs).get("src")
+                  if tag == "script" and src:
+                      url = urljoin(base_url, src)
+                      parsed = urlsplit(url)
+                      if ((parsed.scheme, parsed.netloc)
+                              == (urlsplit(base_url).scheme, urlsplit(base_url).netloc)
+                              and parsed.path.startswith("/_next/static/")
+                              and parsed.path.endswith(".js")):
+                          self.urls.add(url)
+
+          def fetch(url, expected_type):
+              remaining = deadline - time.monotonic()
+              if remaining <= 0:
+                  raise TimeoutError("Frontend readiness deadline exceeded")
+              with urlopen(url, timeout=min(10, remaining)) as response:
+                  content_type = response.headers.get("Content-Type", "")
+                  if expected_type not in content_type:
+                      raise ValueError(f"{url}: unexpected Content-Type {content_type}")
+                  body = response.read()
+                  if not body:
+                      raise ValueError(f"{url}: empty response")
+                  return body
+
+          while time.monotonic() < deadline:
+              try:
+                  page = Scripts()
+                  page.feed(fetch(f"{base_url}/login", "text/html").decode("utf-8"))
+                  if not page.urls:
+                      raise ValueError("Login page contains no Next.js script assets")
+                  for url in sorted(page.urls):
+                      fetch(url, "javascript")
+                  print(f"Frontend ready: login page and {len(page.urls)} scripts loaded.")
+                  break
+              except (OSError, ValueError) as exc:
+                  print(f"Frontend not ready: {exc}", flush=True)
+                  time.sleep(min(2, max(0, deadline - time.monotonic())))
+          else:
+              raise SystemExit("Frontend page/assets did not become ready within 120s")
+          PY
+          then
+            docker compose logs --tail=100 frontend nginx
+            exit 1
+          fi
+
+      - name: Run budget approval Playwright E2E
+        working-directory: frontend
+        env:
+          CI: true
+          BASE_URL: http://localhost
+          E2E_USE_EXISTING_SERVER: "1"
+        run: npm run test:e2e:budget
+
+      - name: Upload budget E2E Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: budget-e2e-playwright-${{ github.sha }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
+
       # Cleanup containers and volumes
       - name: Cleanup containers
         if: always()
         run: |
           echo "Cleaning up containers and volumes..."
-          docker compose --profile ci down -v
+          # A prior step may have failed before the ".env" file was created.
+          # docker compose still needs it to resolve the "env_file" directive,
+          # and this cleanup must never fail the job, so guard both.
+          [ -f .env ] || touch .env
+          docker compose --profile ci --env-file .env down -v || true
           echo "Cleaning up unused Docker resources..."
-          docker system prune -f
+          docker system prune -f || true
 
   deploy:
     needs: [block, migration_guard, code_scan, image_scan, application_test]

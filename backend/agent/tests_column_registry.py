@@ -10,7 +10,8 @@ Coverage:
   - ColumnDetectionResult: to_dict round-trip, column_confidences defaults
 """
 import json
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -21,10 +22,12 @@ from .column_registry import (
     CAT_IDENTIFIER,
     CAT_PERFORMANCE_RATIO,
     CAT_UNKNOWN,
+    CAT_TEMPORAL,
     ColumnDetectionResult,
     detect_columns,
     normalize_spreadsheet,
 )
+from . import column_registry as registry
 
 
 # ---------------------------------------------------------------------------
@@ -404,3 +407,113 @@ class NormalizeSpreadsheetTests(SimpleTestCase):
         # No original names should remain
         for original in headers:
             self.assertNotIn(original, sheet['columns'])
+
+
+# ---------------------------------------------------------------------------
+# Remaining helper and persistence edge cases
+# ---------------------------------------------------------------------------
+
+class AutoCategorizationTests(SimpleTestCase):
+
+    def test_keyword_categories_and_unknown_fallback(self):
+        cases = {
+            'ad_cost': CAT_FINANCIAL,
+            'video_views': CAT_ENGAGEMENT,
+            'purchase_count': CAT_CONVERSION,
+            'efficiency_score': CAT_PERFORMANCE_RATIO,
+            'campaign_name': CAT_IDENTIFIER,
+            'mystery_field': CAT_UNKNOWN,
+            '': CAT_UNKNOWN,
+            CAT_UNKNOWN: CAT_UNKNOWN,
+        }
+
+        for canonical_name, expected in cases.items():
+            with self.subTest(canonical_name=canonical_name):
+                self.assertEqual(registry.auto_categorize_by_name(canonical_name), expected)
+
+    def test_keyword_matching_does_not_use_partial_word_substrings(self):
+        self.assertEqual(
+            registry.auto_categorize_by_name("total_spend"),
+            CAT_FINANCIAL,
+        )
+        self.assertEqual(
+            registry.auto_categorize_by_name("week_end"),
+            CAT_TEMPORAL,
+        )
+
+
+    def test_compound_keywords_still_match(self):
+        self.assertEqual(
+            registry.auto_categorize_by_name("add_to_cart"),
+            CAT_CONVERSION,
+        )
+
+
+class DatabaseTemplateHelperTests(SimpleTestCase):
+    databases = ('default',)
+
+    @patch('agent.models.DataSchemaTemplate.objects.filter', side_effect=RuntimeError('db unavailable'))
+    def test_db_template_failure_is_treated_as_no_match(self, _mock_filter):
+        self.assertIsNone(registry._try_db_template_match(['Revenue']))
+
+    @patch('agent.models.DataSchemaTemplate.objects.filter')
+    def test_db_template_without_column_definitions_is_skipped(self, mock_filter):
+        queryset = MagicMock()
+        queryset.order_by.return_value = [
+            SimpleNamespace(column_definitions=[], match_threshold=0.5)
+        ]
+        mock_filter.return_value = queryset
+
+        self.assertIsNone(registry._try_db_template_match(['Revenue']))
+
+
+class LearnedTemplateTests(SimpleTestCase):
+    databases = ('default',)
+
+    def test_empty_columns_are_not_saved(self):
+        self.assertIsNone(registry.save_learned_template('Empty schema', 'custom', []))
+
+    @patch('agent.models.DataSchemaTemplate.objects.get_or_create')
+    def test_existing_template_receives_updated_column_definitions(self, mock_get_or_create):
+        template = MagicMock()
+        columns = [
+            {
+                'canonical_name': 'revenue',
+                'aliases': ['Revenue'],
+                'category': CAT_FINANCIAL,
+            }
+        ]
+        mock_get_or_create.return_value = (template, False)
+
+        result = registry.save_learned_template('Sales', 'custom', columns)
+
+        self.assertIs(result, template)
+        self.assertEqual(template.column_definitions, columns)
+        template.save.assert_called_once_with(
+            update_fields=['column_definitions', 'updated_at']
+        )
+
+    @patch('agent.models.DataSchemaTemplate.objects.get_or_create', side_effect=RuntimeError('write failed'))
+    def test_template_write_failure_returns_none(self, _mock_get_or_create):
+        result = registry.save_learned_template(
+            'Sales',
+            'custom',
+            [{'canonical_name': 'revenue'}],
+        )
+
+        self.assertIsNone(result)
+
+
+class LLMQuotaPropagationTests(SimpleTestCase):
+    @patch('core.services.gemini_client._get_api_key', return_value='test-key')
+    @patch('agent.llm_client.call_llm')
+    def test_quota_error_is_not_converted_to_unknown_result(self, mock_call_llm, _mock_key):
+        from stripe_meta.exceptions import QuotaError
+
+        mock_call_llm.side_effect = QuotaError(
+            code='MONTHLY_QUOTA_EXCEEDED',
+            message='quota exhausted',
+        )
+
+        with self.assertRaisesRegex(QuotaError, 'quota exhausted'):
+            registry._try_llm_fallback(['Revenue'])

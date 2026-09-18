@@ -32,11 +32,9 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-4g=$b1l14w5*aia@bgix6
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0').split(',') + [
-    'lipographic-damon-unshrinkable.ngrok-free.dev',
-    'volar-probankruptcy-orval.ngrok-free.dev',
-    'christeen-gawkiest-carmelia.ngrok-free.dev',
-    'upload-rinsing-tracing.ngrok-free.dev',
+ALLOWED_HOSTS = [
+    h.strip() for h in config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0').split(',')
+    if h.strip()
 ]
 
 
@@ -306,7 +304,6 @@ if USE_SQLITE_FOR_TESTS:
         'NAME': os.path.join(BASE_DIR, 'db.test.sqlite3'),
     }
 
-
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
 
@@ -376,6 +373,30 @@ AGENT_CSV_DIR = config(
 # Gemini API (replaces Dify for all LLM workflow calls)
 GEMINI_API_KEY = config('GEMINI_API_KEY', default='')
 
+# AI-assisted spreadsheet analysis (agent <-> spreadsheet integration).
+# Global kill-switch; a per-project toggle (Project.ai_analysis_enabled) and
+# per-user, per-spreadsheet consent (spreadsheet.SpreadsheetAiConsent) gate it
+# further.
+AGENT_SPREADSHEET_AI_ENABLED = config(
+    'AGENT_SPREADSHEET_AI_ENABLED', default=True, cast=bool
+)
+# Hard caps on spreadsheet data handed to an LLM (spreadsheet.providers +
+# core.services.file_parser read these at call time).
+SPREADSHEET_AI_MAX_ROWS = config('SPREADSHEET_AI_MAX_ROWS', default=500, cast=int)
+SPREADSHEET_AI_MAX_COLS = config('SPREADSHEET_AI_MAX_COLS', default=50, cast=int)
+SPREADSHEET_AI_MAX_CELLS = config('SPREADSHEET_AI_MAX_CELLS', default=20000, cast=int)
+SPREADSHEET_AI_MAX_CELL_CHARS = config(
+    'SPREADSHEET_AI_MAX_CELL_CHARS', default=2000, cast=int
+)
+# Gemini HTTP guardrails (core.services.gemini_client).
+GEMINI_TIMEOUT_SECONDS = config('GEMINI_TIMEOUT_SECONDS', default=75, cast=int)
+GEMINI_TOTAL_DEADLINE_SECONDS = config(
+    'GEMINI_TOTAL_DEADLINE_SECONDS', default=150, cast=int
+)
+GEMINI_CB_THRESHOLD = config('GEMINI_CB_THRESHOLD', default=5, cast=int)
+GEMINI_CB_WINDOW_SECONDS = config('GEMINI_CB_WINDOW_SECONDS', default=60, cast=int)
+GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, cast=int)
+
 # Dify LLM Platform integration (kept for reference / backward compat)
 DIFY_API_URL = config('DIFY_API_URL', default='')
 DIFY_API_KEY = config('DIFY_API_KEY', default='')
@@ -397,10 +418,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:80",
     "http://127.0.0.1:80",
-    "http://lipographic-damon-unshrinkable.ngrok-free.dev",
-    "http://volar-probankruptcy-orval.ngrok-free.dev",
-    "http://christeen-gawkiest-carmelia.ngrok-free.dev",
-    "https://upload-rinsing-tracing.ngrok-free.dev",
+] + [
+    o.strip() for o in config('CORS_EXTRA_ORIGINS', default='').split(',')
+    if o.strip()
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -410,11 +430,9 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://christeen-gawkiest-carmelia.ngrok-free.dev",
-    "http://christeen-gawkiest-carmelia.ngrok-free.dev",
-    "http://lipographic-damon-unshrinkable.ngrok-free.dev",
-    "http://volar-probankruptcy-orval.ngrok-free.dev",
-    "https://upload-rinsing-tracing.ngrok-free.dev",
+] + [
+    o.strip() for o in config('CSRF_EXTRA_ORIGINS', default='').split(',')
+    if o.strip()
 ]
 
 # Session Configuration for OAuth
@@ -452,6 +470,11 @@ REST_FRAMEWORK = {
     ],
     'EXCEPTION_HANDLER': 'calendars.exceptions.calendar_exception_handler',
     'DEFAULT_THROTTLE_RATES': {
+        # Booking links are unauthenticated, so they are throttled by
+        # IP. Reads are generous (a prospect paging through weeks); writes are
+        # tight, since each one creates a real calendar event.
+        'public_booking_read': config('PUBLIC_BOOKING_READ_THROTTLE_RATE', default='60/minute'),
+        'public_booking_write': config('PUBLIC_BOOKING_WRITE_THROTTLE_RATE', default='10/hour'),
         'chat_message_write': config('CHAT_MESSAGE_WRITE_THROTTLE_RATE', default='60/minute'),
         'chat_reaction': config('CHAT_REACTION_THROTTLE_RATE', default='120/minute'),
         'spreadsheet_ws_ticket': config(
@@ -980,7 +1003,7 @@ LOGGING = {
     'disable_existing_loggers': False,
     'filters': {
         'redact_secrets': {
-            '()': 'agent.log_redaction.RedactSecretsFilter',
+            '()': 'core.services.log_redaction.RedactSecretsFilter',
         },
     },
     'formatters': {

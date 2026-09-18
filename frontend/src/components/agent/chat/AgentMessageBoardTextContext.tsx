@@ -570,12 +570,16 @@ export function AgentMessageBoardTextProvider({
 
         completedJobsRef.current.delete(blockId)
         resetJobsAfter(blockId)
+        // resetJobsAfter only mutates refs; bump so the queue re-picks an active
+        // job and consumers (typing loop) re-render to replay the reopened part.
+        bumpQueue()
         return
       }
 
       resetJobsAfter(partId)
+      bumpQueue()
     },
-    [resetJobsAfter]
+    [resetJobsAfter, bumpQueue]
   )
 
   const getPartGeneration = useCallback((partId: string) => {

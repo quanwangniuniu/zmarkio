@@ -198,6 +198,11 @@ class SheetColumn(TimeStampedModel):
             models.Index(fields=['sheet', 'position']),
         ]
 
+    @property
+    def index(self) -> int:
+        """0-based column index; alias for `position`."""
+        return self.position
+
     def __str__(self):
         return f"{self.name} (Column {self.position} in {self.sheet.name})"
 
@@ -597,3 +602,41 @@ class PatternJob(TimeStampedModel):
 
     def __str__(self):
         return f"PatternJob {self.id} ({self.status})"
+
+
+class SpreadsheetAiConsent(TimeStampedModel):
+    """One row == one user has consented, once, to sending *this* spreadsheet's
+    contents to an external AI service.
+
+    Replaces the old project-wide gate (``ProjectMember.ai_consent_at``): consent
+    is now scoped to a single spreadsheet, so a member is prompted the first time
+    each spreadsheet is analysed rather than once per project. ``created_at`` (from
+    :class:`TimeStampedModel`) is the moment of consent.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='spreadsheet_ai_consents',
+    )
+    spreadsheet = models.ForeignKey(
+        Spreadsheet,
+        on_delete=models.CASCADE,
+        related_name='ai_consents',
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'spreadsheet'],
+                name='unique_spreadsheet_ai_consent_per_user',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['spreadsheet', 'user'],
+                name='sheet_ai_consent_lookup_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f"AI consent: user={self.user_id} spreadsheet={self.spreadsheet_id}"
