@@ -40,10 +40,19 @@ export function DashboardPanelPreferenceProvider({
 
 export function useDashboardPanelPreference(): DashboardPanelPreferenceContextValue {
   const context = useContext(DashboardPanelPreferenceContext);
-  if (!context) {
+  if (!context) {  
+
+    // silent fallback for development when no provider is found
+    if (process.env.NODE_ENV !== 'production') {  
+      console.warn(
+        '[DashboardPanelPreference] No provider found. Panel toggles will be ignored. ' +
+          'Wrap this route layout in <DashboardPanelPreferenceProvider>.'
+      );
+    }
+
     return {
-      upcomingMeetingsPanelOpen: true,
-      setUpcomingMeetingsPanelOpen: () => undefined,
+      upcomingMeetingsPanelOpen: true,  
+      setUpcomingMeetingsPanelOpen: () => undefined,  
     };
   }
   return context;

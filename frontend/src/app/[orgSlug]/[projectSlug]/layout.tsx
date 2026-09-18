@@ -6,6 +6,9 @@ import { ProjectAPI } from '@/lib/api/projectApi';
 import { OrganizationAPI } from '@/lib/api/organizationApi';
 import { useProjectStore } from '@/lib/projectStore';
 import { useAuthStore } from '@/lib/authStore';
+import { DashboardPanelPreferenceProvider } from '@/components/dashboard/DashboardPanelPreferenceContext';
+import { readUpcomingMeetingsPanelOpen } from '@/lib/dashboardPanelPreferences';
+
 
 /**
  * Resolves [orgSlug]/[projectSlug] from the URL and syncs org + project
@@ -96,5 +99,14 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
     return null;
   }
 
-  return <>{children}</>;
+  // return <>{children}</>;
+
+  return (
+    <DashboardPanelPreferenceProvider
+      initialUpcomingMeetingsPanelOpen={readUpcomingMeetingsPanelOpen()}
+    >
+    {children}
+    </DashboardPanelPreferenceProvider>
+  )
+
 }
