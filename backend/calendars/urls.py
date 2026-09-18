@@ -23,6 +23,12 @@ from .views import (
     AgendaView,
     FreeBusyView,
     EventReminderListCreateView,
+    PublicBookingLinkAvailabilityView,
+    PublicBookingCancelView,
+    PublicBookingLookupView,
+    PublicBookingCreateView,
+    PublicBookingFeedView,
+    BookingLinkViewSet,
 )
 
 
@@ -130,5 +136,59 @@ urlpatterns = [
         'derived-events/',
         CalendarEventListView.as_view(),
         name='calendar-derived-events',
+    ),
+
+    # Owner-facing booking link management.
+    path(
+        "booking-links/",
+        BookingLinkViewSet.as_view({"get": "list", "post": "create"}),
+        name="booking-link-list",
+    ),
+    path(
+        "booking-links/<uuid:pk>/",
+        BookingLinkViewSet.as_view(
+            {"get": "retrieve", "patch": "partial_update", "put": "update", "delete": "destroy"}
+        ),
+        name="booking-link-detail",
+    ),
+
+    # Public booking links. Unauthenticated; the org slug in the path
+    # is what lets these resolve the tenant schema, since there is no user to
+    # resolve it from.
+    path(
+        "public/book/<slug:org_slug>/<slug:link_slug>/",
+        PublicBookingLinkAvailabilityView.as_view(),
+        name="public-booking-availability",
+    ),
+    path(
+        "public/book/<slug:org_slug>/<slug:link_slug>/bookings/",
+        PublicBookingCreateView.as_view(),
+        name="public-booking-create",
+    ),
+    path(
+        "public/book/<slug:org_slug>/<slug:link_slug>/cancel/",
+        PublicBookingCancelView.as_view(),
+        name="public-booking-cancel",
+    ),
+    path(
+        "public/book/<slug:org_slug>/<slug:link_slug>/lookup/",
+        PublicBookingLookupView.as_view(),
+        name="public-booking-lookup",
+    ),
+    # Named *.ics rather than a trailing-slash route: calendar clients key
+    # off the extension when deciding to subscribe.
+    #
+    # Outlook desktop drops query strings on internet calendars, so the
+    # token lives in the path. The old ?token= URL stays so already-sent
+    # mail still resolves.
+    path(
+        "public/book/<slug:org_slug>/<slug:link_slug>/calendar.ics",
+        PublicBookingFeedView.as_view(),
+        name="public-booking-feed-query",
+    ),
+    path(
+        "public/book/<slug:org_slug>/<slug:link_slug>/<str:token>.ics",
+        PublicBookingFeedView.as_view(),
+        name="public-booking-feed",
     ),
 ]

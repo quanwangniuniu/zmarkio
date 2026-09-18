@@ -8,10 +8,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.contrib.auth import get_user_model
 from django.contrib.auth import authenticate
-from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.password_validation import (
+    UserAttributeSimilarityValidator,
+    get_default_password_validators,
+    validate_password,
+)
 from django.core.exceptions import ValidationError
 from rest_framework_simplejwt.tokens import RefreshToken
-from .serializers import UserProfileSerializer, OrganizationTokenRefreshSerializer
+from .serializers import UserProfileSerializer, OrganizationTokenRefreshSerializer, PasswordValidationSerializer
 from .login_security import LoginSecurityService
 from .password_rotation import get_password_rotation_status
 from .services import refresh_organization_access_token
@@ -23,15 +27,18 @@ from core.services.audit_events import safe_emit_audit_event
 from access_control.models import UserRole
 from stripe_meta.permissions import generate_organization_access_token
 from django.conf import settings
-from django.db import transaction, connection
+from django.db import transaction
 from django.db.models import F
 from django.contrib.sessions.models import Session
 from core.services.tenant import slug_to_schema_name
+from core.tenant_context import tenant_schema_context
 from google_auth_oauthlib.flow import Flow  # For OAuth start (generating auth URL)
 from requests_oauthlib import OAuth2Session  # For OAuth callback (token exchange)
 from django.core.mail import send_mail
-from django.utils import timezone
+from django.utils import timezone, translation
 from core.services.auth_tokens import build_user_refresh_token
+from core.models import CustomUser
+from authentication.session_registry import SessionRegistry
 import datetime
 import requests
 import jwt
@@ -74,6 +81,37 @@ def build_google_oauth_state() -> str:
         ttl_seconds=GOOGLE_AUTH_STATE_TTL_SECONDS,
     )
 
+class PasswordValidationView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    @translation.override('en')
+    def post(self, request):
+        serializer = PasswordValidationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        password = data['password']
+        user = User(email=data['email'], username=data['username'])
+        rules = []
+        for validator in get_default_password_validators():
+            errors = []
+            if password:
+                try:
+                    validator.validate(password, user=user)
+                except ValidationError as exc:
+                    errors = list(exc.messages)
+            help_text = str(validator.get_help_text())
+            if isinstance(validator, UserAttributeSimilarityValidator):
+                help_text += ' (Username, Email)'
+            rules.append({
+                'id': validator.__class__.__name__,
+                'help_text': help_text,
+                'valid': not errors if password else None,
+                'errors': errors,
+            })
+        return Response({'rules': rules})
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class RegisterView(APIView):
     permission_classes = []  
@@ -88,6 +126,11 @@ class RegisterView(APIView):
         if not email or not password or not username:
             return Response({"error": "Missing fields"}, status=400)
 
+        serializer = PasswordValidationSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        username = serializer.validated_data['username']
+        email = serializer.validated_data['email']
+
         # Check if the email is already registered (unique across all users)
         if User.objects.filter(email=email).exists():
             return Response({"error": "Email already registered"}, status=400)
@@ -95,13 +138,14 @@ class RegisterView(APIView):
         # Validate password using Django's password validators
         # Create a temporary user object for validation context
         temp_user = User(email=email, username=username)
-        try:
-            validate_password(password, user=temp_user)
-        except ValidationError as e:
-            return Response({
-                "error": "Password validation failed",
-                "details": list(e.messages)
-            }, status=400)
+        with translation.override('en'):
+            try:
+                validate_password(password, user=temp_user)
+            except ValidationError as e:
+                return Response({
+                    "error": "Password validation failed",
+                    "details": list(e.messages)
+                }, status=400)
 
         # MULTI-ORG: Users must create or join an organization during onboarding
         # No longer auto-create organization during registration
@@ -140,26 +184,16 @@ class RegisterView(APIView):
                 }
             )
 
-            # Assign default Media Buyer role in tenant schema
-            from django.db import connection
-            from core.services.tenant import slug_to_schema_name
+            # Assign default Media Buyer role in tenant schema, then restore
+            # whatever search_path this request already had.
             schema_name = slug_to_schema_name(organization.slug)
-
-            # Temporarily switch to tenant schema to create Role and UserRole
-            with connection.cursor() as cursor:
-                cursor.execute(f'SET search_path TO {schema_name}, public')
-
-            try:
+            with tenant_schema_context(schema_name):
                 default_role, _ = Role.objects.get_or_create(
                     organization=organization,
                     name="Media Buyer",
                     defaults={"level": 30}
                 )
                 UserRole.objects.get_or_create(user=user, role=default_role)
-            finally:
-                # Reset to public schema
-                with connection.cursor() as cursor:
-                    cursor.execute('SET search_path TO public')
 
             # Create CustomerOrganisation + admin CustomerUser so CSM features work
             from customer.models import CustomerOrganisation
@@ -280,6 +314,8 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        assert isinstance(user, CustomUser)
+
         # Email verification gate is disabled while no email service is wired
         # up in this environment. Restore the check below once SMTP / SES /
         # Mailgun are configured. See 00_Auth issues B-01.
@@ -304,6 +340,20 @@ class LoginView(APIView):
             )
         
         refresh = build_user_refresh_token(user)
+
+        # Register session in Redis
+        jti = str(refresh["jti"])
+        meta = {
+            "ip": request.META.get("REMOTE_ADDR"),
+            "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+            "created_at": datetime.datetime.utcnow().isoformat(),
+        }
+        try:
+            cap = user.current_organization.max_concurrent_sessions if user.current_organization else 5
+            SessionRegistry.register_session(user.pk, jti, meta, cap)
+        except Exception:
+            logger.exception("Failed to register session in Redis for user %s", user.pk)
+
         profile_data = UserProfileSerializer(user, context={'request': request}).data
         
         # Generate organization access token if user belongs to an organization
@@ -415,18 +465,13 @@ class SsoCallbackView(APIView):
                 # schema's access_control_userrole resolves to the tenant's
                 # core_role table (not the public one).
                 _schema = slug_to_schema_name(organization.slug)
-                with connection.cursor() as _cur:
-                    _cur.execute(f'SET search_path TO {_schema}, public')
-                try:
+                with tenant_schema_context(_schema):
                     default_role, _ = Role.objects.get_or_create(
                         organization=organization,
                         name="Media Buyer",
                         defaults={"level": 30}
                     )
                     UserRole.objects.get_or_create(user=user, role=default_role)
-                finally:
-                    with connection.cursor() as _cur:
-                        _cur.execute('SET search_path TO public')
                 
                 # Generate JWT tokens
                 refresh = build_user_refresh_token(user)
@@ -1151,13 +1196,12 @@ class LogoutView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        refresh_token = request.data.get('refresh_token')
-        if refresh_token:
-            try:
-                token = RefreshToken(refresh_token)
-                token.blacklist()
-            except Exception:
-                logger.exception("Failed to blacklist refresh token during logout for user %s", request.user.id)
+        try:
+            refresh_jti = request.auth.get("refresh_jti") if request.auth else None
+            if refresh_jti:
+                SessionRegistry.remove_session(request.user.pk, refresh_jti)
+        except Exception:
+            logger.exception("Failed to remove session from registry during logout for user %s", request.user.id)
 
         try:
             from asgiref.sync import async_to_sync
@@ -1288,3 +1332,53 @@ class DeleteAccountView(APIView):
             logger.exception("Failed to emit account-delete websocket revoke for user %s", user.id)
 
         return Response({'message': 'Account deleted successfully.'}, status=status.HTTP_200_OK)
+
+
+class SessionTokenRefreshView(APIView):
+    """
+    POST /auth/token/refresh/
+    Wraps SimpleJWT's TokenRefreshView to propagate refresh_jti into the new
+    access token, so session revocation remains effective after token refresh.
+    """
+    permission_classes = []
+
+    def post(self, request):
+        from rest_framework_simplejwt.serializers import TokenRefreshSerializer
+        from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
+
+        serializer = TokenRefreshSerializer(data=request.data)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError as e:
+            raise InvalidToken(e.args[0])
+
+        # refresh_jti is already embedded in the refresh token payload and
+        # auto-copied to the new access token by SimpleJWT — no manual injection needed.
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+
+
+class SessionListView(APIView):
+    """
+    GET /auth/sessions/
+    Returns all active sessions for the authenticated user.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        sessions = SessionRegistry.list_sessions(request.user.pk)
+        return Response(sessions, status=status.HTTP_200_OK)
+
+
+class SessionRevokeView(APIView):
+    """
+    DELETE /auth/sessions/<jti>/
+    Revokes a specific session by JTI.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, jti):
+        sessions = SessionRegistry.list_sessions(request.user.pk)
+        if not any(s["jti"] == jti for s in sessions):
+            return Response({'error': 'Session not found.'}, status=status.HTTP_404_NOT_FOUND)
+        SessionRegistry.delete_session(request.user.pk, jti)
+        return Response({'message': 'Session revoked.'}, status=status.HTTP_200_OK)

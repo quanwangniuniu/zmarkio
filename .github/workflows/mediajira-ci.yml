@@ -475,7 +475,14 @@ jobs:
             pytest -v -o addopts='' --ds=backend.settings --timeout=600 metric_upload/tests/integration asset/tests/test_tasks.py budget_approval/tests/test_concurrency.py
            "
 
-      # Run frontend tests in container
+      # Run frontend tests in container.
+      # Local equivalent (from repo):
+      #   cd frontend && npm run test:ci
+      # That runs Jest with --coverage and enforces coverageThreshold in
+      # frontend/jest.config.js. Inspect the terminal Coverage summary, or
+      # coverage/coverage-summary.json / coverage/lcov-report/index.html after
+      # a local run. New unit tests must mock network (jest.mock / fetch mocks);
+      # do not hit real services from CI.
       - name: Run frontend tests in container
         run: |
           # run tests in the built frontend image
@@ -485,8 +492,8 @@ jobs:
             npx next lint --max-warnings 9999 &&
             echo 'Building frontend application...' &&
             npm run build &&
-            echo 'Running frontend tests...' &&
-            npm test
+            echo 'Running frontend tests with coverage gate...' &&
+            npm run test:ci
           "
 
       # The Studio service is a separate Next.js app that talks to the same
@@ -579,6 +586,7 @@ jobs:
           done
           echo "nginx failed to become healthy within ${timeout}s"
           docker compose logs nginx
+          docker compose logs frontend
           exit 1
 
       - name: Provision budget E2E anchor user
@@ -604,6 +612,11 @@ jobs:
                   slug=ORG_SLUG,
                   defaults={"name": "CI Budget E2E Org", "is_active": True},
               )
+              # MED-327: apiAuthHeaders re-logs in on every API call, so the
+              # requester accumulates many sessions across 6 sequential tests.
+              # Set a high cap so eviction never blacklists the browser token.
+              org.max_concurrent_sessions = 100
+              org.save(update_fields=["max_concurrent_sessions", "updated_at"])
               provision_tenant_schema(org.slug)
 
               anchor, _ = User.objects.get_or_create(
@@ -697,6 +710,71 @@ jobs:
           echo "frontend failed to become ready within ${timeout}s"
           docker compose logs frontend
           exit 1
+
+      # The restarts above only wait for HTML. This also fetches every Next.js
+      # chunk the login page references, so a stale build fails here with a
+      # clear message instead of as a Playwright timeout. It runs after the last
+      # restart so it checks the same server the E2E run talks to.
+      - name: Verify frontend browser assets (budget E2E)
+        run: |
+          if ! python3 - <<'PY'
+          import time
+          from html.parser import HTMLParser
+          from urllib.parse import urljoin, urlsplit
+          from urllib.request import urlopen
+
+          base_url = "http://localhost"
+          deadline = time.monotonic() + 120
+
+          class Scripts(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.urls = set()
+
+              def handle_starttag(self, tag, attrs):
+                  src = dict(attrs).get("src")
+                  if tag == "script" and src:
+                      url = urljoin(base_url, src)
+                      parsed = urlsplit(url)
+                      if ((parsed.scheme, parsed.netloc)
+                              == (urlsplit(base_url).scheme, urlsplit(base_url).netloc)
+                              and parsed.path.startswith("/_next/static/")
+                              and parsed.path.endswith(".js")):
+                          self.urls.add(url)
+
+          def fetch(url, expected_type):
+              remaining = deadline - time.monotonic()
+              if remaining <= 0:
+                  raise TimeoutError("Frontend readiness deadline exceeded")
+              with urlopen(url, timeout=min(10, remaining)) as response:
+                  content_type = response.headers.get("Content-Type", "")
+                  if expected_type not in content_type:
+                      raise ValueError(f"{url}: unexpected Content-Type {content_type}")
+                  body = response.read()
+                  if not body:
+                      raise ValueError(f"{url}: empty response")
+                  return body
+
+          while time.monotonic() < deadline:
+              try:
+                  page = Scripts()
+                  page.feed(fetch(f"{base_url}/login", "text/html").decode("utf-8"))
+                  if not page.urls:
+                      raise ValueError("Login page contains no Next.js script assets")
+                  for url in sorted(page.urls):
+                      fetch(url, "javascript")
+                  print(f"Frontend ready: login page and {len(page.urls)} scripts loaded.")
+                  break
+              except (OSError, ValueError) as exc:
+                  print(f"Frontend not ready: {exc}", flush=True)
+                  time.sleep(min(2, max(0, deadline - time.monotonic())))
+          else:
+              raise SystemExit("Frontend page/assets did not become ready within 120s")
+          PY
+          then
+            docker compose logs --tail=100 frontend nginx
+            exit 1
+          fi
 
       - name: Run budget approval Playwright E2E
         working-directory: frontend
