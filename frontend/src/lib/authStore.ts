@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from 'zustand'; 
 import { createJSONStorage, persist } from 'zustand/middleware';
 import {
   authPersistStorage,
@@ -14,7 +14,7 @@ import { LOGIN_ERROR_MESSAGES, isNetworkError, isRetryableAuthError } from './au
 import { useChatStore } from './chatStore';
 
 // Authentication state interface
-interface AuthState {
+export interface AuthState { 
   // User data and authentication state
   user: User | null;
   token: string | null;
@@ -75,9 +75,22 @@ function getSharedInitAuthRefreshedToken(refreshToken: string): Promise<string |
   });
 }
 
+type UseAuthStore = {
+  (): AuthState;
+  <T>(selector: (state: AuthState) => T): T;
+  getState: () => AuthState;
+  setState: (
+    partial: AuthState | Partial<AuthState> | ((state: AuthState) => AuthState | Partial<AuthState>),
+    replace?: boolean
+  ) => void;
+  subscribe: (listener: (state: AuthState, prevState: AuthState) => void) => () => void;
+  getInitialState: () => AuthState;
+};
+
+
 // Create the auth store with persistence
-export const useAuthStore = create<AuthState>()(
-  persist(
+export const useAuthStore = create<AuthState>()( 
+  persist<AuthState>(      
     (set, get) => ({
       // Initial state
       user: null,
@@ -446,7 +459,7 @@ export const useAuthStore = create<AuthState>()(
       })
     }
   )
-);
+) as unknown as UseAuthStore; 
 
 // A session ended by the API client (refresh token rejected) must also reset
 // in-memory auth state, the same as a normal logout.

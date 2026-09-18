@@ -1,23 +1,40 @@
-import { create } from 'zustand';
+import { create } from 'zustand'; 
 
 import {
   AGENT_PANEL_OPENED_EVENT,
   readStoredAgentSessionId,
 } from '@/lib/agentLaunchContext';
 
-interface AgentSidePanelStore {
+export interface AgentSidePanelStore { 
   isOpen: boolean;
   toggle: () => void;
   open: () => void;
   close: () => void;
 }
 
+type UseAgentSidePanelStore = {
+  (): AgentSidePanelStore;
+  <T>(selector: (state: AgentSidePanelStore) => T): T;
+  getState: () => AgentSidePanelStore;
+  setState: (
+    partial:
+      | AgentSidePanelStore
+      | Partial<AgentSidePanelStore>
+      | ((state: AgentSidePanelStore) => AgentSidePanelStore | Partial<AgentSidePanelStore>),
+    replace?: boolean
+  ) => void;
+  subscribe: (
+    listener: (state: AgentSidePanelStore, prevState: AgentSidePanelStore) => void
+  ) => () => void;
+  getInitialState: () => AgentSidePanelStore;
+};
+
 export const useAgentSidePanelStore = create<AgentSidePanelStore>((set) => ({
   isOpen: false,
   toggle: () => set((s) => ({ isOpen: !s.isOpen })),
   open: () => set({ isOpen: true }),
   close: () => set({ isOpen: false }),
-}));
+})) as unknown as UseAgentSidePanelStore; 
 
 /** Open the Dashboard Agent side panel (replaces navigating to deprecated /agent). */
 export function openAgentSidePanel(): void {

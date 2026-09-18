@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { ProjectData } from './api/projectApi';
 
-interface ProjectState {
+export interface ProjectState {  
   projects: ProjectData[];
   activeProject: ProjectData | null;
   activeProjectIds: (number | string)[];
@@ -50,8 +50,20 @@ const writeActiveProjectCookie = (project: ProjectData | null) => {
 };
 
 
+type UseProjectStore = {
+  (): ProjectState;
+  <T>(selector: (state: ProjectState) => T): T;
+  getState: () => ProjectState;
+  setState: (
+    partial: ProjectState | Partial<ProjectState> | ((state: ProjectState) => ProjectState | Partial<ProjectState>),
+    replace?: boolean
+  ) => void;
+  subscribe: (listener: (state: ProjectState, prevState: ProjectState) => void) => () => void;
+  getInitialState: () => ProjectState;
+};
+
 export const useProjectStore = create<ProjectState>()(
-  persist(
+  persist<ProjectState>(       
     (set) => ({
       projects: [],
       activeProject: null,
@@ -183,4 +195,4 @@ export const useProjectStore = create<ProjectState>()(
       }),
     }
   )
-);
+) as unknown as UseProjectStore; 
