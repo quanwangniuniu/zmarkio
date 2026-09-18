@@ -753,6 +753,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
 
   const inputRef = useRef<HTMLInputElement>(null);
   const gridRef = useRef<HTMLDivElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const resizeDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const scrollRafIdRef = useRef<number | null>(null);
@@ -3332,6 +3333,11 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     }
   }, [spreadsheetId, sheetId, frozenRowCount, onFreezeHeaderChange]);
 
+  // Move keyboard focus out of the grid to the first usable toolbar button.
+  const focusToolbar = useCallback(() => {
+    toolbarRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }, []);
+
   // Handle keyboard navigation (Navigation Mode only)
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -3348,10 +3354,38 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
 
       if (!activeCell) {
         // If no active cell, start at (0, 0)
-        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'Tab'].includes(e.key)) {
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter'].includes(e.key)) {
           e.preventDefault();
           navigateToCell(0, 0);
         }
+      }
+
+      // Tab / Shift+Tab walk cells, but Shift+Tab on the first cell is left to
+      // the browser so keyboard users can move focus out of the grid.
+      if (e.key === 'Tab') {
+        if (e.shiftKey) {
+          if (!activeCell || (activeCell.row === 0 && activeCell.col === 0)) {
+            return;
+          }
+          e.preventDefault();
+          if (activeCell.col > 0) {
+            navigateToCell(activeCell.row, activeCell.col - 1);
+          } else {
+            // Wrap to the end of the previous row
+            navigateToCell(activeCell.row - 1, colCount - 1);
+          }
+          return;
+        }
+        e.preventDefault();
+        if (!activeCell) {
+          navigateToCell(0, 0);
+        } else if (activeCell.col < colCount - 1) {
+          navigateToCell(activeCell.row, activeCell.col + 1);
+        } else {
+          // Wrap to next row
+          navigateToCell(Math.min(rowCount - 1, activeCell.row + 1), 0);
+        }
+        return;
       }
 
       const targetCell = activeCell ?? { row: 0, col: 0 };
@@ -3359,10 +3393,9 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       // Typing entry -> Edit Mode (navigationLocked=false)
       const isPrintable =
         e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey;
-      if (isPrintable || e.key === ' ' || e.key === 'Tab') {
+      if (isPrintable || e.key === ' ') {
         e.preventDefault();
-        const charToInsert = e.key === 'Tab' ? '\t' : e.key;
-        enterEditMode(targetCell, charToInsert, false, 'end');
+        enterEditMode(targetCell, e.key, false, 'end');
         return;
       }
 
@@ -3492,25 +3525,19 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
             navigateToCell(row, newCol, true);
           }
           break;
-        case 'Tab':
-          e.preventDefault();
-          if (col < colCount - 1) {
-            newCol = col + 1;
-          } else {
-            // Wrap to next row
-            newRow = Math.min(rowCount - 1, row + 1);
-            newCol = 0;
-          }
-          navigateToCell(newRow, newCol);
-          break;
         case 'Escape':
           e.preventDefault();
           setEditingCell(null);
           setEditValue('');
+          // Open menus close on Escape via their own document listeners; only
+          // move focus out of the grid when there is nothing to dismiss.
+          if (!headerMenu && !sortMenu && !exportMenuOpen) {
+            focusToolbar();
+          }
           break;
       }
     },
-    [activeCell, isEditing, rowCount, colCount, navigateToCell, getCellRawInput, getEffectiveSelectionRange, setCellValue, enterEditMode, pushHistoryEntry, handleUnifiedUndo, handleUnifiedRedo, handleFreezeHeader]
+    [activeCell, isEditing, rowCount, colCount, navigateToCell, getCellRawInput, getEffectiveSelectionRange, setCellValue, enterEditMode, pushHistoryEntry, handleUnifiedUndo, handleUnifiedRedo, handleFreezeHeader, headerMenu, sortMenu, exportMenuOpen, focusToolbar]
   );
 
   // Track if mouse moved during selection (to distinguish click vs drag)
@@ -5602,7 +5629,13 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       ) : null}
 
       {/* Unified toolbar: undo/redo, freeze, import/export, highlight & formatting */}
-      <div className="flex items-center justify-between gap-3 overflow-x-auto px-2 py-1.5 border-b border-gray-200 bg-white">
+      <div
+        ref={toolbarRef}
+        id="spreadsheet-toolbar"
+        role="toolbar"
+        aria-label="Spreadsheet toolbar"
+        className="flex items-center justify-between gap-3 overflow-x-auto px-2 py-1.5 border-b border-gray-200 bg-white"
+      >
         <div className="flex shrink-0 items-center gap-1.5">
         <input
           ref={fileInputRef}
@@ -6336,9 +6369,24 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         </Modal>
       )}
 
+      {/* Skip link: Shift+Tab from the first cell lands here; Enter jumps to the toolbar. */}
+      <a
+        href="#spreadsheet-toolbar"
+        onClick={(e) => {
+          e.preventDefault();
+          focusToolbar();
+        }}
+        className="sr-only focus:not-sr-only focus:absolute focus:bottom-2 focus:left-2 focus:z-40 focus:rounded-md focus:bg-white focus:px-3 focus:py-1.5 focus:text-xs focus:font-medium focus:text-[#0E8A96] focus:shadow focus:outline-none focus:ring-2 focus:ring-[#3CCED7]"
+      >
+        Skip to toolbar
+      </a>
+
       {/* Scrollable Grid Container: only this div scrolls (page/body do not). min-h-0/min-w-0 so flex gives stable size; ResizeObserver on gridRef updates visible range on resize. */}
       <div
         ref={gridRef}
+        role="region"
+        aria-label="Spreadsheet grid"
+        data-testid="spreadsheet-grid"
         className="flex-1 min-h-0 min-w-0 border border-gray-300 bg-white spreadsheet-scroll-container"
         style={{
           overflowX: 'auto',
@@ -6350,6 +6398,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         onCopy={showGridSpinner ? undefined : handleCopy}
         onPaste={showGridSpinner ? undefined : handlePaste}
         tabIndex={showGridSpinner ? -1 : 0}
+        aria-keyshortcuts="Escape"
         aria-busy={showGridSpinner}
       >
         {showGridSpinner ? (
