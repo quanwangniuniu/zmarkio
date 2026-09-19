@@ -4,7 +4,7 @@ from .models import (
     Conversation, ConversationMessage, Ticket, QuickReplyTemplate, QuickReplyTemplateHistory,
     TemplateTag,
     TicketForm, TicketFormField, TicketFormAssignment,
-    SupportProject, CsmWorkType, SupportChannel,
+    SupportProject, CsmWorkType, GuidanceEntry, SupportChannel,
     SLAPolicy, SLAPriorityTarget, BusinessHoursCalendar,
     TicketStatus, TicketStatusTransition, TicketAutoResolveConfig,
 )
@@ -571,6 +571,61 @@ class WorkTypeReorderSerializer(serializers.Serializer):
         child=serializers.IntegerField(min_value=1),
         allow_empty=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# Guidance entries (CSM-S03-02)
+# ---------------------------------------------------------------------------
+
+class GuidanceEntrySerializer(serializers.ModelSerializer):
+    guidance_type_display = serializers.CharField(
+        source='get_guidance_type_display', read_only=True,
+    )
+    experience_groups = serializers.SerializerMethodField()
+    experience_group_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        write_only=True,
+    )
+
+    class Meta:
+        model = GuidanceEntry
+        fields = [
+            'id', 'project', 'guidance_type', 'guidance_type_display',
+            'trigger_description', 'recommended_response',
+            'experience_groups', 'experience_group_ids',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'project', 'created_at', 'updated_at']
+
+    def get_experience_groups(self, obj):
+        return [
+            {
+                'id': link.experience_group_id,
+                'name': link.experience_group.name,
+                'display_order': link.display_order,
+            }
+            for link in obj.experience_group_links.all()
+        ]
+
+
+class GuidanceReorderSerializer(serializers.Serializer):
+    experience_group = serializers.IntegerField(min_value=1)
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=True,
+    )
+
+
+class WorkspaceGuidanceEntrySerializer(serializers.Serializer):
+    """Read-only shape for the agent workspace panel."""
+
+    id = serializers.IntegerField()
+    guidance_type = serializers.CharField()
+    guidance_type_display = serializers.CharField()
+    trigger_description = serializers.CharField()
+    recommended_response = serializers.CharField()
+    display_order = serializers.IntegerField()
 
 
 # ---------------------------------------------------------------------------
