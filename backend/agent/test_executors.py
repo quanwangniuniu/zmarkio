@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from .approval_gate import ExternalCommitResult
-from .column_registry import ColumnDetectionResult
+from .column_registry import ColumnDetectionResult, ColumnRegistryCollisionError
 from .executors import (
     AnalyzeDataExecutor,
     AwaitConfirmationExecutor,
@@ -1395,6 +1395,27 @@ class DetectColumnsExecutorTests(SimpleTestCase):
 
         self.assertFalse(result.success)
         self.assertEqual(result.error, "Invalid detection result")
+        mock_detect_columns.assert_called_once()
+
+    @patch(
+        "agent.column_registry.detect_columns",
+        side_effect=ColumnRegistryCollisionError([
+            {"name": "shared metric", "owners": ["plugin_a.metric", "plugin_b.metric"]}
+        ]),
+    )
+    def test_registry_collision_is_not_retried_and_has_structured_code(
+        self, mock_detect_columns
+    ):
+        executor = DetectColumnsExecutor(
+            _StepStub(), _WorkflowRunStub(), _OrchestratorStub()
+        )
+
+        result = executor.execute({"spreadsheet_data": {"sheets": []}})
+
+        self.assertFalse(result.success)
+        self.assertFalse(result.skipped)
+        self.assertEqual(result.error_code, "COLUMN_REGISTRY_COLLISION")
+        self.assertIn("shared metric", result.error)
         mock_detect_columns.assert_called_once()
 
 

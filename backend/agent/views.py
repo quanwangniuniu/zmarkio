@@ -62,6 +62,7 @@ from .serializers import (
     TriggerConfigUpdateSerializer,
 )
 from .generation_registry import GenerationValidationError, get_catalog, normalize_generation_outputs
+from .column_registry import ColumnRegistryCollisionError, validate_registry
 from .services import AgentOrchestrator
 from . import data_service
 
@@ -1351,6 +1352,18 @@ class AgentConfigStatusView(EnglishResponseMixin, APIView):
         for key, (settings_attr, env_var) in self.KEY_MAP.items():
             val = getattr(django_settings, settings_attr, None) or os.environ.get(env_var, '')
             result[key] = bool(val and val.strip())
+
+        try:
+            validate_registry()
+            result['column_registry'] = {'ok': True}
+        except ColumnRegistryCollisionError as exc:
+            # Keep the status endpoint available for admin diagnostics when a
+            # plugin was hot-reloaded after Django boot.
+            result['column_registry'] = {
+                'ok': False,
+                'code': exc.code,
+                'error': str(exc),
+            }
         return Response(result)
 
 

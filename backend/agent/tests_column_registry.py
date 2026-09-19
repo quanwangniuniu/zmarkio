@@ -10,6 +10,8 @@ Coverage:
   - ColumnDetectionResult: to_dict round-trip, column_confidences defaults
 """
 import json
+import os
+from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -24,8 +26,12 @@ from .column_registry import (
     CAT_UNKNOWN,
     CAT_TEMPORAL,
     ColumnDetectionResult,
+    ColumnRegistryCollisionError,
     detect_columns,
     normalize_spreadsheet,
+    register_column,
+    register_schema,
+    validate_registry,
 )
 from . import column_registry as registry
 
@@ -50,6 +56,126 @@ def _make_spreadsheet(columns, rows=None):
         'name': 'Test',
         'sheets': [{'name': 'Sheet1', 'columns': columns, 'rows': rows or []}],
     }
+
+
+# ---------------------------------------------------------------------------
+# Registry collision detection
+# ---------------------------------------------------------------------------
+
+class ColumnRegistryCollisionTests(SimpleTestCase):
+
+    def setUp(self):
+        self._registry = deepcopy(registry.SCHEMA_REGISTRY)
+
+    def tearDown(self):
+        registry.SCHEMA_REGISTRY.clear()
+        registry.SCHEMA_REGISTRY.update(self._registry)
+        registry._rebuild_schema_indexes()
+
+    @staticmethod
+    def _schema(column_name, aliases=None):
+        return {
+            'name': 'Test schema',
+            'columns': {
+                column_name: {
+                    'aliases': aliases or [column_name],
+                    'category': CAT_UNKNOWN,
+                },
+            },
+        }
+
+    def test_collision_raises_in_non_test_mode(self):
+        candidate = {
+            'plugin_a': self._schema('shared_metric'),
+            'plugin_b': self._schema('other_metric', aliases=['shared_metric']),
+        }
+
+        with self.assertRaises(ColumnRegistryCollisionError) as raised:
+            validate_registry(candidate, test_mode=False)
+
+        self.assertIn('shared metric', str(raised.exception))
+        self.assertEqual(
+            raised.exception.code,
+            'COLUMN_REGISTRY_COLLISION',
+        )
+
+    @patch.dict(
+        os.environ,
+        {
+            'AGENT_COLUMN_REGISTRY_TEST_MODE': '1',
+            'COLUMN_REGISTRY_TEST_MODE': '0',
+        },
+        clear=False,
+    )
+    def test_env_flag_allows_intentional_test_collision(self):
+        candidate = {
+            'plugin_a': self._schema('shared_metric'),
+            'plugin_b': self._schema('other_metric', aliases=['shared_metric']),
+        }
+
+        collisions = validate_registry(candidate)
+
+        self.assertEqual([item['name'] for item in collisions], ['shared metric'])
+
+    @patch.dict(
+        os.environ,
+        {
+            'AGENT_COLUMN_REGISTRY_TEST_MODE': '0',
+            'COLUMN_REGISTRY_TEST_MODE': '0',
+        },
+        clear=False,
+    )
+    def test_registration_rejects_collision_before_commit(self):
+        register_schema('med244_plugin_a', self._schema('shared_metric'))
+
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_schema(
+                'med244_plugin_b',
+                self._schema('other_metric', aliases=['shared_metric']),
+            )
+
+        self.assertNotIn('med244_plugin_b', registry.SCHEMA_REGISTRY)
+
+    @patch.dict(
+        os.environ,
+        {
+            'AGENT_COLUMN_REGISTRY_TEST_MODE': '0',
+            'COLUMN_REGISTRY_TEST_MODE': '0',
+        },
+        clear=False,
+    )
+    def test_duplicate_column_registration_is_rejected_before_overwrite(self):
+        register_schema('med244_plugin', self._schema('shared_metric'))
+
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column(
+                'med244_plugin',
+                'shared_metric',
+                {'aliases': ['replacement'], 'category': CAT_UNKNOWN},
+            )
+
+        self.assertEqual(
+            registry.SCHEMA_REGISTRY['med244_plugin']['columns']['shared_metric']['aliases'],
+            ['shared_metric'],
+        )
+
+    @patch.dict(
+        os.environ,
+        {
+            'AGENT_COLUMN_REGISTRY_TEST_MODE': '1',
+            'COLUMN_REGISTRY_TEST_MODE': '0',
+        },
+        clear=False,
+    )
+    def test_registration_overwrites_only_when_test_mode_is_enabled(self):
+        register_schema('med244_plugin_a', self._schema('shared_metric'))
+
+        register_schema(
+            'med244_plugin_b',
+            self._schema('other_metric', aliases=['shared_metric']),
+        )
+
+        self.assertIn('med244_plugin_b', registry.SCHEMA_REGISTRY)
 
 
 # ---------------------------------------------------------------------------

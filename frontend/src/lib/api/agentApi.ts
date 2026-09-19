@@ -133,7 +133,11 @@ export const AgentAPI = {
           }
 
           let errMessage: string;
-          if (response.status === 504) {
+          if (errJson?.code === 'COLUMN_REGISTRY_COLLISION') {
+            errMessage =
+              (errJson?.detail as string) ||
+              'The agent cannot start because plugin column names collide. Please contact an administrator.';
+          } else if (response.status === 504) {
             errMessage = 'Request timed out. Please try again.';
           } else if (response.status >= 500) {
             errMessage = 'Server error. Please try again.';
@@ -272,7 +276,11 @@ export const AgentAPI = {
           }
 
           let errMessage: string;
-          if (response.status === 504) {
+          if (errJson?.code === 'COLUMN_REGISTRY_COLLISION') {
+            errMessage =
+              (errJson?.detail as string) ||
+              'The agent cannot start because plugin column names collide. Please contact an administrator.';
+          } else if (response.status === 504) {
             errMessage = 'Request timed out. Please try again.';
           } else if (response.status >= 500) {
             errMessage = 'Server error. Please try again.';
@@ -355,6 +363,11 @@ export const AgentAPI = {
     dify_calendar: boolean;
     dify_miro: boolean;
     anthropic: boolean;
+    column_registry: {
+      ok: boolean;
+      code?: string;
+      error?: string;
+    };
   }> => {
     const response = await api.get('/api/agent/config/status/');
     return response.data;

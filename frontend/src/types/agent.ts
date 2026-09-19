@@ -60,6 +60,7 @@ export interface AgentMessage {
 }
 
 export interface AgentMessageData {
+  code?: string;
   anomalies?: AnomalyItem[];
   reviewed_anomalies?: AnomalyItem[];
   anomalies_confirmed?: boolean;

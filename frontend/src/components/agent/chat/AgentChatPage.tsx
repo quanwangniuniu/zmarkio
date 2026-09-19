@@ -1999,7 +1999,12 @@ setStepState({
           })
         } else if (event.type === "error") {
           setAgentMessageBoardWaitingForFileAnalysisResponse(requestSessionId, false)
-          updateMessage(aiMsgId, { content: event.content || "An error occurred.", type: "error" })
+          const eventCode = event.data?.code
+          const content =
+            eventCode === "COLUMN_REGISTRY_COLLISION"
+              ? "The agent could not start because plugin column names collide. Please contact an administrator to fix the column registry."
+              : event.content || "An error occurred."
+          updateMessage(aiMsgId, { content, type: "error" })
           const errData = event.data as
             | { code?: string; spreadsheet_id?: number }
             | undefined

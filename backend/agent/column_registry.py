@@ -15,14 +15,35 @@ Public API:
   normalize_spreadsheet(data, column_mapping) -> normalized data dict
   auto_categorize_by_name(canonical_name)     -> category string
   save_learned_template(schema_name, source_platform, columns, project) -> DataSchemaTemplate | None
+  register_schema(schema_key, schema)         -> registered schema
+  register_column(schema_key, canonical_name, spec) -> registered column
 """
 
 import json
 import logging
 import os
 import re
+from copy import deepcopy
 
 logger = logging.getLogger(__name__)
+
+COLUMN_REGISTRY_TEST_MODE_ENV = "AGENT_COLUMN_REGISTRY_TEST_MODE"
+_COLUMN_REGISTRY_TEST_MODE_ALIASES = ("COLUMN_REGISTRY_TEST_MODE",)
+_TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+class ColumnRegistryCollisionError(ValueError):
+    """Raised when two registered schemas claim the same lookup name."""
+
+    code = "COLUMN_REGISTRY_COLLISION"
+
+    def __init__(self, collisions):
+        self.collisions = tuple(collisions)
+        details = "; ".join(
+            f"{collision['name']!r} ({', '.join(collision['owners'])})"
+            for collision in self.collisions
+        )
+        super().__init__(f"Column registry name collision: {details}")
 
 # ---------------------------------------------------------------------------
 # Semantic category constants
@@ -387,11 +408,65 @@ def _normalise(text: str) -> str:
     return re.sub(r"[\s_]+", " ", text.strip().lower())
 
 
+def column_registry_test_mode_enabled() -> bool:
+    """Return whether duplicate registration is explicitly allowed for tests."""
+    env_names = (COLUMN_REGISTRY_TEST_MODE_ENV,) + _COLUMN_REGISTRY_TEST_MODE_ALIASES
+    return any(
+        os.environ.get(name, "").strip().lower() in _TRUE_ENV_VALUES
+        for name in env_names
+    )
+
+
+def _find_registry_collisions(registry: dict) -> list[dict]:
+    """Find duplicate canonical names and aliases across all registered schemas."""
+    owners_by_lookup_name = {}
+
+    for schema_key, schema in registry.items():
+        for canonical_name, spec in (schema.get("columns") or {}).items():
+            owner = f"{schema_key}.{canonical_name}"
+            lookup_names = [canonical_name, *(spec.get("aliases") or [])]
+            for lookup_name in lookup_names:
+                normalised_name = _normalise(str(lookup_name))
+                if not normalised_name:
+                    continue
+                owners_by_lookup_name.setdefault(normalised_name, set()).add(owner)
+
+    return [
+        {"name": lookup_name, "owners": sorted(owners)}
+        for lookup_name, owners in sorted(owners_by_lookup_name.items())
+        if len(owners) > 1
+    ]
+
+
+def validate_registry(registry: dict | None = None, *, test_mode: bool | None = None) -> list[dict]:
+    """Validate a schema registry and return any collisions found.
+
+    In normal application mode collisions are fatal. Tests can opt out by
+    setting ``AGENT_COLUMN_REGISTRY_TEST_MODE=1`` (or by passing
+    ``test_mode=True`` explicitly) so they can construct intentionally
+    overlapping fixtures.
+    """
+    registry = SCHEMA_REGISTRY if registry is None else registry
+    collisions = _find_registry_collisions(registry)
+    allow_collisions = (
+        column_registry_test_mode_enabled() if test_mode is None else test_mode
+    )
+    if collisions and not allow_collisions:
+        raise ColumnRegistryCollisionError(collisions)
+    if collisions:
+        logger.warning(
+            "Column registry contains %d collision(s); allowed in test mode: %s",
+            len(collisions),
+            ", ".join(c["name"] for c in collisions),
+        )
+    return collisions
+
+
 def _build_alias_index(schema: dict) -> dict:
     """Return {normalised_alias: canonical_name} for a single schema."""
     index = {}
     for canonical, spec in schema["columns"].items():
-        for alias in spec["aliases"]:
+        for alias in [canonical, *(spec.get("aliases") or [])]:
             index[_normalise(alias)] = canonical
     return index
 
@@ -401,6 +476,78 @@ _SCHEMA_INDEXES = {
     schema_key: _build_alias_index(schema)
     for schema_key, schema in SCHEMA_REGISTRY.items()
 }
+
+
+def _rebuild_schema_indexes() -> None:
+    """Rebuild lookup indexes after a plugin registers a schema or column."""
+    global _SCHEMA_INDEXES
+    _SCHEMA_INDEXES = {
+        schema_key: _build_alias_index(schema)
+        for schema_key, schema in SCHEMA_REGISTRY.items()
+    }
+
+
+def _commit_registry(candidate: dict) -> None:
+    """Validate and atomically replace the live registry contents."""
+    validate_registry(candidate)
+    SCHEMA_REGISTRY.clear()
+    SCHEMA_REGISTRY.update(candidate)
+    _rebuild_schema_indexes()
+
+
+def register_schema(schema_key: str, schema: dict) -> dict:
+    """Register a schema without silently replacing an existing schema.
+
+    Plugin startup code should call this function instead of mutating
+    ``SCHEMA_REGISTRY`` directly. The candidate registry is validated before
+    the live registry or its indexes are changed.
+    """
+    if not schema_key or not isinstance(schema, dict):
+        raise ValueError("schema_key must be non-empty and schema must be a dict")
+
+    if schema_key in SCHEMA_REGISTRY and not column_registry_test_mode_enabled():
+        raise ColumnRegistryCollisionError([
+            {
+                "name": schema_key,
+                "owners": [schema_key, schema_key],
+            }
+        ])
+
+    candidate = deepcopy(SCHEMA_REGISTRY)
+    candidate[schema_key] = deepcopy(schema)
+    _commit_registry(candidate)
+    return SCHEMA_REGISTRY[schema_key]
+
+
+def register_column(schema_key: str, canonical_name: str, spec: dict) -> dict:
+    """Register one column in an existing schema with collision protection."""
+    if schema_key not in SCHEMA_REGISTRY:
+        raise KeyError(f"Unknown column schema: {schema_key}")
+    if not canonical_name or not isinstance(spec, dict):
+        raise ValueError("canonical_name must be non-empty and spec must be a dict")
+
+    existing_columns = SCHEMA_REGISTRY[schema_key].get("columns") or {}
+    if canonical_name in existing_columns and not column_registry_test_mode_enabled():
+        raise ColumnRegistryCollisionError([
+            {
+                "name": canonical_name,
+                "owners": [
+                    f"{schema_key}.{canonical_name}",
+                    f"{schema_key}.{canonical_name} (new registration)",
+                ],
+            }
+        ])
+
+    candidate = deepcopy(SCHEMA_REGISTRY)
+    columns = candidate[schema_key].setdefault("columns", {})
+    columns[canonical_name] = deepcopy(spec)
+    _commit_registry(candidate)
+    return SCHEMA_REGISTRY[schema_key]["columns"][canonical_name]
+
+
+# Validate the built-in registry as soon as the module is loaded. AgentConfig
+# repeats this after Django has loaded plugin apps, catching hot-reload changes.
+validate_registry()
 
 # ---------------------------------------------------------------------------
 # Detection result

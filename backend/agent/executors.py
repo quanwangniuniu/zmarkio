@@ -75,6 +75,7 @@ class StepResult:
         success,
         output_data=None,
         error=None,
+        error_code=None,
         sse_events=None,
         pause_external_approval=False,
         skipped = False
@@ -82,6 +83,7 @@ class StepResult:
         self.success = success
         self.output_data = output_data
         self.error = error
+        self.error_code = error_code
         self.sse_events = sse_events or []
         self.pause_external_approval = pause_external_approval
         self.skipped = skipped
@@ -587,7 +589,7 @@ class DetectColumnsExecutor(BaseStepExecutor):
     #If the Gemini API call fails, we retry a few times before skipping the step. This is non-fatal because workflow can run without column detection.
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='skip')
     def execute(self, input_data):
-        from .column_registry import detect_columns
+        from .column_registry import ColumnRegistryCollisionError, detect_columns
 
         spreadsheet_data = input_data.get('spreadsheet_data')
         if not spreadsheet_data:
@@ -623,6 +625,13 @@ class DetectColumnsExecutor(BaseStepExecutor):
                     ),
                     'data': detection_dict,
                 }],
+            )
+        except ColumnRegistryCollisionError as e:
+            logger.error("Column registry is invalid; refusing to start detection: %s", e)
+            return StepResult(
+                success=False,
+                error=str(e),
+                error_code=e.code,
             )
         except RuntimeError as e:
             logger.warning("Gemini API Timeout Error: %s", e)
