@@ -2,7 +2,7 @@ name: MediaJira CI/CD Pipeline
 
 on:
   push:
-    branches: [main, prod-preview, feature/MED-447]
+    branches: [main, prod-preview]
     tags:
       - 'v*'
   pull_request:
@@ -1365,7 +1365,7 @@ jobs:
   notify:
     needs: [block, migration_guard, code_scan, image_scan, application_test, deploy, sbom_release]
     runs-on: ubuntu-latest
-    if: always() && github.ref != 'refs/heads/feature/MED-447'
+    if: always()
     steps:
       - name: Send Discord notification
         env:
