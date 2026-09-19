@@ -466,6 +466,20 @@ API specifications are located in `openapi/openapi_spec/` and are served through
 
 ---
 
+## 🤖 Using Claude Code
+
+This repo ships a shared Claude Code setup so every developer gets the same context and guardrails:
+
+- **[CLAUDE.md](CLAUDE.md)** loads automatically at session start (project overview, commands, gotchas). Topic rules live in `.claude/rules/`.
+- Slash commands: `/review` (review a diff or PR against our conventions), `/fix-issue <issue|JIRA-KEY>` (issue → review-ready change).
+- Sub-agents: `code-reviewer`, `security-auditor`.
+- A developer's job ends at a reviewed PR into `prod-preview`. The `prod-preview` → `main` promotion is the release owner's — `.claude/skills/deploy/` documents that flow for reference only; Claude won't open or drive that PR.
+- MCP servers (`.mcp.json`): `github`, `linear`, `atlassian` (Jira), and a read-only `postgres` for your local DB. Run `/mcp` to authenticate each one — see the MCP section of [CLAUDE.md](CLAUDE.md).
+- **Claude cannot stage, commit, or push** (`.claude/settings.json` deny-list) and a `PreToolUse` hook blocks dangerous shell commands — you run all git operations yourself.
+- Personal, machine-specific notes go in `CLAUDE.local.md` (gitignored — see `CLAUDE.local.md.example`).
+
+---
+
 ## 📚 Documentation
 
 For detailed information on specific topics, please refer to the following documentation:

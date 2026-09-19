@@ -1,0 +1,32 @@
+# CLAUDE.local.md — personal overrides (example)
+
+Copy this file to `CLAUDE.local.md` (gitignored) and keep only the lines that apply to your
+machine. It loads automatically alongside `CLAUDE.md`, after it, so anything here wins.
+
+Use it for facts that are true only for *your* setup — never for team conventions (those go in
+`CLAUDE.md` or `.claude/rules/`) and never for secrets you would mind sitting in a plaintext
+file.
+
+## Examples
+
+<!-- Local database differs from the defaults in env.example -->
+- My local Postgres runs on port 5433, database `mediajira_dev`, user `me`.
+- `DATABASE_URL` for ad-hoc scripts: `postgresql://me@localhost:5433/mediajira_dev`
+
+<!-- The `postgres` MCP server needs MCP_DATABASE_URI. That goes in
+     .claude/settings.local.json (also gitignored), NOT here, because .mcp.json
+     env expansion reads process/settings env, not CLAUDE.local.md:
+       { "env": { "MCP_DATABASE_URI": "postgresql://USER:PASSWORD@host.docker.internal:5432/DB" } }
+-->
+
+
+<!-- Tooling installed somewhere non-standard -->
+- `gcloud` SDK is at `~/sdk/google-cloud-sdk/bin/gcloud`, not on PATH.
+- Use `docker compose -p mediajira-v2 ...` on this machine (I run several stacks).
+
+<!-- Services I skip locally to save resources -->
+- Don't try to start `clamav` / `kafka` locally — I run `... up -d backend frontend redis pgbouncer nginx` only.
+- `variations-studio-api` is not checked out here; ignore it.
+
+<!-- Personal workflow preferences -->
+- When I ask for tests, run just the affected app (`manage.py test <app>`), not the full suite.
