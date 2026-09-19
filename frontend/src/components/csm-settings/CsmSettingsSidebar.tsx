@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarClock, ClipboardList, FolderKanban, ListOrdered, Radio, Settings, Shield, Workflow } from 'lucide-react';
+import { CalendarClock, ClipboardList, FolderKanban, Lightbulb, ListOrdered, Radio, Settings, Shield, Workflow } from 'lucide-react';
 import { useBuildUrl } from '@/lib/buildUrl';
 
 const ACTIVE_COLOR = 'text-[#3CCED7]';
@@ -51,6 +51,7 @@ export default function CsmSettingsSidebar() {
   const slaPolicy = buildUrl('/admin/csm/settings/sla');
   const businessHours = buildUrl('/admin/csm/settings/business-hours');
   const ticketStatuses = buildUrl('/admin/csm/settings/ticket-statuses');
+  const guidance = buildUrl('/admin/csm/settings/guidance');
 
   return (
     <aside className="hidden w-[240px] shrink-0 flex-col border-r border-gray-200 bg-white sm:flex">
@@ -105,6 +106,12 @@ export default function CsmSettingsSidebar() {
           label="Ticket Statuses"
           icon={<Workflow className="h-4 w-4" aria-hidden />}
           isActive={pathname === '/admin/csm/settings/ticket-statuses'}
+        />
+        <NavLink
+          href={guidance}
+          label="Agent Guidance"
+          icon={<Lightbulb className="h-4 w-4" aria-hidden />}
+          isActive={pathname === '/admin/csm/settings/guidance'}
         />
       </nav>
     </aside>

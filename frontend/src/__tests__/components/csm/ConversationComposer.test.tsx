@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { ConversationComposer } from '@/components/csm/conversations/ConversationComposer';
 import CsmConversationAPI, { QuickReplyTemplateAPI } from '@/lib/api/csmConversationApi';
@@ -273,5 +273,61 @@ describe('ConversationComposer — in-memory draft preservation', () => {
 
     await waitFor(() => expect(mockedSendMessage).toHaveBeenCalledTimes(1));
     expect(useCsmConversationStore.getState().draftsByConversation[42]).toBeUndefined();
+  });
+});
+
+describe('ConversationComposer — insert requested by another panel', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    useCsmConversationStore.setState({ draftsByConversation: {}, pendingComposerInsert: null });
+    mockEditor = {
+      getText: jest.fn(() => ''),
+      getJSON: jest.fn(() => ({ type: 'doc', content: [] })),
+      isEmpty: true,
+      isActive: jest.fn(() => false),
+      commands: {
+        clearContent: jest.fn(),
+        setContent: jest.fn(),
+        insertContent: jest.fn(),
+        focus: jest.fn(),
+      },
+      // Formatting commands are not exercised here.
+      chain: jest.fn(),
+      on: jest.fn(),
+      off: jest.fn(),
+    };
+  });
+
+  it('appends the text as one paragraph per line and consumes the request', async () => {
+    render(<ConversationComposer conversationId={42} organisationId={5} />);
+    mockEditor.getText.mockReturnValue('Thanks for waiting.');
+
+    act(() => {
+      useCsmConversationStore
+        .getState()
+        .requestComposerInsert(42, 'Thanks for waiting.\n\nA refund <b>needs</b> approval.');
+    });
+
+    await waitFor(() => expect(mockEditor.commands.insertContent).toHaveBeenCalledTimes(1));
+    expect(mockEditor.commands.focus).toHaveBeenCalledWith('end');
+    expect(mockEditor.commands.insertContent).toHaveBeenCalledWith([
+      { type: 'paragraph', content: [{ type: 'text', text: 'Thanks for waiting.' }] },
+      { type: 'paragraph' },
+      { type: 'paragraph', content: [{ type: 'text', text: 'A refund <b>needs</b> approval.' }] },
+    ]);
+    expect(useCsmConversationStore.getState().pendingComposerInsert).toBeNull();
+  });
+
+  it('ignores requests for a different conversation', async () => {
+    render(<ConversationComposer conversationId={42} organisationId={5} />);
+
+    act(() => {
+      useCsmConversationStore.getState().requestComposerInsert(99, 'Not for this composer');
+    });
+
+    await waitFor(() =>
+      expect(useCsmConversationStore.getState().pendingComposerInsert?.conversationId).toBe(99)
+    );
+    expect(mockEditor.commands.insertContent).not.toHaveBeenCalled();
   });
 });

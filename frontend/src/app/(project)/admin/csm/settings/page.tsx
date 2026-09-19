@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { FileText, FolderKanban, ListOrdered, Radio, Tag } from 'lucide-react';
+import { FileText, FolderKanban, Lightbulb, ListOrdered, Radio, Tag } from 'lucide-react';
 import CsmSettingsPageRoot, { CsmSettingsProjectGuard } from '@/components/csm-settings/CsmSettingsPageRoot';
 import CsmSettingsNavCard from '@/components/csm-settings/CsmSettingsNavCard';
 import { useProjectIdFromUrl } from '@/components/csm-settings/useProjectIdFromUrl';
@@ -59,6 +59,12 @@ export default function CsmSettingsHubPage() {
             icon={Tag}
             title="Customer Status Labels"
             description="Create, color, and reorder labels used to segment customers."
+          />
+          <CsmSettingsNavCard
+            href={buildUrl('/admin/csm/settings/guidance')}
+            icon={Lightbulb}
+            title="Agent Guidance"
+            description="Handoffs, suggested replies, and procedures shown to agents per Experience Group."
           />
         </div>
       )}
