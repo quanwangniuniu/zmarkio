@@ -61,10 +61,25 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Setup Node 
-        uses: actions/setup-node@v4 
-        with: 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      # MED-322: ~/.npm (setup-node cache: npm) only skips the download.
+      # npm ci still unpacks ~2400 packages into node_modules, so a warm
+      # ~/.npm cut 129s to 123s — well under the 30% warmup target.
+      # Cache node_modules itself and skip npm ci on an exact lockfile hit.
+      # No restore-keys: a partial restore of a different lockfile would be
+      # wiped by npm ci anyway. Miss path still has ~/.npm as fallback.
+      # Key matches chromatic.yml so the two jobs share one entry.
+      - name: Cache frontend node_modules
+        id: frontend-node-modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
       # Install dependencies using npm ci
       # npm ci is strict:
       # - Fails if package-lock.json and package.json are out of sync
@@ -72,6 +87,10 @@ jobs:
       # - Ensures reproducible builds
       - name: Install dependencies (strict mode)
         run: |
+          if [ "${{ steps.frontend-node-modules.outputs.cache-hit }}" = "true" ]; then
+            echo "node_modules cache hit; skipping npm ci."
+            exit 0
+          fi
           cd frontend
           npm ci || (echo "npm ci failed, retrying once (e.g. esbuild ETXTBSY)..." && rm -rf node_modules && sleep 2 && npm ci)
       # Install depcheck globally
@@ -88,13 +107,15 @@ jobs:
           npm run build
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: pip
+          cache-dependency-path: devops/requirements-scan.txt
 
       - name: Install scan tools
         run: |
-          pip install bandit pip-audit
+          pip install -r devops/requirements-scan.txt
           sudo apt install gitleaks
 
       - name: Run Bandit scan
@@ -239,14 +260,37 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       # Tagged with the names docker compose derives from COMPOSE_PROJECT_NAME,
       # so `docker compose up --no-build` uses these images directly.
+      # Branch names contain characters that are illegal in a Docker tag ("/"
+      # most of all), so derive a tag-safe scope. Read the ref through env
+      # rather than interpolating it into the script, since a branch name is
+      # attacker-controlled text.
+      - name: Compute cache scope
+        env:
+          RAW_REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          SCOPE=$(printf '%s' "$RAW_REF" | tr -c 'a-zA-Z0-9_.-' '-' | cut -c1-100)
+          echo "CACHE_SCOPE=$SCOPE" >> "$GITHUB_ENV"
+          echo "Buildx cache scope: $SCOPE"
+      # MED-322: every branch used to read and write one shared ":cache" tag, so
+      # concurrent branches overwrote each other's layers and warm builds
+      # degraded to cold ones (the frontend build swung 7.5 -> 17.3 min inside a
+      # single run). Writes are now scoped per branch; reads fall back to the
+      # trunk branches so a new branch still starts warm.
+      # The bare ":cache" tag is last in cache-from so branches already in
+      # flight stay warm during the switchover; drop it once prod-preview has
+      # built once on the scoped tags.
       - name: Build backend image
         uses: docker/build-push-action@v5
         with:
           context: ./backend
           tags: mediajira-backend:latest
           load: true
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache,mode=max
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache-${{ env.CACHE_SCOPE }}
+            type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache-prod-preview
+            type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache-main
+            type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/backend:cache-${{ env.CACHE_SCOPE }},mode=max,ignore-error=true
 
       - name: Free disk space before frontend build
         run: docker buildx prune -af --keep-storage 2GB
@@ -257,8 +301,12 @@ jobs:
           context: ./frontend
           tags: mediajira-frontend:latest
           load: true
-          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache
-          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache,mode=max
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache-${{ env.CACHE_SCOPE }}
+            type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache-prod-preview
+            type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache-main
+            type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}/frontend:cache-${{ env.CACHE_SCOPE }},mode=max,ignore-error=true
 
       - name: Build database images
         run: |
@@ -872,11 +920,51 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      # Same node_modules key as code_scan / chromatic (MED-322). Exact hit
+      # skips npm ci; see the code_scan step for why ~/.npm is not enough.
+      - name: Cache frontend node_modules
+        id: frontend-node-modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
+
+      # Read the resolved version straight out of the lockfile so the cache key
+      # is available before node_modules exists (MED-322).
+      - name: Resolve Playwright version
+        working-directory: frontend
+        run: |
+          VERSION=$(node -p "require('./package-lock.json').packages['node_modules/@playwright/test'].version")
+          echo "PLAYWRIGHT_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "Playwright version: $VERSION"
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
+
+      # The browser binaries are cached but the apt-level OS libraries they link
+      # against are not, so `install-deps` still runs on a hit. A restore-keys
+      # hit from a different version leaves the wrong build in the cache dir, so
+      # only skip the download on an exact-key hit.
       - name: Install Playwright (Chromium only)
         working-directory: frontend
         run: |
-          npm ci
-          npx playwright install --with-deps chromium
+          if [ "${{ steps.frontend-node-modules.outputs.cache-hit }}" = "true" ]; then
+            echo "node_modules cache hit; skipping npm ci."
+          else
+            npm ci
+          fi
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            echo "Playwright browser cache hit; installing OS dependencies only."
+            npx playwright install-deps chromium
+          else
+            npx playwright install --with-deps chromium
+          fi
 
       - name: Restart frontend with a clean Next cache for budget E2E
         run: |
@@ -1219,7 +1307,7 @@ jobs:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
