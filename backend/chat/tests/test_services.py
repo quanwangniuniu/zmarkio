@@ -134,7 +134,13 @@ def test_membership_change_notifies_affected_users(settings):
     event = broadcast.call_args.args[2]
     # The user who lost access must be told too, or their socket keeps the group.
     assert set(notified_user_ids) == {staying.id, leaving.id}
-    assert event == {'type': 'chat_membership_changed', 'chat_id': chat.id}
+    assert event == {
+        'type': 'chat_membership_changed',
+        'chat_id': chat.id,
+        'chat_slug': chat.slug,
+        'project_id': project.id,
+        'project_slug': project.slug,
+    }
 
 
 def test_membership_change_is_silent_while_chat_groups_are_disabled(settings):
@@ -349,6 +355,40 @@ class TestPresenceRecipientCacheInvalidation:
         assert cache.get(OnlineStatusService._presence_recipients_key(self.user_b.id)) is None
         assert ChatService.get_presence_recipient_ids(self.user_a.id) == []
 
+    def test_direct_participant_deactivation_signal_invalidates_cache(self, capture_on_commit_callbacks):
+        assert ChatService.get_presence_recipient_ids(self.user_a.id) == [self.user_b.id]
+        assert ChatService.get_presence_recipient_ids(self.user_b.id) == [self.user_a.id]
+
+        participant = ChatParticipant.objects.get(chat=self.chat, user=self.user_b)
+        with capture_on_commit_callbacks(execute=True):
+            participant.is_active = False
+            participant.save(update_fields=['is_active'])
+
+        assert cache.get(OnlineStatusService._presence_recipients_key(self.user_a.id)) is None
+        assert cache.get(OnlineStatusService._presence_recipients_key(self.user_b.id)) is None
+
+    def test_participant_delete_signal_invalidates_cache(self, capture_on_commit_callbacks):
+        assert ChatService.get_presence_recipient_ids(self.user_a.id) == [self.user_b.id]
+        assert ChatService.get_presence_recipient_ids(self.user_b.id) == [self.user_a.id]
+
+        participant = ChatParticipant.objects.get(chat=self.chat, user=self.user_b)
+        with capture_on_commit_callbacks(execute=True):
+            participant.delete()
+
+        assert cache.get(OnlineStatusService._presence_recipients_key(self.user_a.id)) is None
+        assert cache.get(OnlineStatusService._presence_recipients_key(self.user_b.id)) is None
+
+    def test_non_membership_save_does_not_bust_visibility_cache(self, capture_on_commit_callbacks):
+        assert ChatService.get_presence_recipient_ids(self.user_a.id) == [self.user_b.id]
+        key = OnlineStatusService._presence_recipients_key(self.user_a.id)
+        participant = ChatParticipant.objects.get(chat=self.chat, user=self.user_b)
+
+        with capture_on_commit_callbacks(execute=True):
+            participant.is_muted = True
+            participant.save(update_fields=['is_muted'])
+
+        assert cache.get(key) == [self.user_b.id]
+
     def test_adding_participant_invalidates_existing_members_cache(self, capture_on_commit_callbacks):
         user_c = User.objects.create_user(username='c', email='c@example.com', password='x')
         ProjectMember.objects.create(user=user_c, project=self.project, role='Member', is_active=True)
@@ -398,12 +438,11 @@ class TestPresenceRecipientCacheInvalidation:
         assert cache.get(OnlineStatusService._presence_recipients_key(bot.id)) is None
         assert cache.get(OnlineStatusService._presence_recipients_key(self.user_a.id)) is None
 
-    def test_large_chat_skips_explicit_invalidation_and_relies_on_ttl(self, capture_on_commit_callbacks):
+    def test_cache_invalidation_never_falls_back_to_ttl(self, capture_on_commit_callbacks):
         assert ChatService.get_presence_recipient_ids(self.user_a.id) == [self.user_b.id]
-        with patch.object(OnlineStatusService, 'PRESENCE_RECIPIENTS_INVALIDATION_LIMIT', 1):
-            with capture_on_commit_callbacks(execute=True):
-                ChatService.leave_chat(self.chat, self.user_b)
-        assert cache.get(OnlineStatusService._presence_recipients_key(self.user_a.id)) == [self.user_b.id]
+        with capture_on_commit_callbacks(execute=True):
+            ChatService.leave_chat(self.chat, self.user_b)
+        assert cache.get(OnlineStatusService._presence_recipients_key(self.user_a.id)) is None
 
 class TestMessageServiceIdempotentCreate:
     @pytest.fixture(autouse=True)

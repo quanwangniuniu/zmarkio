@@ -827,7 +827,7 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
         receive that chat, so anything else would be trusting the wrong source.
         """
         if not getattr(settings, 'CHAT_CHANNEL_GROUPS_ENABLED', False):
-            return
+            return None
         try:
             chat_ids = await database_sync_to_async(
                 self.get_joinable_chat_ids,
@@ -839,6 +839,7 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
                 "[WebSocket] User %s chat groups synced: %s joined, %s left",
                 self.user_id, len(delta.added), len(delta.removed),
             )
+            return delta
         except Exception:
             # Deliberately not swallowed. While chat groups carry the messages,
             # a socket that failed to join receives nothing, and the caller goes
@@ -854,7 +855,26 @@ class ChatConsumer(InstrumentedAsyncWebsocketConsumer):
     async def chat_membership_changed(self, event):
         """Someone's membership changed — re-derive this connection's groups."""
         try:
-            await self.sync_chat_groups()
+            delta = await self.sync_chat_groups()
+            chat_id = int(event['chat_id'])
+            group_name = chat_group_name(chat_id)
+            if delta is not None and group_name in delta.added:
+                await self.send(text_data=json.dumps({
+                    'type': 'chat_access_granted',
+                    'chat_id': chat_id,
+                    'chat_slug': event.get('chat_slug'),
+                    'project_id': event.get('project_id'),
+                    'project_slug': event.get('project_slug'),
+                    'reason': 'participant_added',
+                }))
+            elif delta is not None and group_name in delta.removed:
+                # This socket carries all of the user's chats. Revoke only the
+                # removed room so their other chat subscriptions stay online.
+                await self.send(text_data=json.dumps({
+                    'type': 'chat_access_revoked',
+                    'chat_id': chat_id,
+                    'reason': 'participant_removed',
+                }))
         except Exception:
             # The re-sync is how a removal reaches a live socket. If it cannot
             # be completed we do not know which groups this connection should

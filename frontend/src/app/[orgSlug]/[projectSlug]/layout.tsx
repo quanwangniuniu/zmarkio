@@ -6,6 +6,7 @@ import { ProjectAPI } from '@/lib/api/projectApi';
 import { OrganizationAPI } from '@/lib/api/organizationApi';
 import { useProjectStore } from '@/lib/projectStore';
 import { useAuthStore } from '@/lib/authStore';
+import { useChatWebSocket } from '@/hooks/useChatWebSocket';
 
 /**
  * Resolves [orgSlug]/[projectSlug] from the URL and syncs org + project
@@ -23,6 +24,10 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
   const params = useParams<{ orgSlug: string; projectSlug: string }>();
   const setActiveProject = useProjectStore((s) => s.setActiveProject);
   const user = useAuthStore((s) => s.user);
+  // Keep membership events alive across sibling project routes. In particular,
+  // revocation navigates /messages/<chatSlug> back to /messages; this shared
+  // layout remains mounted so a later add can restore the room without refresh.
+  useChatWebSocket(user?.id ? Number(user.id) : null);
   const authHasHydrated = useAuthStore((s) => s.hasHydrated);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
