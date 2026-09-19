@@ -11,6 +11,7 @@ import {
   type CopyJson,
 } from '@/src/ai';
 import { ApiError, projectIdParam } from '@/src/platform/http';
+import { prisma } from '@/lib/prisma';
 import { requireProjectForUser } from '@/lib/projects';
 import { allocateSlugs } from '@/lib/slugs';
 import { insertVariations } from '@/src/repo';
@@ -84,31 +85,35 @@ async function persistBatch(args: {
   creativeId: bigint | null;
   modelName: string;
 }) {
-  const slugs = await allocateSlugs(
-    args.schema,
-    args.copies.map((copy) => copy.headline)
-  );
-  return insertVariations(
-    args.schema,
-    args.copies.map((copy, index) => ({
-      sourceMode: args.sourceMode,
-      sourceRef: args.sourceRef,
-      hook: copy.hook,
-      headline: copy.headline,
-      description: copy.description,
-      cta: copy.cta,
-      instruction: args.instruction,
-      modelName: args.modelName,
-      promptVersion: PROMPT_VERSION,
-      batchId: args.batchId,
-      batchPosition: index,
-      status: 'draft',
-      createdById: BigInt(args.userId),
-      creativeId: args.creativeId,
-      projectId: args.projectId,
-      slug: slugs[index],
-    }))
-  );
+  return prisma.$transaction(async (tx) => {
+    const slugs = await allocateSlugs(
+      args.schema,
+      args.copies.map((copy) => copy.headline),
+      tx
+    );
+    return insertVariations(
+      args.schema,
+      args.copies.map((copy, index) => ({
+        sourceMode: args.sourceMode,
+        sourceRef: args.sourceRef,
+        hook: copy.hook,
+        headline: copy.headline,
+        description: copy.description,
+        cta: copy.cta,
+        instruction: args.instruction,
+        modelName: args.modelName,
+        promptVersion: PROMPT_VERSION,
+        batchId: args.batchId,
+        batchPosition: index,
+        status: 'draft',
+        createdById: BigInt(args.userId),
+        creativeId: args.creativeId,
+        projectId: args.projectId,
+        slug: slugs[index],
+      })),
+      tx
+    );
+  });
 }
 
 export async function runCustomGenerate(args: {

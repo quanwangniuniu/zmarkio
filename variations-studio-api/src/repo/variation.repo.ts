@@ -58,38 +58,54 @@ export async function findVariationsByIdsAnyProject(
     WHERE id IN (${idList(ids)})`;
 }
 
+const INSERT_COLUMNS = Prisma.raw(`
+  created_at, updated_at, is_deleted, source_mode, source_ref,
+  hook, headline, description, cta, instruction, model_name, prompt_version,
+  batch_id, batch_position, status, created_by_id, creative_id, project_id, slug
+`);
+
+function insertValues(row: VariationInsert, now: Date): Prisma.Sql {
+  return Prisma.sql`(
+    ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
+    ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
+    ${row.instruction}, ${row.modelName}, ${row.promptVersion},
+    ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
+    ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${row.slug}
+  )`;
+}
+
 export async function insertVariation(
   schema: string,
   row: VariationInsert,
   db: SqlClient = prisma
 ): Promise<VariationRow> {
-  const now = new Date();
   const rows = await db.$queryRaw<VariationRow[]>`
-    INSERT INTO ${table(schema)} (
-      created_at, updated_at, is_deleted, source_mode, source_ref,
-      hook, headline, description, cta, instruction, model_name, prompt_version,
-      batch_id, batch_position, status, created_by_id, creative_id, project_id, slug
-    ) VALUES (
-      ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
-      ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
-      ${row.instruction}, ${row.modelName}, ${row.promptVersion},
-      ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
-      ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${row.slug}
-    )
+    INSERT INTO ${table(schema)} (${INSERT_COLUMNS})
+    VALUES ${insertValues(row, new Date())}
     RETURNING ${COLUMNS}`;
   return rows[0];
 }
 
+/**
+ * Inserts a whole batch in one statement, so a failure on any row leaves none
+ * behind. RETURNING order is not guaranteed, so the result is re-sorted by
+ * batch_position (then id) to keep batch order stable for callers.
+ */
 export async function insertVariations(
   schema: string,
   rows: VariationInsert[],
   db: SqlClient = prisma
 ): Promise<VariationRow[]> {
-  const saved: VariationRow[] = [];
-  for (const row of rows) {
-    saved.push(await insertVariation(schema, row, db));
-  }
-  return saved;
+  if (!rows.length) return [];
+  const now = new Date();
+  return db.$queryRaw<VariationRow[]>`
+    WITH inserted AS (
+      INSERT INTO ${table(schema)} (${INSERT_COLUMNS})
+      VALUES ${Prisma.join(rows.map((row) => insertValues(row, now)))}
+      RETURNING ${COLUMNS}
+    )
+    SELECT * FROM inserted
+    ORDER BY "batchPosition", id`;
 }
 
 export async function updateVariationFields(
