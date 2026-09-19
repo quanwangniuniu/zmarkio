@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Id } from "@/types/common";
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
-import { ArrowLeft, Loader2, Pencil } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Loader2, Pencil, } from "lucide-react";
 
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
@@ -27,6 +27,7 @@ import type {
   AdCopyVariationCopy,
   AdCopyVariationSourceMode,
   AdCopyVariationStatus,
+  CopyViolation,
 } from "@/types/adCopyVariation";
 
 const SECTION_LABEL =
@@ -111,6 +112,7 @@ function cardFromVariation(row: AdCopyVariation): CardState {
     creative_id: row.creative,
     copy,
     draft: { ...copy },
+    validationWarnings: row.validation_warnings ?? [],
     status: row.status,
     selected: false,
     editing: false,
@@ -302,6 +304,7 @@ function VariationsStudioContent() {
                 ...c,
                 copy,
                 draft: { ...copy },
+                validationWarnings: updated.validation_warnings ?? [],
                 status: updated.status,
                 editing: false,
                 saving: false,
@@ -722,6 +725,51 @@ function VariationStatusPill({ status }: { status: AdCopyVariationStatus }) {
   );
 }
 
+function ValidationWarnings({
+  warnings,
+}: {
+  warnings: CopyViolation[];
+}) {
+  if (warnings.length === 0) return null;
+
+  return (
+    <div
+      role="status"
+      className="mb-3 flex gap-2 rounded-md border border-amber-300 bg-amber-50 p-3"
+    >
+      <AlertTriangle
+        className="mt-0.5 h-4 w-4 shrink-0 text-amber-700"
+        aria-hidden="true"
+      />
+
+      <div>
+        <p className="text-[13px] font-semibold text-amber-900">
+          Length review needed
+        </p>
+
+        <ul className="mt-1 space-y-1 text-[12px] text-amber-800">
+          {warnings.map((warning) => {
+            const field =
+              warning.field.charAt(0).toUpperCase()
+              + warning.field.slice(1);
+            const unit =
+              warning.rule === "max_words"
+                ? "words"
+                : "characters";
+
+            return (
+              <li key={`${warning.field}-${warning.rule}`}>
+                {field}: {warning.actual} {unit}; maximum{" "}
+                {warning.limit}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 function ResultCard({
   card,
   currentBatchId,
@@ -778,6 +826,10 @@ function ResultCard({
           )}
         </div>
       </div>
+
+      <ValidationWarnings
+        warnings={card.validationWarnings}
+      />
 
       <div className="space-y-3">
         <CardField
@@ -1347,6 +1399,11 @@ function AiDraftsTab({
                     )}
                   </div>
                 </div>
+
+                <ValidationWarnings
+                  warnings={row.validation_warnings ?? []}
+                />
+
                 {isEditing ? (
                   <div className="mt-4 space-y-3 rounded-lg border border-gray-100 bg-gray-50/60 p-4">
                     <CardField

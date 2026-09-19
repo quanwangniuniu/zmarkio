@@ -1,3 +1,4 @@
+import { META_COPY_LIMITS, validateCopy, } from '@/src/ai';
 import { ApiError } from '@/lib/bulk';
 import { prisma } from '@/lib/prisma';
 import { MODEL_NAME, PROMPT_VERSION } from '@/lib/prompts';
@@ -119,6 +120,15 @@ export async function createVariation(args: {
     headline: text.headline,
     description: text.description,
     cta: text.cta,
+    validationWarnings: validateCopy(
+      {
+        hook: text.hook,
+        headline: text.headline,
+        description: text.description,
+        cta: text.cta,
+      },
+      META_COPY_LIMITS
+    ),
     instruction: optionalText(args.body, 'instruction'),
     modelName: optionalText(args.body, 'model_name') || MODEL_NAME,
     promptVersion: optionalText(args.body, 'prompt_version') || PROMPT_VERSION,

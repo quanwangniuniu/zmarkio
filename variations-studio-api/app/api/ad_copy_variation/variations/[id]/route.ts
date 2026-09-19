@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { META_COPY_LIMITS, validateCopy, type CopyViolation, } from '@/src/ai';
 import { isAuthFailure } from '@/lib/auth';
 import { isActiveProjectMember } from '@/lib/projects';
 import { requireStudioContext } from '@/lib/tenant';
@@ -91,6 +92,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     headline?: string;
     description?: string;
     cta?: string;
+    validationWarnings?: CopyViolation[];
     status?: string;
   } = {};
 
@@ -115,6 +117,18 @@ export async function PATCH(request: Request, context: RouteContext) {
     }
     data.status = body.status;
   }
+
+  const updatedCopy = {
+    hook: data.hook ?? loaded.row.hook,
+    headline: data.headline ?? loaded.row.headline,
+    description: data.description ?? loaded.row.description,
+    cta: data.cta ?? loaded.row.cta,
+  };
+
+  data.validationWarnings = validateCopy(
+    updatedCopy,
+    META_COPY_LIMITS
+  );
 
   const updated = await updateVariationFields(loaded.schema, loaded.row.id, data);
   return NextResponse.json(serializeVariation(updated));

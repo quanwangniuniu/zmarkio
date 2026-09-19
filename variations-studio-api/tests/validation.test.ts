@@ -188,4 +188,31 @@ describe('PATCH field validation', () => {
       status: 'reviewed',
     });
   });
+
+  it('recalculates warnings after a copy field is edited', async () => {
+    const invalidResponse = await patch({
+      headline: 'H'.repeat(41),
+    });
+
+    expect(invalidResponse.status).toBe(200);
+    const invalidBody = await readJson(invalidResponse);
+    expect(invalidBody.validation_warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'headline',
+          rule: 'max_chars',
+          limit: 40,
+          actual: 41,
+        }),
+      ])
+    );
+
+    const correctedResponse = await patch({
+      headline: 'Short headline',
+    });
+
+    expect(correctedResponse.status).toBe(200);
+    const correctedBody = await readJson(correctedResponse);
+    expect(correctedBody.validation_warnings).toEqual([]);
+  });
 });

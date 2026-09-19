@@ -14,6 +14,7 @@ export function serializeVariation(row: VariationRow) {
     headline: row.headline,
     description: row.description,
     cta: row.cta,
+    validation_warnings: row.validationWarnings,
     instruction: row.instruction,
     model_name: row.modelName,
     prompt_version: row.promptVersion,

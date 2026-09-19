@@ -3,6 +3,20 @@ import { MODEL_NAME } from './prompts';
 import { callGeminiJson, isGeminiQuotaError } from './providers/gemini';
 
 export type { CopyGenerator, CopyJson } from './types';
+
+export type {
+  CopyField,
+  CopyLimit,
+  CopyLimits,
+  CopyViolation,
+  CopyViolationRule,
+} from './validation';
+
+export {
+  META_COPY_LIMITS,
+  validateCopy,
+} from './validation';
+
 export {
   MAX_BATCH,
   BATCH_CONCURRENCY,
@@ -14,8 +28,10 @@ export {
   SYSTEM_PROMPT,
   buildExternalUrlPrompt,
   buildUserPrompt,
+  buildLengthRetryPrompt,
   lockCta,
 } from './prompts';
+
 export {
   GeminiError,
   callGeminiJson,

@@ -1,3 +1,6 @@
+import type { CopyJson } from '@/src/ai/types';
+import type { CopyViolation } from '@/src/ai/validation';
+
 export const MAX_BATCH = 50;
 export const BATCH_CONCURRENCY = 5;
 export const MODEL_NAME = 'gemini-2.5-flash-lite';
@@ -75,7 +78,6 @@ export const SYSTEM_PROMPT = (
 );
 
 export type { CopyJson } from '@/src/ai/types';
-import type { CopyJson } from '@/src/ai/types';
 
 export function buildExternalUrlPrompt(pageText: string, instruction: string): string {
   const focus = instruction.trim()
@@ -114,6 +116,30 @@ export function buildUserPrompt(template: CopyJson, instruction: string): string
     + `- CTA: ${template.cta}\n\n`
     + `Instruction: ${focus}\n\n`
     + 'Return JSON: {"hook": "...", "headline": "...", "description": "...", "cta": "..."}'
+  );
+}
+
+export function buildLengthRetryPrompt(
+  originalPrompt: string,
+  previousCopy: CopyJson,
+  violations: CopyViolation[]
+): string {
+  const details = violations
+    .map(
+      (violation) =>
+        `- ${violation.field}: ${violation.actual} ${
+          violation.rule === 'max_words' ? 'words' : 'characters'
+        }; maximum ${violation.limit}`
+    )
+    .join('\n');
+
+  return (
+    `${originalPrompt}\n\n`
+    + 'Your previous output violated these hard length limits:\n'
+    + `${details}\n\n`
+    + `Previous output:\n${JSON.stringify(previousCopy)}\n\n`
+    + 'Rewrite the copy so every field meets the limits. '
+    + 'Return strict JSON only.'
   );
 }
 

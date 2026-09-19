@@ -226,6 +226,7 @@ export async function createTestVariation(args: {
     headline: 'Fixture headline',
     description: 'Fixture description',
     cta: 'LEARN_MORE',
+    validationWarnings: [],
     instruction: '',
     modelName: 'fixture',
     promptVersion: 'fixture',

@@ -150,6 +150,89 @@ describe('batch generate failure handling', () => {
   });
 });
 
+describe('copy length validation retry', () => {
+  it('retries once and persists the valid retry result', async () => {
+    geminiMock
+      .mockResolvedValueOnce({
+        hook:
+          'one two three four five six seven eight nine ten eleven',
+        headline: 'First headline',
+        description: 'First description',
+        cta: 'LEARN_MORE',
+      })
+      .mockResolvedValueOnce(copy('Retried'));
+
+    const response = await generateBatch(1);
+
+    expect(response.status).toBe(200);
+    expect(geminiMock).toHaveBeenCalledTimes(2);
+
+    const body = await readJson(response);
+
+    const results = body.results as Array<{
+      hook: string;
+      headline: string;
+      validation_warnings: unknown[];
+    }>;
+
+    expect(body.results).toHaveLength(1);
+    expect(results[0]).toMatchObject({
+      hook: 'Retried hook',
+      headline: 'Retried headline',
+      validation_warnings: [],
+    });
+  });
+
+  it('persists field warnings when the retry still exceeds limits', async () => {
+    const overlongCopy = {
+      hook:
+        'one two three four five six seven eight nine ten eleven',
+      headline: 'H'.repeat(41),
+      description: 'D'.repeat(126),
+      cta: 'LEARN_MORE',
+    };
+
+    geminiMock
+      .mockResolvedValueOnce(overlongCopy)
+      .mockResolvedValueOnce(overlongCopy);
+
+    const response = await generateBatch(1);
+
+    expect(response.status).toBe(200);
+    expect(geminiMock).toHaveBeenCalledTimes(2);
+
+    const body = await readJson(response);
+
+    const results = body.results as Array<{
+      validation_warnings: unknown[];
+    }>;
+
+    expect(body.results).toHaveLength(1);
+    expect(results[0].validation_warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: 'hook',
+          rule: 'max_words',
+          limit: 10,
+          actual: 11,
+        }),
+        expect.objectContaining({
+          field: 'headline',
+          rule: 'max_chars',
+          limit: 40,
+          actual: 41,
+        }),
+        expect.objectContaining({
+          field: 'description',
+          rule: 'max_chars',
+          limit: 125,
+          actual: 126,
+        }),
+      ])
+    );
+  });
+});
+
 describe('batch slug allocation', () => {
   it('persists two concurrent identical 50-item batches with unique slugs', async () => {
     geminiMock.mockResolvedValue(copy('Same'));

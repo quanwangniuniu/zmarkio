@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 
+import type { CopyViolation } from '@/src/ai/validation';
 import { prisma } from '@/lib/prisma';
 import { tenantTable } from '@/lib/tenant';
 
@@ -23,6 +24,7 @@ export type VariationRow = {
   headline: string;
   description: string;
   cta: string;
+  validationWarnings: CopyViolation[];
   instruction: string;
   modelName: string;
   promptVersion: string;
@@ -42,6 +44,7 @@ export type VariationInsert = {
   headline: string;
   description: string;
   cta: string;
+  validationWarnings: CopyViolation[];
   instruction: string;
   modelName: string;
   promptVersion: string;
@@ -65,6 +68,7 @@ export const COLUMNS = Prisma.raw(`
   headline,
   description,
   cta,
+  validation_warnings AS "validationWarnings",
   instruction,
   model_name AS "modelName",
   prompt_version AS "promptVersion",

@@ -1,3 +1,9 @@
+export type CopyViolation = {
+  field: "hook" | "headline" | "description";
+  rule: "max_chars" | "max_words";
+  limit: number;
+  actual: number;
+};
 export type AdCopyVariationSourceMode = 'existing' | 'custom' | 'external_url';
 export type AdCopyVariationStatus = 'draft' | 'reviewed';
 
@@ -16,6 +22,7 @@ export interface AdCopyVariation extends AdCopyVariationCopy {
   creative_slug?: string | null;
   source_mode: AdCopyVariationSourceMode;
   source_ref: string;
+  validation_warnings: CopyViolation[];
   instruction: string;
   model_name: string;
   prompt_version: string;

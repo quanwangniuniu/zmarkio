@@ -4,12 +4,17 @@ import {
   AI_QUOTA_MESSAGE,
   BATCH_CONCURRENCY,
   MAX_BATCH,
+  META_COPY_LIMITS,
   PROMPT_VERSION,
   SYSTEM_PROMPT,
+  buildLengthRetryPrompt,
   defaultCopyGenerator,
+  validateCopy,
   type CopyGenerator,
   type CopyJson,
+  type CopyViolation,
 } from '@/src/ai';
+
 import { ApiError, projectIdParam } from '@/src/platform/http';
 import { requireProjectForUser } from '@/lib/projects';
 import { allocateSlugs } from '@/lib/slugs';
@@ -29,6 +34,11 @@ export type GenerateBatchResponse = {
   error?: string;
 };
 
+type GeneratedCopy = {
+  copy: CopyJson;
+  validationWarnings: CopyViolation[];
+};
+
 function parseCount(raw: unknown): number {
   if (raw === undefined || raw === null || raw === '') return 1;
   if (typeof raw === 'number' && Number.isInteger(raw)) return raw;
@@ -42,8 +52,15 @@ async function generateCopies(
   userPrompt: string,
   count: number,
   generator: CopyGenerator
-): Promise<{ copies: CopyJson[]; failedIndices: number[]; quotaFailed: boolean }> {
-  const ordered: Array<CopyJson | null> = Array.from({ length: count }, () => null);
+): Promise<{
+  copies: GeneratedCopy[];
+  failedIndices: number[];
+  quotaFailed: boolean;
+}> {
+  const ordered: Array<GeneratedCopy | null> = Array.from(
+    { length: count },
+    () => null
+  );
   const failedIndices: number[] = [];
   let quotaFailed = false;
   let next = 0;
@@ -54,7 +71,43 @@ async function generateCopies(
       next += 1;
       if (index >= count) return;
       try {
-        ordered[index] = await generator.generateCopy(SYSTEM_PROMPT, userPrompt);
+        const firstCopy = await generator.generateCopy(
+          SYSTEM_PROMPT,
+          userPrompt
+        );
+
+        let finalCopy = firstCopy;
+        let warnings = validateCopy(
+          firstCopy,
+          META_COPY_LIMITS
+        );
+
+        if (warnings.length > 0) {
+          try {
+            const retryPrompt = buildLengthRetryPrompt(
+              userPrompt,
+              firstCopy,
+              warnings
+            );
+
+            finalCopy = await generator.generateCopy(
+              SYSTEM_PROMPT,
+              retryPrompt
+            );
+
+            warnings = validateCopy(
+              finalCopy,
+              META_COPY_LIMITS
+            );
+          } catch (retryError) {
+            console.error('Copy length retry failed', retryError);
+          }
+        }
+
+        ordered[index] = {
+          copy: finalCopy,
+          validationWarnings: warnings,
+        };
       } catch (err) {
         if (generator.isQuotaError(err)) quotaFailed = true;
         failedIndices.push(index);
@@ -66,7 +119,9 @@ async function generateCopies(
   await Promise.all(Array.from({ length: workers }, () => worker()));
   failedIndices.sort((a, b) => a - b);
   return {
-    copies: ordered.filter((row): row is CopyJson => row !== null),
+    copies: ordered.filter(
+      (row): row is GeneratedCopy => row !== null
+    ),
     failedIndices,
     quotaFailed,
   };
@@ -74,7 +129,7 @@ async function generateCopies(
 
 async function persistBatch(args: {
   schema: string;
-  copies: CopyJson[];
+  copies: GeneratedCopy[];
   batchId: string;
   projectId: bigint;
   userId: number;
@@ -85,17 +140,18 @@ async function persistBatch(args: {
   modelName: string;
 }) {
   const slugs = allocateSlugs(
-    args.copies.map((copy) => copy.headline)
+    args.copies.map(({ copy }) => copy.headline)
   );
   return insertVariations(
     args.schema,
-    args.copies.map((copy, index) => ({
+    args.copies.map(({ copy, validationWarnings }, index) => ({
       sourceMode: args.sourceMode,
       sourceRef: args.sourceRef,
       hook: copy.hook,
       headline: copy.headline,
       description: copy.description,
       cta: copy.cta,
+      validationWarnings,
       instruction: args.instruction,
       modelName: args.modelName,
       promptVersion: PROMPT_VERSION,

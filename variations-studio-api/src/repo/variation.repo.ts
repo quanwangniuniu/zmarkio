@@ -1,3 +1,4 @@
+import type { CopyViolation } from '@/src/ai/validation';
 import {
   Prisma,
   COLUMNS,
@@ -77,11 +78,13 @@ export async function insertVariation(
     const rows = await db.$queryRaw<VariationRow[]>`
       INSERT INTO ${table(schema)} (
         created_at, updated_at, is_deleted, source_mode, source_ref,
-        hook, headline, description, cta, instruction, model_name, prompt_version,
+        hook, headline, description, cta, validation_warnings,
+        instruction, model_name, prompt_version,
         batch_id, batch_position, status, created_by_id, creative_id, project_id, slug
       ) VALUES (
         ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
         ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
+        ${JSON.stringify(row.validationWarnings)}::jsonb,
         ${row.instruction}, ${row.modelName}, ${row.promptVersion},
         ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
         ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${slug}
@@ -117,6 +120,7 @@ export async function updateVariationFields(
     headline?: string;
     description?: string;
     cta?: string;
+    validationWarnings?: CopyViolation[];
     status?: string;
   },
   db: SqlClient = prisma
@@ -128,6 +132,14 @@ export async function updateVariationFields(
     sets.push(Prisma.sql`description = ${patch.description}`);
   }
   if (patch.cta !== undefined) sets.push(Prisma.sql`cta = ${patch.cta}`);
+  if (patch.validationWarnings !== undefined) {
+    sets.push(
+      Prisma.sql`
+      validation_warnings =
+      ${JSON.stringify(patch.validationWarnings)}::jsonb
+      `
+    );
+  }
   if (patch.status !== undefined) sets.push(Prisma.sql`status = ${patch.status}`);
 
   const rows = await db.$queryRaw<VariationRow[]>`

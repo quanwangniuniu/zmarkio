@@ -42,6 +42,7 @@ class AdCopyVariation(SluggedResourceModelMixin, TimeStampedModel):
     headline = models.TextField(blank=True, default='')
     description = models.TextField(blank=True, default='')
     cta = models.CharField(max_length=64, blank=True, default='')
+    validation_warnings = models.JSONField(default=list, blank=True)
 
     instruction = models.TextField(blank=True, default='')
     model_name = models.CharField(max_length=64, default='gemini-2.5-flash-lite')
