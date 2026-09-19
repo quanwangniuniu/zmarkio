@@ -13,6 +13,8 @@ from core.slug_mixins import resolve_pk_for  # resolve an ad id that may be a sl
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.conf import settings
+import base64
+import json
 import os
 import hashlib
 import re
@@ -41,6 +43,7 @@ class AdsListView(generics.ListCreateAPIView):
         """Get all ads for current user"""
         queryset = Ad.objects.filter(
             Q(customer_account__created_by=self.request.user) |
+            Q(created_by=self.request.user) |
             Q(created_by__isnull=True)
         )
         campaign_id = self.request.query_params.get('campaign_id')
@@ -55,9 +58,7 @@ class AdsListView(generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         """Automatically associate with current user"""
-        # Note: You may need to handle customer_account assignment here
-        # For now, we'll just set the created_by field
-        serializer.save(created_by=self.request.user)
+        serializer.save(created_by_id=self.request.user.id)
 
 
 class AdDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -74,6 +75,7 @@ class AdDetailView(generics.RetrieveUpdateDestroyAPIView):
         """Only return ads for current user or ads without created_by (for testing)"""
         return Ad.objects.filter(
             Q(customer_account__created_by=self.request.user) |
+            Q(created_by=self.request.user) |
             Q(created_by__isnull=True)
         )
 
@@ -247,12 +249,16 @@ def create_preview_from_ad(request, ad_id):
             ad=ad,
             device_type=device_type
         )
+        # The public page expects a URL-safe JSON payload, not a token path segment.
+        share_payload = base64.urlsafe_b64encode(json.dumps({
+            'previewToken': preview.token, 'device': preview.device_type,
+        }).encode()).decode().rstrip('=')
         
         return Response({
             'token': preview.token,
             'ad_id': preview.ad.id,
             'device_type': preview.device_type,
-            'preview_url': f'/google_ads/preview/{preview.token}/',
+            'preview_url': f'/google_ads/preview/share?share={share_payload}',
             'expiration_date_time': preview.expiration_date_time.isoformat()
         }, status=status.HTTP_201_CREATED)
         
@@ -592,5 +598,3 @@ class VideoListView(generics.ListAPIView):
             'previous': None,
             'results': serializer.data
         })
-
-
