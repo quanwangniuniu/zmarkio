@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { TaskData } from '@/types/task';
 
-interface TaskStore {
+export interface TaskStore {
   tasks: TaskData[];
   currentTask: TaskData | null;
   loading: boolean;
@@ -72,6 +72,18 @@ function mergeTaskPatch(
         : state.currentTask,
   };
 }
+
+type UseTaskStore = {
+  (): TaskStore;
+  <T>(selector: (state: TaskStore) => T): T;
+  getState: () => TaskStore;
+  setState: (
+    partial: TaskStore | Partial<TaskStore> | ((state: TaskStore) => TaskStore | Partial<TaskStore>),
+    replace?: boolean
+  ) => void;
+  subscribe: (listener: (state: TaskStore, prevState: TaskStore) => void) => () => void;
+  getInitialState: () => TaskStore;
+};
 
 export const useTaskStore = create<TaskStore>((set) => ({
   tasks: [],
@@ -194,4 +206,4 @@ export const useTaskStore = create<TaskStore>((set) => ({
       ),
     }));
   },
-}));
+})) as unknown as UseTaskStore; 

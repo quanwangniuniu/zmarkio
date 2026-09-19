@@ -58,7 +58,7 @@ export function computeToastDedupeKey(
   return op ? `${type}:${hash.toString(16)}:${op}` : `${type}:${hash.toString(16)}`;
 }
 
-interface NotificationStore {
+export interface NotificationStore { 
   /** Global unread count shown in Header bell badge */
   unreadCount: number;
   /** Unread count for chat-activity notifications only (shown on Activity Bell in Messages) */
@@ -96,6 +96,23 @@ interface NotificationStore {
   /** Reset toast queue state (intended for unit tests). */
   resetToastQueue: () => void;
 }
+
+type UseNotificationStore = {
+  (): NotificationStore;
+  <T>(selector: (state: NotificationStore) => T): T;
+  getState: () => NotificationStore;
+  setState: (
+    partial:
+      | NotificationStore
+      | Partial<NotificationStore>
+      | ((state: NotificationStore) => NotificationStore | Partial<NotificationStore>),
+    replace?: boolean
+  ) => void;
+  subscribe: (
+    listener: (state: NotificationStore, prevState: NotificationStore) => void
+  ) => () => void;
+  getInitialState: () => NotificationStore;
+};
 
 export const useNotificationStore = create<NotificationStore>((set) => ({
   unreadCount: 0,
@@ -145,4 +162,4 @@ export const useNotificationStore = create<NotificationStore>((set) => ({
     set({
       toastQueue: {},
     }),
-}));
+})) as unknown as UseNotificationStore; 

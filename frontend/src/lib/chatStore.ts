@@ -160,8 +160,21 @@ const collectChatPresence = (chat: Chat, target: Record<number, boolean>) => {
   collectMessagePresence(chat.last_message, target);
 };
 
+
+type UseChatStore = {
+  (): ChatState;
+  <T>(selector: (state: ChatState) => T): T;
+  getState: () => ChatState;
+  setState: (
+    partial: ChatState | Partial<ChatState> | ((state: ChatState) => ChatState | Partial<ChatState>),
+    replace?: boolean
+  ) => void;
+  subscribe: (listener: (state: ChatState, prevState: ChatState) => void) => () => void;
+  getInitialState: () => ChatState;
+};
+
 export const useChatStore = create<ChatState>()(
-  persist(
+  persist<ChatState>(       
     (set, get) => ({
       // ==================== Initial State ====================
       chatsByProject: {},       // Chats keyed by project_id
@@ -1229,7 +1242,7 @@ export const useChatStore = create<ChatState>()(
       }),
     }
   )
-);
+) as unknown as UseChatStore; 
 
 /**
  * Resolve a numeric chat id to its slug from the loaded chats.

@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertCircle, CheckCircle2, Loader2, Mail } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ProjectAPI } from '@/lib/api/projectApi';
-import { useAuthStore } from '@/lib/authStore';
+import { useAuthStore } from '@/lib/authStore'; 
 
 const getErrorMessage = (err: any): string =>
   // `any` retained because axios errors expose err.response.data.{error,detail,message}

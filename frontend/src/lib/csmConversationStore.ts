@@ -17,7 +17,7 @@ export interface ComposerDraft {
   imagePreviewUrl: string | null; // ObjectURL tied to imageFile
 }
 
-interface CsmConversationState {
+export interface CsmConversationState { 
   conversations: Conversation[];
   activeConversationId: number | null;
   selectedQueueId: number | null;
@@ -37,6 +37,22 @@ interface CsmConversationState {
   clearDraft: (conversationId: number) => void;
 }
 
+type UseCsmConversationStore = {
+  (): CsmConversationState;
+  <T>(selector: (state: CsmConversationState) => T): T;
+  getState: () => CsmConversationState;
+  setState: (
+    partial:
+      | CsmConversationState
+      | Partial<CsmConversationState>
+      | ((state: CsmConversationState) => CsmConversationState | Partial<CsmConversationState>),
+    replace?: boolean
+  ) => void;
+  subscribe: (
+    listener: (state: CsmConversationState, prevState: CsmConversationState) => void
+  ) => () => void;
+  getInitialState: () => CsmConversationState;
+};
 export const useCsmConversationStore = create<CsmConversationState>((set) => ({
   conversations: [],
   activeConversationId: null,
@@ -99,4 +115,4 @@ export const useCsmConversationStore = create<CsmConversationState>((set) => ({
       delete next[conversationId];
       return { draftsByConversation: next };
     }),
-}));
+})) as unknown as UseCsmConversationStore; 
