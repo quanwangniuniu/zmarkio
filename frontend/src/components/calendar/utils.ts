@@ -18,12 +18,17 @@ export const VIEW_SHORTCUTS: Record<CalendarViewType, string> = {
 };
 
 export const CALENDAR_FILTER_STORAGE_KEY = "calendar:selected_calendar_id";
+export const CALENDAR_FILTER_ALL_VALUE = "all";
 
 export function calendarFilterStorageKey(projectId?: number | string | null): string {
   if (projectId == null) {
     return CALENDAR_FILTER_STORAGE_KEY;
   }
   return `${CALENDAR_FILTER_STORAGE_KEY}:project:${projectId}`;
+}
+
+export function calendarAllEventsStorageKey(projectId?: number | string | null): string {
+  return `${calendarFilterStorageKey(projectId)}:all_events`;
 }
 
 const UUID_PATTERN =
@@ -80,6 +85,41 @@ export function extractCalendarIdFromStoredValue(raw: string | null): string | n
   }
 
   return null;
+}
+
+export function isAllEventsStoredValue(raw: string | null): boolean {
+  return raw?.trim().toLowerCase() === CALENDAR_FILTER_ALL_VALUE;
+}
+
+export function isAllEventsSelection(
+  visibleCalendarIds: string[] | undefined,
+): boolean {
+  return Array.isArray(visibleCalendarIds) && visibleCalendarIds.length === 0;
+}
+
+export function resolveVisibleCalendarSelection(
+  projectId: number | string | null,
+  accessibleCalendars: Array<{ id: string; project_id?: number | string | null }>,
+  visibleCalendarIds: string[] | undefined,
+): string[] | null {
+  if (!projectId || accessibleCalendars.length === 0) {
+    return null;
+  }
+  if (isAllEventsSelection(visibleCalendarIds)) {
+    return null;
+  }
+  const projectCalendar = accessibleCalendars.find(
+    (cal) => String(cal.project_id) === String(projectId),
+  );
+  if (visibleCalendarIds && visibleCalendarIds.length === 1) {
+    const selectedStillExists = accessibleCalendars.some(
+      (cal) => cal.id === visibleCalendarIds[0],
+    );
+    if (selectedStillExists) {
+      return null;
+    }
+  }
+  return projectCalendar ? [projectCalendar.id] : null;
 }
 
 export function sameCalendarIdList(

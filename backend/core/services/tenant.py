@@ -6,14 +6,14 @@ are centralised here so that no other module needs to know about schema names
 or safe identifier quoting.
 
 Usage:
-    Called exclusively from Organization.save() inside a transaction.atomic() block.
-    The caller owns the transaction; DDL failures roll back both the schema DDL
-    and the Organization INSERT atomically (PostgreSQL DDL is transactional).
+    Organization.save() locks provisioning before its INSERT, then calls this
+    service inside the same transaction. Management commands may call the service
+    directly. DDL failures roll back atomically (PostgreSQL DDL is transactional).
 """
 
 import re
 
-from django.db import connection
+from django.db import connection, transaction
 from psycopg2 import sql as psql
 
 
@@ -65,12 +65,24 @@ def rename_tenant_schema(old_slug: str, new_slug: str) -> None:
         )
 
 
+def lock_tenant_provisioning() -> None:
+    """Serialize provisioning until the enclosing transaction commits or rolls back.
+
+    Call inside atomic(), before inserting an Organization. Tenant foreign-key
+    DDL locks shared public tables, so a per-tenant lock would not prevent the
+    lock-upgrade deadlock. The two keys namespace this application's DDL lock.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [0x5A4D4152, 0x54454E54])
+
+
+@transaction.atomic
 def provision_tenant_schema(slug: str) -> None:
     """
     Create a PostgreSQL schema and populate it with all tenant tables.
 
-    MUST be called from within a transaction.atomic() block (enforced by
-    Organization.save()). If CREATE SCHEMA or any table creation fails, the
+    Owns an atomic block for standalone callers, nesting safely inside
+    Organization.save(). If CREATE SCHEMA or any table creation fails, the
     surrounding atomic() rolls back both the DDL and the org INSERT atomically.
 
     This is intentionally synchronous (not Celery): schema creation must be
@@ -81,6 +93,7 @@ def provision_tenant_schema(slug: str) -> None:
         slug: The Organization.slug value (already validated and set before
               this function is called).
     """
+    lock_tenant_provisioning()
     schema_name = slug_to_schema_name(slug)
 
     with connection.cursor() as cursor:
@@ -100,30 +113,86 @@ def provision_tenant_schema(slug: str) -> None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def _create_tenant_tables(schema_name: str) -> None:
     """
     Use Django's SchemaEditor to create all tenant model tables inside the
-    given schema. search_path is set for the duration of this call and
-    reset in the finally block to prevent connection pool pollution.
+    given schema. search_path is switched only for this call and then restored
+    to whatever the caller had selected (not hard-coded back to public).
 
     SchemaEditor.create_model() issues CREATE TABLE, adds indexes and
     constraints — all within the current transaction so failures roll back.
     """
     from core.tenant_config import get_tenant_models
 
-    # SET search_path accepts string literals (%s), so psycopg2 quoting is safe.
+    # Repair commands also call this helper directly, outside provisioning.
+    lock_tenant_provisioning()
+
+    # Preserve the full caller path, including any additional schemas. On error,
+    # the enclosing provisioning transaction restores it through rollback; do
+    # not issue cleanup SQL in an aborted transaction and mask the DDL error.
     with connection.cursor() as cursor:
+        cursor.execute('SHOW search_path')
+        previous_search_path = cursor.fetchone()[0]
         cursor.execute('SET search_path TO %s, public', [schema_name])
 
-    try:
-        with connection.schema_editor() as editor:
-            for model in get_tenant_models():
-                if not _table_exists(model._meta.db_table, schema_name):
-                    editor.create_model(model)
-    finally:
-        # Always reset to public so the connection is returned clean to the pool.
-        with connection.cursor() as cursor:
-            cursor.execute('SET search_path TO public')
+    # Provisioning owns the transaction. Deferred DDL runs in __exit__, where
+    # an editor-owned atomic block could leak if that DDL raises.
+    with connection.schema_editor(atomic=False) as editor:
+        for model in get_tenant_models():
+            if not _table_exists(model._meta.db_table, schema_name):
+                editor.create_model(model)
+            else:
+                _add_missing_columns(editor, model, schema_name)
+
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT set_config('search_path', %s, false)", [previous_search_path])
+
+
+def _existing_columns(table_name: str, schema_name: str) -> set[str]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            """,
+            [schema_name, table_name],
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+
+def _add_missing_columns(editor, model, schema_name: str) -> None:
+    """
+    Bring an existing tenant table up to date with its model.
+
+    Creating tables was never enough on its own. Django's migrations are
+    recorded once, in `public`, so a migration that adds a column to a tenant
+    model runs there and nowhere else - and this function used to skip any
+    table that already existed. The result was a schema reporting "up to date"
+    while silently missing columns, which surfaces much later as
+    `column ... does not exist` on a perfectly ordinary query.
+
+    Strictly additive: it adds columns and auto-created many-to-many tables,
+    and never alters or drops anything. Repairing a genuine type change still
+    needs a human.
+    """
+    present = _existing_columns(model._meta.db_table, schema_name)
+
+    for field in model._meta.local_fields:
+        if field.column and field.column not in present:
+            editor.add_field(model, field)
+
+    # A model that gains a many-to-many needs its join table, which is a table
+    # in its own right rather than a column on this one.
+    for field in model._meta.local_many_to_many:
+        through = getattr(field.remote_field, 'through', None)
+        if (
+            through is not None
+            and through._meta.auto_created
+            and not _table_exists(through._meta.db_table, schema_name)
+        ):
+            editor.create_model(through)
 
 
 def _table_exists(table_name: str, schema_name: str) -> bool:

@@ -124,8 +124,12 @@ export default function NotificationDrawer() {
               {isInviteNotification(notification) && (
                 <DrawerInviteCard
                   notification={notification}
-                  onResponseComplete={() => {
+                  onResponseComplete={(options) => {
                     triggerRefresh();
+                    if (options?.navigated) {
+                      closeDrawer();
+                      return;
+                    }
                     // Close drawer after a brief delay to allow user to see the response status
                     setTimeout(closeDrawer, 800);
                   }}

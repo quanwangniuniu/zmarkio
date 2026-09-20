@@ -6,6 +6,7 @@ import {
   clearPersistedAuthState,
   readPersistedAuthState,
   LEGACY_AUTH_STORAGE_KEY,
+  SESSION_ENDED_EVENT,
 } from './api';
 import { User } from '../types/auth';
 import TeamAPI from './api/teamApi';
@@ -445,4 +446,12 @@ export const useAuthStore = create<AuthState>()(
       })
     }
   )
-); 
+);
+
+// A session ended by the API client (refresh token rejected) must also reset
+// in-memory auth state, the same as a normal logout.
+if (typeof window !== 'undefined') {
+  window.addEventListener(SESSION_ENDED_EVENT, () => {
+    useAuthStore.getState().clearAuth();
+  });
+}
