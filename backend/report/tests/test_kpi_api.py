@@ -169,6 +169,7 @@ def test_preview_reports_a_bad_formula_in_the_body_not_as_a_400(client, kpi_ware
 
 @pytest.mark.django_db
 def test_preview_reports_division_by_zero(client, kpi_warehouse):
+    """A project that has rows, but a zero denominator, is a real #DIV/0!."""
     response = client.post(
         PREVIEW_URL,
         {"project": kpi_warehouse["project"].slug, "formula": "revenue / leads"},
@@ -176,6 +177,30 @@ def test_preview_reports_division_by_zero(client, kpi_warehouse):
     )
     assert response.status_code == status.HTTP_200_OK
     assert response.data["error"]["code"] == "#DIV/0!"
+
+
+@pytest.mark.django_db
+def test_preview_on_a_project_without_data_says_so(client, kpi_warehouse):
+    """Not #DIV/0!: the formula is fine, there is just nothing to measure."""
+    response = client.post(
+        PREVIEW_URL,
+        {"project": kpi_warehouse["other_project"].slug, "formula": "revenue / spend"},
+        format="json",
+    )
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["error"]["code"] == "#NODATA"
+    assert response.data["error"]["message"] == "No data for this period."
+
+
+@pytest.mark.django_db
+def test_list_reports_no_data_for_a_project_without_rows(client, kpi_warehouse):
+    other = kpi_warehouse["other_project"]
+    _create_kpi(client, other)
+
+    response = client.get(LIST_URL, {"project": other.slug})
+    results = response.data["results"] if "results" in response.data else response.data
+    assert results[0]["value"] is None
+    assert results[0]["error"]["code"] == "#NODATA"
 
 
 @pytest.mark.django_db

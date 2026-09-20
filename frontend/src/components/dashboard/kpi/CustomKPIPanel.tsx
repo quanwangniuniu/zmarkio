@@ -7,6 +7,7 @@ import ReportAPI from '@/lib/api/reportApi';
 import type { CustomKPI, KPIMetric } from '@/types/report';
 import KPIBuilderDialog from './KPIBuilderDialog';
 import { formatKPIValue } from './formatKPIValue';
+import { isNoData } from './kpiErrors';
 
 interface CustomKPIPanelProps {
   projectSlug: string | null | undefined;
@@ -32,7 +33,16 @@ function KPITile({
           <div className="truncate text-xs font-medium uppercase tracking-wide text-gray-400">
             {kpi.name}
           </div>
-          {kpi.error ? (
+          {isNoData(kpi.error) ? (
+            // Not a fault: an unsynced project would otherwise show a wall of
+            // red "Division by zero" on every ratio KPI.
+            <div
+              className="mt-1 text-xs text-gray-400"
+              data-testid="custom-kpi-tile-no-data"
+            >
+              {kpi.error!.message}
+            </div>
+          ) : kpi.error ? (
             <div
               className="mt-1 flex items-start gap-1.5 text-xs text-red-600"
               data-testid="custom-kpi-tile-error"

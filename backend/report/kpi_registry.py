@@ -82,12 +82,19 @@ METRIC_REGISTRY: Mapping[str, MetricDefinition] = {
 }
 
 
+# Not a formula error: the formula is fine, the window simply has no rows to
+# evaluate it against. Kept distinct so callers can present it as information
+# rather than a mistake -- without it every ratio reads as "Division by zero."
+# on a project that has never synced.
+NO_DATA_CODE = "#NODATA"
+
 ERROR_MESSAGES: Mapping[str, str] = {
     "#DIV/0!": "Division by zero.",
     "#NAME?": "Unknown metric name.",
     "#VALUE!": "This formula could not be evaluated to a number.",
     "#REF!": "This formula is not valid.",
     "#N/A": "No value available.",
+    NO_DATA_CODE: "No data for this period.",
 }
 
 
@@ -111,6 +118,28 @@ class KPIEvaluation:
     @property
     def ok(self) -> bool:
         return self.error_code is None
+
+    @property
+    def is_no_data(self) -> bool:
+        """True when nothing was wrong -- there was just nothing to measure."""
+        return self.error_code == NO_DATA_CODE
+
+
+@dataclass(frozen=True)
+class MetricSnapshot:
+    """Aggregated metrics plus how many warehouse rows produced them.
+
+    `row_count` is what separates a real division by zero from a project that
+    has simply never synced: with no rows every metric aggregates to 0, so
+    every ratio would otherwise look like a formula mistake.
+    """
+
+    values: Mapping[str, Decimal]
+    row_count: int
+
+    @property
+    def has_data(self) -> bool:
+        return self.row_count > 0
 
 
 def list_metrics() -> list[dict]:
@@ -178,20 +207,34 @@ def validate_formula(formula: str) -> None:
                     f"Unknown metric '{token.value}'.", code="#NAME?"
                 )
 
+    # Token checks cannot see structural faults such as a trailing operator, so
+    # parse the formula for real against a stand-in value for every metric.
+    # A #DIV/0! here is ignored: with every metric at 1, `a / (b - c)` divides
+    # by zero, which says nothing about the formula's structure.
+    probe = evaluate(text, {key: Decimal(1) for key in METRIC_REGISTRY})
+    if not probe.ok and probe.error_code != "#DIV/0!":
+        raise KPIFormulaError(
+            probe.error_message or "This formula is not valid.",
+            code=probe.error_code or "#REF!",
+        )
+
 
 def resolve_metric_values(
     project_id: int,
     start_date: date,
     end_date: date,
-) -> dict[str, Decimal]:
+) -> MetricSnapshot:
     """Aggregate every registered metric for one project over a date range.
 
     Meta insight rows reach a project through
     ad -> adset -> campaign -> mediajira_campaign -> project. A Meta campaign
     that has not been linked to a MediaJira campaign has no project to be
     attributed to and is therefore excluded.
+
+    Every relation in that chain is many-to-one, so the row count comes back in
+    the same query without inflating the sums.
     """
-    from django.db.models import Sum
+    from django.db.models import Count, Sum
     from meta_ads.models import MetaInsightDaily
 
     rows = MetaInsightDaily.objects.filter(
@@ -200,12 +243,13 @@ def resolve_metric_values(
         date__lte=end_date,
     )
     aggregates = rows.aggregate(
-        **{key: Sum(d.column) for key, d in METRIC_REGISTRY.items()}
+        _row_count=Count("id"),
+        **{key: Sum(d.column) for key, d in METRIC_REGISTRY.items()},
     )
-    return {
-        key: Decimal(aggregates.get(key) or 0)
-        for key in METRIC_REGISTRY
-    }
+    return MetricSnapshot(
+        values={key: Decimal(aggregates.get(key) or 0) for key in METRIC_REGISTRY},
+        row_count=aggregates.get("_row_count") or 0,
+    )
 
 
 def evaluate(formula: str, metric_values: Mapping[str, Decimal]) -> KPIEvaluation:
@@ -232,13 +276,31 @@ def evaluate(formula: str, metric_values: Mapping[str, Decimal]) -> KPIEvaluatio
     return KPIEvaluation(value=result.computed_number)
 
 
+def evaluate_snapshot(formula: str, snapshot: MetricSnapshot) -> KPIEvaluation:
+    """Evaluate against a snapshot, reporting an empty window as no data.
+
+    Checked before evaluating: with no rows every metric is 0, so `revenue /
+    spend` would report a division by zero that says nothing about the formula.
+    """
+    if not snapshot.has_data:
+        return KPIEvaluation(
+            error_code=NO_DATA_CODE,
+            error_message=ERROR_MESSAGES[NO_DATA_CODE],
+        )
+    return evaluate(formula, snapshot.values)
+
+
 def evaluate_for_project(
     formula: str,
     project_id: int,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
 ) -> KPIEvaluation:
-    """Validate, aggregate and evaluate in one step (used by preview and read)."""
+    """Validate, aggregate and evaluate in one step (used by preview and read).
+
+    A broken formula is reported ahead of an empty window: the author has to
+    fix it either way, and "no data" would hide the real problem.
+    """
     try:
         validate_formula(formula)
     except KPIFormulaError as exc:
@@ -249,4 +311,6 @@ def evaluate_for_project(
         start_date = start_date or default_start
         end_date = end_date or default_end
 
-    return evaluate(formula, resolve_metric_values(project_id, start_date, end_date))
+    return evaluate_snapshot(
+        formula, resolve_metric_values(project_id, start_date, end_date)
+    )

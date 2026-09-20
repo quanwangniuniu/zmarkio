@@ -29,6 +29,7 @@ import type {
 } from '@/types/report';
 import FormulaEditor from './FormulaEditor';
 import { formatKPIValue } from './formatKPIValue';
+import { isFormulaFault, isNoData } from './kpiErrors';
 
 /** How long the formula must sit still before we ask the server to evaluate it. */
 const PREVIEW_DEBOUNCE_MS = 400;
@@ -108,7 +109,10 @@ export default function KPIBuilderDialog({
         });
         if (requestId !== requestIdRef.current) return;
         setPreview(response.data);
-        setFormulaError(response.data.error?.message ?? null);
+        // "No data" is shown in the preview box, not as a formula fault: the
+        // formula is saveable and there is nothing for the author to fix.
+        const error = response.data.error;
+        setFormulaError(isFormulaFault(error) ? error!.message : null);
       } catch {
         if (requestId !== requestIdRef.current) return;
         setPreview(null);
@@ -158,6 +162,7 @@ export default function KPIBuilderDialog({
   ]);
 
   const hasValue = preview?.value != null && !preview.error;
+  const previewHasNoData = isNoData(preview?.error);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -243,6 +248,13 @@ export default function KPIBuilderDialog({
                 <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
               ) : hasValue ? (
                 formatKPIValue(preview!.value, displayFormat)
+              ) : previewHasNoData ? (
+                <span
+                  className="text-sm font-normal text-gray-500"
+                  data-testid="kpi-preview-no-data"
+                >
+                  {preview!.error!.message} You can still save this KPI.
+                </span>
               ) : (
                 <span className="text-sm font-normal text-gray-400">
                   {formula.trim() ? 'No value' : 'Enter a formula'}
