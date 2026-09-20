@@ -1,8 +1,10 @@
 from rest_framework import serializers
 from django.db import transaction
 
-from core.models import ProjectMember
-from report.models import ReportTask, ReportTaskKeyAction
+from core.models import Project, ProjectMember
+from core.slug_mixins import resolve_pk_for
+from report.kpi_registry import KPIFormulaError, validate_formula
+from report.models import CustomKPI, ReportTask, ReportTaskKeyAction
 from task.models import Task
 
 
@@ -334,6 +336,172 @@ class ReportKeyActionUpdateSerializer(serializers.ModelSerializer):
         if qs.exists():
             raise serializers.ValidationError(
                 {"order_index": "A key action with this order_index already exists for this report."}
+            )
+        return attrs
+
+
+def _resolve_member_project(user, value) -> Project:
+    """Resolve a slug-or-pk project value the user is an active member of."""
+    project_pk = resolve_pk_for(Project, value)
+    if not project_pk:
+        raise serializers.ValidationError("No matching project.")
+    is_member = ProjectMember.objects.filter(
+        user=user,
+        project_id=project_pk,
+        is_active=True,
+    ).exists()
+    if not is_member:
+        raise serializers.ValidationError("You do not have access to this project.")
+    return Project.objects.get(pk=project_pk)
+
+
+def _validate_kpi_formula(value: str) -> str:
+    """Surface `KPIFormulaError` as a field error so the builder can inline it."""
+    try:
+        validate_formula(value)
+    except KPIFormulaError as exc:
+        raise serializers.ValidationError(exc.message) from exc
+    return value.strip()
+
+
+class CustomKPISerializer(serializers.ModelSerializer):
+    """Read serializer. Values are computed only when the view supplies
+    `metric_values` in context, so a list costs one warehouse query, not one
+    per KPI."""
+
+    project = serializers.SlugRelatedField(slug_field="slug", read_only=True)
+    project_id = serializers.IntegerField(read_only=True)
+    value = serializers.SerializerMethodField(read_only=True)
+    error = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CustomKPI
+        fields = [
+            "id",
+            "project",
+            "project_id",
+            "name",
+            "description",
+            "formula",
+            "display_format",
+            "value",
+            "error",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def _evaluation(self, obj: CustomKPI):
+        metric_values = self.context.get("metric_values")
+        if metric_values is None:
+            return None
+        cache = self.context.setdefault("_evaluation_cache", {})
+        if obj.pk not in cache:
+            from report.kpi_registry import evaluate
+
+            cache[obj.pk] = evaluate(obj.formula, metric_values)
+        return cache[obj.pk]
+
+    def get_value(self, obj: CustomKPI):
+        evaluation = self._evaluation(obj)
+        if evaluation is None or not evaluation.ok:
+            return None
+        return str(evaluation.value)
+
+    def get_error(self, obj: CustomKPI):
+        evaluation = self._evaluation(obj)
+        if evaluation is None or evaluation.ok:
+            return None
+        return {"code": evaluation.error_code, "message": evaluation.error_message}
+
+
+class CustomKPICreateSerializer(serializers.ModelSerializer):
+    project = serializers.CharField(write_only=True, help_text="Project slug or id")
+
+    class Meta:
+        model = CustomKPI
+        fields = ["project", "name", "description", "formula", "display_format"]
+
+    def validate_project(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            raise serializers.ValidationError("Authentication required.")
+        return _resolve_member_project(user, value)
+
+    def validate_name(self, value):
+        if not (value or "").strip():
+            raise serializers.ValidationError("Name cannot be blank.")
+        return value.strip()
+
+    def validate_formula(self, value):
+        return _validate_kpi_formula(value)
+
+    def validate(self, attrs):
+        project = attrs.get("project")
+        name = attrs.get("name")
+        if project and name and CustomKPI.objects.filter(project=project, name=name).exists():
+            raise serializers.ValidationError(
+                {"name": "A KPI with this name already exists in this project."}
+            )
+        return attrs
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        validated_data["created_by"] = getattr(request, "user", None)
+        return super().create(validated_data)
+
+
+class CustomKPIUpdateSerializer(serializers.ModelSerializer):
+    """Partial update. The project a KPI belongs to is fixed at creation."""
+
+    class Meta:
+        model = CustomKPI
+        fields = ["name", "description", "formula", "display_format"]
+
+    def validate_name(self, value):
+        if value is not None and not value.strip():
+            raise serializers.ValidationError("Name cannot be blank.")
+        return value.strip() if value else value
+
+    def validate_formula(self, value):
+        return _validate_kpi_formula(value)
+
+    def validate(self, attrs):
+        name = attrs.get("name")
+        if name and self.instance:
+            clash = CustomKPI.objects.filter(
+                project_id=self.instance.project_id,
+                name=name,
+            ).exclude(pk=self.instance.pk)
+            if clash.exists():
+                raise serializers.ValidationError(
+                    {"name": "A KPI with this name already exists in this project."}
+                )
+        return attrs
+
+
+class CustomKPIPreviewSerializer(serializers.Serializer):
+    """Input for the unsaved-formula preview the builder calls while typing."""
+
+    project = serializers.CharField()
+    formula = serializers.CharField()
+    start_date = serializers.DateField(required=False)
+    end_date = serializers.DateField(required=False)
+
+    def validate_project(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            raise serializers.ValidationError("Authentication required.")
+        return _resolve_member_project(user, value)
+
+    def validate(self, attrs):
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
+        if start_date and end_date and start_date > end_date:
+            raise serializers.ValidationError(
+                {"start_date": "start_date must be on or before end_date."}
             )
         return attrs
 

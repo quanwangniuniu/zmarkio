@@ -120,6 +120,79 @@ class ReportTask(models.Model):
         return 1 <= action_count <= 6
 
 
+class CustomKPI(models.Model):
+    """A project-scoped KPI defined as a formula over warehouse metrics.
+
+    The formula is validated on save so a KPI that cannot be evaluated never
+    reaches the database; see `report.kpi_registry`.
+    """
+
+    class DisplayFormat(models.TextChoices):
+        NUMBER = "number", "Number"
+        CURRENCY = "currency", "Currency"
+        PERCENT = "percent", "Percent"
+
+    project = models.ForeignKey(
+        "core.Project",
+        on_delete=models.CASCADE,
+        related_name="custom_kpis",
+        help_text="Project this KPI belongs to",
+    )
+    name = models.CharField(
+        max_length=120,
+        help_text="Display name, unique within the project",
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional explanation of what this KPI measures",
+    )
+    formula = models.TextField(
+        help_text="Formula over metric names, e.g. 'revenue / spend'",
+    )
+    display_format = models.CharField(
+        max_length=20,
+        choices=DisplayFormat.choices,
+        default=DisplayFormat.NUMBER,
+        help_text="How the computed value should be rendered",
+    )
+    created_by = models.ForeignKey(
+        "core.CustomUser",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_custom_kpis",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "report_custom_kpi"
+        ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "name"],
+                name="uniq_custom_kpi_name_per_project",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"CustomKPI(project={self.project_id}, name={self.name})"
+
+    def clean(self):
+        super().clean()
+        # Imported here so loading this models module does not pull in the
+        # spreadsheet and meta_ads apps before the registry is ready.
+        from report.kpi_registry import KPIFormulaError, validate_formula
+
+        if not (self.name or "").strip():
+            raise ValidationError({"name": "Name cannot be blank."})
+        try:
+            validate_formula(self.formula)
+        except KPIFormulaError as exc:
+            raise ValidationError({"formula": exc.message}) from exc
+
+
 class ReportTaskKeyAction(models.Model):
     report_task = models.ForeignKey(
         ReportTask,
