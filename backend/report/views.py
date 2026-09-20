@@ -239,6 +239,8 @@ class CustomKPIListCreateView(generics.ListCreateAPIView):
     """
 
     permission_classes = [IsAuthenticated]
+    # A project has a handful of KPIs and the dashboard renders all of them.
+    pagination_class = None
 
     def get_serializer_class(self):
         if self.request.method == "POST":
