@@ -26,6 +26,7 @@ import { adjustFormulaReferences, colLabelToIndex } from '@/lib/spreadsheet/form
 import { ApplyHighlightParams } from '@/types/patterns';
 import BrandSelect from '@/components/ui/BrandSelect';
 import type { SheetPresenceUser } from '@/lib/sheetSocketStore';
+import { create } from 'node:domain';
 
 export type SpreadsheetSelectionChange = {
   row: number;
@@ -629,9 +630,12 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
   const [colHighlightsBySheet, setColHighlightsBySheet] = useState<Record<number, Record<number, string>>>({});
   const [cellFormatsBySheet, setCellFormatsBySheet] = useState<Record<number, Map<CellKey, CellFormat>>>({});
   const [highlightMenuOpen, setHighlightMenuOpen] = useState(false);
+  const [highlightMenuAnchor, setHighlightMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
   const [selectedHighlight, setSelectedHighlight] = useState(HIGHLIGHT_COLORS[0].value);
   const [textColorMenuOpen, setTextColorMenuOpen] = useState(false);
+  const [textColorMenuAnchor, setTextColorMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
   const [currencyMenuOpen, setCurrencyMenuOpen] = useState(false);
+  const [currencyMenuAnchor, setCurrencyMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
   const [selectedTextColor, setSelectedTextColor] = useState<string | null>(null);
   const [selectedFontFamily, setSelectedFontFamily] = useState<string | null>(null);
   const [selectedFontSize, setSelectedFontSize] = useState<number | null>(null);
@@ -778,11 +782,10 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     pointerId: number;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
   const exportTriggerRef = useRef<HTMLButtonElement>(null);
-  const highlightMenuRef = useRef<HTMLDivElement>(null);
   const highlightTriggerRef = useRef<HTMLButtonElement>(null);
-  const textColorMenuRef = useRef<HTMLDivElement>(null);
+  const textColorTriggerRef = useRef<HTMLButtonElement>(null);
+  const currencyTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Initialize dimensions and cells cache for this sheetId
   useEffect(() => {
@@ -5698,7 +5701,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
             <span>H</span>
           </span>
         </button>
-        <div className="relative" ref={exportMenuRef}>
+        <div className="relative">
           <button
             type="button"
             ref={exportTriggerRef}
@@ -5796,12 +5799,20 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
 
         {/* Highlight & Text formatting controls */}
         <div className="flex shrink-0 items-center gap-1.5">
-          <div className="relative" ref={highlightMenuRef}>
+          <div className="relative">
             <button
               type="button"
               ref={highlightTriggerRef}
               onClick={(e) => {
                 e.stopPropagation();
+                const rect = highlightTriggerRef.current?.getBoundingClientRect();
+                if (rect) {
+                  setHighlightMenuAnchor({
+                    top: rect.bottom + 6,
+                    left: rect.right,
+                    width: rect.width,
+                  });
+                }
                 setHighlightMenuOpen((prev) => !prev);
               }}
               disabled={!hasSelection}
@@ -5817,9 +5828,10 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                 style={{ backgroundColor: selectedHighlight }}
               />
             </button>
-              {highlightMenuOpen && (
+              {highlightMenuOpen && highlightMenuAnchor && createPortal (
                 <div
-                  className="absolute left-0 mt-2 w-44 overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-gray-100 z-30"
+                  className="fixed z-[1000] w-44 overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-gray-100"
+                  style={{ top: highlightMenuAnchor.top, left: highlightMenuAnchor.left - highlightMenuAnchor.width }}
                   role="menu"
                   data-highlight-menu
                 >
@@ -5853,7 +5865,8 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                   >
                     Clear
                   </button>
-                </div>
+                </div>,
+                document.body
               )}
             </div>
           <div className="flex items-center gap-1 border-l border-gray-200 pl-3">
@@ -5899,11 +5912,20 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
             >
               <Strikethrough className="h-3.5 w-3.5" strokeWidth={2.3} />
             </button>
-            <div className="relative" ref={textColorMenuRef}>
+            <div className="relative">
               <button
                 type="button"
+                ref={textColorTriggerRef}
                 onClick={(e) => {
                   e.stopPropagation();
+                  const rect = textColorTriggerRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    setTextColorMenuAnchor({
+                      top: rect.bottom + 6,
+                      left: rect.right,
+                      width: rect.width,
+                    });
+                  }
                   setTextColorMenuOpen((prev) => !prev);
                 }}
                 disabled={!hasSelection}
@@ -5914,9 +5936,10 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
               >
                 <Palette className="h-4 w-4" strokeWidth={2.5} style={selectedTextColor ? { color: selectedTextColor } : undefined} />
               </button>
-              {textColorMenuOpen && (
+              {textColorMenuOpen && textColorMenuAnchor && createPortal (
                 <div
-                  className="absolute left-0 mt-2 w-44 overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-gray-100 z-30"
+                  className="fixed z-[1000] w-44 overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-gray-100"
+                  style={{top: textColorMenuAnchor.top, left: textColorMenuAnchor.left - textColorMenuAnchor.width }}
                   role="menu"
                   data-text-color-menu
                 >
@@ -5950,7 +5973,8 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                       Clear color
                     </button>
                   </div>
-                </div>
+                </div>,
+                document.body
               )}
             </div>
             <BrandSelect
@@ -5993,8 +6017,17 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
             <div className="relative">
               <button
                 type="button"
+                ref={currencyTriggerRef}
                 onClick={(e) => {
                   e.stopPropagation();
+                  const rect = currencyTriggerRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    setCurrencyMenuAnchor({
+                      top: rect.bottom + 6,
+                      left: rect.right,
+                      width: rect.width,
+                    });
+                  }
                   setCurrencyMenuOpen((prev) => !prev);
                 }}
                 disabled={!hasSelection}
@@ -6009,13 +6042,15 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
               >
                 ¥
               </button>
-              {currencyMenuOpen && (
+              {currencyMenuOpen && currencyMenuAnchor && createPortal (
                 <div
-                  className="absolute left-0 mt-1 w-32 overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-gray-100 z-30"
+                  className="fixed z-[1000] w-32 overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-gray-100"
+                  style={{ top: currencyMenuAnchor.top, left: currencyMenuAnchor.left - currencyMenuAnchor.width }}
                   role="menu"
                   data-currency-menu
                 >
                   <div className="h-[3px] w-full bg-gradient-to-r from-[#3CCED7] to-[#A6E661]" />
+
                   <div className="py-1">
                     <button
                       type="button"
@@ -6051,7 +6086,8 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                       </button>
                     ))}
                   </div>
-                </div>
+                </div>,
+                document.body
               )}
             </div>
             <button
