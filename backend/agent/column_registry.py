@@ -23,27 +23,15 @@ import json
 import logging
 import os
 import re
-from copy import deepcopy
+from .column_registry_state import (
+    ColumnRegistryCollisionError, registry as SCHEMA_REGISTRY,
+    test_mode_enabled as column_registry_test_mode_enabled,
+    validate_column_definitions,
+)
 
 logger = logging.getLogger(__name__)
 
 COLUMN_REGISTRY_TEST_MODE_ENV = "AGENT_COLUMN_REGISTRY_TEST_MODE"
-_COLUMN_REGISTRY_TEST_MODE_ALIASES = ("COLUMN_REGISTRY_TEST_MODE",)
-_TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
-
-
-class ColumnRegistryCollisionError(ValueError):
-    """Raised when two registered schemas claim the same lookup name."""
-
-    code = "COLUMN_REGISTRY_COLLISION"
-
-    def __init__(self, collisions):
-        self.collisions = tuple(collisions)
-        details = "; ".join(
-            f"{collision['name']!r} ({', '.join(collision['owners'])})"
-            for collision in self.collisions
-        )
-        super().__init__(f"Column registry name collision: {details}")
 
 # ---------------------------------------------------------------------------
 # Semantic category constants
@@ -134,9 +122,9 @@ def _try_db_template_match(headers: list) -> "ColumnDetectionResult | None":
     """
     try:
         from .models import DataSchemaTemplate
-        templates = DataSchemaTemplate.objects.filter(
+        templates = list(DataSchemaTemplate.objects.filter(
             is_deleted=False,
-        ).order_by('-usage_count', '-is_system')
+        ).order_by('-usage_count', '-is_system'))
     except Exception:
         return None
 
@@ -149,16 +137,8 @@ def _try_db_template_match(headers: list) -> "ColumnDetectionResult | None":
         if not col_defs:
             continue
 
-        # Build alias index for this template
-        alias_index = {}
-        cat_map = {}
-        for col in col_defs:
-            canonical = col.get('canonical_name', '')
-            category = col.get('category', CAT_UNKNOWN)
-            for alias in col.get('aliases', []):
-                alias_index[_normalise(alias)] = canonical
-            alias_index[_normalise(canonical)] = canonical
-            cat_map[canonical] = category
+        columns, alias_index = validate_column_definitions(col_defs, template.name)
+        cat_map = {name: spec['category'] for name, spec in columns.items()}
 
         mappings = {}
         categories = {}
@@ -214,6 +194,7 @@ def save_learned_template(schema_name: str, source_platform: str,
     """
     if not columns:
         return None
+    validate_column_definitions(columns, schema_name)
     try:
         from .models import DataSchemaTemplate
         template, created = DataSchemaTemplate.objects.get_or_create(
@@ -243,161 +224,161 @@ def save_learned_template(schema_name: str, source_platform: str,
 #   columns     — {canonical_name: {aliases, category, description}}
 # ---------------------------------------------------------------------------
 
-SCHEMA_REGISTRY = {
-    "meta_ads": {
+_BUILTIN_SCHEMAS = [
+    ("meta_ads", {
         "name": "Meta Ads Performance",
         "source_hint": "Meta Ads Manager export",
-        "columns": {
+        "columns": [
             # --- Identifiers ---
-            "campaign_name": {
+            ("campaign_name", {
                 "aliases": ["campaign name", "campaign", "campaign_name"],
                 "category": CAT_IDENTIFIER,
                 "description": "Campaign name",
-            },
-            "ad_set_name": {
+            }),
+            ("ad_set_name", {
                 "aliases": [
                     "ad set name", "adset name", "adset_name", "ad_set_name",
                 ],
                 "category": CAT_IDENTIFIER,
                 "description": "Ad set name",
-            },
-            "ad_name": {
+            }),
+            ("ad_name", {
                 "aliases": [
                     "ad name", "ad_name", "creative name", "creative_name",
                 ],
                 "category": CAT_IDENTIFIER,
                 "description": "Ad name / creative",
-            },
-            "campaign_id": {
+            }),
+            ("campaign_id", {
                 "aliases": ["campaign id", "campaign_id"],
                 "category": CAT_IDENTIFIER,
                 "description": "Campaign ID",
-            },
-            "ad_set_id": {
+            }),
+            ("ad_set_id", {
                 "aliases": [
                     "ad set id", "adset id", "adset_id", "ad_set_id",
                 ],
                 "category": CAT_IDENTIFIER,
                 "description": "Ad set ID",
-            },
-            "ad_id": {
+            }),
+            ("ad_id", {
                 "aliases": ["ad id", "ad_id"],
                 "category": CAT_IDENTIFIER,
                 "description": "Ad ID",
-            },
+            }),
             # --- Financial ---
-            "amount_spent": {
+            ("amount_spent", {
                 "aliases": [
                     "amount spent", "amount_spent", "spend", "ad spend",
                     "ad_spend", "cost", "total spend", "total_spend",
                 ],
                 "category": CAT_FINANCIAL,
                 "description": "Total amount spent (currency)",
-            },
-            "cpm": {
+            }),
+            ("cpm", {
                 "aliases": [
                     "cpm", "cost per 1000 impressions",
                     "cost per thousand impressions",
                 ],
                 "category": CAT_FINANCIAL,
                 "description": "Cost per 1,000 impressions",
-            },
-            "cpc": {
+            }),
+            ("cpc", {
                 "aliases": ["cpc", "cost per click", "cost per link click"],
                 "category": CAT_FINANCIAL,
                 "description": "Cost per click",
-            },
-            "cpp": {
+            }),
+            ("cpp", {
                 "aliases": ["cpp", "cost per purchase", "cost per result"],
                 "category": CAT_FINANCIAL,
                 "description": "Cost per purchase / result",
-            },
+            }),
             # --- Engagement ---
-            "impressions": {
+            ("impressions", {
                 "aliases": ["impressions", "impression"],
                 "category": CAT_ENGAGEMENT,
                 "description": "Total impressions",
-            },
-            "reach": {
+            }),
+            ("reach", {
                 "aliases": ["reach", "unique reach"],
                 "category": CAT_ENGAGEMENT,
                 "description": "Unique accounts reached",
-            },
-            "clicks": {
+            }),
+            ("clicks", {
                 "aliases": ["clicks", "all clicks", "total clicks"],
                 "category": CAT_ENGAGEMENT,
                 "description": "Total clicks (all)",
-            },
-            "link_clicks": {
+            }),
+            ("link_clicks", {
                 "aliases": ["link clicks", "link_clicks", "unique link clicks"],
                 "category": CAT_ENGAGEMENT,
                 "description": "Link clicks",
-            },
-            "frequency": {
+            }),
+            ("frequency", {
                 "aliases": ["frequency"],
                 "category": CAT_ENGAGEMENT,
                 "description": "Average times each person saw the ad",
-            },
-            "video_views": {
+            }),
+            ("video_views", {
                 "aliases": [
                     "video views", "video_views", "3-second video views",
                     "thruplays", "thruplay", "2-second continuous video views",
                 ],
                 "category": CAT_ENGAGEMENT,
                 "description": "Video views",
-            },
+            }),
             # --- Conversion ---
-            "purchases": {
+            ("purchases", {
                 "aliases": [
                     "purchases", "purchase", "conversions", "results",
                     "website purchases", "omni purchases",
                 ],
                 "category": CAT_CONVERSION,
                 "description": "Purchase / conversion events",
-            },
-            "purchase_roas": {
+            }),
+            ("purchase_roas", {
                 "aliases": [
                     "purchase roas", "purchase_roas", "roas",
                     "website purchase roas",
                 ],
                 "category": CAT_CONVERSION,
                 "description": "Return on ad spend (purchases)",
-            },
-            "add_to_cart": {
+            }),
+            ("add_to_cart", {
                 "aliases": [
                     "add to cart", "add_to_cart", "adds to cart",
                     "website adds to cart",
                 ],
                 "category": CAT_CONVERSION,
                 "description": "Add-to-cart events",
-            },
-            "leads": {
+            }),
+            ("leads", {
                 "aliases": [
                     "leads", "lead", "on-facebook leads", "website leads",
                 ],
                 "category": CAT_CONVERSION,
                 "description": "Lead generation events",
-            },
+            }),
             # --- Performance ratios ---
-            "ctr": {
+            ("ctr", {
                 "aliases": [
                     "ctr", "click-through rate", "click through rate",
                     "ctr (all)", "all ctr",
                 ],
                 "category": CAT_PERFORMANCE_RATIO,
                 "description": "Click-through rate (all clicks / impressions)",
-            },
-            "link_ctr": {
+            }),
+            ("link_ctr", {
                 "aliases": [
                     "link ctr", "link_ctr",
                     "ctr (link click-through rate)",
                 ],
                 "category": CAT_PERFORMANCE_RATIO,
                 "description": "Link click-through rate",
-            },
-        },
-    },
-}
+            }),
+        ],
+    }),
+]
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -408,146 +389,21 @@ def _normalise(text: str) -> str:
     return re.sub(r"[\s_]+", " ", text.strip().lower())
 
 
-def column_registry_test_mode_enabled() -> bool:
-    """Return whether duplicate registration is explicitly allowed for tests."""
-    env_names = (COLUMN_REGISTRY_TEST_MODE_ENV,) + _COLUMN_REGISTRY_TEST_MODE_ALIASES
-    return any(
-        os.environ.get(name, "").strip().lower() in _TRUE_ENV_VALUES
-        for name in env_names
-    )
+def validate_registry() -> list:
+    """Report retained registration failures without preventing diagnostics boot."""
+    SCHEMA_REGISTRY.check()
+    return []
 
 
-def _find_registry_collisions(registry: dict) -> list[dict]:
-    """Find duplicate canonical names and aliases across all registered schemas."""
-    owners_by_lookup_name = {}
-
-    for schema_key, schema in registry.items():
-        for canonical_name, spec in (schema.get("columns") or {}).items():
-            owner = f"{schema_key}.{canonical_name}"
-            lookup_names = [canonical_name, *(spec.get("aliases") or [])]
-            for lookup_name in lookup_names:
-                normalised_name = _normalise(str(lookup_name))
-                if not normalised_name:
-                    continue
-                owners_by_lookup_name.setdefault(normalised_name, set()).add(owner)
-
-    return [
-        {"name": lookup_name, "owners": sorted(owners)}
-        for lookup_name, owners in sorted(owners_by_lookup_name.items())
-        if len(owners) > 1
-    ]
+def register_schema(schema_key: str, schema: dict):
+    return SCHEMA_REGISTRY.register_schema(schema_key, schema)
 
 
-def validate_registry(registry: dict | None = None, *, test_mode: bool | None = None) -> list[dict]:
-    """Validate a schema registry and return any collisions found.
-
-    In normal application mode collisions are fatal. Tests can opt out by
-    setting ``AGENT_COLUMN_REGISTRY_TEST_MODE=1`` (or by passing
-    ``test_mode=True`` explicitly) so they can construct intentionally
-    overlapping fixtures.
-    """
-    registry = SCHEMA_REGISTRY if registry is None else registry
-    collisions = _find_registry_collisions(registry)
-    allow_collisions = (
-        column_registry_test_mode_enabled() if test_mode is None else test_mode
-    )
-    if collisions and not allow_collisions:
-        raise ColumnRegistryCollisionError(collisions)
-    if collisions:
-        logger.warning(
-            "Column registry contains %d collision(s); allowed in test mode: %s",
-            len(collisions),
-            ", ".join(c["name"] for c in collisions),
-        )
-    return collisions
+def register_column(schema_key: str, canonical_name: str, spec: dict):
+    return SCHEMA_REGISTRY.register_column(schema_key, canonical_name, spec)
 
 
-def _build_alias_index(schema: dict) -> dict:
-    """Return {normalised_alias: canonical_name} for a single schema."""
-    index = {}
-    for canonical, spec in schema["columns"].items():
-        for alias in [canonical, *(spec.get("aliases") or [])]:
-            index[_normalise(alias)] = canonical
-    return index
-
-
-# Pre-compute alias indexes for every schema at import time.
-_SCHEMA_INDEXES = {
-    schema_key: _build_alias_index(schema)
-    for schema_key, schema in SCHEMA_REGISTRY.items()
-}
-
-
-def _rebuild_schema_indexes() -> None:
-    """Rebuild lookup indexes after a plugin registers a schema or column."""
-    global _SCHEMA_INDEXES
-    _SCHEMA_INDEXES = {
-        schema_key: _build_alias_index(schema)
-        for schema_key, schema in SCHEMA_REGISTRY.items()
-    }
-
-
-def _commit_registry(candidate: dict) -> None:
-    """Validate and atomically replace the live registry contents."""
-    validate_registry(candidate)
-    SCHEMA_REGISTRY.clear()
-    SCHEMA_REGISTRY.update(candidate)
-    _rebuild_schema_indexes()
-
-
-def register_schema(schema_key: str, schema: dict) -> dict:
-    """Register a schema without silently replacing an existing schema.
-
-    Plugin startup code should call this function instead of mutating
-    ``SCHEMA_REGISTRY`` directly. The candidate registry is validated before
-    the live registry or its indexes are changed.
-    """
-    if not schema_key or not isinstance(schema, dict):
-        raise ValueError("schema_key must be non-empty and schema must be a dict")
-
-    if schema_key in SCHEMA_REGISTRY and not column_registry_test_mode_enabled():
-        raise ColumnRegistryCollisionError([
-            {
-                "name": schema_key,
-                "owners": [schema_key, schema_key],
-            }
-        ])
-
-    candidate = deepcopy(SCHEMA_REGISTRY)
-    candidate[schema_key] = deepcopy(schema)
-    _commit_registry(candidate)
-    return SCHEMA_REGISTRY[schema_key]
-
-
-def register_column(schema_key: str, canonical_name: str, spec: dict) -> dict:
-    """Register one column in an existing schema with collision protection."""
-    if schema_key not in SCHEMA_REGISTRY:
-        raise KeyError(f"Unknown column schema: {schema_key}")
-    if not canonical_name or not isinstance(spec, dict):
-        raise ValueError("canonical_name must be non-empty and spec must be a dict")
-
-    existing_columns = SCHEMA_REGISTRY[schema_key].get("columns") or {}
-    if canonical_name in existing_columns and not column_registry_test_mode_enabled():
-        raise ColumnRegistryCollisionError([
-            {
-                "name": canonical_name,
-                "owners": [
-                    f"{schema_key}.{canonical_name}",
-                    f"{schema_key}.{canonical_name} (new registration)",
-                ],
-            }
-        ])
-
-    candidate = deepcopy(SCHEMA_REGISTRY)
-    columns = candidate[schema_key].setdefault("columns", {})
-    columns[canonical_name] = deepcopy(spec)
-    _commit_registry(candidate)
-    return SCHEMA_REGISTRY[schema_key]["columns"][canonical_name]
-
-
-# Validate the built-in registry as soon as the module is loaded. AgentConfig
-# repeats this after Django has loaded plugin apps, catching hot-reload changes.
-validate_registry()
+SCHEMA_REGISTRY.initialize(_BUILTIN_SCHEMAS)
 
 # ---------------------------------------------------------------------------
 # Detection result
@@ -617,8 +473,9 @@ def _try_rule_match(headers: list) -> "ColumnDetectionResult | None":
     best_result = None
     best_confidence = 0.0
 
-    for schema_key, alias_index in _SCHEMA_INDEXES.items():
-        schema = SCHEMA_REGISTRY[schema_key]
+    schemas, indexes = SCHEMA_REGISTRY.snapshot()
+    for schema_key, alias_index in indexes.items():
+        schema = schemas[schema_key]
         mappings = {}
         categories = {}
         unrecognized = []
@@ -840,6 +697,7 @@ def detect_columns(headers: list, sample_rows: list = None,
         confidence scores.  Columns the AI could not classify receive the category
         inferred by auto_categorize_by_name(), or 'unknown' if inference also fails.
     """
+    validate_registry()
     if not headers:
         return _unknown_result([])
 
@@ -871,17 +729,17 @@ def detect_columns(headers: list, sample_rows: list = None,
 
     # Persist as a learned template if the LLM was confident enough
     if result.source == "llm" and result.confidence >= 0.6 and result.schema_name != "Unknown format":
-        learned_cols = [
-            {
-                "canonical_name": canonical,
-                "aliases": [original],
+        learned_by_name = {}
+        for original, canonical in result.mappings.items():
+            if canonical == CAT_UNKNOWN:
+                continue
+            spec = learned_by_name.setdefault(canonical, {
+                "canonical_name": canonical, "aliases": [],
                 "category": result.categories.get(canonical, CAT_UNKNOWN),
-                "value_type": "string",
-                "description": "",
-            }
-            for original, canonical in result.mappings.items()
-            if canonical != CAT_UNKNOWN
-        ]
+                "value_type": "string", "description": "",
+            })
+            spec["aliases"].append(original)
+        learned_cols = list(learned_by_name.values())
         if learned_cols:
             save_learned_template(
                 schema_name=result.schema_name,

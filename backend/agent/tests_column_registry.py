@@ -63,119 +63,90 @@ def _make_spreadsheet(columns, rows=None):
 # ---------------------------------------------------------------------------
 
 class ColumnRegistryCollisionTests(SimpleTestCase):
-
     def setUp(self):
-        self._registry = deepcopy(registry.SCHEMA_REGISTRY)
+        from .column_registry_state import ColumnRegistry
+        self.env = patch.dict(os.environ, {'AGENT_COLUMN_REGISTRY_TEST_MODE': '0'})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        self.state = ColumnRegistry()
+        self.state.initialize([('test', {'name': 'Test', 'columns': [('revenue', {'aliases': ['Sales']})]})])
+        self.patcher = patch.object(registry, 'SCHEMA_REGISTRY', self.state)
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
 
-    def tearDown(self):
-        registry.SCHEMA_REGISTRY.clear()
-        registry.SCHEMA_REGISTRY.update(self._registry)
-        registry._rebuild_schema_indexes()
-
-    @staticmethod
-    def _schema(column_name, aliases=None):
-        return {
-            'name': 'Test schema',
-            'columns': {
-                column_name: {
-                    'aliases': aliases or [column_name],
-                    'category': CAT_UNKNOWN,
-                },
-            },
-        }
-
-    def test_collision_raises_in_non_test_mode(self):
-        candidate = {
-            'plugin_a': self._schema('shared_metric'),
-            'plugin_b': self._schema('other_metric', aliases=['shared_metric']),
-        }
-
-        with self.assertRaises(ColumnRegistryCollisionError) as raised:
-            validate_registry(candidate, test_mode=False)
-
-        self.assertIn('shared metric', str(raised.exception))
-        self.assertEqual(
-            raised.exception.code,
-            'COLUMN_REGISTRY_COLLISION',
-        )
-
-    @patch.dict(
-        os.environ,
-        {
-            'AGENT_COLUMN_REGISTRY_TEST_MODE': '1',
-            'COLUMN_REGISTRY_TEST_MODE': '0',
-        },
-        clear=False,
-    )
-    def test_env_flag_allows_intentional_test_collision(self):
-        candidate = {
-            'plugin_a': self._schema('shared_metric'),
-            'plugin_b': self._schema('other_metric', aliases=['shared_metric']),
-        }
-
-        collisions = validate_registry(candidate)
-
-        self.assertEqual([item['name'] for item in collisions], ['shared metric'])
-
-    @patch.dict(
-        os.environ,
-        {
-            'AGENT_COLUMN_REGISTRY_TEST_MODE': '0',
-            'COLUMN_REGISTRY_TEST_MODE': '0',
-        },
-        clear=False,
-    )
-    def test_registration_rejects_collision_before_commit(self):
-        register_schema('med244_plugin_a', self._schema('shared_metric'))
-
+    def test_duplicate_registration_preserves_original_and_blocks_detection(self):
         with self.assertRaises(ColumnRegistryCollisionError):
-            register_schema(
-                'med244_plugin_b',
-                self._schema('other_metric', aliases=['shared_metric']),
-            )
-
-        self.assertNotIn('med244_plugin_b', registry.SCHEMA_REGISTRY)
-
-    @patch.dict(
-        os.environ,
-        {
-            'AGENT_COLUMN_REGISTRY_TEST_MODE': '0',
-            'COLUMN_REGISTRY_TEST_MODE': '0',
-        },
-        clear=False,
-    )
-    def test_duplicate_column_registration_is_rejected_before_overwrite(self):
-        register_schema('med244_plugin', self._schema('shared_metric'))
-
+            register_column('test', 'revenue', {'category': 'identifier'})
+        self.assertEqual(self.state['test']['columns']['revenue']['aliases'], ('Sales',))
         with self.assertRaises(ColumnRegistryCollisionError):
-            register_column(
-                'med244_plugin',
-                'shared_metric',
-                {'aliases': ['replacement'], 'category': CAT_UNKNOWN},
-            )
+            registry.detect_columns(['Sales'])
+        with self.assertRaises(ColumnRegistryCollisionError):
+            validate_registry()
 
-        self.assertEqual(
-            registry.SCHEMA_REGISTRY['med244_plugin']['columns']['shared_metric']['aliases'],
-            ['shared_metric'],
-        )
+    def test_alias_collision_is_normalised(self):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'other', {'aliases': [' SALES ']})
 
-    @patch.dict(
-        os.environ,
-        {
-            'AGENT_COLUMN_REGISTRY_TEST_MODE': '1',
-            'COLUMN_REGISTRY_TEST_MODE': '0',
-        },
-        clear=False,
-    )
-    def test_registration_overwrites_only_when_test_mode_is_enabled(self):
-        register_schema('med244_plugin_a', self._schema('shared_metric'))
+    def test_distinct_schemas_can_share_names(self):
+        register_schema('other', {'name': 'Other', 'columns': {'revenue': {}}})
+        self.assertEqual(len(self.state), 2)
 
-        register_schema(
-            'med244_plugin_b',
-            self._schema('other_metric', aliases=['shared_metric']),
-        )
+    def test_direct_mutations_are_blocked(self):
+        with self.assertRaises(TypeError):
+            self.state['test']['columns']['revenue']['category'] = 'identifier'
+        with self.assertRaises(TypeError):
+            self.state['test'] = {}
 
-        self.assertIn('med244_plugin_b', registry.SCHEMA_REGISTRY)
+    def test_malformed_registration_is_atomic(self):
+        before = self.state.snapshot()
+        with self.assertRaises(ValueError):
+            register_schema('broken', {'name': 'Broken'})
+        self.assertIs(before, self.state.snapshot())
+        self.assertNotIn('broken', self.state)
+        self.assertEqual(registry._try_rule_match(['Sales']).mappings['Sales'], 'revenue')
+
+    def test_duplicate_pairs_survive_until_boot_check(self):
+        from .column_registry_state import ColumnRegistry
+        state = ColumnRegistry()
+        state.initialize([('broken', {'name': 'Broken', 'columns': [('same', {}), ('same', {})]})])
+        with self.assertRaises(ColumnRegistryCollisionError):
+            state.check()
+
+    def test_env_flag_allows_actual_overwrite(self):
+        with patch.dict(os.environ, {'AGENT_COLUMN_REGISTRY_TEST_MODE': '1'}):
+            register_column('test', 'revenue', {'aliases': ['New'], 'category': 'financial'})
+            self.assertEqual(self.state['test']['columns']['revenue']['category'], 'financial')
+            self.assertEqual(registry._try_rule_match(['New']).mappings['New'], 'revenue')
+
+    def test_module_reload_preserves_plugins_and_collision_type(self):
+        import importlib
+        from . import column_registry_state
+        with patch.object(column_registry_state, 'registry', self.state):
+            importlib.reload(registry)
+            self.assertIs(registry.SCHEMA_REGISTRY, self.state)
+            self.assertIn('test', registry.SCHEMA_REGISTRY)
+            self.assertIs(registry.ColumnRegistryCollisionError, ColumnRegistryCollisionError)
+        importlib.reload(registry)
+        self.patcher.stop()
+        self.patcher.start()
+
+    def test_database_template_duplicate_is_rejected_on_read(self):
+        from types import SimpleNamespace
+        template = SimpleNamespace(name='Legacy', column_definitions=[
+            {'canonical_name': 'revenue'}, {'canonical_name': 'revenue'},
+        ])
+        with patch('agent.models.DataSchemaTemplate.objects') as manager:
+            manager.filter.return_value.order_by.return_value = [template]
+            with self.assertRaises(ColumnRegistryCollisionError):
+                registry.detect_columns(['revenue'])
+
+    def test_learned_template_rejected_before_database_write(self):
+        with patch('agent.models.DataSchemaTemplate.objects') as manager:
+            with self.assertRaises(ColumnRegistryCollisionError):
+                registry.save_learned_template('Broken', 'custom', [
+                    {'canonical_name': 'revenue'}, {'canonical_name': 'other', 'aliases': ['Revenue']},
+                ])
+            manager.get_or_create.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
