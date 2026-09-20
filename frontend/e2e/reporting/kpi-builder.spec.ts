@@ -31,9 +31,7 @@ async function typeFormula(page: Page, formula: string): Promise<void> {
   await page.getByTestId('kpi-name-input').click();
 }
 
-/** A formula whose result never depends on warehouse data being present.
- * Ratios like `revenue / spend` are a real #DIV/0! on a project with no Meta
- * insight rows, which is the normal state of the E2E project. */
+/** Formulas whose validity never depends on warehouse rows being present. */
 const SAFE_FORMULA = 'revenue + spend';
 const OTHER_SAFE_FORMULA = 'clicks + impressions';
 
@@ -92,6 +90,27 @@ test.describe('Custom KPI builder', () => {
     await expect(page.getByTestId('kpi-formula-error')).toBeVisible({
       timeout: 15_000,
     });
+  });
+
+  test('a project with no warehouse rows says so instead of failing', async ({
+    page,
+  }) => {
+    // The E2E project has no Meta insight rows, so every metric aggregates to
+    // zero. A ratio must report that as missing data, not as a division by
+    // zero the author could somehow fix.
+    await openBuilder(page);
+    await page.getByTestId('kpi-name-input').fill(kpiName());
+    await typeFormula(page, 'revenue / spend');
+
+    await expect(page.getByTestId('kpi-preview-no-data')).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByTestId('kpi-preview-no-data')).toContainText(
+      'No data for this period.'
+    );
+    // And it is not presented as a formula fault, so the KPI stays saveable.
+    await expect(page.getByTestId('kpi-formula-error')).toHaveCount(0);
+    await expect(page.getByTestId('kpi-save-button')).toBeEnabled();
   });
 
   test('the error clears once the formula becomes valid', async ({ page }) => {

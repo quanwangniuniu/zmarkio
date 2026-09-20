@@ -22,7 +22,11 @@ if not settings.configured:
 from report.kpi_registry import (
     KPIFormulaError,
     METRIC_REGISTRY,
+    NO_DATA_CODE,
+    MetricSnapshot,
     evaluate,
+    evaluate_for_project,
+    evaluate_snapshot,
     list_metrics,
     resolve_metric_values,
     validate_formula,
@@ -91,6 +95,27 @@ def test_validate_rejects_cell_reference():
 def test_validate_rejects_empty_formula():
     with pytest.raises(KPIFormulaError):
         validate_formula("   ")
+
+
+@pytest.mark.parametrize(
+    "formula",
+    [
+        "revenue /",
+        "revenue +",
+        "(revenue / spend",
+        "revenue spend",
+        'IF(spend > 0, "high", "low")',
+    ],
+)
+def test_validate_rejects_structurally_broken_formulas(formula):
+    """Token checks alone miss these; validation parses the formula for real."""
+    with pytest.raises(KPIFormulaError):
+        validate_formula(formula)
+
+
+def test_validate_allows_a_formula_that_only_divides_by_zero_on_some_data():
+    """`spend - spend` is 0 for the probe, but the structure is sound."""
+    validate_formula("revenue / (spend - spend + clicks)")
 
 
 def test_validate_rejects_overlong_formula():
@@ -208,42 +233,103 @@ def test_metric_catalog_matches_registry():
 @pytest.mark.django_db
 def test_resolve_metric_values_sums_project_rows_in_range(kpi_warehouse):
     """Only this project's linked rows, only inside the window."""
-    values = resolve_metric_values(
+    snapshot = resolve_metric_values(
         kpi_warehouse["project"].id,
         date.today() - timedelta(days=2),
         date.today(),
     )
-    assert values["spend"] == Decimal("300.00")
-    assert values["revenue"] == Decimal("1200.00")
-    assert values["clicks"] == 30
+    assert snapshot.values["spend"] == Decimal("300.00")
+    assert snapshot.values["revenue"] == Decimal("1200.00")
+    assert snapshot.values["clicks"] == 30
+    assert snapshot.row_count == 3
+    assert snapshot.has_data
 
 
 @pytest.mark.django_db
 def test_resolve_metric_values_excludes_other_projects(kpi_warehouse):
-    values = resolve_metric_values(
+    snapshot = resolve_metric_values(
         kpi_warehouse["other_project"].id,
         date.today() - timedelta(days=2),
         date.today(),
     )
-    assert values["spend"] == Decimal("0")
+    assert snapshot.values["spend"] == Decimal("0")
+    assert not snapshot.has_data
 
 
 @pytest.mark.django_db
 def test_resolve_metric_values_excludes_rows_outside_the_date_range(kpi_warehouse):
-    values = resolve_metric_values(
+    snapshot = resolve_metric_values(
         kpi_warehouse["project"].id,
         date.today(),
         date.today(),
     )
-    assert values["spend"] == Decimal("100.00")
+    assert snapshot.values["spend"] == Decimal("100.00")
+    assert snapshot.row_count == 1
 
 
 @pytest.mark.django_db
 def test_unlinked_meta_campaign_is_not_attributed_to_a_project(kpi_warehouse):
     """A Meta campaign with no mediajira_campaign has no project to belong to."""
-    values = resolve_metric_values(
+    snapshot = resolve_metric_values(
         kpi_warehouse["project"].id,
         date.today() - timedelta(days=30),
         date.today(),
     )
-    assert values["spend"] == Decimal("300.00")  # the unlinked row is excluded
+    # The unlinked row is excluded from both the sums and the row count.
+    assert snapshot.values["spend"] == Decimal("300.00")
+    assert snapshot.row_count == 3
+
+
+# ---------------------------------------------------------------------------
+# Empty windows are "no data", not a formula mistake
+# ---------------------------------------------------------------------------
+
+
+def test_empty_snapshot_reports_no_data_instead_of_division_by_zero():
+    """With no rows every metric is 0, so `revenue / spend` would otherwise
+    read as a formula error the author cannot fix."""
+    empty = MetricSnapshot(values={key: Decimal(0) for key in METRIC_REGISTRY}, row_count=0)
+    result = evaluate_snapshot("revenue / spend", empty)
+
+    assert result.error_code == NO_DATA_CODE
+    assert result.error_message == "No data for this period."
+    assert result.is_no_data
+
+
+def test_snapshot_with_data_still_reports_a_real_division_by_zero():
+    """The no-data check must not swallow a genuine #DIV/0!."""
+    populated = MetricSnapshot(values=dict(METRICS), row_count=3)
+    result = evaluate_snapshot("revenue / leads", populated)
+
+    assert result.error_code == "#DIV/0!"
+    assert not result.is_no_data
+
+
+def test_snapshot_with_data_evaluates_normally():
+    populated = MetricSnapshot(values=dict(METRICS), row_count=3)
+    assert evaluate_snapshot("revenue / spend", populated).value == Decimal("4")
+
+
+@pytest.mark.django_db
+def test_project_without_warehouse_rows_reports_no_data(kpi_warehouse):
+    result = evaluate_for_project(
+        "revenue / spend", kpi_warehouse["other_project"].id
+    )
+    assert result.error_code == NO_DATA_CODE
+
+
+@pytest.mark.django_db
+def test_project_with_warehouse_rows_evaluates(kpi_warehouse):
+    result = evaluate_for_project("revenue / spend", kpi_warehouse["project"].id)
+    assert result.ok
+    assert result.value == Decimal("4")
+
+
+@pytest.mark.django_db
+def test_a_broken_formula_wins_over_an_empty_window(kpi_warehouse):
+    """The author has to fix the formula either way; "no data" would hide it."""
+    result = evaluate_for_project(
+        "revenue / mystery", kpi_warehouse["other_project"].id
+    )
+    assert result.error_code == "#NAME?"
+    assert "mystery" in result.error_message

@@ -366,7 +366,7 @@ def _validate_kpi_formula(value: str) -> str:
 
 class CustomKPISerializer(serializers.ModelSerializer):
     """Read serializer. Values are computed only when the view supplies
-    `metric_values` in context, so a list costs one warehouse query, not one
+    `metric_snapshot` in context, so a list costs one warehouse query, not one
     per KPI."""
 
     project = serializers.SlugRelatedField(slug_field="slug", read_only=True)
@@ -392,14 +392,14 @@ class CustomKPISerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def _evaluation(self, obj: CustomKPI):
-        metric_values = self.context.get("metric_values")
-        if metric_values is None:
+        snapshot = self.context.get("metric_snapshot")
+        if snapshot is None:
             return None
         cache = self.context.setdefault("_evaluation_cache", {})
         if obj.pk not in cache:
-            from report.kpi_registry import evaluate
+            from report.kpi_registry import evaluate_snapshot
 
-            cache[obj.pk] = evaluate(obj.formula, metric_values)
+            cache[obj.pk] = evaluate_snapshot(obj.formula, snapshot)
         return cache[obj.pk]
 
     def get_value(self, obj: CustomKPI):

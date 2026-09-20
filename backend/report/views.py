@@ -263,7 +263,7 @@ class CustomKPIListCreateView(generics.ListCreateAPIView):
         project_pk = resolve_project_pk(self.request.query_params.get("project"))
         if project_pk:
             start_date, end_date = _requested_date_range(self.request)
-            context["metric_values"] = kpi_registry.resolve_metric_values(
+            context["metric_snapshot"] = kpi_registry.resolve_metric_values(
                 project_pk, start_date, end_date
             )
         return context
@@ -298,7 +298,7 @@ class CustomKPIDetailView(generics.RetrieveUpdateDestroyAPIView):
         context = super().get_serializer_context()
         if self.request.method == "GET":
             start_date, end_date = _requested_date_range(self.request)
-            context["metric_values"] = kpi_registry.resolve_metric_values(
+            context["metric_snapshot"] = kpi_registry.resolve_metric_values(
                 self.get_object().project_id, start_date, end_date
             )
         return context
