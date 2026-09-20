@@ -15,8 +15,8 @@ def check_column_registry(app_configs, **kwargs):
             Error(
                 str(exc),
                 hint=(
-                    "Give each plugin column a unique canonical name and alias, "
-                    "or set AGENT_COLUMN_REGISTRY_TEST_MODE=1 only for tests."
+                    "Use unique schema keys and unambiguous column names/aliases "
+                    "within each schema, then restart the backend."
                 ),
                 id="agent.E001",
             )

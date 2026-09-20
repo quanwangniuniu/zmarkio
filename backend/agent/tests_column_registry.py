@@ -86,6 +86,15 @@ class ColumnRegistryCollisionTests(SimpleTestCase):
         with self.assertRaises(ColumnRegistryCollisionError):
             register_column('test', 'other', {'aliases': [' SALES ']})
 
+    def test_duplicate_schema_key_is_rejected(self):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_schema('test', {'name': 'Replacement', 'columns': []})
+        self.assertEqual(self.state['test']['name'], 'Test')
+
+    def test_normalised_canonical_collision_is_rejected(self):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', ' REVENUE ', {})
+
     def test_distinct_schemas_can_share_names(self):
         register_schema('other', {'name': 'Other', 'columns': {'revenue': {}}})
         self.assertEqual(len(self.state), 2)
@@ -128,6 +137,20 @@ class ColumnRegistryCollisionTests(SimpleTestCase):
         importlib.reload(registry)
         self.patcher.stop()
         self.patcher.start()
+
+    def test_pending_error_survives_module_reload(self):
+        import importlib
+        from . import column_registry_state
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'revenue', {})
+        with patch.object(column_registry_state, 'registry', self.state):
+            try:
+                importlib.reload(registry)
+                with self.assertRaises(ColumnRegistryCollisionError):
+                    registry.detect_columns(['Sales'])
+            finally:
+                registry.SCHEMA_REGISTRY = self.state
+        # Cleanup restores the original singleton even if the assertion fails.
 
     def test_database_template_duplicate_is_rejected_on_read(self):
         from types import SimpleNamespace
