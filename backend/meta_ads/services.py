@@ -53,13 +53,15 @@ class CreativePreviewError(Exception):
 def get_creative_preview(creative: MetaAdCreative, ad_format: str) -> dict[str, Any]:
     """Return a Meta iframe preview payload, cached per account + creative + format.
 
-    Cache keys always include ``ad_account_id`` so creatives that reuse the same
-    numeric id across accounts cannot leak another account's preview (MED-248).
+    Cache keys use ``meta_creative_id`` (which can collide across accounts) plus
+    ``ad_account_id`` so another account's preview cannot leak .
     """
     key = creative_preview_cache_key(
         platform="meta",
         account_id=creative.ad_account_id,
-        creative_id=creative.id,
+        # Platform creative id can reuse the same numeric range across accounts;
+        # account_id is what keeps those keys from colliding .
+        creative_id=creative.meta_creative_id,
         variant=ad_format,
     )
     cached = cache.get(key)

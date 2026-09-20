@@ -1,4 +1,4 @@
-"""MED-248: Meta creative preview cache is namespaced by ad account."""
+""" Meta creative preview cache is namespaced by ad account."""
 
 from unittest.mock import patch
 
@@ -103,21 +103,27 @@ class GetCreativePreviewCacheTests(TestCase):
         cache.clear()
 
     def test_cache_keys_include_account_id(self):
+        shared = "shared-meta-id"
+        self.assertEqual(self.creative_a.meta_creative_id, shared)
+        self.assertEqual(self.creative_b.meta_creative_id, shared)
+
         key_a = creative_preview_cache_key(
             platform="meta",
             account_id=self.account_a.id,
-            creative_id=self.creative_a.id,
+            creative_id=shared,
             variant=AD_FORMAT,
         )
         key_b = creative_preview_cache_key(
             platform="meta",
             account_id=self.account_b.id,
-            creative_id=self.creative_b.id,
+            creative_id=shared,
             variant=AD_FORMAT,
         )
         self.assertIn(f":{self.account_a.id}:", key_a)
         self.assertIn(f":{self.account_b.id}:", key_b)
         self.assertNotEqual(key_a, key_b)
+        self.assertTrue(key_a.endswith(f":{shared}:{AD_FORMAT}"))
+        self.assertTrue(key_b.endswith(f":{shared}:{AD_FORMAT}"))
 
     @patch("meta_ads.services.graph_get")
     def test_second_call_uses_cache_without_graph(self, mock_graph_get):
@@ -134,6 +140,11 @@ class GetCreativePreviewCacheTests(TestCase):
 
     @patch("meta_ads.services.graph_get")
     def test_previews_are_isolated_across_accounts(self, mock_graph_get):
+        # Same platform creative id; only account_id differs in the cache key.
+        self.assertEqual(
+            self.creative_a.meta_creative_id, self.creative_b.meta_creative_id
+        )
+
         def _side_effect(path, token, params=None):
             if path == "/ad-a/previews":
                 return {
