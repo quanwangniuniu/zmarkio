@@ -50,6 +50,15 @@ function dispatchPointerEvent(
   element.dispatchEvent(event);
 }
 
+function expectMenuPortaled(selector: string) {
+  const menu = document.querySelector(selector) as HTMLElement | null;
+  const toolbar = document.getElementById('spreadsheet-toolbar');
+  expect(menu).toBeInTheDocument();
+  expect(menu).toHaveClass('fixed');
+  expect(menu?.parentElement).toBe(document.body);
+  expect(toolbar?.contains(menu)).toBe(false);
+}
+
 describe('SpreadsheetGrid resizing', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -893,3 +902,66 @@ describe('SpreadsheetGrid collaboration reconciliation', () => {
     expect(screen.queryByText('older-commit')).not.toBeInTheDocument();
   });
 });
+
+describe('SpreadsheetGrid toolbar menus to document.body', () => {
+  beforeEach(() => {
+    readCellRangeMock.mockReset();
+    readCellRangeMock.mockResolvedValue({ cells: [] });
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    jest.useRealTimers();
+  });
+
+  it('portals the highlight menu outside the overflow toolbar', () => {
+    const { container } = render(<SpreadsheetGrid spreadsheetId={1} sheetId={30} />);
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+
+    const cell = container.querySelector('td[data-row="0"][data-col="0"]') as HTMLTableCellElement;
+    fireEvent.mouseDown(cell);
+
+    fireEvent.click(screen.getByTestId('highlight-button'));
+    expectMenuPortaled('[data-highlight-menu]');
+  });
+
+  it('portals the text color menu outside the overflow toolbar', () => {
+    const { container } = render(<SpreadsheetGrid spreadsheetId={1} sheetId={31} />);
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+
+    const cell = container.querySelector('td[data-row="0"][data-col="0"]') as HTMLTableCellElement;
+    fireEvent.mouseDown(cell);
+
+    fireEvent.click(screen.getByTestId('format-text-color'));
+    expectMenuPortaled('[data-text-color-menu]');
+  });
+
+  it('portals the currency menu outside the overflow toolbar', () => {
+    const { container } = render(<SpreadsheetGrid spreadsheetId={1} sheetId={32} />);
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    
+    const cell = container.querySelector('td[data-row="0"][data-col="0"]') as HTMLTableCellElement;
+    fireEvent.mouseDown(cell);
+
+    fireEvent.click(screen.getByTestId('format-currency'));
+    expectMenuPortaled('[data-currency-menu]');
+  });
+
+  it('portals the export menu outside the overflow toolbar', () => {
+    render(<SpreadsheetGrid spreadsheetId={1} sheetId={33} />);
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
+    expectMenuPortaled('[data-export-menu]');
+  });
+
+})
