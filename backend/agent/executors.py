@@ -75,10 +75,10 @@ class StepResult:
         success,
         output_data=None,
         error=None,
-        error_code=None,
         sse_events=None,
         pause_external_approval=False,
-        skipped = False
+        skipped = False,
+        error_code=None,
     ):
         self.success = success
         self.output_data = output_data

@@ -1397,26 +1397,25 @@ class DetectColumnsExecutorTests(SimpleTestCase):
         self.assertEqual(result.error, "Invalid detection result")
         mock_detect_columns.assert_called_once()
 
-    @patch(
-        "agent.column_registry.detect_columns",
-        side_effect=ColumnRegistryCollisionError([
-            {"name": "shared metric", "owners": ["plugin_a.metric", "plugin_b.metric"]}
-        ]),
-    )
-    def test_registry_collision_is_not_retried_and_has_structured_code(
-        self, mock_detect_columns
-    ):
+    def test_registry_collision_is_not_retried_and_has_structured_code(self):
+        import os
+        from .column_registry_state import ColumnRegistry
+        state = ColumnRegistry()
+        state.initialize([('plugin', {'name': 'Plugin', 'columns': [('shared_metric', {})]})])
         executor = DetectColumnsExecutor(
             _StepStub(), _WorkflowRunStub(), _OrchestratorStub()
         )
 
-        result = executor.execute({"spreadsheet_data": {"sheets": []}})
+        with patch.dict(os.environ, {'AGENT_COLUMN_REGISTRY_TEST_MODE': '0'}):
+            with self.assertRaises(ColumnRegistryCollisionError):
+                state.register_column('plugin', 'shared_metric', {})
+            with patch('agent.column_registry.SCHEMA_REGISTRY', state):
+                result = executor.execute({"spreadsheet_data": {"sheets": []}})
 
         self.assertFalse(result.success)
         self.assertFalse(result.skipped)
         self.assertEqual(result.error_code, "COLUMN_REGISTRY_COLLISION")
         self.assertIn("shared metric", result.error)
-        mock_detect_columns.assert_called_once()
 
 
 class NormalizeDataExecutorTests(SimpleTestCase):

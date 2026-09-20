@@ -1354,7 +1354,7 @@ class AgentConfigStatusView(EnglishResponseMixin, APIView):
             result[key] = bool(val and val.strip())
 
         try:
-            validate_registry()
+            validate_registry(include_templates=True)
             result['column_registry'] = {'ok': True}
         except ColumnRegistryCollisionError as exc:
             # Keep the status endpoint available for admin diagnostics when a

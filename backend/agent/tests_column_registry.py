@@ -11,7 +11,6 @@ Coverage:
 """
 import json
 import os
-from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -147,6 +146,44 @@ class ColumnRegistryCollisionTests(SimpleTestCase):
                     {'canonical_name': 'revenue'}, {'canonical_name': 'other', 'aliases': ['Revenue']},
                 ])
             manager.get_or_create.assert_not_called()
+
+    def test_rejected_registration_reaches_system_check_and_status_endpoint(self):
+        from .checks import check_column_registry
+        from .views import AgentConfigStatusView
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'revenue', {})
+        self.assertEqual(check_column_registry(None)[0].id, 'agent.E001')
+        request = APIRequestFactory().get('/api/agent/config/status/')
+        force_authenticate(request, user=SimpleNamespace(is_authenticated=True, is_staff=True))
+        response = AgentConfigStatusView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['column_registry']['ok'])
+        self.assertEqual(response.data['column_registry']['code'], 'COLUMN_REGISTRY_COLLISION')
+
+    def test_database_collision_reaches_status_endpoint(self):
+        from .views import AgentConfigStatusView
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        template = SimpleNamespace(name='Legacy', column_definitions=[
+            {'canonical_name': 'revenue'}, {'canonical_name': 'revenue'},
+        ])
+        request = APIRequestFactory().get('/api/agent/config/status/')
+        force_authenticate(request, user=SimpleNamespace(is_authenticated=True, is_staff=True))
+        with patch('agent.models.DataSchemaTemplate.objects') as manager:
+            manager.filter.return_value = [template]
+            response = AgentConfigStatusView.as_view()(request)
+        self.assertFalse(response.data['column_registry']['ok'])
+
+    def test_model_clean_and_save_reject_duplicates_before_sql(self):
+        from django.core.exceptions import ValidationError
+        from .models import DataSchemaTemplate
+        template = DataSchemaTemplate(name='Broken', column_definitions=[
+            {'canonical_name': 'revenue'}, {'canonical_name': 'revenue'},
+        ])
+        for operation in (template.clean, template.save):
+            with self.assertRaises(ValidationError) as raised:
+                operation()
+            self.assertIn('column_definitions', raised.exception.message_dict)
 
 
 # ---------------------------------------------------------------------------

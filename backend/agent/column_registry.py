@@ -389,9 +389,13 @@ def _normalise(text: str) -> str:
     return re.sub(r"[\s_]+", " ", text.strip().lower())
 
 
-def validate_registry() -> list:
+def validate_registry(*, include_templates=False) -> list:
     """Report retained registration failures without preventing diagnostics boot."""
     SCHEMA_REGISTRY.check()
+    if include_templates:
+        from .models import DataSchemaTemplate
+        for template in DataSchemaTemplate.objects.filter(is_deleted=False):
+            validate_column_definitions(template.column_definitions, template.name)
     return []
 
 
