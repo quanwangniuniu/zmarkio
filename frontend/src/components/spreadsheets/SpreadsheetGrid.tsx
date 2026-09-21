@@ -629,6 +629,8 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
   const [rowHighlightsBySheet, setRowHighlightsBySheet] = useState<Record<number, Record<number, string>>>({});
   const [colHighlightsBySheet, setColHighlightsBySheet] = useState<Record<number, Record<number, string>>>({});
   const [cellFormatsBySheet, setCellFormatsBySheet] = useState<Record<number, Map<CellKey, CellFormat>>>({});
+  const [fontFamilyOpen, setFontFamilyOpen] = useState(false);
+  const [fontSizeOpen, setFontSizeOpen] = useState(false);
   const [highlightMenuOpen, setHighlightMenuOpen] = useState(false);
   const [highlightMenuAnchor, setHighlightMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
   const [selectedHighlight, setSelectedHighlight] = useState(HIGHLIGHT_COLORS[0].value);
@@ -5049,8 +5051,8 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         const rect = trigger.getBoundingClientRect();
         const bar = toolbarRef.current?.getBoundingClientRect();
         if (bar) {
-          const visibleOnBar = rect.right > bar.left && rect.left < bar.right;
-          if (!visibleOnBar) {
+          const fullyOnBar = rect.left >= bar.left && rect.right <= bar.right;
+          if (!fullyOnBar) {
             setOpen(false);
             return;
           }
@@ -5753,7 +5755,12 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
+              const bar = toolbarRef.current?.getBoundingClientRect();
               const rect = exportTriggerRef.current?.getBoundingClientRect();
+              if (bar && rect) {
+                const fullyOnBar = rect.left >= bar.left && rect.right <= bar.right;
+                if (!fullyOnBar) return;
+              }
               if (rect) {
                 setExportMenuAnchor({
                   top: rect.bottom + 6,
@@ -5765,6 +5772,8 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
               setHighlightMenuOpen(false);
               setTextColorMenuOpen(false);
               setCurrencyMenuOpen(false);
+              setFontFamilyOpen(false);
+              setFontSizeOpen(false);
             }}
             disabled={isImporting}
               className="inline-flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-100 hover:text-gray-900 disabled:opacity-60"
@@ -5853,7 +5862,12 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
               ref={highlightTriggerRef}
               onClick={(e) => {
                 e.stopPropagation();
+                const bar = toolbarRef.current?.getBoundingClientRect();
                 const rect = highlightTriggerRef.current?.getBoundingClientRect();
+                if (bar && rect) {
+                  const fullyOnBar = rect.left >= bar.left && rect.right <= bar.right;
+                  if (!fullyOnBar) return;
+                }
                 if (rect) {
                   setHighlightMenuAnchor({
                     top: rect.bottom + 6,
@@ -5865,6 +5879,8 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                 setTextColorMenuOpen(false);
                 setCurrencyMenuOpen(false);
                 setExportMenuOpen(false);
+                setFontFamilyOpen(false);
+                setFontSizeOpen(false);
               }}
               disabled={!hasSelection}
               className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 disabled:opacity-60"
@@ -5969,7 +5985,12 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                 ref={textColorTriggerRef}
                 onClick={(e) => {
                   e.stopPropagation();
+                  const bar = toolbarRef.current?.getBoundingClientRect();
                   const rect = textColorTriggerRef.current?.getBoundingClientRect();
+                  if (bar && rect) {
+                    const fullyOnBar = rect.left >= bar.left && rect.right <= bar.right;
+                    if (!fullyOnBar) return;
+                  }
                   if (rect) {
                     setTextColorMenuAnchor({
                       top: rect.bottom + 6,
@@ -5981,6 +6002,8 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                   setHighlightMenuOpen(false);
                   setCurrencyMenuOpen(false);
                   setExportMenuOpen(false);
+                  setFontFamilyOpen(false);
+                  setFontSizeOpen(false);
                 }}
                 disabled={!hasSelection}
                 title="Text color"
@@ -6033,6 +6056,18 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
             </div>
             <BrandSelect
               value={selectedFontFamily ?? ''}
+              confineToRef={toolbarRef}
+              open={fontFamilyOpen}
+              onOpenChange={(next) => {
+                setFontFamilyOpen(next);
+                if (next) {
+                  setFontSizeOpen(false);
+                  setHighlightMenuOpen(false);
+                  setTextColorMenuOpen(false);
+                  setCurrencyMenuOpen(false);
+                  setExportMenuOpen(false);
+                }
+              }}
               onValueChange={(v) => {
                 const next = v || null;
                 setSelectedFontFamily(next);
@@ -6054,6 +6089,18 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
             />
             <BrandSelect
               value={String(selectedFontSize ?? CELL_FONT_SIZE)}
+              confineToRef={toolbarRef}
+              open={fontSizeOpen}
+              onOpenChange={(next) => {
+                setFontSizeOpen(next);
+                if (next) {
+                  setFontFamilyOpen(false);
+                  setHighlightMenuOpen(false);
+                  setTextColorMenuOpen(false);
+                  setCurrencyMenuOpen(false);
+                  setExportMenuOpen(false);
+                }
+              }}
               onValueChange={(v) => {
                 const n = parseInt(v, 10) || CELL_FONT_SIZE;
                 setSelectedFontSize(n);
@@ -6074,7 +6121,12 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                 ref={currencyTriggerRef}
                 onClick={(e) => {
                   e.stopPropagation();
+                  const bar = toolbarRef.current?.getBoundingClientRect();
                   const rect = currencyTriggerRef.current?.getBoundingClientRect();
+                  if (bar && rect) {
+                    const fullyOnBar = rect.left >= bar.left && rect.right <= bar.right;
+                    if (!fullyOnBar) return;
+                  }
                   if (rect) {
                     setCurrencyMenuAnchor({
                       top: rect.bottom + 6,
@@ -6086,6 +6138,8 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                   setHighlightMenuOpen(false);
                   setTextColorMenuOpen(false);
                   setExportMenuOpen(false);
+                  setFontFamilyOpen(false);
+                  setFontSizeOpen(false);
                 }}
                 disabled={!hasSelection}
                 title="Currency"

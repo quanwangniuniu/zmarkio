@@ -2,7 +2,7 @@
 
 import * as Popover from '@radix-ui/react-popover';
 import { Check, ChevronDown } from 'lucide-react';
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 
 export interface BrandSelectOption {
   value: string;
@@ -20,6 +20,9 @@ interface Props {
   widthClass?: string;
   renderValue?: (value: string) => ReactNode;
   align?: 'start' | 'center' | 'end';
+  confineToRef?: RefObject<HTMLElement | null>;
+  open?: boolean;
+  onOpenChange?: (next: boolean) => void;
 }
 
 export default function BrandSelect({
@@ -32,13 +35,59 @@ export default function BrandSelect({
   widthClass = 'min-w-[6rem]',
   renderValue,
   align = 'start',
+  confineToRef,
+  open: openProp,
+  onOpenChange,
 }: Props) {
   const current = options.find((o) => o.value === value);
   const displayLabel = renderValue ? renderValue(value) : current?.label ?? value ?? '';
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const isControlled = openProp !== undefined;
+  const resolvedOpen = isControlled ? openProp : uncontrolledOpen;
+
+  const setResolvedOpen = (next: boolean) => {
+    if (!isControlled) setUncontrolledOpen(next);
+    onOpenChange?.(next);
+  };
+
+  useEffect(() => {
+    if (!resolvedOpen || !confineToRef) return;
+    let rafId = 0;
+    const loop = () => {
+      const bar = confineToRef.current?.getBoundingClientRect();
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (bar && rect) {
+        const fullyOnBar = rect.left >= bar.left && rect.right <= bar.right;
+        if (!fullyOnBar) {
+          setResolvedOpen(false);
+          return;
+        }
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [resolvedOpen, confineToRef]);
+
   return (
-    <Popover.Root>
+    <Popover.Root
+      open={resolvedOpen}
+      onOpenChange={(next) => {
+        if (next && confineToRef) {
+          const bar = confineToRef.current?.getBoundingClientRect();
+          const rect = triggerRef.current?.getBoundingClientRect();
+          if (bar && rect) {
+            const fullyOnBar = rect.left >= bar.left && rect.right <= bar.right;
+            if (!fullyOnBar) return;
+          }
+        }
+        setResolvedOpen(next);
+      }}
+    >
       <Popover.Trigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           aria-label={ariaLabel}
           title={ariaLabel}
@@ -56,6 +105,7 @@ export default function BrandSelect({
         <Popover.Content
           sideOffset={6}
           align={align}
+          avoidCollisions={false}
           className="z-[120] overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-gray-100 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
           style={{ minWidth: 'var(--radix-popover-trigger-width)' }}
         >
