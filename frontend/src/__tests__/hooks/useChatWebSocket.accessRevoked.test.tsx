@@ -1,14 +1,13 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, render, renderHook, waitFor } from '@testing-library/react';
 import toast from 'react-hot-toast';
-import { useChatWebSocket } from '@/hooks/useChatWebSocket';
+import { ChatWebSocketProvider, useChatWebSocket } from '@/hooks/useChatWebSocket';
 import { useAuthStore } from '@/lib/authStore';
 import { useChatStore } from '@/lib/chatStore';
 import type { Chat, Message } from '@/types/chat';
-import { getChat, getChats, resolveLegacyChatSlug } from '@/lib/api/chatApi';
+import { getChat, resolveLegacyChatSlug } from '@/lib/api/chatApi';
 
 jest.mock('@/lib/api/chatApi', () => ({
   getChat: jest.fn(),
-  getChats: jest.fn(),
   resolveLegacyChatSlug: jest.fn(),
 }));
 
@@ -96,9 +95,7 @@ describe('useChatWebSocket access revocation', () => {
 
   it('adds a newly granted room without reconnecting', async () => {
     const grantedChat = { id: 13, slug: 'new-room', project_id: 1 } as Chat;
-    (getChats as jest.Mock).mockResolvedValue({
-      count: 1, next: null, previous: null, results: [grantedChat],
-    });
+    (getChat as jest.Mock).mockResolvedValue(grantedChat);
     const onChatAccessGranted = jest.fn();
     const { unmount } = renderHook(() => useChatWebSocket(100, { onChatAccessGranted }));
 
@@ -119,11 +116,59 @@ describe('useChatWebSocket access revocation', () => {
       expect(useChatStore.getState().chatsByProject[1]).toContainEqual(expectedChat);
       expect(useChatStore.getState().chatsByProject['med-234-project']).toContainEqual(expectedChat);
     });
-    expect(getChats).toHaveBeenCalledWith({ project_id: 1, limit: 100 });
+    expect(getChat).toHaveBeenCalledWith('new-room');
     expect(resolveLegacyChatSlug).not.toHaveBeenCalled();
-    expect(getChat).not.toHaveBeenCalled();
     expect(onChatAccessGranted).toHaveBeenCalledWith(expect.objectContaining({ chat_id: 13 }));
     expect(MockWebSocket.instances[0].close).not.toHaveBeenCalled();
     unmount();
+  });
+
+  it('does not restore a room when revoke arrives while the grant fetch is pending', async () => {
+    let resolveChat!: (chat: Chat) => void;
+    (getChat as jest.Mock).mockReturnValue(new Promise<Chat>((resolve) => {
+      resolveChat = resolve;
+    }));
+    const { unmount } = renderHook(() => useChatWebSocket(100));
+
+    act(() => {
+      MockWebSocket.instances[0].receive({
+        type: 'chat_access_granted', chat_id: 13, chat_slug: 'new-room', project_id: 1,
+        project_slug: 'med-234-project', reason: 'participant_added',
+      });
+    });
+    await waitFor(() => expect(getChat).toHaveBeenCalledWith('new-room'));
+
+    act(() => {
+      MockWebSocket.instances[0].receive({
+        type: 'chat_access_revoked', chat_id: 13, reason: 'participant_removed',
+      });
+    });
+    await act(async () => {
+      resolveChat({ id: 13, slug: 'new-room', project_id: 1 } as Chat);
+      await Promise.resolve();
+    });
+
+    expect(useChatStore.getState().chatsByProject[1]).not.toContainEqual(
+      expect.objectContaining({ id: 13 }),
+    );
+    expect(useChatStore.getState().chatsByProject['med-234-project']).toBeUndefined();
+    unmount();
+  });
+
+  it('shares one socket between consumers under the project provider', () => {
+    function Consumer() {
+      useChatWebSocket(100);
+      return null;
+    }
+
+    const view = render(
+      <ChatWebSocketProvider userId={100}>
+        <Consumer />
+        <Consumer />
+      </ChatWebSocketProvider>,
+    );
+
+    expect(MockWebSocket.instances).toHaveLength(1);
+    view.unmount();
   });
 });

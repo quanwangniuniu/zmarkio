@@ -409,6 +409,39 @@ class TestPresenceRecipientCacheInvalidation:
         assert cache.get(OnlineStatusService._presence_recipients_key(self.user_a.id)) is None
         assert sorted(ChatService.get_presence_recipient_ids(self.user_a.id)) == sorted([self.user_b.id, user_c.id])
 
+    def test_serializer_chat_create_bulk_adds_participants_and_invalidates_once(self):
+        users = [
+            User.objects.create_user(
+                username=f'bulk-{index}',
+                email=f'bulk-{index}@example.com',
+                password='x',
+            )
+            for index in range(3)
+        ]
+        for user in users:
+            ProjectMember.objects.create(
+                user=user,
+                project=self.project,
+                role='Member',
+                is_active=True,
+            )
+        serializer = ChatCreateSerializer(
+            data={
+                'project': self.project.id,
+                'type': ChatType.GROUP,
+                'name': 'bulk channel',
+                'participant_ids': [user.id for user in users],
+            },
+            context={'request': SimpleNamespace(user=self.user_a)},
+        )
+        assert serializer.is_valid(), serializer.errors
+
+        with patch.object(ChatService, 'invalidate_presence_recipients_for_chat') as invalidate:
+            chat = serializer.save()
+
+        assert ChatParticipant.objects.filter(chat=chat, is_active=True).count() == 4
+        invalidate.assert_called_once_with(chat)
+
     def test_agent_private_chat_create_invalidates_presence_cache(self, capture_on_commit_callbacks):
         from agent.services import _get_or_create_bot_private_chat
         bot = User.objects.create_user(username=f'agent-bot-{self.user_a.id}', email=f'agent-bot-{self.user_a.id}@example.com', password='x')

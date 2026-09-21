@@ -266,6 +266,7 @@ export const unpinMessage = async (chatSlug: string, messageId: number): Promise
 
 export interface BrowseChannelRow {
   id: number;
+  slug: string;
   name: string;
   topic: string;
   description: string;
@@ -355,8 +356,8 @@ export const reorderStarredChats = async (
 /**
  * Add a participant to a group chat
  */
-export const addParticipant = async (chatRef: number | string, userId: number): Promise<ChatParticipant> => {
-  const response = await api.post(`/api/chat/chats/${chatRef}/add_participant/`, {
+export const addParticipant = async (chatSlug: string, userId: number): Promise<ChatParticipant> => {
+  const response = await api.post(`/api/chat/chats/${chatSlug}/add_participant/`, {
     user_id: userId,
   });
   return response.data;
