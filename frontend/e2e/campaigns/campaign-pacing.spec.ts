@@ -45,16 +45,23 @@ async function getOwnerId(page: Page): Promise<number> {
   return id as number;
 }
 
+/**
+ * Resolved from the API rather than the persisted project store: the store is
+ * rehydrated by the app on load and is not reliably populated by the time these
+ * setup calls run.
+ */
 async function getProjectId(page: Page): Promise<number> {
-  const id = await page.evaluate(() => {
-    try {
-      const raw = localStorage.getItem('project-storage-v1');
-      return raw ? ((JSON.parse(raw) as any)?.state?.activeProject?.id ?? null) : null;
-    } catch {
-      return null;
-    }
+  const token = await getToken(page);
+  const response = await page.request.get(`${API_BASE}/api/core/projects/`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
-  if (!id) throw new Error('No active project in localStorage');
+  if (!response.ok()) {
+    throw new Error(`Projects API failed (${response.status()}): ${await response.text()}`);
+  }
+  const body = await response.json();
+  const projects = Array.isArray(body) ? body : (body.results ?? []);
+  const id = projects[0]?.id;
+  if (!id) throw new Error('No project available for the E2E user');
   return id as number;
 }
 
