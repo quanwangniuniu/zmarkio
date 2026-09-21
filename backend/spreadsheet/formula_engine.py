@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_FLOOR, ROUND_CEILING
 import logging
+import re
 from typing import List, Optional, Tuple
 
 from .models import Cell, ComputedCellType, Sheet, SheetColumn, SheetRow, CellValueType
@@ -410,6 +411,37 @@ class _Parser:
                 value = value / right
         return value
 
+    def _read_argument_as_text(self) -> str:
+        """Read one argument as raw text without evaluating it."""
+        parts = []
+        depth = 0
+        while True:
+            token = self._current_token()
+            if token is None:
+                raise FormulaError("#VALUE!")
+            if token.type == "LPAREN":
+                depth += 1
+                parts.append("(")
+                self._consume("LPAREN")
+            elif token.type == "RPAREN":
+                if depth == 0:
+                    break
+                depth -= 1
+                parts.append(")")
+                self._consume("RPAREN")
+            elif token.type == "COMMA" and depth == 0:
+                break
+            elif token.type == "COLON":
+                parts.append(":")
+                self._consume("COLON")
+            elif token.type == "STRING":
+                parts.append(f'"{token.value}"')
+                self._consume("STRING")
+            else:
+                parts.append(token.value)
+                self._consume(token.type)
+        return ''.join(parts)
+
     def _parse_udf_arguments(self, udf: dict) -> Decimal:
         func_name = udf["name"]
         if func_name in udf["expression"].upper():
@@ -418,7 +450,7 @@ class _Parser:
         args = []
         if self._current_token() and self._current_token().type != "RPAREN":
             while True:
-                args.append(self.parse_expression())
+                args.append(self._read_argument_as_text())
                 token = self._current_token()
                 if token is None:
                     raise FormulaError("#VALUE!")
@@ -438,7 +470,7 @@ class _Parser:
 
         expr = udf["expression"]
         for param, val in zip(params, args):
-            expr = expr.replace(param, str(val))
+            expr = re.sub(r'\b' + re.escape(param) + r'\b', val, expr)
 
         result = evaluate_formula("=" + expr, self.sheet, udfs=self.udfs)
         if result.computed_type == ComputedCellType.ERROR:
