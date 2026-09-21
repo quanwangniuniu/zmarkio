@@ -640,3 +640,32 @@ class SpreadsheetAiConsent(TimeStampedModel):
 
     def __str__(self):
         return f"AI consent: user={self.user_id} spreadsheet={self.spreadsheet_id}"
+
+class UserDefinedFunction(TimeStampedModel):
+    project = models.ForeignKey(
+        "core.Project",
+        on_delete=models.CASCADE,
+        related_name="user_defined_functions",
+    )
+    name = models.CharField(
+        max_length=64,
+        help_text="Function name as used in formulas, e.g. MYROAS"
+    )
+    params = models.JSONField(
+        default=list,
+        help_text="Ordered list of parameter names, e.g. ['revenue', 'cost']"
+    )
+    expression = models.TextField(
+        help_text="Formula body using param names, e.g. 'revenue / cost'"
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['project', 'name'],
+                name='unique_udf_name_per_project'
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name}({', '.join(self.params)})"
