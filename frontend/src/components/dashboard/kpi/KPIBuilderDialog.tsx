@@ -196,7 +196,7 @@ export default function KPIBuilderDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="kpi-formula">Formula</Label>
+            <Label>Formula</Label>
             <FormulaEditor
               value={formula}
               onChange={setFormula}

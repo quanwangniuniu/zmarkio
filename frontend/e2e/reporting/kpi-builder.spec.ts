@@ -113,6 +113,18 @@ test.describe('Custom KPI builder', () => {
     await expect(page.getByTestId('kpi-save-button')).toBeEnabled();
   });
 
+  test('the format dropdown opens above the dialog and can be picked', async ({
+    page,
+  }) => {
+    // The Select portals to <body>; if its z-index sits under the dialog
+    // overlay the options render behind it and the click is intercepted.
+    await openBuilder(page);
+    await page.getByTestId('kpi-format-select').click();
+
+    await page.getByRole('option', { name: 'Currency' }).click();
+    await expect(page.getByTestId('kpi-format-select')).toContainText('Currency');
+  });
+
   test('the error clears once the formula becomes valid', async ({ page }) => {
     await openBuilder(page);
     await page.getByTestId('kpi-name-input').fill(kpiName());

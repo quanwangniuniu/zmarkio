@@ -97,6 +97,18 @@ export default function FormulaEditor({
           autocompletion({ override: [complete] }),
           cmPlaceholder('revenue / spend'),
           EditorView.lineWrapping,
+          // CodeMirror's editing surface is a contenteditable, so browsers and
+          // writing assistants spellcheck it and underline metric names.
+          EditorView.contentAttributes.of({
+            // The <label> cannot point at a contenteditable CodeMirror owns.
+            'aria-label': 'Formula',
+            spellcheck: 'false',
+            autocorrect: 'off',
+            autocapitalize: 'off',
+            'data-gramm': 'false',
+            'data-gramm_editor': 'false',
+            'data-enable-grammarly': 'false',
+          }),
           // Enter submits rather than inserting a newline; listed before
           // defaultKeymap so it wins.
           keymap.of([
