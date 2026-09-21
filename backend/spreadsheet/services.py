@@ -17,7 +17,7 @@ from django.utils import timezone
 from .models import (
     Spreadsheet, Sheet, SheetRow, SheetColumn, Cell, CellValueType, ComputedCellType, CellDependency,
     SheetStructureOperation, WorkflowPattern, WorkflowPatternStep,
-    SpreadsheetHighlight, SpreadsheetHighlightScope,
+    SpreadsheetHighlight, SpreadsheetHighlightScope, UserDefinedFunction
 )
 from .formula_engine import evaluate_formula, extract_references, reference_to_indexes, FormulaError
 from .formula_rewrite import rewrite_cells_for_operation
@@ -1438,6 +1438,19 @@ class CellService:
         cycle_ids = affected_ids - ordered_set
         updated_cells = []
 
+        udfs = {}
+        if all_cells:
+            project = next(iter(all_cells.values())).sheet.spreadsheet.project
+            udf_qs = UserDefinedFunction.objects.filter(project=project)
+            udfs = {
+                udf.name.upper():{
+                    "name": udf.name.upper(),
+                    "params": udf.params,
+                    "expression": udf.expression,
+                }
+                for udf in udf_qs
+            }
+
         formula_contexts = {}
         for sheet_id in {cell.sheet_id for cell in all_cells.values()}:
             formula_contexts[sheet_id] = {
@@ -1500,7 +1513,7 @@ class CellService:
                     level_updates.append(cell)
                     continue
 
-                result = evaluate_formula(formula_source, cell.sheet)
+                result = evaluate_formula(formula_source, cell.sheet, udfs)
                 cell.computed_type = result.computed_type
                 if result.computed_type == ComputedCellType.NUMBER and result.computed_number is not None:
                     cell.computed_number = Decimal(str(result.computed_number))

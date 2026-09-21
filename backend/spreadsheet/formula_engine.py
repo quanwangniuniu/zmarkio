@@ -164,14 +164,14 @@ def _format_currency_string(symbol: Optional[str], value: Optional[Decimal]) -> 
     return f"{symbol}{normalized}"
 
 
-def evaluate_formula(raw_input: str, sheet: Sheet) -> FormulaResult:
+def evaluate_formula(raw_input: str, sheet: Sheet, udfs: Optional[dict] = None) -> FormulaResult:
     expression = raw_input[1:] if raw_input.startswith('=') else raw_input
     if not expression.strip():
         return FormulaResult(computed_type=ComputedCellType.ERROR, error_code="#REF!")
 
     try:
         tokens = _tokenize(expression)
-        parser = _Parser(tokens, sheet)
+        parser = _Parser(tokens, sheet, udfs=udfs)
         result = parser.parse_comparison()
         if parser.has_more_tokens():
             raise FormulaError("#REF!")
@@ -285,9 +285,10 @@ def _tokenize(expression: str) -> List[Token]:
 
 
 class _Parser:
-    def __init__(self, tokens: List[Token], sheet: Sheet) -> None:
+    def __init__(self, tokens: List[Token], sheet: Sheet, udfs: Optional[dict] = None) -> None:
         self.tokens = tokens
         self.sheet = sheet
+        self.udfs = udfs or {}
         self.index = 0
 
     def has_more_tokens(self) -> bool:
@@ -409,6 +410,43 @@ class _Parser:
                 value = value / right
         return value
 
+    def _parse_udf_arguments(self, udf: dict) -> Decimal:
+        func_name = udf["name"]
+        if func_name in udf["expression"].upper():
+            raise FormulaError("#REF!")
+
+        args = []
+        if self._current_token() and self._current_token().type != "RPAREN":
+            while True:
+                args.append(self.parse_expression())
+                token = self._current_token()
+                if token is None:
+                    raise FormulaError("#VALUE!")
+                if token.type == "COMMA":
+                    self._consume("COMMA")
+                    continue
+                if token.type == "RPAREN":
+                    self._consume("RPAREN")
+                    break
+                raise FormulaError("#VALUE!")
+        else:
+            self._consume("RPAREN")
+
+        params = udf["params"]
+        if len(args) != len(params):
+            raise FormulaError("#VALUE!")
+
+        expr = udf["expression"]
+        for param, val in zip(params, args):
+            expr = expr.replace(param, str(val))
+
+        result = evaluate_formula("=" + expr, self.sheet, udfs=self.udfs)
+        if result.computed_type == ComputedCellType.ERROR:
+            raise FormulaError(result.error_code or "#VALUE!")
+        if result.computed_number is not None:
+            return result.computed_number
+        raise FormulaError("#VALUE!")
+
     def parse_factor(self) -> Decimal:
         token = self._current_token()
         if token is None:
@@ -514,6 +552,15 @@ class _Parser:
             self._consume('RPAREN')
             return value
 
+        if token.type == "IDENT":
+            func_name = token.value.upper()
+            udf = (self.udfs or {}).get(func_name)
+            if udf is None:
+                raise FormulaError("#REF!")
+            self._consume("IDENT")
+            self._consume("LPAREN")
+            return self._parse_udf_arguments(udf)
+            
         raise FormulaError("#REF!")
 
     def _consume_expression(self) -> None:
