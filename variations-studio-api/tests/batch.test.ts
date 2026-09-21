@@ -149,3 +149,33 @@ describe('batch generate failure handling', () => {
     expect(rows.map((row) => row.batchPosition).sort()).toEqual([0, 1, 2]);
   });
 });
+
+describe('batch slug allocation', () => {
+  it('persists two concurrent identical 50-item batches with unique slugs', async () => {
+    geminiMock.mockResolvedValue(copy('Same'));
+
+    const [firstResponse, secondResponse] = await Promise.all([
+      generateBatch(50),
+      generateBatch(50),
+    ]);
+
+    expect(firstResponse.status).toBe(200);
+    expect(secondResponse.status).toBe(200);
+
+    const [firstBody, secondBody] = await Promise.all([
+      readJson(firstResponse),
+      readJson(secondResponse),
+    ]);
+
+    expect(firstBody.count_succeeded).toBe(50);
+    expect(secondBody.count_succeeded).toBe(50);
+
+    const results = [
+      ...(firstBody.results as { slug: string }[]),
+      ...(secondBody.results as { slug: string }[]),
+    ];
+
+    expect(results).toHaveLength(100);
+    expect(new Set(results.map((row) => row.slug)).size).toBe(100);
+  });
+});
