@@ -947,7 +947,7 @@ describe('SpreadsheetGrid toolbar menus to document.body', () => {
     act(() => {
       jest.runOnlyPendingTimers();
     });
-    
+
     const cell = container.querySelector('td[data-row="0"][data-col="0"]') as HTMLTableCellElement;
     fireEvent.mouseDown(cell);
 
@@ -963,5 +963,63 @@ describe('SpreadsheetGrid toolbar menus to document.body', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Export$/i }));
     expectMenuPortaled('[data-export-menu]');
   });
+
+  it('does not open format menus when nothing is selected', () => {
+    render(<SpreadsheetGrid spreadsheetId={1} sheetId={34} />);
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+  
+    const highlight = screen.getByTestId('highlight-button');
+    const textColor = screen.getByTestId('format-text-color');
+    const currency = screen.getByTestId('format-currency');
+  
+    expect(highlight).toBeDisabled();
+    expect(textColor).toBeDisabled();
+    expect(currency).toBeDisabled();
+  
+    fireEvent.click(highlight);
+    fireEvent.click(textColor);
+    fireEvent.click(currency);
+  
+    expect(document.querySelector('[data-highlight-menu]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-text-color-menu]')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-currency-menu]')).not.toBeInTheDocument();
+  });
+
+  it('closes the highlight menu when the text color menu opens', () => {
+    const { container } = render(<SpreadsheetGrid spreadsheetId={1} sheetId={35} />);
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+  
+    const cell = container.querySelector('td[data-row="0"][data-col="0"]') as HTMLTableCellElement;
+    fireEvent.mouseDown(cell);
+  
+    fireEvent.click(screen.getByTestId('highlight-button'));
+    expect(document.querySelector('[data-highlight-menu]')).toBeInTheDocument();
+  
+    fireEvent.click(screen.getByTestId('format-text-color'));
+    expect(document.querySelector('[data-highlight-menu]')).not.toBeInTheDocument();
+    expectMenuPortaled('[data-text-color-menu]');
+  });
+
+  it('closes the highlight menu on outside click', () => {
+    const { container } = render(<SpreadsheetGrid spreadsheetId={1} sheetId={36} />);
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+  
+    const cell = container.querySelector('td[data-row="0"][data-col="0"]') as HTMLTableCellElement;
+    fireEvent.mouseDown(cell);
+  
+    fireEvent.click(screen.getByTestId('highlight-button'));
+    expect(document.querySelector('[data-highlight-menu]')).toBeInTheDocument();
+  
+    fireEvent.mouseDown(document.body);
+    expect(document.querySelector('[data-highlight-menu]')).not.toBeInTheDocument();
+  });
+
+
 
 })

@@ -4973,7 +4973,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
 
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (target.closest('[data-export-menu]') || target.closest('[data-export-menu-trigger]')) {
+      if (target.closest('[data-export-menu]') || target.closest('[data-export-menu-trigger]') || target.closest('#spreadsheet-toolbar')) {
         return;
       }
       setExportMenuOpen(false);
@@ -4998,7 +4998,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     if (!highlightMenuOpen) return;
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (target.closest('[data-highlight-menu]') || target.closest('[data-highlight-menu-trigger]')) {
+      if (target.closest('[data-highlight-menu]') || target.closest('[data-highlight-menu-trigger]') || target.closest('#spreadsheet-toolbar')) {
         return;
       }
       setHighlightMenuOpen(false);
@@ -5011,7 +5011,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     if (!textColorMenuOpen) return;
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (target.closest('[data-text-color-menu]') || target.closest('[data-text-color-trigger]')) {
+      if (target.closest('[data-text-color-menu]') || target.closest('[data-text-color-trigger]') || target.closest('#spreadsheet-toolbar')) {
         return;
       }
       setTextColorMenuOpen(false);
@@ -5024,7 +5024,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     if (!currencyMenuOpen) return;
     const handleClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
-      if (target.closest('[data-currency-menu]') || target.closest('[data-format-currency-trigger]')) {
+      if (target.closest('[data-currency-menu]') || target.closest('[data-format-currency-trigger]') || target.closest('#spreadsheet-toolbar')) {
         return;
       }
       setCurrencyMenuOpen(false);
@@ -5032,6 +5032,51 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, [currencyMenuOpen]);
+
+  useEffect(() => {
+    if (!exportMenuOpen && !highlightMenuOpen && !textColorMenuOpen && !currencyMenuOpen) {
+      return;
+    }
+  
+    const syncAnchors = () => {
+      const measure = (
+        open: boolean,
+        trigger: HTMLButtonElement | null,
+        setAnchor: (next: { top: number; left: number; width: number }) => void,
+        setOpen: (next: boolean) => void,
+      ) => {
+        if (!open || !trigger) return;
+        const rect = trigger.getBoundingClientRect();
+        const bar = toolbarRef.current?.getBoundingClientRect();
+        if (bar) {
+          const visibleOnBar = rect.right > bar.left && rect.left < bar.right;
+          if (!visibleOnBar) {
+            setOpen(false);
+            return;
+          }
+        }
+        setAnchor({
+          top: rect.bottom + 6,
+          left: rect.right,
+          width: rect.width,
+        });
+      };
+  
+      measure(exportMenuOpen, exportTriggerRef.current, setExportMenuAnchor, setExportMenuOpen);
+      measure(highlightMenuOpen, highlightTriggerRef.current, setHighlightMenuAnchor, setHighlightMenuOpen);
+      measure(textColorMenuOpen, textColorTriggerRef.current, setTextColorMenuAnchor, setTextColorMenuOpen);
+      measure(currencyMenuOpen, currencyTriggerRef.current, setCurrencyMenuAnchor, setCurrencyMenuOpen);
+    };
+  
+    let rafId = 0;
+    const loop = () => {
+      syncAnchors();
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+  
+    return () => cancelAnimationFrame(rafId);
+  }, [exportMenuOpen, highlightMenuOpen, textColorMenuOpen, currencyMenuOpen]);
 
   useEffect(() => {
     if (!headerMenu) return;
@@ -5717,6 +5762,9 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                 });
               }
               setExportMenuOpen((prev) => !prev);
+              setHighlightMenuOpen(false);
+              setTextColorMenuOpen(false);
+              setCurrencyMenuOpen(false);
             }}
             disabled={isImporting}
               className="inline-flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-100 hover:text-gray-900 disabled:opacity-60"
@@ -5814,6 +5862,9 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                   });
                 }
                 setHighlightMenuOpen((prev) => !prev);
+                setTextColorMenuOpen(false);
+                setCurrencyMenuOpen(false);
+                setExportMenuOpen(false);
               }}
               disabled={!hasSelection}
               className="inline-flex h-8 w-8 items-center justify-center rounded-md text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 disabled:opacity-60"
@@ -5927,6 +5978,9 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                     });
                   }
                   setTextColorMenuOpen((prev) => !prev);
+                  setHighlightMenuOpen(false);
+                  setCurrencyMenuOpen(false);
+                  setExportMenuOpen(false);
                 }}
                 disabled={!hasSelection}
                 title="Text color"
@@ -6029,6 +6083,9 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                     });
                   }
                   setCurrencyMenuOpen((prev) => !prev);
+                  setHighlightMenuOpen(false);
+                  setTextColorMenuOpen(false);
+                  setExportMenuOpen(false);
                 }}
                 disabled={!hasSelection}
                 title="Currency"
