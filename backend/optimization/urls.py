@@ -56,4 +56,16 @@ urlpatterns = [
 
     # Retrieve/update/delete a specific optimization
     path('optimizations/<int:id>/', views.OptimizationRetrieveUpdateDestroyView.as_view(), name='optimization-detail'),
+
+    # ==================== BUDGET PACING ENDPOINTS ====================
+
+    # Latest pacing forecast for a campaign
+    path('campaigns/<slug:slug>/pacing/', views.campaign_pacing, name='campaign-pacing'),
+
+    # Recompute a campaign's pacing forecast on demand
+    path(
+        'campaigns/<slug:slug>/pacing/recompute/',
+        views.recompute_campaign_pacing,
+        name='campaign-pacing-recompute',
+    ),
 ]

@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import (
+    CampaignPacingForecast,
     OptimizationExperiment,
     ExperimentMetric,
     ScalingAction,
@@ -254,3 +255,25 @@ class OptimizationSerializer(serializers.ModelSerializer):
                     {"task": "Optimization already exists for this task."}
                 )
         return data
+
+
+# ==================== BUDGET PACING SERIALIZERS ====================
+
+class CampaignPacingForecastSerializer(serializers.ModelSerializer):
+    """Read-only view of a campaign's latest pacing forecast."""
+
+    campaign_slug = serializers.CharField(source='campaign.slug', read_only=True)
+
+    class Meta:
+        model = CampaignPacingForecast
+        fields = [
+            'id', 'campaign', 'campaign_slug',
+            'status', 'reason',
+            'budget', 'spend_to_date', 'expected_spend_to_date',
+            'projected_total_spend', 'suggested_daily_cap', 'avg_daily_spend',
+            'pace_ratio',
+            'total_days', 'days_elapsed', 'days_remaining',
+            'seasonality_applied', 'dow_factors',
+            'computed_for_date', 'computed_at',
+        ]
+        read_only_fields = fields

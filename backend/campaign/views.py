@@ -109,7 +109,7 @@ class CampaignViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         queryset = Campaign.objects.filter(
             project_id__in=accessible_project_ids,
             is_deleted=False
-        ).select_related('project', 'owner', 'creator', 'assignee')
+        ).select_related('project', 'owner', 'creator', 'assignee', 'pacing_forecast')
 
         # Apply filters
         if resolved_pid:
