@@ -444,7 +444,7 @@ class _Parser:
 
     def _parse_udf_arguments(self, udf: dict) -> Decimal:
         func_name = udf["name"]
-        if func_name in udf["expression"].upper():
+        if re.search(r'\b' + re.escape(func_name) + r'\b', udf["expression"].upper()):
             raise FormulaError("#REF!")
 
         args = []
