@@ -15,6 +15,8 @@ interface GuidanceEntryCardProps {
   entry: WorkspaceGuidanceEntry;
   expanded: boolean;
   canInsert: boolean;
+  /** Rendered as a sample (e.g. in the admin form): no insert action. */
+  previewOnly?: boolean;
   onToggle: () => void;
   onInsert: () => void;
 }
@@ -23,6 +25,7 @@ export function GuidanceEntryCard({
   entry,
   expanded,
   canInsert,
+  previewOnly = false,
   onToggle,
   onInsert,
 }: GuidanceEntryCardProps) {
@@ -60,6 +63,7 @@ export function GuidanceEntryCard({
           <p className="mt-1 whitespace-pre-wrap break-words text-xs text-gray-800">
             {entry.recommended_response}
           </p>
+          {!previewOnly && (
           <button
             type="button"
             onClick={onInsert}
@@ -70,7 +74,8 @@ export function GuidanceEntryCard({
             <CornerDownLeft className="h-3 w-3" />
             Insert into reply
           </button>
-          {!canInsert && (
+          )}
+          {!previewOnly && !canInsert && (
             <p className="mt-1 text-[11px] text-gray-400">Claim this conversation to reply.</p>
           )}
         </div>

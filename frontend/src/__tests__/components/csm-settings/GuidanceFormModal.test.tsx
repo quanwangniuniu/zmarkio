@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import GuidanceFormModal from '@/components/csm-settings/GuidanceFormModal';
 import CsmGuidanceAPI from '@/lib/api/csmGuidanceApi';
@@ -63,12 +63,28 @@ describe('GuidanceFormModal', () => {
       />,
     );
 
-  it('offers all four guidance types', () => {
+  it('offers all four guidance types, with one selected', () => {
     renderModal();
-    const options = Array.from(
-      (screen.getByLabelText(/^type/i) as HTMLSelectElement).options,
-    ).map((o) => o.textContent);
-    expect(options).toEqual(['Handoff', 'Suggested Reply', 'Escalation Procedure', 'Process Note']);
+    const types = screen.getAllByRole('radio');
+    expect(types.map((t) => t.getAttribute('aria-label'))).toEqual([
+      'Handoff', 'Suggested Reply', 'Escalation Procedure', 'Process Note',
+    ]);
+    expect(screen.getByRole('radio', { name: 'Suggested Reply' })).toHaveAttribute(
+      'aria-checked', 'true',
+    );
+  });
+
+  it('previews the entry as an agent will see it', () => {
+    renderModal();
+    fireEvent.change(screen.getByLabelText(/trigger description/i), {
+      target: { value: 'Customer threatens to churn' },
+    });
+
+    // The preview reuses the workspace card, minus its insert action.
+    const preview = screen.getByRole('listitem');
+    expect(within(preview).getByText('Customer threatens to churn')).toBeInTheDocument();
+    expect(within(preview).getByText('Suggested Reply')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Insert into reply/ })).not.toBeInTheDocument();
   });
 
   it('requires trigger, response and at least one group before submitting', async () => {
@@ -86,7 +102,7 @@ describe('GuidanceFormModal', () => {
     mockedCreate.mockResolvedValue(saved);
     renderModal({ defaultExperienceGroupId: 10 });
 
-    fireEvent.change(screen.getByLabelText(/^type/i), { target: { value: 'escalation_procedure' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'Escalation Procedure' }));
     fireEvent.change(screen.getByLabelText(/trigger description/i), {
       target: { value: '  Threatens chargeback  ' },
     });
