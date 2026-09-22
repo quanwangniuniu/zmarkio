@@ -60,7 +60,10 @@ test("Slack OAuth callback submits signed state when no local state is available
     });
   });
 
-  let callbackPayload: { code?: string; state?: string } | null = null;
+  // Starts as an empty payload rather than null: the route callback's write is
+  // invisible to control-flow analysis, so a `| null` type narrows to `null`
+  // at the assertions below and `callbackPayload?.state` resolves to `never`.
+  let callbackPayload: { code?: string; state?: string } = {};
   await page.route("**/api/slack/oauth/callback/**", async (route) => {
     callbackPayload = JSON.parse(route.request().postData() || "{}");
     await route.fulfill({
@@ -77,6 +80,6 @@ test("Slack OAuth callback submits signed state when no local state is available
   await page.goto("/slack/callback?code=slack-code&state=signed-slack-state");
 
   await expect(page.getByText("Connection Successful!")).toBeVisible();
-  await expect.poll(() => callbackPayload?.code).toBe("slack-code");
-  expect(callbackPayload?.state).toBe("signed-slack-state");
+  await expect.poll(() => callbackPayload.code).toBe("slack-code");
+  expect(callbackPayload.state).toBe("signed-slack-state");
 });
