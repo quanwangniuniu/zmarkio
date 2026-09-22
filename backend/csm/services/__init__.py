@@ -38,6 +38,13 @@ from csm.services.scope import (
     accessible_queues_for,
     supervised_queues_for,
 )
+from csm.services.quality import (
+    parse_filters,
+    filtered_conversations,
+    upsert_review,
+    build_quality_report,
+    build_filter_options,
+)
 
 __all__ = [
     'ensure_system_fields',
@@ -68,4 +75,9 @@ __all__ = [
     'get_sla_status',
     'accessible_queues_for',
     'supervised_queues_for',
+    'parse_filters',
+    'filtered_conversations',
+    'upsert_review',
+    'build_quality_report',
+    'build_filter_options',
 ]

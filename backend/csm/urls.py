@@ -14,6 +14,12 @@ from .views import (
     TicketStatusViewSet,
     StatusMachineView,
 )
+from .views_quality import (
+    QualityConversationViewSet,
+    QualityFilterOptionsView,
+    QualityReportCsvView,
+    QualityReportView,
+)
 
 router = DefaultRouter()
 router.register(r'queues', QueueViewSet, basename='queue')
@@ -30,10 +36,30 @@ router.register(r'support-channels', SupportChannelViewSet, basename='support-ch
 router.register(r'sla-policy', SLAPolicyViewSet, basename='sla-policy')
 router.register(r'business-hours-calendars', BusinessHoursCalendarViewSet, basename='business-hours-calendar')
 router.register(r'ticket-statuses', TicketStatusViewSet, basename='ticket-status')
+router.register(
+    r'quality/conversations', QualityConversationViewSet, basename='quality-conversation')
 
 urlpatterns = [
     # Standard routes
     path('', include(router.urls)),
+
+    # Quality inspection aggregates. Not router actions: they are collection
+    # level and filter-driven, with no pk.
+    path(
+        'quality/filter-options/',
+        QualityFilterOptionsView.as_view(),
+        name='csm-quality-filter-options',
+    ),
+    path(
+        'quality/report/',
+        QualityReportView.as_view(),
+        name='csm-quality-report',
+    ),
+    path(
+        'quality/report/export.csv/',
+        QualityReportCsvView.as_view(),
+        name='csm-quality-report-export-csv',
+    ),
 
     # Status machine: whole-machine GET + transition-set PUT + auto-resolve PATCH.
     # Operates per-project (?project=), so it is not a pk-detail resource.

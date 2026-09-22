@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, CsmNotification,
     Conversation, ConversationMessage, Ticket, QuickReplyTemplate, QuickReplyTemplateHistory,
+    ConversationQualityReview,
     TemplateTag,
     TicketForm, TicketFormField, TicketFormAssignment,
     SupportProject, CsmWorkType, SupportChannel,
@@ -750,3 +751,70 @@ class ReplaceTransitionsSerializer(serializers.Serializer):
         child=serializers.DictField(child=serializers.CharField()),
         default=list,
     )
+
+
+class ConversationQualityReviewSerializer(serializers.ModelSerializer):
+    """One supervisor annotation, as returned by the quality endpoints."""
+    rating_display = serializers.CharField(source='get_rating_display', read_only=True)
+
+    class Meta:
+        model = ConversationQualityReview
+        fields = [
+            'id', 'conversation', 'rating', 'rating_display', 'comment',
+            'reviewer', 'reviewer_name', 'reviewed_at',
+            'agent_user', 'agent_name', 'queue', 'organisation',
+        ]
+        read_only_fields = fields
+
+
+class ConversationQualityReviewWriteSerializer(serializers.Serializer):
+    """Input for the annotate endpoint. Snapshots are resolved server-side."""
+    rating = serializers.ChoiceField(choices=ConversationQualityReview.Rating.choices)
+    comment = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class QualityConversationSerializer(ConversationSerializer):
+    """List row for the quality inspection table.
+
+    ``review_count`` and ``latest_rating`` come from annotations and
+    ``my_review`` from a filtered prefetch, so rendering a page costs no
+    per-row queries.
+    """
+    assigned_to_user_id = serializers.IntegerField(
+        source='assigned_to.user_id', read_only=True, default=None)
+    message_count = serializers.IntegerField(read_only=True, default=0)
+    review_count = serializers.IntegerField(read_only=True, default=0)
+    latest_rating = serializers.CharField(read_only=True, default=None)
+    my_review = serializers.SerializerMethodField()
+
+    class Meta(ConversationSerializer.Meta):
+        fields = ConversationSerializer.Meta.fields + [
+            'assigned_to_user_id', 'message_count', 'review_count',
+            'latest_rating', 'my_review',
+        ]
+
+    def get_my_review(self, obj):
+        reviews = getattr(obj, 'my_reviews', None)
+        if not reviews:
+            return None
+        return ConversationQualityReviewSerializer(reviews[0]).data
+
+
+class QualityConversationDetailSerializer(ConversationDetailSerializer):
+    """Detail payload for the review drawer: the transcript plus every review."""
+    reviews = serializers.SerializerMethodField()
+    my_review = serializers.SerializerMethodField()
+
+    class Meta(ConversationDetailSerializer.Meta):
+        fields = ConversationDetailSerializer.Meta.fields + ['reviews', 'my_review']
+
+    def get_reviews(self, obj):
+        return ConversationQualityReviewSerializer(obj.quality_reviews.all(), many=True).data
+
+    def get_my_review(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user:
+            return None
+        review = obj.quality_reviews.filter(reviewer=user).first()
+        return ConversationQualityReviewSerializer(review).data if review else None
