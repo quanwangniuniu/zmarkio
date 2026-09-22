@@ -316,6 +316,11 @@ class Conversation(TimeStampedModel):
 
     class Meta:
         ordering = ['-started_at']
+        indexes = [
+            # Quality inspection filters and sorts across a whole organisation.
+            models.Index(fields=['queue', 'started_at'], name='csm_conv_queue_started_idx'),
+            models.Index(fields=['status'], name='csm_conv_status_idx'),
+        ]
 
     def __str__(self):
         customer_name = self.customer.full_name if self.customer else 'Unknown'
@@ -354,6 +359,84 @@ class ConversationMessage(models.Model):
 
     def __str__(self):
         return f"[{self.sender_type}] {self.content[:50]}"
+
+
+class ConversationQualityReview(TimeStampedModel):
+    """A supervisor's quality annotation on one conversation.
+
+    One row per (conversation, reviewer): re-rating updates the row rather
+    than appending, so report counts stay truthful without having to
+    de-duplicate to latest-per-reviewer in every aggregate.
+
+    The agent, queue and organisation are SNAPSHOTS taken at review time.
+    ``Conversation.assigned_to`` is mutable and nullable, so joining through it
+    live would let a later reassignment retroactively move a rating onto an
+    agent who never handled the conversation.
+    """
+
+    class Rating(models.TextChoices):
+        GOOD = 'good', 'Good'
+        NEEDS_IMPROVEMENT = 'needs_improvement', 'Needs Improvement'
+        POOR = 'poor', 'Poor'
+
+    conversation = models.ForeignKey(
+        Conversation, on_delete=models.CASCADE,
+        related_name='quality_reviews',
+    )
+    # Keyed on the auth user, not CustomerUser: one person may hold several
+    # CustomerUser rows (unique_together is ('user', 'queue')), so a
+    # CustomerUser-keyed constraint would permit duplicate reviews.
+    reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='csm_quality_reviews_given',
+    )
+    reviewer_name = models.CharField(max_length=200, blank=True, default='')
+    rating = models.CharField(max_length=32, choices=Rating.choices)
+    comment = models.TextField(blank=True, default='')
+    # Not auto_now_add: with upsert semantics the "as of" date must move when a
+    # rating is revised, or a stale bucket keeps counting a rewritten rating.
+    reviewed_at = models.DateTimeField(default=timezone.now)
+
+    # --- snapshots, resolved once at review time -------------------------
+    agent_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='csm_quality_reviews_received',
+    )
+    agent_customer_user = models.ForeignKey(
+        CustomerUser, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='quality_reviews_received',
+    )
+    agent_name = models.CharField(max_length=200, blank=True, default='')
+    queue = models.ForeignKey(
+        Queue, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='quality_reviews',
+    )
+    organisation = models.ForeignKey(
+        'customer.CustomerOrganisation', on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='csm_quality_reviews',
+    )
+
+    class Meta:
+        ordering = ['-reviewed_at', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=('conversation', 'reviewer'),
+                name='csm_cqr_uniq_conversation_reviewer',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['organisation', 'reviewed_at'], name='csm_cqr_org_reviewed_idx'),
+            models.Index(fields=['agent_user', 'reviewed_at'], name='csm_cqr_agent_reviewed_idx'),
+            models.Index(fields=['rating'], name='csm_cqr_rating_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.get_rating_display()} - conversation {self.conversation_id}"
 
 
 class QuickReplyTemplate(SluggedResourceModelMixin, TimeStampedModel):
