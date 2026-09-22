@@ -17,6 +17,7 @@ export interface User {
   is_staff?: boolean;
   is_org_admin?: boolean;
   is_csm_admin?: boolean;
+  is_csm_supervisor?: boolean;
   organization: Organization | null;
   current_organization: Organization | null;
   roles: string[];
