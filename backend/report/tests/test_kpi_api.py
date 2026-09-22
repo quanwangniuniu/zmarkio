@@ -2,6 +2,7 @@
 inline-error contract the formula builder depends on."""
 
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -17,6 +18,8 @@ from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
+
+from django.core.exceptions import ValidationError
 
 from core.models import Organization, Project
 from report.models import CustomKPI
@@ -130,6 +133,26 @@ def test_delete_removes_the_kpi(client, kpi_warehouse):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("formula", ["revenue / mystery", "revenue /", "   "])
+def test_orm_create_also_rejects_an_invalid_formula(kpi_warehouse, formula):
+    """The serializer is not the only way in -- a shell session, an admin
+    action or a data migration must not be able to persist a dead formula."""
+    with pytest.raises(ValidationError):
+        CustomKPI.objects.create(
+            project=kpi_warehouse["project"], name="Via ORM", formula=formula
+        )
+    assert not CustomKPI.objects.filter(name="Via ORM").exists()
+
+
+@pytest.mark.django_db
+def test_orm_create_with_a_valid_formula_still_works(kpi_warehouse):
+    kpi = CustomKPI.objects.create(
+        project=kpi_warehouse["project"], name="Via ORM", formula="revenue / spend"
+    )
+    assert kpi.pk is not None
+
+
+@pytest.mark.django_db
 def test_create_rejects_an_invalid_formula_with_a_field_error(client, kpi_warehouse):
     response = _create_kpi(
         client, kpi_warehouse["project"], formula="revenue / mystery"
@@ -226,6 +249,38 @@ def test_outsider_cannot_list_another_projects_kpis(
     assert response.status_code == status.HTTP_200_OK
     results = response.data["results"] if "results" in response.data else response.data
     assert results == []
+
+
+@pytest.mark.django_db
+def test_listing_an_unauthorized_project_does_not_touch_the_warehouse(
+    client, outsider_client, kpi_warehouse
+):
+    """Scoping and the metric snapshot must agree on which project is visible.
+
+    Returning an empty list is not enough: aggregating the other project's
+    warehouse rows at all crosses the access boundary.
+    """
+    _create_kpi(client, kpi_warehouse["project"])
+
+    with patch("report.views.kpi_registry.resolve_metric_values") as resolve:
+        response = outsider_client.get(
+            LIST_URL, {"project": kpi_warehouse["project"].slug}
+        )
+
+    assert response.status_code == status.HTTP_200_OK
+    results = response.data["results"] if "results" in response.data else response.data
+    assert results == []
+    resolve.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_listing_an_authorized_project_still_aggregates(client, kpi_warehouse):
+    """The guard above must not have switched the happy path off."""
+    _create_kpi(client, kpi_warehouse["project"])
+
+    response = client.get(LIST_URL, {"project": kpi_warehouse["project"].slug})
+    results = response.data["results"] if "results" in response.data else response.data
+    assert results[0]["value"] == "4"
 
 
 @pytest.mark.django_db

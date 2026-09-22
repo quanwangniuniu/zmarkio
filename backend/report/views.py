@@ -247,9 +247,39 @@ class CustomKPIListCreateView(generics.ListCreateAPIView):
             return CustomKPICreateSerializer
         return CustomKPISerializer
 
+    def _requested_project_pk(self):
+        """Resolve `?project=` to a pk the caller is actually a member of.
+
+        Returns `(pk, scoped)`. `scoped` is False when a project was asked for
+        but the caller cannot see it, which must not fall back to "no filter".
+        Authorization happens here, once, so the queryset and the warehouse
+        snapshot can never disagree about which project is in scope -- without
+        it, any authenticated user could make the server aggregate another
+        project's warehouse data by passing its slug.
+        """
+        if hasattr(self, "_project_scope"):
+            return self._project_scope
+
+        raw = self.request.query_params.get("project")
+        if not raw:
+            scope = (None, True)
+        else:
+            project_pk = resolve_project_pk(raw)
+            is_member = bool(project_pk) and ProjectMember.objects.filter(
+                user=self.request.user,
+                project_id=project_pk,
+                is_active=True,
+            ).exists()
+            scope = (project_pk, True) if is_member else (None, False)
+
+        self._project_scope = scope
+        return scope
+
     def get_queryset(self):
+        project_pk, scoped = self._requested_project_pk()
+        if not scoped:
+            return CustomKPI.objects.none()
         qs = _get_accessible_kpi_queryset(self.request.user)
-        project_pk = resolve_project_pk(self.request.query_params.get("project"))
         if project_pk:
             qs = qs.filter(project_id=project_pk)
         return qs
@@ -260,8 +290,8 @@ class CustomKPIListCreateView(generics.ListCreateAPIView):
             return context
         # Values are only meaningful for a single project, and resolving them
         # once here keeps a list to one warehouse query.
-        project_pk = resolve_project_pk(self.request.query_params.get("project"))
-        if project_pk:
+        project_pk, scoped = self._requested_project_pk()
+        if scoped and project_pk:
             start_date, end_date = _requested_date_range(self.request)
             context["metric_snapshot"] = kpi_registry.resolve_metric_values(
                 project_pk, start_date, end_date

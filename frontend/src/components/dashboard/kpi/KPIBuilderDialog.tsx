@@ -122,7 +122,13 @@ export default function KPIBuilderDialog({
       }
     }, PREVIEW_DEBOUNCE_MS);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      // Invalidate a request that already left: the formula may have been
+      // cleared or the dialog closed while it was in flight, and its response
+      // must not write preview/error state for a formula no longer on screen.
+      requestIdRef.current += 1;
+    };
   }, [formula, open, projectSlug]);
 
   const canSave =
@@ -234,6 +240,19 @@ export default function KPIBuilderDialog({
                 <SelectItem value="percent">Percent</SelectItem>
               </SelectContent>
             </Select>
+            {displayFormat === 'percent' && (
+              <p
+                className="text-[11px] text-gray-400"
+                data-testid="kpi-percent-hint"
+              >
+                Write the ratio itself —{' '}
+                <code className="rounded bg-gray-100 px-1 py-0.5">
+                  clicks / impressions
+                </code>{' '}
+                — and it is shown as a percentage. Do not add{' '}
+                <code className="rounded bg-gray-100 px-1 py-0.5">* 100</code>.
+              </p>
+            )}
           </div>
 
           <div className="rounded-lg bg-gray-50 px-3 py-2.5">

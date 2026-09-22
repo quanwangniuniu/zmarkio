@@ -123,8 +123,10 @@ class ReportTask(models.Model):
 class CustomKPI(models.Model):
     """A project-scoped KPI defined as a formula over warehouse metrics.
 
-    The formula is validated on save so a KPI that cannot be evaluated never
-    reaches the database; see `report.kpi_registry`.
+    `save()` runs `full_clean()`, so the formula is validated at every
+    persistence boundary -- the API, the admin, a shell session or a data
+    migration alike -- and a KPI that cannot be evaluated never reaches the
+    database. See `report.kpi_registry`.
     """
 
     class DisplayFormat(models.TextChoices):
@@ -191,6 +193,14 @@ class CustomKPI(models.Model):
             validate_formula(self.formula)
         except KPIFormulaError as exc:
             raise ValidationError({"formula": exc.message}) from exc
+
+    def save(self, *args, **kwargs):
+        # Django does not call full_clean() on save, so without this a KPI
+        # created through the ORM, a shell or a data migration could persist a
+        # formula that can never be evaluated. The serializers validate too;
+        # this closes every other path.
+        self.full_clean()
+        super().save(*args, **kwargs)
 
 
 class ReportTaskKeyAction(models.Model):
