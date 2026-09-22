@@ -1,4 +1,4 @@
-import { MODEL_NAME, lockCta } from '@/src/ai/prompts';
+import { AI_QUOTA_MESSAGE, MODEL_NAME, lockCta, } from '@/src/ai/prompts';
 import type { CopyGenerator, CopyJson } from '@/src/ai/types';
 
 const VERTEX_BASE = 'https://aiplatform.googleapis.com/v1/publishers/google/models';
@@ -155,5 +155,10 @@ export const geminiCopyGenerator: CopyGenerator = {
   generateCopy(systemPrompt, userPrompt) {
     return callGeminiJson(systemPrompt, userPrompt);
   },
-  isQuotaError: isGeminiQuotaError,
+  getErrorMessage(error) {
+    if (isGeminiQuotaError(error)) {
+      return AI_QUOTA_MESSAGE;
+    }
+    return error instanceof GeminiError ? error.message : null;
+  },
 };

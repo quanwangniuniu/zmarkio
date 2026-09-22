@@ -1,5 +1,5 @@
 import { POST as generate } from '@/app/api/ad_copy_variation/variations/generate/route';
-import { callGeminiJson } from '@/src/ai/providers/gemini';
+import { callOllamaJson } from '@/src/ai/providers/ollama';
 import { prisma } from '@/lib/prisma';
 import { BrowserlessError, fetchUrlText } from '@/lib/urlFetch';
 import { findVariationById } from '@/lib/variationStore';
@@ -12,10 +12,19 @@ import {
 import { readJson, studioRequest } from './support/requests';
 import { accessToken } from './support/tokens';
 
-jest.mock('@/src/ai/providers/gemini', () => ({
-  callGeminiJson: jest.fn(),
-  isGeminiQuotaError: jest.fn(() => false),
-}));
+jest.mock('@/src/ai/providers/ollama', () => {
+  const actual = jest.requireActual('@/src/ai/providers/ollama');
+
+  return {
+    ...actual,
+    callOllamaJson: jest.fn(),
+    getOllamaConfig: jest.fn(() => ({
+      baseUrl: 'http://ollama.test:11434',
+      model: 'test-model',
+      timeoutMs: 5000,
+    })),
+  };
+});
 
 // parseExternalUrl is the validation under test here, so only the network hop
 // is replaced.
@@ -24,7 +33,9 @@ jest.mock('@/lib/urlFetch', () => {
   return { ...actual, fetchUrlText: jest.fn() };
 });
 
-const geminiMock = callGeminiJson as jest.MockedFunction<typeof callGeminiJson>;
+const ollamaMock = callOllamaJson as jest.MockedFunction<
+  typeof callOllamaJson
+>;
 const fetchMock = fetchUrlText as jest.MockedFunction<typeof fetchUrlText>;
 
 let fixture: StudioFixture;
@@ -43,7 +54,7 @@ afterAll(async () => {
 beforeEach(() => {
   jest.clearAllMocks();
   fetchMock.mockResolvedValue('Landing page copy about a product.');
-  geminiMock.mockResolvedValue({
+  ollamaMock.mockResolvedValue({
     hook: 'URL hook',
     headline: 'URL headline',
     description: 'URL description',
@@ -109,11 +120,11 @@ describe('generate with source_mode=external_url', () => {
     expect(response.status).toBe(502);
     const body = await readJson(response);
     expect(body).toMatchObject({ count_requested: 1, count_succeeded: 0 });
-    expect(geminiMock).not.toHaveBeenCalled();
+    expect(ollamaMock).not.toHaveBeenCalled();
   });
 
   it('returns 502 when the model fails after a successful fetch', async () => {
-    geminiMock.mockRejectedValue(new Error('model exploded'));
+    ollamaMock.mockRejectedValue(new Error('model exploded'));
 
     const response = await generateExternal();
 

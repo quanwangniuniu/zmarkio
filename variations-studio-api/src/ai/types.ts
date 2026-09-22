@@ -12,5 +12,5 @@ export type CopyJson = {
 export interface CopyGenerator {
   readonly modelName: string;
   generateCopy(systemPrompt: string, userPrompt: string): Promise<CopyJson>;
-  isQuotaError(err: unknown): boolean;
+  getErrorMessage(err: unknown): string | null;
 }
