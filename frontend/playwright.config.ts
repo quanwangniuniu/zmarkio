@@ -164,6 +164,10 @@ export default defineConfig({
       name: 'meta-ads-mock',
       use: {
         ...devices['Desktop Chrome'],
+        // Demo: PLAYWRIGHT_SLOW_MO=800 npx playwright test --project=meta-ads-mock --headed
+        launchOptions: process.env.PLAYWRIGHT_SLOW_MO
+          ? { slowMo: Number(process.env.PLAYWRIGHT_SLOW_MO) || 0 }
+          : undefined,
       },
       testMatch: /e2e[\\/]meta-ads[\\/]meta-ads-preview-account-switch\.spec\.ts$/,
     },

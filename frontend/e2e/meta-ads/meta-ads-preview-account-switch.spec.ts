@@ -18,6 +18,7 @@ import {
   mockProjectShellApis,
   seedActiveProject,
   waitForLayoutMain,
+  installApiMockSafetyNet,
 } from '../messages/messages-helpers';
 import {
   ACCOUNT_A,
@@ -35,6 +36,9 @@ test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe('Meta Ads creative preview account switch (MED-248)', () => {
   test.beforeEach(async ({ page }) => {
+    // Register safety net first; specific mocks below override it (Playwright
+    // checks routes in reverse registration order).
+    await installApiMockSafetyNet(page);
     await seedAuthenticatedUser(page, E2E_USER);
     await mockAuthenticatedUserApis(page, E2E_USER);
     await mockProjectShellApis(page);
