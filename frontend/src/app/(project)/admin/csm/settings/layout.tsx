@@ -2,17 +2,15 @@
 
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import CsmSettingsSidebar from '@/components/csm-settings/CsmSettingsSidebar';
-import { useProjectIdFromUrl } from '@/components/csm-settings/useProjectIdFromUrl';
 
 export default function CsmSettingsLayout({ children }: { children: React.ReactNode }) {
-  const { projectValid } = useProjectIdFromUrl();
-
   return (
     <ProtectedRoute requiredAuth fallback="/unauthorized">
-      <DashboardLayout alerts={[]} upcomingMeetings={[]} mainClassName="!p-0 !space-y-0">
+      {/* The main dashboard sidebar is the only navigation here: the settings
+          pages are reached from the hub's cards, and the right-hand panel is
+          noise on a settings screen. */}
+      <DashboardLayout alerts={[]} upcomingMeetings={[]} mainClassName="!p-0 !space-y-0" hideRightPanel>
         <div className="flex min-h-[calc(100vh-3rem)] flex-1 bg-white">
-          {projectValid && <CsmSettingsSidebar />}
           <div className="min-w-0 flex-1 bg-white">{children}</div>
         </div>
       </DashboardLayout>
