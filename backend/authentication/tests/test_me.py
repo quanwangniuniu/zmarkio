@@ -130,3 +130,65 @@ class MeViewTests(APITestCase):
         self.assertIn('Media Buyer', roles)
         self.assertIn('Admin', roles)
         self.assertEqual(len(roles), 2) 
+    def _authenticate(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {self.access_token}')
+
+    def _make_customer_user(self, user_type):
+        """Create a CustomerUser row for self.user with the given role."""
+        from customer.models import CustomerOrganisation
+        from csm.models import CustomerUser
+
+        org = CustomerOrganisation.objects.create(name=f"Acme {user_type}")
+        return CustomerUser.objects.create(
+            user=self.user, organisation=org, user_type=user_type, is_active=True,
+        )
+
+    def test_me_reports_plain_user_as_neither_admin_nor_supervisor(self):
+        self._authenticate()
+        response = self.client.get(self.me_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data['is_csm_admin'])
+        self.assertFalse(response.data['is_csm_supervisor'])
+
+    def test_me_reports_supervisor_as_supervisor_but_not_csm_admin(self):
+        """A supervisor must be distinguishable from a CSM admin.
+
+        is_csm_admin gates the CSM settings area and is admin-only, so the
+        quality inspection area needs its own flag.
+        """
+        self._make_customer_user('supervisor')
+        self._authenticate()
+        response = self.client.get(self.me_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['is_csm_supervisor'])
+        self.assertFalse(response.data['is_csm_admin'])
+
+    def test_me_reports_csm_admin_as_supervisor_too(self):
+        """Admins supervise: the two roles are treated together everywhere else."""
+        self._make_customer_user('admin')
+        self._authenticate()
+        response = self.client.get(self.me_url)
+
+        self.assertTrue(response.data['is_csm_admin'])
+        self.assertTrue(response.data['is_csm_supervisor'])
+
+    def test_me_reports_inactive_supervisor_as_not_supervisor(self):
+        customer_user = self._make_customer_user('supervisor')
+        customer_user.is_active = False
+        customer_user.save(update_fields=['is_active'])
+
+        self._authenticate()
+        response = self.client.get(self.me_url)
+
+        self.assertFalse(response.data['is_csm_supervisor'])
+
+    def test_me_reports_staff_as_supervisor(self):
+        self.user.is_staff = True
+        self.user.save(update_fields=['is_staff'])
+
+        self._authenticate()
+        response = self.client.get(self.me_url)
+
+        self.assertTrue(response.data['is_csm_supervisor'])
