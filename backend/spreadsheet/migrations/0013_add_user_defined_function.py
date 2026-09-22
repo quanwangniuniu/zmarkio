@@ -27,6 +27,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddConstraint(
             model_name='userdefinedfunction',
-            constraint=models.UniqueConstraint(fields=('project', 'name'), name='unique_udf_name_per_project'),
+            constraint=models.UniqueConstraint(
+                condition=models.Q(is_deleted=False),
+                fields=('project', 'name'),
+                name='unique_active_udf_name_per_project',
+            ),
         ),
     ]

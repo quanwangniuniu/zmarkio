@@ -1647,6 +1647,9 @@ class UserDefinedFunctionView(APIView):
         project = self._get_project(request, project_slug)
         serializer = UserDefinedFunctionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        name = serializer.validated_data["name"].upper()
+        if UserDefinedFunction.objects.filter(project=project, name=name, is_deleted=False).exists():
+            raise ValidationError({"name": f"A function named '{name}' already exists."})
         serializer.save(project=project)
         return Response(serializer.data, status=201)
 

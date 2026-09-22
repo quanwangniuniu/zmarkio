@@ -661,9 +661,13 @@ class UserDefinedFunction(TimeStampedModel):
 
     class Meta:
         constraints = [
+            # Partial unique index: only enforce uniqueness among active (non-deleted) UDFs.
+            # Deleted UDFs are kept for audit purposes but must not block re-creation of
+            # a function with the same name.
             models.UniqueConstraint(
                 fields=['project', 'name'],
-                name='unique_udf_name_per_project'
+                condition=models.Q(is_deleted=False),
+                name='unique_active_udf_name_per_project'
             ),
         ]
 

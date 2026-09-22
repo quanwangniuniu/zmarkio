@@ -1441,7 +1441,7 @@ class CellService:
         udfs = {}
         if all_cells:
             project = next(iter(all_cells.values())).sheet.spreadsheet.project
-            udf_qs = UserDefinedFunction.objects.filter(project=project)
+            udf_qs = UserDefinedFunction.objects.filter(project=project, is_deleted=False)
             udfs = {
                 udf.name.upper():{
                     "name": udf.name.upper(),
