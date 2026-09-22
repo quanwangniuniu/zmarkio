@@ -13,9 +13,14 @@ import GuidanceSortableList from '@/components/csm-settings/GuidanceSortableList
 import { useProjectIdFromUrl } from '@/components/csm-settings/useProjectIdFromUrl';
 import { BUILDER_CONTROL_CLASS } from '@/components/csm-settings/constants';
 import { PORTAL_SUBMIT_BUTTON_CLASS } from '@/components/ticket-form/constants';
+import ConfirmModal from '@/components/ui/ConfirmModal';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 
 const UNASSIGNED = 'unassigned';
+
+/** Triggers run to 2000 characters, so quote only enough to identify the entry. */
+const summarize = (text: string) =>
+  text.length > 120 ? `${text.slice(0, 120).trimEnd()}…` : text;
 
 export default function GuidanceSettingsPage() {
   const { projectId, projectValid } = useProjectIdFromUrl();
@@ -35,6 +40,8 @@ export default function GuidanceSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<GuidanceEntry | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<GuidanceEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const selectedGroupId = selected && selected !== UNASSIGNED ? Number(selected) : null;
 
@@ -103,14 +110,18 @@ export default function GuidanceSettingsPage() {
     loadEntries();
   };
 
-  const handleDelete = async (row: GuidanceEntry) => {
-    if (!window.confirm('Delete this guidance entry? Agents will stop seeing it immediately.')) return;
+  const handleDeleteConfirm = async () => {
+    const row = deleteTarget;
+    if (!row) return;
+    setDeleting(true);
     try {
       await CsmGuidanceAPI.remove(row.id);
       toast.success('Guidance deleted.');
       setEntries((prev) => prev.filter((e) => e.id !== row.id));
     } catch {
       toast.error('Could not delete guidance.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -205,7 +216,7 @@ export default function GuidanceSettingsPage() {
               onChange={setEntries}
               onReorderFailed={loadEntries}
               onEdit={openEdit}
-              onDelete={handleDelete}
+              onDelete={setDeleteTarget}
             />
           )}
         </>
@@ -222,6 +233,22 @@ export default function GuidanceSettingsPage() {
           onSaved={handleSaved}
         />
       )}
+
+      <ConfirmModal
+        isOpen={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteConfirm}
+        loading={deleting}
+        type="danger"
+        title="Delete guidance"
+        message={
+          deleteTarget
+            ? `Delete "${summarize(deleteTarget.trigger_description)}"? Agents will stop seeing it immediately.`
+            : ''
+        }
+        confirmText="Delete"
+        cancelText="Cancel"
+      />
     </CsmSettingsPageRoot>
   );
 }
