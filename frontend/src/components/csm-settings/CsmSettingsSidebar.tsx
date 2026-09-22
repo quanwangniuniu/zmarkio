@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarClock, ClipboardList, FolderKanban, Lightbulb, ListOrdered, Radio, Settings, Shield, Workflow } from 'lucide-react';
+import { CalendarClock, ClipboardList, FolderKanban, Lightbulb, ListOrdered, Radio, Settings, Shield, Tag, Workflow } from 'lucide-react';
 import { useBuildUrl } from '@/lib/buildUrl';
 
 const ACTIVE_COLOR = 'text-[#3CCED7]';
@@ -43,6 +43,8 @@ function NavLink({
 export default function CsmSettingsSidebar() {
   const pathname = usePathname();
   const buildUrl = useBuildUrl();
+  // Pathnames carry an /{orgSlug}/{projectSlug} prefix, so compare on the suffix.
+  const isActive = (path: string) => pathname === path || pathname.endsWith(path);
   const hub = buildUrl('/admin/csm/settings');
   const supportProjects = buildUrl('/admin/csm/settings/support-projects');
   const channels = buildUrl('/admin/csm/settings/channels');
@@ -52,6 +54,7 @@ export default function CsmSettingsSidebar() {
   const businessHours = buildUrl('/admin/csm/settings/business-hours');
   const ticketStatuses = buildUrl('/admin/csm/settings/ticket-statuses');
   const guidance = buildUrl('/admin/csm/settings/guidance');
+  const statusLabels = buildUrl('/admin/csm/settings/customer-status-labels');
 
   return (
     <aside className="hidden w-[240px] shrink-0 flex-col border-r border-gray-200 bg-white sm:flex">
@@ -63,55 +66,61 @@ export default function CsmSettingsSidebar() {
           href={hub}
           label="Settings Hub"
           icon={<Settings className="h-4 w-4" aria-hidden />}
-          isActive={pathname === '/admin/csm/settings'}
+          isActive={isActive('/admin/csm/settings')}
         />
         <NavLink
           href={supportProjects}
           label="Support Projects"
           icon={<FolderKanban className="h-4 w-4" aria-hidden />}
-          isActive={pathname === '/admin/csm/settings/support-projects'}
+          isActive={isActive('/admin/csm/settings/support-projects')}
         />
         <NavLink
           href={channels}
           label="Channels"
           icon={<Radio className="h-4 w-4" aria-hidden />}
-          isActive={pathname === '/admin/csm/settings/channels'}
+          isActive={isActive('/admin/csm/settings/channels')}
         />
         <NavLink
           href={workTypes}
           label="Work Types"
           icon={<ListOrdered className="h-4 w-4" aria-hidden />}
-          isActive={pathname === '/admin/csm/settings/work-types'}
+          isActive={isActive('/admin/csm/settings/work-types')}
         />
         <NavLink
           href={assignments}
           label="Assignments"
           icon={<ClipboardList className="h-4 w-4" aria-hidden />}
-          isActive={pathname === '/admin/csm/settings/assignments'}
+          isActive={isActive('/admin/csm/settings/assignments')}
         />
         <NavLink
           href={slaPolicy}
           label="SLA Policy"
           icon={<Shield className="h-4 w-4" aria-hidden />}
-          isActive={pathname === '/admin/csm/settings/sla'}
+          isActive={isActive('/admin/csm/settings/sla')}
         />
         <NavLink
           href={businessHours}
           label="Business Hours"
           icon={<CalendarClock className="h-4 w-4" aria-hidden />}
-          isActive={pathname === '/admin/csm/settings/business-hours'}
+          isActive={isActive('/admin/csm/settings/business-hours')}
         />
         <NavLink
           href={ticketStatuses}
           label="Ticket Statuses"
           icon={<Workflow className="h-4 w-4" aria-hidden />}
-          isActive={pathname === '/admin/csm/settings/ticket-statuses'}
+          isActive={isActive('/admin/csm/settings/ticket-statuses')}
+        />
+        <NavLink
+          href={statusLabels}
+          label="Customer Status Labels"
+          icon={<Tag className="h-4 w-4" aria-hidden />}
+          isActive={isActive('/admin/csm/settings/customer-status-labels')}
         />
         <NavLink
           href={guidance}
           label="Agent Guidance"
           icon={<Lightbulb className="h-4 w-4" aria-hidden />}
-          isActive={pathname === '/admin/csm/settings/guidance'}
+          isActive={isActive('/admin/csm/settings/guidance')}
         />
       </nav>
     </aside>
