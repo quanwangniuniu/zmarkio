@@ -19,3 +19,12 @@ class IsCsmAccessAllowed(BasePermission):
     def has_permission(self, request, view):
         from core.admin_utils import is_csm_admin
         return is_csm_admin(request.user)
+
+
+class IsCsmSupervisor(BasePermission):
+    """Allow access to CSM supervisors and admins (plus Django staff)."""
+    message = "Supervisor access required."
+
+    def has_permission(self, request, view):
+        from core.admin_utils import is_csm_supervisor
+        return is_csm_supervisor(request.user)

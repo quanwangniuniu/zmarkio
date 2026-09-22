@@ -34,6 +34,10 @@ from csm.services.sla import (
     recalculate_ticket_sla_after_policy_change,
     get_sla_status,
 )
+from csm.services.scope import (
+    accessible_queues_for,
+    supervised_queues_for,
+)
 
 __all__ = [
     'ensure_system_fields',
@@ -62,4 +66,6 @@ __all__ = [
     'recalculate_ticket_sla',
     'recalculate_ticket_sla_after_policy_change',
     'get_sla_status',
+    'accessible_queues_for',
+    'supervised_queues_for',
 ]
