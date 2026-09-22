@@ -165,14 +165,19 @@ def _format_currency_string(symbol: Optional[str], value: Optional[Decimal]) -> 
     return f"{symbol}{normalized}"
 
 
-def evaluate_formula(raw_input: str, sheet: Sheet, udfs: Optional[dict] = None) -> FormulaResult:
+def evaluate_formula(
+    raw_input: str,
+    sheet: Sheet,
+    udfs: Optional[dict] = None,
+    _call_stack: frozenset = frozenset(),
+) -> FormulaResult:
     expression = raw_input[1:] if raw_input.startswith('=') else raw_input
     if not expression.strip():
         return FormulaResult(computed_type=ComputedCellType.ERROR, error_code="#REF!")
 
     try:
         tokens = _tokenize(expression)
-        parser = _Parser(tokens, sheet, udfs=udfs)
+        parser = _Parser(tokens, sheet, udfs=udfs, call_stack=_call_stack)
         result = parser.parse_comparison()
         if parser.has_more_tokens():
             raise FormulaError("#REF!")
@@ -286,10 +291,17 @@ def _tokenize(expression: str) -> List[Token]:
 
 
 class _Parser:
-    def __init__(self, tokens: List[Token], sheet: Sheet, udfs: Optional[dict] = None) -> None:
+    def __init__(
+        self,
+        tokens: List[Token],
+        sheet: Sheet,
+        udfs: Optional[dict] = None,
+        call_stack: frozenset = frozenset(),
+    ) -> None:
         self.tokens = tokens
         self.sheet = sheet
         self.udfs = udfs or {}
+        self.call_stack = call_stack
         self.index = 0
 
     def has_more_tokens(self) -> bool:
@@ -444,8 +456,22 @@ class _Parser:
 
     def _parse_udf_arguments(self, udf: dict) -> Decimal:
         func_name = udf["name"]
+
+        # Direct self-recursion: UDF expression directly calls itself by name.
         if re.search(r'\b' + re.escape(func_name) + r'\b', udf["expression"].upper()):
             raise FormulaError("#REF!")
+
+        # Indirect mutual recursion: check whether this UDF's expression
+        # references any UDF already in the active call chain.
+        # e.g. call_stack={"FOO"}, current UDF BAR has expression "FOO(x)"
+        # → BAR would call FOO which is already running → cycle → #REF!
+        # This correctly allows TOTALSUM(TOTALSUM(B2:B7)) because TOTALSUM's
+        # expression "SUM(data)" does not reference TOTALSUM or any other
+        # UDF in the chain.
+        expr_upper = udf["expression"].upper()
+        for active_name in self.call_stack:
+            if re.search(r'\b' + re.escape(active_name) + r'\b', expr_upper):
+                raise FormulaError("#REF!")
 
         args = []
         if self._current_token() and self._current_token().type != "RPAREN":
@@ -472,7 +498,10 @@ class _Parser:
         for param, val in zip(params, args):
             expr = re.sub(r'\b' + re.escape(param) + r'\b', val, expr)
 
-        result = evaluate_formula("=" + expr, self.sheet, udfs=self.udfs)
+        # Pass the updated call stack (with this UDF added) to prevent
+        # indirect mutual recursion in the evaluated sub-expression.
+        new_call_stack = self.call_stack | {func_name}
+        result = evaluate_formula("=" + expr, self.sheet, udfs=self.udfs, _call_stack=new_call_stack)
         if result.computed_type == ComputedCellType.ERROR:
             raise FormulaError(result.error_code or "#VALUE!")
         if result.computed_number is not None:

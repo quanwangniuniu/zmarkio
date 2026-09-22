@@ -179,6 +179,27 @@ class UDFResolverTest(TestCase):
         self.assertEqual(result.computed_type, ComputedCellType.ERROR)
         self.assertEqual(result.error_code, "#REF!")
 
+    def test_mutually_recursive_udfs_return_ref_error(self):
+        """FOO → BAR → FOO indirect mutual recursion should return #REF!."""
+        udfs = _make_udfs(
+            ("FOO", ["x"], "BAR(x)"),
+            ("BAR", ["x"], "FOO(x)"),
+        )
+        result = evaluate_formula("=FOO(1)", self.sheet, udfs=udfs)
+        self.assertEqual(result.computed_type, ComputedCellType.ERROR)
+        self.assertEqual(result.error_code, "#REF!")
+
+    def test_three_way_mutual_recursion_returns_ref_error(self):
+        """A → B → C → A three-way cycle should return #REF!."""
+        udfs = _make_udfs(
+            ("A", ["x"], "B(x)"),
+            ("B", ["x"], "C(x)"),
+            ("C", ["x"], "A(x)"),
+        )
+        result = evaluate_formula("=A(1)", self.sheet, udfs=udfs)
+        self.assertEqual(result.computed_type, ComputedCellType.ERROR)
+        self.assertEqual(result.error_code, "#REF!")
+
     def test_division_by_zero_in_udf(self):
         """UDF expression dividing by zero should return #DIV/0!."""
         udfs = _make_udfs(("DIVZ", ["x"], "x / 0"))
