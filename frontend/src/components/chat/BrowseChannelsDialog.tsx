@@ -10,7 +10,7 @@ interface BrowseChannelsDialogProps {
   projectId: number | string;
   currentUserId: number;
   onClose: () => void;
-  onJoinedChannel?: (chatId: number) => void;
+  onJoinedChannel?: (chatSlug: string) => void;
 }
 
 export default function BrowseChannelsDialog({
@@ -39,12 +39,12 @@ export default function BrowseChannelsDialog({
   const handleJoin = async (channel: BrowseChannelRow) => {
     setJoiningId(channel.id);
     try {
-      await addParticipant(channel.id, currentUserId);
+      await addParticipant(channel.slug, currentUserId);
       setChannels((prev) =>
         prev.map((c) => c.id === channel.id ? { ...c, is_member: true, participant_count: c.participant_count + 1 } : c)
       );
       toast.success(`Joined #${channel.name}`);
-      onJoinedChannel?.(channel.id);
+      onJoinedChannel?.(channel.slug);
     } catch {
       toast.error('Failed to join channel');
     } finally {
