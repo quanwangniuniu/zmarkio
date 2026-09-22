@@ -120,7 +120,7 @@ export async function runCustomGenerate(args: {
   schema: string;
   userId: number;
   body: Record<string, unknown>;
-  /** Optional inject for tests / alternate providers. Defaults to Gemini. */
+  /** Optional inject for tests / alternate providers. Defaults to Ollama. */
   generator?: CopyGenerator;
 }): Promise<GenerateBatchResponse> {
   const generator = args.generator ?? defaultCopyGenerator;
