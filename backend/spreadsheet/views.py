@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import ValidationError, NotFound
+from rest_framework.exceptions import ValidationError, NotFound, PermissionDenied
 from rest_framework.throttling import ScopedRateThrottle
 from django.shortcuts import get_object_or_404
 from django.conf import settings
@@ -36,6 +36,7 @@ from .models import (
     SpreadsheetHighlightScope,
     PivotConfig,
     SheetKind,
+    UserDefinedFunction,
 )
 from .serializers import (
     SpreadsheetSerializer,
@@ -68,6 +69,7 @@ from .serializers import (
     SpreadsheetCellFormatBatchSerializer,
     PivotConfigSerializer,
     PivotConfigCreateUpdateSerializer,
+    UserDefinedFunctionSerializer,
 )
 from .services import (
     SpreadsheetService, SheetService, CellService, CellBatchArgumentError,
@@ -1624,3 +1626,49 @@ class GeneratePivotConfigView(APIView):
             rows=row_count,
         )
         return Response({'config': config})
+
+class UserDefinedFunctionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get_project(self, request, project_slug):
+        from core.models import Project, ProjectMember
+        project = get_object_or_404(Project, slug=project_slug, is_deleted=False)
+        if not ProjectMember.objects.filter(project=project, user=request.user, is_active=True).exists():
+            raise PermissionDenied()
+        return project
+
+    def get(self, request, project_slug):
+        project = self._get_project(request, project_slug)
+        udfs = UserDefinedFunction.objects.filter(project=project, is_deleted=False)
+        serializer = UserDefinedFunctionSerializer(udfs, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, project_slug):
+        project = self._get_project(request, project_slug)
+        serializer = UserDefinedFunctionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(project=project)
+        return Response(serializer.data, status=201)
+
+class UserDefinedFunctionDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def _get_udf(self, request, project_slug, udf_id):
+        from core.models import Project, ProjectMember
+        project = get_object_or_404(Project, slug=project_slug, is_deleted=False)
+        if not ProjectMember.objects.filter(project=project, user=request.user, is_active=True).exists():
+            raise PermissionDenied()
+        return get_object_or_404(UserDefinedFunction, id=udf_id, project=project, is_deleted=False)
+
+    def put(self, request, project_slug, udf_id):
+        udf = self._get_udf(request, project_slug, udf_id)
+        serializer = UserDefinedFunctionSerializer(udf, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def delete(self, request, project_slug, udf_id):
+        udf = self._get_udf(request, project_slug, udf_id)
+        udf.is_deleted = True
+        udf.save(update_fields=["is_deleted", "updated_at"])
+        return Response(status=204)

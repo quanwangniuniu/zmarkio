@@ -21,6 +21,7 @@ from .models import (
     SpreadsheetHighlightScope,
     SpreadsheetCellFormat,
     SheetKind,
+    UserDefinedFunction,
 )
 from .services import SheetService
 
@@ -661,3 +662,20 @@ class PatternJobStatusSerializer(serializers.ModelSerializer):
             'startedAt',
             'finishedAt',
         ]
+
+class UserDefinedFunctionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserDefinedFunction
+        fields = ["id", "name", "params", "expression", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_name(self, value):
+        BUILTIN = {"SUM", "AVERAGE", "COUNT", "MIN", "MAX", "IF", "AND", "OR", "NOT", "VLOOKUP", "ABS", "ROUND", "FLOOR", "CEILING"}
+        if value.upper() in BUILTIN:
+            raise serializers.ValidationError("Cannot override a built-in function.")
+        return value.upper()
+
+    def validate_params(self, value):
+        if not isinstance(value, list) or not all(isinstance(p, str) for p in value):
+            raise serializers.ValidationError("params must be a list of strings.")
+        return value
