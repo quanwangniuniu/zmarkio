@@ -42,8 +42,8 @@ export function useQualityFilterParams(): QualityFilterState {
     const strings = (key: string): string[] => searchParams.getAll(key).filter(Boolean);
 
     // 'unassigned' is a sentinel alongside numeric agent ids.
-    const agent: (number | 'unassigned')[] = searchParams.getAll('agent').flatMap((raw) => {
-      if (raw === 'unassigned') return ['unassigned' as const];
+    const agent = searchParams.getAll('agent').flatMap<number | 'unassigned'>((raw) => {
+      if (raw === 'unassigned') return ['unassigned'];
       const parsed = Number(raw);
       return Number.isFinite(parsed) ? [parsed] : [];
     });
