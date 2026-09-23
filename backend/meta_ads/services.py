@@ -14,6 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from facebook_integration.models import MetaAdAccount
+from campaign.services import CampaignPlatformIntegrationService
 
 from .meta_client import MetaApiError, graph_get, graph_paged
 from .models import (
@@ -101,12 +102,18 @@ def _set_phase(run_id: int, phase: str, progress: str) -> None:
     )
 
 
-def sync_ad_account(ad_account: MetaAdAccount, access_token: str, *, days: int = 30, kind: str = "hourly") -> MetaSyncRun:
+def sync_ad_account(ad_account: MetaAdAccount, access_token: str | None, *, days: int = 30, kind: str = "hourly") -> MetaSyncRun:
     """Run a full hydration pass. Returns the MetaSyncRun log row."""
     run = MetaSyncRun.objects.create(ad_account=ad_account, kind=kind, status="running")
+    attempted_at = CampaignPlatformIntegrationService.begin_sync(ad_account=ad_account)
     counts: dict[str, int] = {}
     error_message = ""
+    sync_error = None
     try:
+        connection = ad_account.connection
+        if (not access_token or not connection.is_active
+                or (connection.token_expires_at and connection.token_expires_at <= timezone.now())):
+            raise MetaApiError("Meta authorization expired or missing", status_code=401)
         _set_phase(run.id, "campaigns", "Fetching campaigns")
         counts["campaigns"] = sync_campaigns(ad_account, access_token)
         _set_phase(
@@ -143,10 +150,12 @@ def sync_ad_account(ad_account: MetaAdAccount, access_token: str, *, days: int =
         counts["insights_rows"] = sync_insights(ad_account, access_token, days=days)
         status = "ok"
     except MetaApiError as err:
+        sync_error = err
         logger.warning("sync_ad_account %s failed: %s", ad_account.meta_account_id, err)
         error_message = str(err)[:2000]
         status = "error"
     except Exception as err:  # pragma: no cover - defensive
+        sync_error = err
         logger.exception("sync_ad_account %s exploded", ad_account.meta_account_id)
         error_message = f"unhandled: {err}"[:2000]
         status = "error"
@@ -160,6 +169,9 @@ def sync_ad_account(ad_account: MetaAdAccount, access_token: str, *, days: int =
         updated_at=timezone.now(),
     )
     run.refresh_from_db()
+    CampaignPlatformIntegrationService.finish_sync(
+        ad_account=ad_account, attempted_at=attempted_at, error=sync_error,
+    )
     return run
 
 

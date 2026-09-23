@@ -2,6 +2,12 @@ import api from "../api";
 import { CampaignData, CreateCampaignData, UpdateCampaignData, CampaignTaskLink, CampaignActivityTimelineItem, CampaignStatusHistoryItem, CampaignCheckIn, CreateCheckInData, UpdateCheckInData, PerformanceSnapshot, CreateSnapshotData, UpdateSnapshotData, CampaignTemplate, CreateTemplateData, UpdateTemplateData, CreateCampaignFromTemplateData, SaveCampaignAsTemplateData } from "@/types/campaign";
 
 export const CampaignAPI = {
+  reconnectPlatform: (campaignSlug: string, integrationId: number) => {
+    return api.post<{ authorize_url: string; state: string }>(
+      `/api/campaigns/${campaignSlug}/platform-integrations/${integrationId}/reconnect/`,
+    );
+  },
+
   // List campaigns with optional filters
   getCampaigns: (params?: {
     project?: string;

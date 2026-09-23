@@ -165,6 +165,11 @@ export default defineConfig({
       testMatch: /e2e[\\/]budget[\\/]budget-admin-override\.spec\.ts$/,
     },
     {
+      name: 'campaign-mock',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /e2e[\\/]campaigns[\\/]platform-sync\.spec\.ts$/,
+    },
+    {
       /* Real-backend budget flows: multi-user login via issue_budget_e2e_fixtures. */
       name: 'budget-e2e',
       timeout: 90_000,

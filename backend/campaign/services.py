@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+import requests
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -21,8 +23,80 @@ from core.utils.project import has_project_access
 from core.models import ProjectMember
 from task.models import Task
 from .models import Campaign, CampaignTemplate, CampaignTaskLink, AutomationTrigger, AutomationExecution
+from .models import CampaignPlatformIntegration
 
 User = get_user_model()
+
+
+class CampaignPlatformIntegrationService:
+    @staticmethod
+    def classify_sync_error(error: Exception) -> str:
+        """Use structured provider errors; never persist token-bearing messages."""
+        from meta_ads.meta_client import MetaApiError
+
+        codes = CampaignPlatformIntegration.SyncError
+        status_code = None
+        body = {}
+        if isinstance(error, MetaApiError):
+            status_code, body = error.status_code, error.body
+        elif isinstance(error, requests.HTTPError) and error.response is not None:
+            status_code = error.response.status_code
+            try:
+                body = error.response.json()
+            except ValueError:
+                pass
+        detail = body.get('error', {}) if isinstance(body, dict) else {}
+        detail = detail if isinstance(detail, dict) else {}
+        # Meta returns expired/revoked tokens as HTTP 400 with code 190 or 102.
+        # The type OAuthException alone also covers throttling and is not enough.
+        if str(detail.get('code')) in ('190', '102') or status_code == 401:
+            return codes.AUTH
+        if (status_code == 429 or (status_code is not None and status_code >= 500)
+                or detail.get('is_transient') is True
+                or str(detail.get('code')) in ('4', '17', '32', '613')
+                or isinstance(error, (requests.Timeout, requests.ConnectionError))):
+            return codes.TRANSIENT
+        if status_code == 403:
+            return codes.AUTH
+        return codes.UNKNOWN
+
+    @staticmethod
+    def begin_sync(*, ad_account):
+        attempted_at = timezone.now()
+        if ad_account.project_id is None:
+            return attempted_at
+        campaigns = Campaign.objects.filter(project_id=ad_account.project_id, is_deleted=False)
+        for campaign in campaigns:
+            if Campaign.Platform.META not in (campaign.platforms or []):
+                continue
+            CampaignPlatformIntegration.objects.update_or_create(
+                campaign=campaign, ad_account=ad_account,
+                defaults={'last_sync_attempted_at': attempted_at},
+            )
+        return attempted_at
+
+    @staticmethod
+    @transaction.atomic
+    def finish_sync(*, ad_account, attempted_at, error=None):
+        from notifications.dispatch import notify_campaign_platform_auth_error
+
+        codes = CampaignPlatformIntegration.SyncError
+        error_code = CampaignPlatformIntegrationService.classify_sync_error(error) if error else codes.NONE
+        integrations = CampaignPlatformIntegration.objects.select_for_update(of=('self',)).filter(
+            ad_account=ad_account,
+            campaign__project_id=ad_account.project_id,
+            campaign__is_deleted=False,
+            last_sync_attempted_at=attempted_at,
+        ).select_related('campaign__project__organization', 'ad_account__connection__user')
+        for integration in integrations:
+            was_auth_error = integration.last_sync_error == codes.AUTH
+            # A retry timeout does not resolve an already known credential failure.
+            integration.last_sync_error = codes.AUTH if was_auth_error and error else error_code
+            if error is None:
+                integration.last_synced_at = timezone.now()
+            integration.save(update_fields=['last_sync_error', 'last_synced_at'])
+            if error_code == codes.AUTH and not was_auth_error:
+                notify_campaign_platform_auth_error(integration=integration)
 
 
 class CampaignService:
