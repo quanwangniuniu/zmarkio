@@ -304,6 +304,22 @@ def test_health_requires_project_access_and_cta_requires_original_connector(acco
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize('unlink', [True, False])
+def test_relinked_account_during_sync_does_not_notify_former_campaign(account, campaign, organization, unlink):
+    from core.models import Project
+
+    attempt = IntegrationService.begin_sync(ad_account=account)
+    project_id = None if unlink else Project.objects.create(name='New project', organization=organization).pk
+    # The link endpoint changes a separate instance while the worker is running.
+    MetaAdAccount.objects.filter(pk=account.pk).update(project_id=project_id)
+    IntegrationService.finish_sync(ad_account=account, attempted_at=attempt, error=MetaApiError('expired', 401))
+
+    integration = CampaignPlatformIntegration.objects.get(campaign=campaign, ad_account=account)
+    assert integration.last_sync_error == ''
+    assert Notification.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_relinked_account_no_longer_exposes_old_campaign_warning(account, campaign, member_client):
     CampaignPlatformIntegration.objects.create(campaign=campaign, ad_account=account, last_sync_error='auth')
     account.project = None

@@ -83,6 +83,7 @@ class CampaignPlatformIntegrationService:
         error_code = CampaignPlatformIntegrationService.classify_sync_error(error) if error is not None else codes.NONE
         integrations = CampaignPlatformIntegration.objects.select_for_update(of=('self',)).filter(
             ad_account=ad_account,
+            ad_account__project_id=ad_account.project_id,
             campaign__project_id=ad_account.project_id,
             campaign__is_deleted=False,
         ).select_related('campaign__project__organization', 'ad_account__connection__user')
