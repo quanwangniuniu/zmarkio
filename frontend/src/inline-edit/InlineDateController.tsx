@@ -24,6 +24,14 @@ const formatDate = (dateString: string | null | undefined): string => {
   });
 };
 
+/**
+ * Whether a date input value is safe to auto-save. Typing a year digit by digit
+ * fires change events with partial years first (0002, 0020, 0202), which the
+ * browser reports as valid dates — only a four-digit year >= 1000 is complete.
+ */
+const hasCompleteYear = (value: string): boolean =>
+  /^\d{4}-\d{2}-\d{2}$/.test(value) && Number(value.slice(0, 4)) >= 1000;
+
 const formatDateForInput = (dateString: string | null | undefined): string => {
   if (!dateString) return '';
   const date = new Date(dateString);
@@ -50,6 +58,12 @@ function InlineDateController({
   const originalValueRef = useRef<string | null | undefined>(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Don't let a pending auto-save fire after unmount.
+  useEffect(() => () => {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+  }, []);
 
   // Sync value when initialValue changes externally (only when not editing)
   useEffect(() => {
@@ -67,8 +81,19 @@ function InlineDateController({
     }
   }, [isEditing]);
 
-  const handleSave = useCallback(async () => {
-    const newValue = dateValue.trim() || null;
+  /**
+   * @param pickedValue the value to save, when the caller already has it. The
+   *   auto-save timeout must pass it: it runs the handleSave captured in an
+   *   earlier render, whose `dateValue` is stale.
+   */
+  const handleSave = useCallback(async (pickedValue?: string) => {
+    // Whoever saves first wins; a pending auto-save would only repeat it.
+    if (autoSaveTimerRef.current) {
+      clearTimeout(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+
+    const newValue = (pickedValue ?? dateValue).trim() || null;
 
     // Validate
     if (validate) {
@@ -182,13 +207,18 @@ function InlineDateController({
             min={minDate}
             max={maxDate}
             onChange={(e) => {
-              setDateValue(e.target.value);
-              // Auto-save on change
-              setTimeout(() => {
-                handleSave();
-              }, 100);
+              const picked = e.target.value;
+              setDateValue(picked);
+              // Auto-save on change, passing the picked value explicitly — see
+              // handleSave. Partially typed years wait for Enter/blur instead.
+              if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+              autoSaveTimerRef.current = hasCompleteYear(picked)
+                ? setTimeout(() => {
+                    void handleSave(picked);
+                  }, 100)
+                : null;
             }}
-            onBlur={handleSave}
+            onBlur={() => handleSave()}
             onKeyDown={(e) => {
               if (e.key === 'Escape') {
                 e.preventDefault();

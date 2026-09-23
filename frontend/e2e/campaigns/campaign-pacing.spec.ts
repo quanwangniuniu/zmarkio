@@ -249,35 +249,41 @@ test.describe('Campaign budget pacing', () => {
     }
   });
 
-  test('filling in the budget from the header refreshes pacing without a recompute', async ({
+  test('filling in the end date and budget from the header refreshes pacing without a recompute', async ({
     page,
   }) => {
-    const campaign = await createCampaign(page, {
-      end_date: isoDaysFromToday(30),
-    });
-
-    try {
-      await page.goto(`/campaigns/${campaign.slug}`, { waitUntil: 'domcontentloaded' });
-
-      const section = page.getByTestId('pacing-section');
-      await expect(section.getByTestId('pacing-badge')).toHaveAttribute(
-        'data-pacing-status',
-        'not_configured',
-        { timeout: 20_000 },
-      );
-      await expect(section.getByTestId('pacing-prompt')).toContainText(
-        'Add a budget estimate to this campaign',
-      );
-
-      const saved = page.waitForResponse(
+    const campaign = await createCampaign(page, {});
+    const patched = () =>
+      page.waitForResponse(
         (response) =>
           response.url().includes(`/api/campaigns/${campaign.slug}/`) &&
           response.request().method() === 'PATCH',
       );
+
+    try {
+      await page.goto(`/campaigns/${campaign.slug}`, { waitUntil: 'domcontentloaded' });
+
+      await expect(
+        page.getByTestId('pacing-section').getByTestId('pacing-prompt'),
+      ).toContainText('Add a budget estimate and an end date', { timeout: 20_000 });
+
+      // End date first — the inline date editor auto-saves on change.
+      const endDateSaved = patched();
+      const endDate = page.getByTestId('campaign-end-date');
+      await endDate.getByTitle('Click to edit').click();
+      await endDate.locator('input[type="date"]').fill(isoDaysFromToday(30));
+      expect((await endDateSaved).status()).toBe(200);
+
+      await expect(
+        page.getByTestId('pacing-section').getByTestId('pacing-prompt'),
+      ).toContainText('Add a budget estimate to this campaign', { timeout: 20_000 });
+
+      // Then the budget.
+      const budgetSaved = patched();
       await page.getByTestId('campaign-budget').click();
       await page.getByRole('textbox', { name: 'Edit content' }).fill('1000');
       await page.keyboard.press('Enter');
-      expect((await saved).status()).toBe(200);
+      expect((await budgetSaved).status()).toBe(200);
 
       await expect(page.getByTestId('campaign-budget')).toHaveText('$1,000', { timeout: 20_000 });
       // No Meta spend is linked, so the next state is no_data — the point is it

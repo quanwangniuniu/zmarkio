@@ -393,7 +393,7 @@ export default function CampaignHeader({ campaign, onUpdate, loading, onChangeSt
         </div>
 
         {/* End Date */}
-        <div className="flex items-center gap-2">
+        <div data-testid="campaign-end-date" className="flex items-center gap-2">
           <span className="text-sm font-medium text-gray-500">End:</span>
           {isArchived ? (
             <span className="text-sm text-gray-900">{campaign.end_date ? formatDate(campaign.end_date) : 'Not set'}</span>
