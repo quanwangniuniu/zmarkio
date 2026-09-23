@@ -44,7 +44,8 @@ describe('QualityReportView — AC4 aggregated counts', () => {
     expect(agentTable).toHaveTextContent('Ada L.');
     expect(agentTable).toHaveTextContent('Unassigned');
 
-    expect(screen.getByText('2026-03-01')).toBeInTheDocument();
+    // Buckets render in the repo's date shape rather than raw ISO.
+    expect(screen.getByText(/Mar 1, 2026/)).toBeInTheDocument();
     expect(screen.getByText(/grouped by day/i)).toBeInTheDocument();
   });
 

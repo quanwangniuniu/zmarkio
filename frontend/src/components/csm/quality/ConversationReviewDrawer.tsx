@@ -8,16 +8,12 @@ import CsmQualityAPI from '@/lib/api/csmQualityApi';
 import { QualityConversationDetail, QualityRating } from '@/types/csmQuality';
 import QualityRatingBadge from './QualityRatingBadge';
 import QualityRatingForm from './QualityRatingForm';
+import { formatDateTime } from './formatDates';
 
 interface ConversationReviewDrawerProps {
   conversationId: number | null;
   onClose: () => void;
   onSaved: () => void;
-}
-
-function formatTimestamp(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
 export function ConversationReviewDrawer({
@@ -136,7 +132,7 @@ export function ConversationReviewDrawer({
                       {message.sender_type === 'agent' ? 'Agent' : message.sender_type === 'customer' ? 'Customer' : 'System'}
                     </span>
                     <span className="ml-2 text-xs text-slate-400">
-                      {formatTimestamp(message.created_at)}
+                      {formatDateTime(message.created_at)}
                     </span>
                     <p className="text-slate-600">{message.content}</p>
                   </div>
@@ -169,7 +165,7 @@ export function ConversationReviewDrawer({
                         <p className="mt-1 text-sm text-slate-600">{review.comment}</p>
                       )}
                       <p className="mt-1 text-xs text-slate-400">
-                        {formatTimestamp(review.reviewed_at)}
+                        {formatDateTime(review.reviewed_at)}
                       </p>
                     </li>
                   ))}

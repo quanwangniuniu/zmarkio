@@ -3,17 +3,12 @@
 import React from 'react';
 import { QualityConversationRow } from '@/types/csmQuality';
 import QualityRatingBadge from './QualityRatingBadge';
+import { formatDateTime } from './formatDates';
 
 interface QualityConversationTableProps {
   rows: QualityConversationRow[];
   loading: boolean;
   onSelect: (row: QualityConversationRow) => void;
-}
-
-function formatDate(value: string | null | undefined): string {
-  if (!value) return '—';
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString();
 }
 
 /** tags[0] doubles as the conversation subject; the rest are real tags. */
@@ -87,7 +82,7 @@ export function QualityConversationTable({
               <td className="px-3 py-2 text-slate-600">{row.queue_name || '—'}</td>
               <td className="px-3 py-2 text-slate-600">{row.channel_display}</td>
               <td className="px-3 py-2 text-slate-600">{row.status_display}</td>
-              <td className="px-3 py-2 text-slate-600">{formatDate(row.started_at)}</td>
+              <td className="px-3 py-2 text-slate-600">{formatDateTime(row.started_at)}</td>
               <td className="px-3 py-2">
                 <QualityRatingBadge rating={row.my_review?.rating ?? null} />
               </td>

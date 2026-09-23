@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { QualityBucket, QualityReportDateRow } from '@/types/csmQuality';
+import { formatBucket } from './formatDates';
 
 interface QualityReportTrendChartProps {
   rows: QualityReportDateRow[];
@@ -41,7 +42,7 @@ export function QualityReportTrendChart({ rows, bucket }: QualityReportTrendChar
       <ul className="space-y-1.5">
         {rows.map((row) => (
           <li key={row.bucket ?? 'unknown'} className="flex items-center gap-2">
-            <span className="w-24 shrink-0 text-xs text-slate-500">{row.bucket ?? '—'}</span>
+            <span className="w-24 shrink-0 text-xs text-slate-500">{formatBucket(row.bucket)}</span>
             <div className="flex h-5 flex-1 overflow-hidden rounded bg-slate-100">
               {SEGMENTS.map((segment) => {
                 const value = row[segment.key];

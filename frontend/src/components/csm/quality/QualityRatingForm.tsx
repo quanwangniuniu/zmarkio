@@ -8,16 +8,12 @@ import {
   QualityRating,
 } from '@/types/csmQuality';
 import { RATING_CLASSES } from './QualityRatingBadge';
+import { formatDateTime } from './formatDates';
 
 interface QualityRatingFormProps {
   existingReview: ConversationQualityReview | null;
   saving: boolean;
   onSubmit: (rating: QualityRating, comment: string) => void;
-}
-
-function formatReviewedAt(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
 }
 
 export function QualityRatingForm({
@@ -85,7 +81,7 @@ export function QualityRatingForm({
         {existingReview ? (
           <p className="text-xs text-slate-500">
             Last reviewed by {existingReview.reviewer_name || 'you'} on{' '}
-            {formatReviewedAt(existingReview.reviewed_at)}
+            {formatDateTime(existingReview.reviewed_at)}
           </p>
         ) : (
           <span />
