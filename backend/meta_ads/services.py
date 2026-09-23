@@ -107,6 +107,14 @@ def get_creative_preview(creative: MetaAdCreative, ad_format: str) -> dict[str, 
     body = previews[0].get("body", "") or ""
     match = re.search(r'src="([^"]+)"', body)
     iframe_src = match.group(1).replace("&amp;", "&") if match else ""
+    if not iframe_src.strip():
+        # VideoModal only renders iframe_src; a 200 with an empty src looks
+        # successful but shows "No preview data available." Do not cache it.
+        raise CreativePreviewError(
+            "Meta preview HTML did not include an iframe src.",
+            status=502,
+            code="missing_iframe_src",
+        )
 
     payload = {
         "creative_id": creative.id,

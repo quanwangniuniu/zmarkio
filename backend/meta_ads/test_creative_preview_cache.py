@@ -10,7 +10,7 @@ from rest_framework.test import APITestCase
 
 from facebook_integration.models import FacebookConnection, MetaAdAccount
 from meta_ads.models import MetaAd, MetaAdCreative, MetaAdSet, MetaCampaign
-from meta_ads.services import get_creative_preview
+from meta_ads.services import CreativePreviewError, get_creative_preview
 from utils.ad_preview_cache_keys import creative_preview_cache_key
 
 TEST_CACHES = {
@@ -177,6 +177,33 @@ class GetCreativePreviewCacheTests(TestCase):
         )
         self.assertEqual(mock_graph_get.call_count, 2)
 
+    @patch("meta_ads.services.graph_get")
+    def test_missing_iframe_src_raises_and_does_not_cache(self, mock_graph_get):
+        mock_graph_get.return_value = {
+            "data": [{"body": "<div>no iframe</div>"}],
+        }
+        key = creative_preview_cache_key(
+            platform="meta",
+            account_id=self.account_a.id,
+            creative_id=self.creative_a.meta_creative_id,
+            variant=AD_FORMAT,
+        )
+
+        with self.assertRaises(CreativePreviewError) as ctx:
+            get_creative_preview(self.creative_a, AD_FORMAT)
+
+        self.assertEqual(ctx.exception.status, 502)
+        self.assertEqual(ctx.exception.code, "missing_iframe_src")
+        self.assertIsNone(cache.get(key))
+        self.assertEqual(mock_graph_get.call_count, 1)
+
+        mock_graph_get.return_value = {
+            "data": [{"body": _iframe_body("https://example.test/preview-recovered")}]
+        }
+        payload = get_creative_preview(self.creative_a, AD_FORMAT)
+        self.assertEqual(payload["iframe_src"], "https://example.test/preview-recovered")
+        self.assertEqual(mock_graph_get.call_count, 2)
+
 
 @override_settings(CACHES=TEST_CACHES)
 class MetaCreativeVideoSourceViewCacheTests(APITestCase):
@@ -240,3 +267,13 @@ class MetaCreativeVideoSourceViewCacheTests(APITestCase):
         self.assertEqual(first.data["iframe_src"], "https://example.test/view-preview")
         self.assertEqual(second.data["iframe_src"], "https://example.test/view-preview")
         self.assertEqual(mock_graph_get.call_count, 1)
+
+    @patch("meta_ads.services.graph_get")
+    def test_view_returns_502_when_iframe_src_missing(self, mock_graph_get):
+        mock_graph_get.return_value = {"data": [{"body": "<iframe></iframe>"}]}
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.data["code"], "missing_iframe_src")
+        self.assertIn("iframe src", response.data["detail"])
