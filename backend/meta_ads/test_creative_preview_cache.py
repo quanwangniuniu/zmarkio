@@ -204,6 +204,20 @@ class GetCreativePreviewCacheTests(TestCase):
         self.assertEqual(payload["iframe_src"], "https://example.test/preview-recovered")
         self.assertEqual(mock_graph_get.call_count, 2)
 
+    @patch("meta_ads.services.graph_get")
+    def test_iframe_src_accepts_single_quotes_and_spacing(self, mock_graph_get):
+        mock_graph_get.return_value = {
+            "data": [
+                {
+                    "body": "<iframe width='1' src = 'https://example.test/single-quoted'></iframe>"
+                }
+            ]
+        }
+
+        payload = get_creative_preview(self.creative_a, AD_FORMAT)
+
+        self.assertEqual(payload["iframe_src"], "https://example.test/single-quoted")
+
 
 @override_settings(CACHES=TEST_CACHES)
 class MetaCreativeVideoSourceViewCacheTests(APITestCase):

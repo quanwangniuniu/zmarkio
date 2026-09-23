@@ -105,7 +105,7 @@ def get_creative_preview(creative: MetaAdCreative, ad_format: str) -> dict[str, 
         )
 
     body = previews[0].get("body", "") or ""
-    match = re.search(r'src="([^"]+)"', body)
+    match = re.search(r"""src\s*=\s*["']([^"']+)["']""", body)
     iframe_src = match.group(1).replace("&amp;", "&") if match else ""
     if not iframe_src.strip():
         # VideoModal only renders iframe_src; a 200 with an empty src looks
