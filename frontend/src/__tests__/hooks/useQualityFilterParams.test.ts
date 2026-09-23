@@ -102,6 +102,21 @@ describe('useQualityFilterParams — writing the URL', () => {
     expect(lastQuery().get('tab')).toBe('report');
   });
 
+  it('clears the filters when the tab changes', () => {
+    setUrl('tab=conversations&channel=email&agent=9&date_from=2026-03-01&bucket=day&page=3');
+    const { result } = renderHook(() => useQualityFilterParams());
+
+    act(() => result.current.setTab('report'));
+
+    const query = lastQuery();
+    expect(query.get('tab')).toBe('report');
+    expect(query.getAll('channel')).toEqual([]);
+    expect(query.getAll('agent')).toEqual([]);
+    expect(query.get('date_from')).toBeNull();
+    expect(query.get('bucket')).toBeNull();
+    expect(query.get('page')).toBeNull();
+  });
+
   it('omits page=1 rather than writing it', () => {
     setUrl('page=3');
     const { result } = renderHook(() => useQualityFilterParams());

@@ -23,6 +23,15 @@ export interface QualityFilterState {
 
 const ARRAY_KEYS = ['agent', 'queue', 'channel', 'customer', 'tag', 'status'] as const;
 
+const SCALAR_KEYS = ['date_from', 'date_to', 'customer_search', 'date_basis', 'bucket'] as const;
+
+/** Strip every filter, and the page offset they were paging through. */
+function dropFilters(params: URLSearchParams): void {
+  Object.keys(EMPTY_QUALITY_FILTERS).forEach((key) => params.delete(key));
+  SCALAR_KEYS.forEach((key) => params.delete(key));
+  params.delete('page');
+}
+
 /**
  * Keep quality inspection filters, the active tab and the page in the URL.
  *
@@ -106,7 +115,13 @@ export function useQualityFilterParams(): QualityFilterState {
   );
 
   const setTab = useCallback(
-    (nextTab: QualityTab) => push((params) => params.set('tab', nextTab)),
+    (nextTab: QualityTab) =>
+      push((params) => {
+        // Switching view starts from a clean slate rather than carrying the
+        // previous tab's filters across.
+        dropFilters(params);
+        params.set('tab', nextTab);
+      }),
     [push],
   );
 
@@ -119,14 +134,7 @@ export function useQualityFilterParams(): QualityFilterState {
     [push],
   );
 
-  const clearFilters = useCallback(() => {
-    push((params) => {
-      Object.keys(EMPTY_QUALITY_FILTERS).forEach((key) => params.delete(key));
-      ['date_from', 'date_to', 'customer_search', 'date_basis', 'bucket', 'page'].forEach((key) =>
-        params.delete(key),
-      );
-    });
-  }, [push]);
+  const clearFilters = useCallback(() => push(dropFilters), [push]);
 
   return { filters, tab, page, setFilters, setTab, setPage, clearFilters, activeFilterCount };
 }
