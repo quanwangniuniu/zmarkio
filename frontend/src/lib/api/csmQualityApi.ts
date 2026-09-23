@@ -82,8 +82,18 @@ export default class CsmQualityAPI {
     return res.data;
   }
 
-  static async getFilterOptions(): Promise<QualityFilterOptions> {
-    const res = await api.get<QualityFilterOptions>(`${BASE}/filter-options/`);
+  /**
+   * Option values and their tallies.
+   *
+   * Takes the current filters so the tallies reflect them; the server leaves
+   * out each facet's own filter when counting it.
+   */
+  static async getFilterOptions(
+    filters: Partial<QualityFilters> = {},
+  ): Promise<QualityFilterOptions> {
+    const res = await api.get<QualityFilterOptions>(`${BASE}/filter-options/`, {
+      params: toQueryParams(filters),
+    });
     return res.data;
   }
 

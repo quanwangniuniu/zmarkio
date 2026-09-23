@@ -434,6 +434,59 @@ def test_filter_options_count_unassigned_annotations(supervisor_client, csm_queu
     assert data['unassigned_review_count'] == 1
 
 
+def test_filter_options_tallies_respect_other_filters(
+    supervisor_client, user2, csm_queue, customer_organisation
+):
+    """Pick a channel and the agent counts follow it."""
+    agent = _agent(user2, csm_queue, customer_organisation)
+    _conversation(csm_queue, assigned_to=agent, channel='email')
+    _conversation(csm_queue, assigned_to=agent, channel='web')
+    _conversation(csm_queue, assigned_to=agent, channel='web')
+
+    unfiltered = supervisor_client.get(_options_url()).data
+    filtered = supervisor_client.get(_options_url(), {'channel': 'email'}).data
+
+    assert next(a for a in unfiltered['agents']
+                if a['user_id'] == user2.id)['conversation_count'] == 3
+    assert next(a for a in filtered['agents']
+                if a['user_id'] == user2.id)['conversation_count'] == 1
+
+
+def test_filter_options_do_not_narrow_their_own_facet(
+    supervisor_client, csm_queue
+):
+    """A facet must keep showing what its other options would add.
+
+    Applying the channel filter to the channel counts would show Web as 0 once
+    Email is picked, making a second channel look pointless to add.
+    """
+    _conversation(csm_queue, channel='email')
+    _conversation(csm_queue, channel='web')
+    _conversation(csm_queue, channel='web')
+
+    data = supervisor_client.get(_options_url(), {'channel': 'email'}).data
+    channels = {c['value']: c['conversation_count'] for c in data['channels']}
+
+    assert channels['email'] == 1
+    assert channels['web'] == 2, 'the channel facet must ignore its own filter'
+
+
+def test_filter_options_tallies_respect_the_date_range(supervisor_client, csm_queue):
+    """The range is not a facet, so it narrows every tally."""
+    old = _conversation(
+        csm_queue, started_at=_dt.datetime(2026, 1, 5, 12, tzinfo=_dt.timezone.utc),
+        channel='email')
+    _conversation(csm_queue, channel='email')
+
+    data = supervisor_client.get(_options_url(), {
+        'date_from': '2026-01-05', 'date_to': '2026-01-05',
+    }).data
+    email = next(c for c in data['channels'] if c['value'] == 'email')
+
+    assert email['conversation_count'] == 1
+    assert old.id
+
+
 def test_filter_options_order_by_volume(supervisor_client, csm_queue):
     """Busiest first, so the useful options are at the top of each list."""
     for _ in range(3):

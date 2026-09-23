@@ -42,11 +42,14 @@ export function QualityInspectionView() {
 
   const loadOptions = useCallback(async () => {
     try {
-      setOptions(await CsmQualityAPI.getFilterOptions());
+      // Filters go with it: the tallies describe what each option would add to
+      // the selection you already have.
+      setOptions(await CsmQualityAPI.getFilterOptions(filters));
     } catch {
       toast.error('Could not load the filter options.');
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
   useEffect(() => {
     loadOptions();

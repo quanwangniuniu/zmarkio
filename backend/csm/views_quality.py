@@ -128,7 +128,9 @@ class QualityFilterOptionsView(APIView):
     permission_classes = [IsAuthenticated, IsCsmSupervisor]
 
     def get(self, request):
-        return Response(build_filter_options(request.user))
+        # The tallies respect the filters already applied, so the same query
+        # params the list takes are read here too.
+        return Response(build_filter_options(request.user, parse_filters(request.query_params)))
 
 
 class QualityReportView(APIView):

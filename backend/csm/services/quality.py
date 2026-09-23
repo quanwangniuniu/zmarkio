@@ -125,6 +125,36 @@ def parse_filters(query_params):
 # conversation scope
 # ---------------------------------------------------------------------------
 
+# Which filter keys each dropdown owns. Used to compute a facet's counts with
+# every OTHER filter applied but not its own.
+FACET_KEYS = {
+    'agent': ('agent_user_ids', 'include_unassigned'),
+    'queue': ('queue_ids',),
+    'channel': ('channels',),
+    'customer': ('customer_ids', 'customer_search'),
+    'tag': ('tags',),
+    'status': ('statuses',),
+}
+
+
+def without_facet(filters, facet):
+    """*filters* with the keys owned by *facet* cleared.
+
+    A facet must not narrow its own options: with Email selected, applying the
+    channel filter to the channel counts would show Web as 0 and make a second
+    channel look pointless to add. Every other filter still applies, which is
+    what makes the number mean "pick this as well and you get N".
+    """
+    if facet is None:
+        return filters
+    cleared = dict(filters)
+    for key in FACET_KEYS[facet]:
+        cleared[key] = [] if isinstance(filters.get(key), list) else (
+            False if isinstance(filters.get(key), bool) else ''
+        )
+    return cleared
+
+
 def filtered_conversations(user, filters, apply_date=True):
     """Conversations the user supervises, narrowed by *filters*.
 
@@ -476,40 +506,63 @@ def _tag_counts(tag_lists):
     return counts
 
 
-def build_filter_options(user):
+def build_filter_options(user, filters=None):
     """Values for the six filter controls, within the supervised scope.
 
     Each option carries two tallies: how many conversations it accounts for,
     and how many annotations. The Conversations tab lists conversations while
     the Report counts annotations, so a single number would be wrong on one of
     them - most conversations are never reviewed.
+
+    The tallies respect the filters already applied, except the facet's own:
+    see ``without_facet``. So with Email selected the agent counts are
+    email-only, while the channel counts still show what Web would add.
     """
+    filters = filters or parse_filters({})
+
     queues = list(
         supervised_queues_for(user)
         .select_related('organisation')
         .order_by('organisation__name', 'display_order', 'name')
     )
-    queue_ids = [q.id for q in queues]
-    conversations = Conversation.objects.filter(queue_id__in=queue_ids)
-    # Reviews are counted through their conversation, so an option means the
-    # same thing on both tabs: filter by it and this is what you get.
-    reviews = ConversationQualityReview.objects.filter(conversation__queue_id__in=queue_ids)
 
-    queue_counts = _counts_by(conversations, 'queue_id')
-    channel_counts = _counts_by(conversations, 'channel')
-    status_counts = _counts_by(conversations, 'status')
-    agent_counts = _counts_by(conversations, 'assigned_to__user_id')
+    def scoped(facet):
+        """Conversations and their reviews, with every filter but *facet*'s own."""
+        conversations = filtered_conversations(user, without_facet(filters, facet))
+        reviews = ConversationQualityReview.objects.filter(
+            conversation_id__in=conversations.values('pk'))
+        return conversations, reviews
+
+    queue_convs, queue_reviews_qs = scoped('queue')
+    queue_counts = _counts_by(queue_convs, 'queue_id')
+    queue_reviews = _counts_by(queue_reviews_qs, 'conversation__queue_id')
+
+    channel_convs, channel_reviews_qs = scoped('channel')
+    channel_counts = _counts_by(channel_convs, 'channel')
+    channel_reviews = _counts_by(channel_reviews_qs, 'conversation__channel')
+
+    status_convs, status_reviews_qs = scoped('status')
+    status_counts = _counts_by(status_convs, 'status')
+    status_reviews = _counts_by(status_reviews_qs, 'conversation__status')
+
+    agent_convs, agent_reviews_qs = scoped('agent')
+    agent_counts = _counts_by(agent_convs, 'assigned_to__user_id')
+    agent_reviews = _counts_by(agent_reviews_qs, 'conversation__assigned_to__user_id')
     unassigned_count = agent_counts.pop(None, 0)
-
-    queue_reviews = _counts_by(reviews, 'conversation__queue_id')
-    channel_reviews = _counts_by(reviews, 'conversation__channel')
-    status_reviews = _counts_by(reviews, 'conversation__status')
-    agent_reviews = _counts_by(reviews, 'conversation__assigned_to__user_id')
     unassigned_reviews = agent_reviews.pop(None, 0)
+
+    customer_convs, customer_reviews_qs = scoped('customer')
+    customer_reviews = _counts_by(customer_reviews_qs, 'conversation__customer_id')
+
+    tag_convs, tag_reviews_qs = scoped('tag')
+    tag_counts = _tag_counts(
+        tag_convs.values_list('tags', flat=True)[:TAG_VOCABULARY_SCAN_LIMIT])
+    tag_reviews = _tag_counts(
+        tag_reviews_qs.values_list('conversation__tags', flat=True)[:TAG_VOCABULARY_SCAN_LIMIT])
 
     agents = (
         CustomerUser.objects
-        .filter(queue_id__in=queue_ids, is_active=True, user__isnull=False)
+        .filter(queue_id__in=[q.id for q in queues], is_active=True, user__isnull=False)
         .select_related('user')
     )
     seen, agent_rows = set(), []
@@ -530,25 +583,20 @@ def build_filter_options(user):
     # its tallies. .order_by() clears Conversation.Meta.ordering: left in place
     # it would put started_at into the grouping and split every customer back
     # into one row per conversation.
-    customer_reviews = _counts_by(reviews, 'conversation__customer_id')
     customers = sorted(
         (
             {'id': row['customer_id'], 'name': row['customer__full_name'],
              'email': row['customer__email'],
              'conversation_count': row['conversation_count'],
              'review_count': customer_reviews.get(row['customer_id'], 0)}
-            for row in conversations.filter(customer__isnull=False)
-                                    .order_by()
-                                    .values('customer_id', 'customer__full_name', 'customer__email')
-                                    .annotate(conversation_count=Count('id'))
+            for row in customer_convs.filter(customer__isnull=False)
+                                     .order_by()
+                                     .values('customer_id', 'customer__full_name',
+                                             'customer__email')
+                                     .annotate(conversation_count=Count('id'))
         ),
         key=lambda row: (-row['conversation_count'], (row['name'] or '').lower()),
     )
-
-    tag_counts = _tag_counts(
-        conversations.values_list('tags', flat=True)[:TAG_VOCABULARY_SCAN_LIMIT])
-    tag_reviews = _tag_counts(
-        reviews.values_list('conversation__tags', flat=True)[:TAG_VOCABULARY_SCAN_LIMIT])
 
     organisations = []
     seen_orgs = set()

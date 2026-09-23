@@ -117,11 +117,15 @@ describe('getReport and getFilterOptions', () => {
     });
   });
 
-  it('fetches filter options without params', async () => {
+  it('sends the current filters with the option tallies', async () => {
+    // The tallies describe what each option would add to the selection you
+    // already have, so the server needs the rest of the filters.
     mockedApi.get.mockResolvedValue({ data: { tags: [] }, headers: {} });
 
-    await CsmQualityAPI.getFilterOptions();
+    await CsmQualityAPI.getFilterOptions({ channel: ['email'] });
 
-    expect(mockedApi.get).toHaveBeenCalledWith('/api/csm/quality/filter-options/');
+    expect(mockedApi.get).toHaveBeenCalledWith('/api/csm/quality/filter-options/', {
+      params: { channel: ['email'] },
+    });
   });
 });
