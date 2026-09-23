@@ -21,7 +21,10 @@ const options: QualityFilterOptions = {
     { value: 'active', label: 'Active' },
   ],
   tags: ['vip', 'refund'],
-  customers: [{ id: 5, name: 'Grace H.', email: 'grace@x.io' }],
+  customers: [
+    { id: 5, name: 'Grace H.', email: 'grace@x.io', conversation_count: 7 },
+    { id: 6, name: 'Quiet Co.', email: 'quiet@x.io', conversation_count: 1 },
+  ],
 };
 
 function renderPanel(overrides: Partial<React.ComponentProps<typeof QualityFiltersPanel>> = {}) {
@@ -84,7 +87,7 @@ describe('QualityFiltersPanel — AC2 all six filters', () => {
     expect(onChange).toHaveBeenCalledWith({ channel: ['email'] });
 
     fireEvent.click(screen.getByRole('button', { name: 'Customer' }));
-    fireEvent.click(within(screen.getByRole('listbox', { name: 'Customer' })).getByLabelText('Grace H.'));
+    fireEvent.click(within(screen.getByRole('listbox', { name: 'Customer' })).getByLabelText(/Grace H\./));
     expect(onChange).toHaveBeenCalledWith({ customer: [5] });
 
     fireEvent.click(screen.getByRole('button', { name: 'Tag' }));
@@ -94,6 +97,16 @@ describe('QualityFiltersPanel — AC2 all six filters', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Status' }));
     fireEvent.click(within(screen.getByRole('listbox', { name: 'Status' })).getByLabelText('Closed'));
     expect(onChange).toHaveBeenCalledWith({ status: ['closed'] });
+  });
+
+  it('shows how many conversations each customer accounts for', () => {
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Customer' }));
+    const list = screen.getByRole('listbox', { name: 'Customer' });
+
+    expect(within(list).getByLabelText(/Grace H\..*7 conversations/)).toBeInTheDocument();
+    expect(within(list).getByLabelText(/Quiet Co\..*1 conversations/)).toBeInTheDocument();
   });
 
   it('shows the date-basis toggle only on the report tab', () => {

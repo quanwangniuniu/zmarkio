@@ -104,6 +104,9 @@ export function QualityFiltersPanel({
           options={(options?.customers ?? []).map((customer) => ({
             value: String(customer.id),
             label: customer.name || customer.email,
+            // How many conversations they account for, so a supervisor can see
+            // where the volume is before picking.
+            count: customer.conversation_count,
           }))}
           selected={filters.customer.map(String)}
           onChange={(next) => onChange({ customer: next.map(Number) })}

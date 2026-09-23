@@ -5,6 +5,8 @@ import React, { useMemo, useState } from 'react';
 export interface MultiSelectOption {
   value: string;
   label: string;
+  /** Optional tally shown right-aligned, e.g. how many conversations match. */
+  count?: number;
 }
 
 interface QualityMultiSelectProps {
@@ -97,6 +99,14 @@ export function QualityMultiSelect({
                   className="h-3.5 w-3.5 rounded border-slate-300 text-[#3CCED7] focus:ring-[#3CCED7]"
                 />
                 <span className="truncate">{option.label}</span>
+                {option.count !== undefined && (
+                  <span className="ml-auto shrink-0 tabular-nums text-xs text-slate-400">
+                    {option.count}
+                    {/* The bare number would read as "Grace H. 7"; this makes
+                        the option's accessible name say what it counts. */}
+                    <span className="sr-only"> conversations</span>
+                  </span>
+                )}
               </label>
             ))}
           </div>

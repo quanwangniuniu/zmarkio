@@ -76,7 +76,8 @@ export interface QualityFilterOptions {
   channels: { value: string; label: string }[];
   statuses: { value: string; label: string }[];
   tags: string[];
-  customers: { id: number; name: string; email: string }[];
+  /** conversation_count is how many conversations in scope that customer accounts for. */
+  customers: { id: number; name: string; email: string; conversation_count: number }[];
 }
 
 export interface QualityReportRatingRow {

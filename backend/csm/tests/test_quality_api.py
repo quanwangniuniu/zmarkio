@@ -308,10 +308,33 @@ def test_filter_options_lists_each_customer_once(supervisor_client, csm_queue, c
         _conversation(csm_queue, customer=customer)
 
     response = supervisor_client.get(_options_url())
-    ids = [row['id'] for row in response.data['customers']]
+    rows = response.data['customers']
+    ids = [row['id'] for row in rows]
 
     assert ids == [customer.id]
     assert len(ids) == len(set(ids))
+    assert rows[0]['conversation_count'] == 4
+
+
+def test_filter_options_orders_customers_by_volume(
+    supervisor_client, csm_queue, customer, customer_organisation, project
+):
+    """Busiest customer first, so the supervisor sees where the volume is."""
+    from customer.models import Customer
+
+    quiet = Customer.objects.create(
+        email='quiet@test.com', full_name='Quiet Customer',
+        organisation=customer_organisation, project=project,
+    )
+    _conversation(csm_queue, customer=quiet)
+    for _ in range(3):
+        _conversation(csm_queue, customer=customer)
+
+    rows = supervisor_client.get(_options_url()).data['customers']
+
+    assert [(r['name'], r['conversation_count']) for r in rows] == [
+        (customer.full_name, 3), ('Quiet Customer', 1),
+    ]
 
 
 def test_filter_options_lists_each_agent_once(
