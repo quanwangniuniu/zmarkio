@@ -144,23 +144,6 @@ class CampaignViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         elif self.action in ['update', 'partial_update']:
             return CampaignUpdateSerializer
         return CampaignSerializer
-
-    @action(detail=True, methods=['post'], url_path=r'platform-integrations/(?P<integration_id>\d+)/reconnect')
-    def reconnect_platform(self, request, integration_id=None, **kwargs):
-        from facebook_integration.services import build_authorize_url, build_oauth_state
-
-        campaign = self.get_object()
-        integration = get_object_or_404(
-            campaign.platform_integrations.select_related('ad_account__connection'),
-            pk=integration_id, ad_account__project_id=campaign.project_id,
-        )
-        if Campaign.Platform.META not in campaign.platforms:
-            raise DRFValidationError('This campaign no longer uses Meta.')
-        if integration.ad_account.connection.user_id != request.user.id:
-            raise PermissionDenied('The person who connected this account must reconnect it.')
-        state = build_oauth_state(request.user.id, project_id=campaign.project_id)
-        # Starting consent does not prove recovery. Only a successful sync clears the error.
-        return Response({'authorize_url': build_authorize_url(state), 'state': state})
     
     def get_serializer_context(self):
         """Add request to serializer context"""

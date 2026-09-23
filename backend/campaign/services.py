@@ -39,12 +39,6 @@ class CampaignPlatformIntegrationService:
         body = {}
         if isinstance(error, MetaApiError):
             status_code, body = error.status_code, error.body
-        elif isinstance(error, requests.HTTPError) and error.response is not None:
-            status_code = error.response.status_code
-            try:
-                body = error.response.json()
-            except ValueError:
-                pass
         detail = body.get('error', {}) if isinstance(body, dict) else {}
         detail = detail if isinstance(detail, dict) else {}
         # Meta returns expired/revoked tokens as HTTP 400 with code 190 or 102.

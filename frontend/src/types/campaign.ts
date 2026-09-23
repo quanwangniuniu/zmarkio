@@ -23,7 +23,6 @@ export interface ProjectSummary {
 // Campaign data types
 export interface CampaignPlatformIntegration {
   id: number;
-  platform: CampaignPlatform;
   account_name: string;
   connector_name: string;
   can_reconnect: boolean;

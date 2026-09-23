@@ -47,19 +47,15 @@ class ProjectSummarySerializer(serializers.ModelSerializer):
 # ============================================================================
 
 class CampaignPlatformIntegrationSerializer(serializers.ModelSerializer):
-    platform = serializers.SerializerMethodField()
     account_name = serializers.CharField(source='ad_account.name', read_only=True)
     connector_name = serializers.CharField(source='ad_account.connection.user.username', read_only=True)
     can_reconnect = serializers.SerializerMethodField()
 
     class Meta:
         model = CampaignPlatformIntegration
-        fields = ['id', 'platform', 'account_name', 'connector_name', 'can_reconnect',
+        fields = ['id', 'account_name', 'connector_name', 'can_reconnect',
                   'last_sync_error', 'last_sync_attempted_at', 'last_synced_at']
         read_only_fields = fields
-
-    def get_platform(self, obj):
-        return Campaign.Platform.META
 
     def get_can_reconnect(self, obj):
         request = self.context.get('request')

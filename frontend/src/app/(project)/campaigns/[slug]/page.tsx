@@ -149,7 +149,7 @@ export default function CampaignV2DetailPage() {
         </Button>
 
         <CampaignSyncBanner
-          campaignSlug={campaignId}
+          projectId={currentCampaign.project.id}
           integrations={currentCampaign.platform_integrations}
         />
 

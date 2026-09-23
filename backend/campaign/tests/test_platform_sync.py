@@ -2,7 +2,6 @@
 
 from datetime import timedelta
 from unittest.mock import patch
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 import requests
@@ -12,7 +11,6 @@ from campaign.models import Campaign, CampaignPlatformIntegration
 from campaign.services import CampaignPlatformIntegrationService as IntegrationService
 from core.models import ProjectMember
 from facebook_integration.models import FacebookConnection, MetaAdAccount
-from facebook_integration.services import unpack_oauth_state
 from meta_ads.meta_client import MetaApiError
 from meta_ads.services import sync_ad_account
 from meta_ads.tasks import sync_all_meta_connections, sync_single_ad_account
@@ -62,13 +60,6 @@ def test_classify_sync_error(error, expected):
     assert IntegrationService.classify_sync_error(error) == expected
 
 
-def test_http_auth_error_with_falsey_response():
-    response = requests.Response()
-    response.status_code = 400
-    response._content = b'{"error":{"code":190}}'
-    assert IntegrationService.classify_sync_error(requests.HTTPError(response=response)) == 'auth'
-
-
 @pytest.mark.django_db
 @pytest.mark.parametrize('error, expected, notifications', [
     (MetaApiError('access_token=secret', 400, {'error': {'code': 190}}), 'auth', 1),
@@ -88,7 +79,8 @@ def test_worker_records_failure_and_notifies_only_for_auth(account, campaign, er
     if notifications:
         notification = Notification.objects.get()
         assert notification.recipient_id == campaign.owner_id
-        assert notification.event_type == 'campaign_platform_auth_error'
+        assert notification.event_type == 'account_permission'
+        assert notification.metadata['action'] == 'campaign_platform_auth_error'
         assert notification.category == 'INTEGRATIONS'
         assert campaign.slug in notification.action_url
         assert 'secret' not in notification.body
@@ -168,50 +160,33 @@ def test_only_matching_project_and_platform_receive_sync_state(account, campaign
 
 
 @pytest.mark.django_db
-def test_detail_exposes_read_only_health_and_reconnect_starts_existing_oauth(account, campaign, member_client, settings):
-    settings.CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
-    settings.FB_APP_ID = 'test-app'
-    settings.FB_CONFIG_ID = 'test-config'
-    settings.FB_REDIRECT_URI = 'https://app.example/api/facebook_integration/callback/'
+def test_detail_exposes_read_only_health(account, campaign, member_client):
     integration = CampaignPlatformIntegration.objects.create(campaign=campaign, ad_account=account, last_sync_error='auth')
-    detail = member_client.get(f'/api/campaigns/{campaign.slug}/')
+    url = f'/api/campaigns/{campaign.slug}/'
+    detail = member_client.get(url)
     assert detail.status_code == 200
     health = detail.data['platform_integrations'][0]
     assert health['last_sync_error'] == 'auth'
     assert health['can_reconnect'] is True
-    assert health['platform'] == 'META'
     assert 'token' not in str(health)
-    response = member_client.post(f'/api/campaigns/{campaign.slug}/platform-integrations/{integration.pk}/reconnect/')
-    assert response.status_code == 200
-    parsed = urlparse(response.data['authorize_url'])
-    assert parsed.netloc == 'www.facebook.com'
-    query = parse_qs(parsed.query)
-    payload = unpack_oauth_state(query['state'][0])
-    assert payload['user_id'] == account.connection.user_id
-    assert payload['project_id'] == campaign.project_id
-    assert query['redirect_uri'] == [settings.FB_REDIRECT_URI]
+    assert member_client.patch(url, {'platform_integrations': []}, format='json').status_code == 200
     integration.refresh_from_db()
     assert integration.last_sync_error == 'auth'
 
 
 @pytest.mark.django_db
-def test_reconnect_requires_project_access_and_original_connector(account, campaign, outsider_client, user2):
-    integration = CampaignPlatformIntegration.objects.create(campaign=campaign, ad_account=account, last_sync_error='auth')
-    url = f'/api/campaigns/{campaign.slug}/platform-integrations/{integration.pk}/reconnect/'
-    assert outsider_client.post(url).status_code == 404
+def test_health_requires_project_access_and_cta_requires_original_connector(account, campaign, outsider_client, user2):
+    CampaignPlatformIntegration.objects.create(campaign=campaign, ad_account=account, last_sync_error='auth')
+    assert outsider_client.get(f'/api/campaigns/{campaign.slug}/').status_code == 404
     ProjectMember.objects.create(project=campaign.project, user=user2, role='member')
     detail = outsider_client.get(f'/api/campaigns/{campaign.slug}/')
     assert detail.data['platform_integrations'][0]['can_reconnect'] is False
-    assert outsider_client.post(url).status_code == 403
 
 
 @pytest.mark.django_db
 def test_relinked_account_no_longer_exposes_old_campaign_warning(account, campaign, member_client):
-    integration = CampaignPlatformIntegration.objects.create(campaign=campaign, ad_account=account, last_sync_error='auth')
+    CampaignPlatformIntegration.objects.create(campaign=campaign, ad_account=account, last_sync_error='auth')
     account.project = None
     account.save()
     response = member_client.get(f'/api/campaigns/{campaign.slug}/')
     assert response.data['platform_integrations'] == []
-    assert member_client.post(
-        f'/api/campaigns/{campaign.slug}/platform-integrations/{integration.pk}/reconnect/',
-    ).status_code == 404

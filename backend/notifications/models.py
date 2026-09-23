@@ -56,7 +56,6 @@ class NotificationEventType(models.TextChoices):
     # Automation & system
     WORKFLOW_NODE = "workflow_node", "Workflow node update"
     ACCOUNT_PERMISSION = "account_permission", "Account permission changed"
-    CAMPAIGN_PLATFORM_AUTH_ERROR = "campaign_platform_auth_error", "Campaign platform authorization failed"
     BILLING_ANOMALY = "billing_anomaly", "Billing anomaly"
     SYSTEM = "system", "System"
 

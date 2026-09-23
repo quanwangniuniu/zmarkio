@@ -30,7 +30,7 @@ def notify_campaign_platform_auth_error(*, integration):
         recipient_id=campaign.owner_id,
         actor_id=None,
         category=NotificationCategory.INTEGRATIONS,
-        event_type=NotificationEventType.CAMPAIGN_PLATFORM_AUTH_ERROR,
+        event_type=NotificationEventType.ACCOUNT_PERMISSION,
         title=f'Reconnect Meta for {campaign.name}',
         body=(f'Meta authorization for {integration.ad_account.name or "your ad account"} '
               f'has expired or been revoked. Metrics may be out of date. '
@@ -38,7 +38,7 @@ def notify_campaign_platform_auth_error(*, integration):
         related_object_type='campaign',
         related_object_id=str(campaign.id),
         action_url=action_url,
-        metadata={'integration_id': integration.pk, 'platform': 'META'},
+        metadata={'action': 'campaign_platform_auth_error', 'integration_id': integration.pk},
     )
 
 
