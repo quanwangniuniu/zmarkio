@@ -558,11 +558,12 @@ def test_export_streams_the_report_after_the_view_returns(
 
     rows = _csv_rows(response)
     assert rows[0] == [
-        'Section', 'Key', 'Label', 'Total', 'Good', 'Needs Improvement', 'Poor']
+        'Section', 'Key', 'Label', 'Total', 'Good', 'Needs Improvement', 'Poor',
+        'Percent']
     assert len(rows) > 1, 'streaming must survive the middleware resetting search_path'
 
     sections = {row[0] for row in rows[1:]}
-    assert {'rating', 'agent', 'date', 'total'} <= sections
+    assert {'rating', 'coverage', 'agent', 'date', 'total'} <= sections
 
     total_row = next(row for row in rows if row[0] == 'total')
     assert total_row[3] == '2'
@@ -580,6 +581,28 @@ def test_export_matches_the_on_screen_report(supervisor_client, csm_queue):
     csv_ratings = {row[1]: int(row[3]) for row in rows if row[0] == 'rating'}
 
     assert csv_ratings == by_rating
+
+
+def test_export_carries_the_coverage_tile_and_percentages(supervisor_client, csm_queue):
+    """AC5: the file must contain everything the screen shows.
+
+    Coverage and the per-rating percentages are on the report tiles, so they
+    belong in the export too.
+    """
+    for _ in range(3):
+        _conversation(csm_queue)
+    reviewed = _conversation(csm_queue)
+    supervisor_client.post(_review_url(reviewed.id), {'rating': 'good'}, format='json')
+
+    rows = _csv_rows(supervisor_client.get(_export_url()))
+    by_section = {(row[0], row[1]): row for row in rows[1:]}
+
+    assert by_section[('coverage', 'reviewed')][3] == '1'
+    assert by_section[('coverage', 'in_scope')][3] == '4'
+    assert by_section[('coverage', 'reviewed')][7] == '25.0'
+
+    assert by_section[('rating', 'good')][7] == '100.0'
+    assert by_section[('rating', 'poor')][7] == '0.0'
 
 
 def test_export_honours_the_filters(supervisor_client, csm_queue):

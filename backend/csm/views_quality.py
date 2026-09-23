@@ -36,8 +36,16 @@ from csm.services.quality import (
 
 ORDERING_WHITELIST = {'started_at', '-started_at', 'ended_at', '-ended_at'}
 
+# One flat rectangle rather than stacked blocks, which open badly in Excel.
+# Section names the block a row belongs to, so the file can be filtered or
+# pivoted back into the three views the screen shows.
+#   rating   — one row per rating, with its share of all annotations
+#   coverage — how much of the filtered population has been reviewed
+#   agent    — per-agent breakdown
+#   date     — per-bucket breakdown
+#   total    — the whole filtered set
 QUALITY_SUMMARY_CSV_HEADER = (
-    'Section', 'Key', 'Label', 'Total', 'Good', 'Needs Improvement', 'Poor',
+    'Section', 'Key', 'Label', 'Total', 'Good', 'Needs Improvement', 'Poor', 'Percent',
 )
 
 MAX_CSV_ROWS = 50_000
@@ -146,30 +154,43 @@ def _csv_cell(value):
 
 
 def _summary_rows(report):
+    """Flatten the report into CSV rows, carrying everything the screen shows."""
     rows = []
+    totals = report['totals']
+
+    # The three tiles: a count and its share of all annotations. The per-rating
+    # columns stay blank here — breaking "Good" down by rating says nothing.
     for entry in report['by_rating']:
-        # One rating per row, so only its own column carries the count.
-        per_rating = {'good': '', 'needs_improvement': '', 'poor': ''}
-        per_rating[entry['rating']] = entry['count']
         rows.append((
-            'rating', entry['rating'], entry['rating_display'], entry['count'],
-            per_rating['good'], per_rating['needs_improvement'], per_rating['poor'],
+            'rating', entry['rating'], entry['rating_display'],
+            entry['count'], '', '', '', entry['pct'],
         ))
+
+    # The coverage tile, which was previously on screen but absent from the file.
+    rows.append((
+        'coverage', 'reviewed', 'Conversations reviewed',
+        totals['conversations_reviewed'], '', '', '', totals['coverage_pct'],
+    ))
+    rows.append((
+        'coverage', 'in_scope', 'Conversations in scope',
+        totals['conversations_in_scope'], '', '', '', '',
+    ))
+
     for entry in report['by_agent']:
         rows.append((
             'agent', entry['agent_user_id'] or '', entry['agent_name'],
-            entry['total'], entry['good'], entry['needs_improvement'], entry['poor'],
+            entry['total'], entry['good'], entry['needs_improvement'], entry['poor'], '',
         ))
     for entry in report['by_date']:
         rows.append((
             'date', entry['bucket'], entry['bucket'], entry['total'],
-            entry['good'], entry['needs_improvement'], entry['poor'],
+            entry['good'], entry['needs_improvement'], entry['poor'], '',
         ))
-    totals = report['totals']
+
     by_rating = {entry['rating']: entry['count'] for entry in report['by_rating']}
     rows.append((
         'total', '', 'All', totals['reviews'], by_rating.get('good', 0),
-        by_rating.get('needs_improvement', 0), by_rating.get('poor', 0),
+        by_rating.get('needs_improvement', 0), by_rating.get('poor', 0), '',
     ))
     return rows
 
