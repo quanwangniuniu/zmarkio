@@ -298,7 +298,11 @@ def test_report_buckets_by_day_and_zero_fills_gaps(user, csm_queue, customer_org
 
     assert report['filters_echo']['bucket'] == 'day'
     assert len(report['by_date']) == 3
-    assert [row['total'] for row in report['by_date']] == [1, 0, 0]
+    # Newest bucket first, matching the conversation list; the review was
+    # backdated two days, so it lands on the last row.
+    assert [row['total'] for row in report['by_date']] == [0, 0, 1]
+    buckets = [row['bucket'] for row in report['by_date']]
+    assert buckets == sorted(buckets, reverse=True)
 
 
 def test_default_bucket_widens_with_the_span():

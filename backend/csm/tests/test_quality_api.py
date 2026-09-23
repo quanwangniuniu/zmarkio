@@ -627,6 +627,30 @@ def test_export_breakdown_rows_leave_coverage_blank(supervisor_client, csm_queue
             assert row[11] == ''
 
 
+def test_export_lists_date_rows_newest_first(supervisor_client, csm_queue):
+    """The report reads the same way round as the conversation list."""
+    import datetime as _dt
+    from csm.models import ConversationQualityReview
+
+    today = timezone.localdate()
+    for offset in (0, 1, 2):
+        conversation = _conversation(csm_queue)
+        response = supervisor_client.post(
+            _review_url(conversation.id), {'rating': 'good'}, format='json')
+        review = ConversationQualityReview.objects.get(id=response.data['id'])
+        review.reviewed_at = review.reviewed_at - _dt.timedelta(days=offset)
+        review.save(update_fields=['reviewed_at'])
+
+    rows = _csv_rows(supervisor_client.get(_export_url(), {
+        'date_from': (today - _dt.timedelta(days=2)).isoformat(),
+        'date_to': today.isoformat(),
+    }))
+    buckets = [row[1] for row in rows[1:] if row[0] == 'day']
+
+    assert buckets == sorted(buckets, reverse=True)
+    assert buckets[0] == today.isoformat()
+
+
 def test_export_names_date_rows_after_the_bucket(supervisor_client, csm_queue):
     conversation = _conversation(csm_queue)
     supervisor_client.post(_review_url(conversation.id), {'rating': 'good'}, format='json')

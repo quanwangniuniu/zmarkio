@@ -377,6 +377,9 @@ def build_quality_report(user, filters):
     )
     if basis == 'review':
         date_rows = _zero_filled_dates(date_rows, start, end, granularity, tz)
+    # Newest bucket first, matching the conversation list. The buckets are
+    # computed and zero-filled oldest-first because that is the order the
+    # gap-filling walks in; only the output is reversed.
     by_date = [
         {
             'bucket': row['bucket'].date().isoformat() if row['bucket'] else None,
@@ -385,7 +388,7 @@ def build_quality_report(user, filters):
             'needs_improvement': row['needs_improvement'],
             'poor': row['poor'],
         }
-        for row in date_rows
+        for row in reversed(date_rows)
     ]
 
     conversations_reviewed = base.values('conversation_id').distinct().count()
