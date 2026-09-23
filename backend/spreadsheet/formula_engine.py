@@ -58,6 +58,25 @@ def _value_error(code: str) -> Value:
     return Value(kind='error', error_code=code)
 
 
+def _arg_needs_parens(val: str) -> bool:
+    """Return True if a UDF argument string needs wrapping in parentheses.
+
+    Wrapping is only needed when the argument contains a top-level operator
+    (outside any nested parens), which would cause wrong precedence if spliced
+    bare into the expression. Simple tokens — numbers, cell refs, ranges like
+    A1:A3, and function calls — do not need wrapping.
+    """
+    depth = 0
+    for ch in val:
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        elif depth == 0 and ch in '+-*/':
+            return True
+    return False
+
+
 def _extract_currency_symbol(raw_input: str) -> Optional[str]:
     raw = raw_input.strip()
     if not raw:
@@ -496,7 +515,11 @@ class _Parser:
 
         expr = udf["expression"]
         for param, val in zip(params, args):
-            expr = re.sub(r'\b' + re.escape(param) + r'\b', val, expr)
+            # Wrap complex arguments in parentheses to preserve operator
+            # precedence. Simple tokens (numbers, cell refs, ranges) are left
+            # as-is to avoid breaking range syntax like SUM(A1:A3).
+            safe_val = f'({val})' if _arg_needs_parens(val) else val
+            expr = re.sub(r'\b' + re.escape(param) + r'\b', safe_val, expr)
 
         # Pass the updated call stack (with this UDF added) to prevent
         # indirect mutual recursion in the evaluated sub-expression.

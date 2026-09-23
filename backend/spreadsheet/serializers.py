@@ -679,6 +679,17 @@ class UserDefinedFunctionSerializer(serializers.ModelSerializer):
         return value.upper()
 
     def validate_params(self, value):
-        if not isinstance(value, list) or not all(isinstance(p, str) for p in value):
-            raise serializers.ValidationError("params must be a list of strings.")
+        import re
+        if not isinstance(value, list) or len(value) == 0:
+            raise serializers.ValidationError("At least one parameter is required.")
+        seen: set[str] = set()
+        for p in value:
+            if not isinstance(p, str) or not re.fullmatch(r"[A-Za-z]+", p):
+                raise serializers.ValidationError(
+                    "Each parameter name must contain letters only (no digits, spaces, or underscores)."
+                )
+            upper = p.upper()
+            if upper in seen:
+                raise serializers.ValidationError(f"Duplicate parameter name: '{p}'.")
+            seen.add(upper)
         return value
