@@ -248,31 +248,48 @@ def resolve_agent(conversation):
 def upsert_review(user, conversation, rating, comment=''):
     """Create or update *user*'s review of *conversation*.
 
-    Returns (review, created). Snapshots agent, queue and organisation so a
-    later reassignment cannot rewrite quality history.
+    Returns (review, created).
+
+    The agent, queue and organisation are snapshotted **once, when the review
+    is first written**, and never re-resolved. Two things follow:
+
+    * Reassigning a conversation cannot rewrite quality history.
+    * Neither can editing the review. Re-resolving on update would move the
+      credit to whoever is assigned at that moment, so fixing a typo in the
+      comment could hand an agent a rating for work they never did.
+
+    The snapshot is therefore "who handled this conversation when it was first
+    reviewed" - a fact about the conversation, not about the edit.
     """
     if conversation.queue_id is None:
         raise PermissionDenied(
             'This conversation has no queue, so it cannot be reviewed.'
         )
 
-    agent_customer_user = resolve_agent(conversation)
-    agent_user = agent_customer_user.user if agent_customer_user else None
+    defaults = {
+        'rating': rating,
+        'comment': comment or '',
+        'reviewer_name': _display_name(user),
+        'reviewed_at': timezone.now(),
+    }
 
-    review, created = ConversationQualityReview.objects.update_or_create(
-        conversation=conversation,
-        reviewer=user,
-        defaults={
-            'rating': rating,
-            'comment': comment or '',
-            'reviewer_name': _display_name(user),
-            'reviewed_at': timezone.now(),
+    existing = ConversationQualityReview.objects.filter(
+        conversation=conversation, reviewer=user).first()
+    if existing is None:
+        agent_customer_user = resolve_agent(conversation)
+        agent_user = agent_customer_user.user if agent_customer_user else None
+        defaults.update({
             'agent_user': agent_user,
             'agent_customer_user': agent_customer_user,
             'agent_name': _display_name(agent_user),
             'queue_id': conversation.queue_id,
             'organisation_id': conversation.queue.organisation_id,
-        },
+        })
+
+    review, created = ConversationQualityReview.objects.update_or_create(
+        conversation=conversation,
+        reviewer=user,
+        defaults=defaults,
     )
     return review, created
 

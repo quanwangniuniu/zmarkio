@@ -48,6 +48,11 @@ def _agent(user, queue, organisation):
     )
 
 
+def _display_name_of(user):
+    full = ' '.join(p for p in [user.first_name, user.last_name] if p).strip()
+    return full or user.username or user.email
+
+
 def _conversation(queue, customer=None, **kwargs):
     kwargs.setdefault('status', 'closed')
     kwargs.setdefault('started_at', timezone.now())
@@ -152,6 +157,58 @@ def test_agent_snapshot_survives_reassignment(user, user2, csm_queue, customer_o
 
     review.refresh_from_db()
     assert review.agent_user_id == user2.id, 'snapshot must not follow the reassignment'
+
+
+def test_re_rating_after_reassignment_keeps_the_original_agent(
+    user, user2, csm_queue, customer_organisation
+):
+    """Editing a review must not move the credit to whoever is assigned now.
+
+    Reassignment alone already could not rewrite history. Re-resolving the
+    snapshot on update reopened the same hole through a different door: a
+    supervisor fixing a typo in the comment would hand the rating to an agent
+    who never touched the conversation.
+    """
+    from django.contrib.auth import get_user_model
+
+    _supervisor(user, customer_organisation)
+    ada = _agent(user2, csm_queue, customer_organisation)
+    conversation = _conversation(csm_queue, assigned_to=ada)
+
+    upsert_review(user, conversation, Rating.GOOD)
+
+    grace_user = get_user_model().objects.create_user(
+        username='grace', email='grace@test.com', password='x',
+        organization=user.organization,
+    )
+    grace = _agent(grace_user, csm_queue, customer_organisation)
+    conversation.assigned_to = grace
+    conversation.save(update_fields=['assigned_to'])
+
+    review, created = upsert_review(user, conversation, Rating.POOR, 'fixed a typo')
+
+    assert created is False
+    assert review.rating == Rating.POOR
+    assert review.comment == 'fixed a typo'
+    assert review.agent_user_id == user2.id, (
+        'the credit must stay with the agent who handled the conversation')
+    assert review.agent_name == _display_name_of(user2)
+
+    report = build_quality_report(user, _filters())
+    credited = {row['agent_user_id']: row['total'] for row in report['by_agent']}
+    assert credited == {user2.id: 1}
+
+
+def test_re_rating_still_updates_the_timestamp(user, csm_queue, customer_organisation):
+    """Only the snapshot is frozen; the review itself is still a fresh one."""
+    _supervisor(user, customer_organisation)
+    conversation = _conversation(csm_queue)
+
+    first, _ = upsert_review(user, conversation, Rating.GOOD)
+    first_at = first.reviewed_at
+    second, _ = upsert_review(user, conversation, Rating.POOR)
+
+    assert second.reviewed_at > first_at
 
 
 def test_agent_falls_back_to_last_agent_message_author(user, user2, csm_queue, customer_organisation):
