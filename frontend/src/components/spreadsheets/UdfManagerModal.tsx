@@ -80,8 +80,8 @@ export default function UdfManagerModal({ isOpen, onClose, projectSlug }: Props)
   function validate(): boolean {
     const next: typeof errors = {};
     if (!form.name.trim()) next.name = 'Name is required';
-    else if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(form.name.trim()))
-      next.name = 'Name must start with a letter and contain only letters, numbers, underscores';
+    else if (!/^[A-Za-z]+$/.test(form.name.trim()))
+      next.name = 'Name must contain letters only (no digits or underscores)';
     if (!form.params.trim()) next.params = 'At least one parameter is required';
     if (!form.expression.trim()) next.expression = 'Expression is required';
     setErrors(next);

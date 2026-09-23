@@ -670,6 +670,9 @@ class UserDefinedFunctionSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def validate_name(self, value):
+        import re
+        if not re.fullmatch(r"[A-Za-z]+", value):
+            raise serializers.ValidationError("Name must contain letters only (no digits or underscores).")
         BUILTIN = {"SUM", "AVERAGE", "COUNT", "MIN", "MAX", "IF", "AND", "OR", "NOT", "VLOOKUP", "ABS", "ROUND", "FLOOR", "CEILING"}
         if value.upper() in BUILTIN:
             raise serializers.ValidationError("Cannot override a built-in function.")
