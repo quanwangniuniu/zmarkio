@@ -96,6 +96,15 @@ export default defineConfig({
       dependencies: ['setup'],
       testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
     },
+    // Ads fixtures provision their own real accounts; no shared login dependency.
+    ...(['chromium', 'firefox', 'webkit'] as const).map((browserName) => ({
+      name: `ads-${browserName}`,
+      use: {
+        ...devices[browserName === 'chromium' ? 'Desktop Chrome' : browserName === 'firefox' ? 'Desktop Firefox' : 'Desktop Safari'],
+      },
+      testMatch: /e2e[\\/]ads[\\/].*\.spec\.ts$/,
+      timeout: 90_000,
+    })),
     {
       name: 'auth-chromium',
       use: {
@@ -136,6 +145,7 @@ export default defineConfig({
         /e2e[\\/]messages[\\/]messages-pinned\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-link-preview\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-ordering-jitter\.spec\.ts$/,
+        /e2e[\\/]messages[\\/]messages-participant-removal\.spec\.ts$/,
       ],
     },
     {

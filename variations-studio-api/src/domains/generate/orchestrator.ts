@@ -84,8 +84,7 @@ async function persistBatch(args: {
   creativeId: bigint | null;
   modelName: string;
 }) {
-  const slugs = await allocateSlugs(
-    args.schema,
+  const slugs = allocateSlugs(
     args.copies.map((copy) => copy.headline)
   );
   return insertVariations(
