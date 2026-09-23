@@ -392,9 +392,7 @@ test('hard refresh keeps active project and deep link without empty switcher fla
     });
 
     if (!probe) {
-      throw new Error(
-        'MED-257 probe was never installed on window — the project switcher did not render.',
-      );
+      throw new Error('The MED-257 probe was not installed on the page.');
     }
 
     expect(

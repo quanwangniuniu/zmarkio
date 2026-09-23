@@ -20,7 +20,7 @@ test('Preference update syncs when one UI changed in another session', async ({ 
   await expect(pageA.getByText('Preferences saved')).toBeVisible();
   const stateA = await pageA.getByRole('switch').first().getAttribute('aria-checked');
   if (stateA === null) {
-    throw new Error('Toggle on page A has no aria-checked attribute; nothing to compare against.');
+    throw new Error('The toggle on page A has no aria-checked state to compare against.');
   }
 
   // Bring the second page to the front and wait for the refetch to occur.

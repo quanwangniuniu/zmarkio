@@ -346,11 +346,10 @@ export async function createDraftTaskViaApi(
   if (!body?.id || !body?.slug) {
     throw new Error('Task fixture response did not include id and slug');
   }
+  // Prefer the stored summary so assertions match what the UI renders.
   return {
     id: body.id as number,
     slug: body.slug as string,
-    // Prefer what the server stored, so callers searching by this text match
-    // what the UI actually renders.
     summary: (body.summary as string) ?? summary,
   };
 }
