@@ -99,15 +99,6 @@ export function QualityInspectionView() {
         </div>
       </header>
 
-      <QualityFiltersPanel
-        filters={filters}
-        options={options}
-        activeFilterCount={activeFilterCount}
-        showDateBasis={tab === 'report'}
-        onChange={setFilters}
-        onClear={clearFilters}
-      />
-
       <div className="border-b border-slate-200">
         <nav className="flex gap-4" aria-label="Quality inspection tabs">
           {TABS.map((entry) => (
@@ -127,6 +118,15 @@ export function QualityInspectionView() {
           ))}
         </nav>
       </div>
+
+      <QualityFiltersPanel
+        filters={filters}
+        options={options}
+        activeFilterCount={activeFilterCount}
+        showDateBasis={tab === 'report'}
+        onChange={setFilters}
+        onClear={clearFilters}
+      />
 
       {tab === 'conversations' ? (
         <div className="rounded-lg border border-slate-200 bg-white">
