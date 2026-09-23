@@ -9,6 +9,8 @@ interface QualityFiltersPanelProps {
   options: QualityFilterOptions | null;
   activeFilterCount: number;
   showDateBasis: boolean;
+  /** Report counts annotations; Conversations counts conversations. */
+  countMode: 'conversations' | 'reviews';
   onChange: (next: Partial<QualityFilters>) => void;
   onClear: () => void;
 }
@@ -23,17 +25,32 @@ export function QualityFiltersPanel({
   options,
   activeFilterCount,
   showDateBasis,
+  countMode,
   onChange,
   onClear,
 }: QualityFiltersPanelProps) {
+  // A single number would be wrong on one tab: most conversations are never
+  // reviewed, so a conversation tally beside a report of annotations overstates
+  // what the report will show.
+  const tally = (option: { conversation_count: number; review_count: number }) =>
+    countMode === 'reviews' ? option.review_count : option.conversation_count;
+  const countNoun = countMode === 'reviews' ? 'annotations' : 'conversations';
+
   // Counts sit beside every option so a supervisor can see where the volume
   // is before picking one.
   const agentOptions = [
-    { value: UNASSIGNED, label: 'Unassigned', count: options?.unassigned_count },
+    {
+      value: UNASSIGNED,
+      label: 'Unassigned',
+      count:
+        countMode === 'reviews'
+          ? options?.unassigned_review_count
+          : options?.unassigned_count,
+    },
     ...(options?.agents ?? []).map((agent) => ({
       value: String(agent.user_id),
       label: agent.name || agent.email,
-      count: agent.conversation_count,
+      count: tally(agent),
     })),
   ];
 
@@ -70,6 +87,7 @@ export function QualityFiltersPanel({
         </div>
 
         <QualityMultiSelect
+          countNoun={countNoun}
           label="Agent"
           searchable
           options={agentOptions}
@@ -82,46 +100,50 @@ export function QualityFiltersPanel({
         />
 
         <QualityMultiSelect
+          countNoun={countNoun}
           label="Queue"
           options={(options?.queues ?? []).map((queue) => ({
             value: String(queue.id),
             label: queue.is_active ? queue.name : `${queue.name} (archived)`,
-            count: queue.conversation_count,
+            count: tally(queue),
           }))}
           selected={filters.queue.map(String)}
           onChange={(next) => onChange({ queue: next.map(Number) })}
         />
 
         <QualityMultiSelect
+          countNoun={countNoun}
           label="Channel"
           options={(options?.channels ?? []).map((channel) => ({
             value: channel.value,
             label: channel.label,
-            count: channel.conversation_count,
+            count: tally(channel),
           }))}
           selected={filters.channel}
           onChange={(next) => onChange({ channel: next })}
         />
 
         <QualityMultiSelect
+          countNoun={countNoun}
           label="Customer"
           searchable
           options={(options?.customers ?? []).map((customer) => ({
             value: String(customer.id),
             label: customer.name || customer.email,
-            count: customer.conversation_count,
+            count: tally(customer),
           }))}
           selected={filters.customer.map(String)}
           onChange={(next) => onChange({ customer: next.map(Number) })}
         />
 
         <QualityMultiSelect
+          countNoun={countNoun}
           label="Tag"
           searchable
           options={(options?.tags ?? []).map((tag) => ({
             value: tag.value,
             label: tag.value,
-            count: tag.conversation_count,
+            count: tally(tag),
           }))}
           selected={filters.tag}
           onChange={(next) => onChange({ tag: next })}
@@ -130,11 +152,12 @@ export function QualityFiltersPanel({
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <QualityMultiSelect
+          countNoun={countNoun}
           label="Status"
           options={(options?.statuses ?? []).map((status) => ({
             value: status.value,
             label: status.label,
-            count: status.conversation_count,
+            count: tally(status),
           }))}
           selected={filters.status}
           onChange={(next) => onChange({ status: next })}

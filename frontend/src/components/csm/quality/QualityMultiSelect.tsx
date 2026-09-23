@@ -16,6 +16,8 @@ interface QualityMultiSelectProps {
   onChange: (next: string[]) => void;
   searchable?: boolean;
   emptyLabel?: string;
+  /** What the counts are counting, for the option's accessible name. */
+  countNoun?: string;
 }
 
 /**
@@ -30,6 +32,7 @@ export function QualityMultiSelect({
   onChange,
   searchable = false,
   emptyLabel = 'Any',
+  countNoun = 'conversations',
 }: QualityMultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState('');
@@ -104,7 +107,7 @@ export function QualityMultiSelect({
                     {option.count}
                     {/* The bare number would read as "Grace H. 7"; this makes
                         the option's accessible name say what it counts. */}
-                    <span className="sr-only"> conversations</span>
+                    <span className="sr-only"> {countNoun}</span>
                   </span>
                 )}
               </label>

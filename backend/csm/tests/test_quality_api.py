@@ -396,6 +396,44 @@ def test_filter_options_count_conversations_per_option(
     assert person['conversation_count'] == 1
 
 
+def test_filter_options_count_annotations_separately(
+    supervisor_client, user2, csm_queue, customer_organisation
+):
+    """Two tallies per option, because most conversations are never reviewed."""
+    agent = _agent(user2, csm_queue, customer_organisation)
+    for _ in range(3):
+        _conversation(csm_queue, assigned_to=agent, channel='email', tags=['Subject', 'vip'])
+    reviewed = _conversation(
+        csm_queue, assigned_to=agent, channel='email', tags=['Subject', 'vip'])
+    supervisor_client.post(_review_url(reviewed.id), {'rating': 'good'}, format='json')
+
+    data = supervisor_client.get(_options_url()).data
+
+    agent_row = next(a for a in data['agents'] if a['user_id'] == user2.id)
+    assert agent_row['conversation_count'] == 4
+    assert agent_row['review_count'] == 1
+
+    email = next(c for c in data['channels'] if c['value'] == 'email')
+    assert (email['conversation_count'], email['review_count']) == (4, 1)
+
+    vip = next(t for t in data['tags'] if t['value'] == 'vip')
+    assert (vip['conversation_count'], vip['review_count']) == (4, 1)
+
+    queue_row = next(q for q in data['queues'] if q['id'] == csm_queue.id)
+    assert (queue_row['conversation_count'], queue_row['review_count']) == (4, 1)
+
+
+def test_filter_options_count_unassigned_annotations(supervisor_client, csm_queue):
+    unreviewed = _conversation(csm_queue, assigned_to=None)  # noqa: F841
+    reviewed = _conversation(csm_queue, assigned_to=None)
+    supervisor_client.post(_review_url(reviewed.id), {'rating': 'poor'}, format='json')
+
+    data = supervisor_client.get(_options_url()).data
+
+    assert data['unassigned_count'] == 2
+    assert data['unassigned_review_count'] == 1
+
+
 def test_filter_options_order_by_volume(supervisor_client, csm_queue):
     """Busiest first, so the useful options are at the top of each list."""
     for _ in range(3):

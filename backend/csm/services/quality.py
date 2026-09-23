@@ -444,23 +444,41 @@ def _echo(filters, basis, granularity):
 # filter options
 # ---------------------------------------------------------------------------
 
-def _counts_by(conversations, field):
-    """conversations grouped by *field* -> count.
+def _counts_by(queryset, field):
+    """*queryset* grouped by *field* -> count.
 
-    .order_by() clears Conversation.Meta.ordering so the grouping is only the
+    .order_by() clears the model's Meta.ordering so the grouping is only the
     field asked for.
     """
     return {
         row[field]: row['n']
-        for row in conversations.order_by().values(field).annotate(n=Count('id'))
+        for row in queryset.order_by().values(field).annotate(n=Count('id'))
     }
+
+
+def _tag_counts(tag_lists):
+    """Tally tags across JSON arrays, skipping tags[0].
+
+    tags[0] doubles as the conversation subject (see ConversationViewSet.claim),
+    so counting it would fill the dropdown with one-off subject lines. Done in
+    Python because a JSON array has nothing to group by.
+    """
+    counts = {}
+    for tag_list in tag_lists:
+        if isinstance(tag_list, list):
+            for tag in tag_list[1:]:
+                if isinstance(tag, str) and tag.strip():
+                    counts[tag.strip()] = counts.get(tag.strip(), 0) + 1
+    return counts
 
 
 def build_filter_options(user):
     """Values for the six filter controls, within the supervised scope.
 
-    Every option carries how many conversations it accounts for, so a
-    supervisor can see where the volume is before picking one.
+    Each option carries two tallies: how many conversations it accounts for,
+    and how many annotations. The Conversations tab lists conversations while
+    the Report counts annotations, so a single number would be wrong on one of
+    them - most conversations are never reviewed.
     """
     queues = list(
         supervised_queues_for(user)
@@ -469,12 +487,21 @@ def build_filter_options(user):
     )
     queue_ids = [q.id for q in queues]
     conversations = Conversation.objects.filter(queue_id__in=queue_ids)
+    # Reviews are counted through their conversation, so an option means the
+    # same thing on both tabs: filter by it and this is what you get.
+    reviews = ConversationQualityReview.objects.filter(conversation__queue_id__in=queue_ids)
 
     queue_counts = _counts_by(conversations, 'queue_id')
     channel_counts = _counts_by(conversations, 'channel')
     status_counts = _counts_by(conversations, 'status')
     agent_counts = _counts_by(conversations, 'assigned_to__user_id')
     unassigned_count = agent_counts.pop(None, 0)
+
+    queue_reviews = _counts_by(reviews, 'conversation__queue_id')
+    channel_reviews = _counts_by(reviews, 'conversation__channel')
+    status_reviews = _counts_by(reviews, 'conversation__status')
+    agent_reviews = _counts_by(reviews, 'conversation__assigned_to__user_id')
+    unassigned_reviews = agent_reviews.pop(None, 0)
 
     agents = (
         CustomerUser.objects
@@ -491,18 +518,21 @@ def build_filter_options(user):
             'name': _display_name(customer_user.user),
             'email': customer_user.user.email,
             'conversation_count': agent_counts.get(customer_user.user_id, 0),
+            'review_count': agent_reviews.get(customer_user.user_id, 0),
         })
     agent_rows.sort(key=lambda row: (-row['conversation_count'], (row['name'] or '').lower()))
 
     # GROUP BY rather than DISTINCT, so each customer appears once and carries
-    # how many conversations they account for. .order_by() clears
-    # Conversation.Meta.ordering: left in place it would put started_at into the
-    # grouping and split every customer back into one row per conversation.
+    # its tallies. .order_by() clears Conversation.Meta.ordering: left in place
+    # it would put started_at into the grouping and split every customer back
+    # into one row per conversation.
+    customer_reviews = _counts_by(reviews, 'conversation__customer_id')
     customers = sorted(
         (
             {'id': row['customer_id'], 'name': row['customer__full_name'],
              'email': row['customer__email'],
-             'conversation_count': row['conversation_count']}
+             'conversation_count': row['conversation_count'],
+             'review_count': customer_reviews.get(row['customer_id'], 0)}
             for row in conversations.filter(customer__isnull=False)
                                     .order_by()
                                     .values('customer_id', 'customer__full_name', 'customer__email')
@@ -511,16 +541,10 @@ def build_filter_options(user):
         key=lambda row: (-row['conversation_count'], (row['name'] or '').lower()),
     )
 
-    # tags[0] doubles as the conversation subject (see ConversationViewSet.claim),
-    # so it is skipped here: including it would fill the dropdown with one-off
-    # subject lines. Filtering itself still matches any tag.
-    # Counted in Python because a JSON array has nothing to group by.
-    tag_counts = {}
-    for tag_list in conversations.values_list('tags', flat=True)[:TAG_VOCABULARY_SCAN_LIMIT]:
-        if isinstance(tag_list, list):
-            for tag in tag_list[1:]:
-                if isinstance(tag, str) and tag.strip():
-                    tag_counts[tag.strip()] = tag_counts.get(tag.strip(), 0) + 1
+    tag_counts = _tag_counts(
+        conversations.values_list('tags', flat=True)[:TAG_VOCABULARY_SCAN_LIMIT])
+    tag_reviews = _tag_counts(
+        reviews.values_list('conversation__tags', flat=True)[:TAG_VOCABULARY_SCAN_LIMIT])
 
     organisations = []
     seen_orgs = set()
@@ -534,21 +558,28 @@ def build_filter_options(user):
         'queues': [
             {'id': q.id, 'name': q.name, 'organisation': q.organisation_id,
              'is_active': q.is_active,
-             'conversation_count': queue_counts.get(q.id, 0)}
+             'conversation_count': queue_counts.get(q.id, 0),
+             'review_count': queue_reviews.get(q.id, 0)}
             for q in queues
         ],
         'agents': agent_rows,
         'unassigned_count': unassigned_count,
+        'unassigned_review_count': unassigned_reviews,
         'channels': [
-            {'value': v, 'label': l, 'conversation_count': channel_counts.get(v, 0)}
+            {'value': v, 'label': l,
+             'conversation_count': channel_counts.get(v, 0),
+             'review_count': channel_reviews.get(v, 0)}
             for v, l in Conversation.CHANNEL_CHOICES
         ],
         'statuses': [
-            {'value': v, 'label': l, 'conversation_count': status_counts.get(v, 0)}
+            {'value': v, 'label': l,
+             'conversation_count': status_counts.get(v, 0),
+             'review_count': status_reviews.get(v, 0)}
             for v, l in Conversation.STATUS_CHOICES
         ],
         'tags': [
-            {'value': tag, 'conversation_count': count}
+            {'value': tag, 'conversation_count': count,
+             'review_count': tag_reviews.get(tag, 0)}
             for tag, count in sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
         ],
         'customers': customers,

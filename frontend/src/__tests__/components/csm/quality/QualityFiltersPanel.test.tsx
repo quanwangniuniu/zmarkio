@@ -8,26 +8,29 @@ import { EMPTY_QUALITY_FILTERS, QualityFilterOptions } from '@/types/csmQuality'
 const options: QualityFilterOptions = {
   organisations: [{ id: 1, name: 'Acme' }],
   queues: [
-    { id: 3, name: 'T1 Frontline', organisation: 1, is_active: true, conversation_count: 12 },
-    { id: 4, name: 'Retired', organisation: 1, is_active: false, conversation_count: 2 },
+    { id: 3, name: 'T1 Frontline', organisation: 1, is_active: true, conversation_count: 12, review_count: 4 },
+    { id: 4, name: 'Retired', organisation: 1, is_active: false, conversation_count: 2, review_count: 0 },
   ],
-  agents: [{ user_id: 9, name: 'Ada L.', email: 'ada@x.io', conversation_count: 5 }],
+  agents: [
+    { user_id: 9, name: 'Ada L.', email: 'ada@x.io', conversation_count: 5, review_count: 2 },
+  ],
   unassigned_count: 3,
+  unassigned_review_count: 1,
   channels: [
-    { value: 'web', label: 'Web', conversation_count: 8 },
-    { value: 'email', label: 'Email', conversation_count: 6 },
+    { value: 'web', label: 'Web', conversation_count: 8, review_count: 3 },
+    { value: 'email', label: 'Email', conversation_count: 6, review_count: 1 },
   ],
   statuses: [
-    { value: 'closed', label: 'Closed', conversation_count: 11 },
-    { value: 'active', label: 'Active', conversation_count: 4 },
+    { value: 'closed', label: 'Closed', conversation_count: 11, review_count: 4 },
+    { value: 'active', label: 'Active', conversation_count: 4, review_count: 0 },
   ],
   tags: [
-    { value: 'vip', conversation_count: 9 },
-    { value: 'refund', conversation_count: 2 },
+    { value: 'vip', conversation_count: 9, review_count: 3 },
+    { value: 'refund', conversation_count: 2, review_count: 0 },
   ],
   customers: [
-    { id: 5, name: 'Grace H.', email: 'grace@x.io', conversation_count: 7 },
-    { id: 6, name: 'Quiet Co.', email: 'quiet@x.io', conversation_count: 1 },
+    { id: 5, name: 'Grace H.', email: 'grace@x.io', conversation_count: 7, review_count: 2 },
+    { id: 6, name: 'Quiet Co.', email: 'quiet@x.io', conversation_count: 1, review_count: 0 },
   ],
 };
 
@@ -40,6 +43,7 @@ function renderPanel(overrides: Partial<React.ComponentProps<typeof QualityFilte
       options={options}
       activeFilterCount={0}
       showDateBasis={false}
+      countMode="conversations"
       onChange={onChange}
       onClear={onClear}
       {...overrides}
@@ -118,6 +122,19 @@ describe('QualityFiltersPanel — AC2 all six filters', () => {
     const list = screen.getByRole('listbox', { name: label });
 
     expect(within(list).getByLabelText(expected)).toBeInTheDocument();
+  });
+
+  it('counts annotations rather than conversations on the report tab', () => {
+    // Most conversations are never reviewed, so a conversation tally beside a
+    // report of annotations would overstate what the report will show.
+    renderPanel({ countMode: 'reviews' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+    const list = screen.getByRole('listbox', { name: 'Agent' });
+
+    expect(within(list).getByLabelText(/Ada L\..*2 annotations/)).toBeInTheDocument();
+    expect(within(list).getByLabelText(/Unassigned.*1 annotations/)).toBeInTheDocument();
+    expect(within(list).queryByLabelText(/Ada L\..*5 /)).not.toBeInTheDocument();
   });
 
   it('shows the date-basis toggle only on the report tab', () => {

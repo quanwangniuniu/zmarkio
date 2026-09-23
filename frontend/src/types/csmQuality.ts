@@ -69,7 +69,11 @@ export const EMPTY_QUALITY_FILTERS: QualityFilters = {
   status: [],
 };
 
-/** Every option carries how many conversations in scope it accounts for. */
+/**
+ * Every option carries two tallies: conversations, and annotations on them.
+ * The Conversations tab lists conversations while the Report counts
+ * annotations, so which one to show depends on the active tab.
+ */
 export interface QualityFilterOptions {
   organisations: { id: number; name: string }[];
   queues: {
@@ -78,14 +82,28 @@ export interface QualityFilterOptions {
     organisation: number | null;
     is_active: boolean;
     conversation_count: number;
+    review_count: number;
   }[];
-  agents: { user_id: number; name: string; email: string; conversation_count: number }[];
+  agents: {
+    user_id: number;
+    name: string;
+    email: string;
+    conversation_count: number;
+    review_count: number;
+  }[];
   /** Conversations with no assigned agent, for the Unassigned option. */
   unassigned_count: number;
-  channels: { value: string; label: string; conversation_count: number }[];
-  statuses: { value: string; label: string; conversation_count: number }[];
-  tags: { value: string; conversation_count: number }[];
-  customers: { id: number; name: string; email: string; conversation_count: number }[];
+  unassigned_review_count: number;
+  channels: { value: string; label: string; conversation_count: number; review_count: number }[];
+  statuses: { value: string; label: string; conversation_count: number; review_count: number }[];
+  tags: { value: string; conversation_count: number; review_count: number }[];
+  customers: {
+    id: number;
+    name: string;
+    email: string;
+    conversation_count: number;
+    review_count: number;
+  }[];
 }
 
 export interface QualityReportRatingRow {

@@ -124,6 +124,7 @@ export function QualityInspectionView() {
         options={options}
         activeFilterCount={activeFilterCount}
         showDateBasis={tab === 'report'}
+        countMode={tab === 'report' ? 'reviews' : 'conversations'}
         onChange={setFilters}
         onClear={clearFilters}
       />
