@@ -305,6 +305,46 @@ def test_report_buckets_by_day_and_zero_fills_gaps(user, csm_queue, customer_org
     assert buckets == sorted(buckets, reverse=True)
 
 
+def test_report_buckets_by_conversation_start_under_that_basis(
+    user, csm_queue, customer_organisation
+):
+    """A bar must never fall outside the range the supervisor typed.
+
+    Under the conversation basis the range selects conversations, so the trend
+    is of when those happened - not of when somebody got round to reviewing
+    them, which may be weeks later.
+    """
+    _supervisor(user, customer_organisation)
+    started = timezone.now() - _dt.timedelta(days=30)
+    conversation = _conversation(csm_queue, started_at=started)
+    upsert_review(user, conversation, Rating.GOOD)  # reviewed today
+
+    day = timezone.localtime(started).date()
+    report = build_quality_report(user, _filters(
+        date_from=day, date_to=day, date_basis='conversation', bucket='day',
+    ))
+
+    assert report['totals']['reviews'] == 1
+    assert [row['bucket'] for row in report['by_date']] == [day.isoformat()]
+
+
+def test_report_buckets_by_review_date_under_that_basis(
+    user, csm_queue, customer_organisation
+):
+    """The mirror image, so the pair documents both settings."""
+    _supervisor(user, customer_organisation)
+    conversation = _conversation(
+        csm_queue, started_at=timezone.now() - _dt.timedelta(days=30))
+    upsert_review(user, conversation, Rating.GOOD)
+
+    today = timezone.localdate()
+    report = build_quality_report(user, _filters(
+        date_from=today, date_to=today, date_basis='review', bucket='day',
+    ))
+
+    assert [row['bucket'] for row in report['by_date']] == [today.isoformat()]
+
+
 def test_default_bucket_widens_with_the_span():
     day = _dt.date(2026, 3, 1)
     assert default_bucket(day, day + _dt.timedelta(days=10)) == 'day'

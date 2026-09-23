@@ -371,12 +371,16 @@ def build_quality_report(user, filters):
         for row in agent_rows
     ]
 
+    # Bucket by whatever the range is measuring, so a bar can never fall
+    # outside the range the supervisor typed. Under 'conversation' the range
+    # selects conversations, so the trend is of when those conversations
+    # happened, not of when somebody got round to reviewing them.
+    bucket_field = 'reviewed_at' if basis == 'review' else 'conversation__started_at'
     date_rows = list(
-        base.annotate(bucket=Trunc('reviewed_at', granularity, tzinfo=tz))
+        base.annotate(bucket=Trunc(bucket_field, granularity, tzinfo=tz))
             .values('bucket').annotate(**counts).order_by('bucket')
     )
-    if basis == 'review':
-        date_rows = _zero_filled_dates(date_rows, start, end, granularity, tz)
+    date_rows = _zero_filled_dates(date_rows, start, end, granularity, tz)
     # Newest bucket first, matching the conversation list. The buckets are
     # computed and zero-filled oldest-first because that is the order the
     # gap-filling walks in; only the output is reversed.
