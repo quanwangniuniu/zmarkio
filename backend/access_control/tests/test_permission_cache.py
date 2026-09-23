@@ -27,6 +27,7 @@ import os
 import statistics
 from django.test import RequestFactory
 from access_control.middleware.authorization import AuthorizationMiddleware
+from unittest.mock import patch
 
 class PermissionCacheTest(TestCase):
     @classmethod
@@ -280,3 +281,95 @@ class PermissionCacheTest(TestCase):
         print(f"Reduction: {reduction:.1f}%")
 
         self.assertLess(warm_p95, cold_p95)
+
+    def test_user_role_delete_invalidates_cached_bundle(self):
+        key = self._cache_key()
+        self._warm_cache()
+        self.assertIsNotNone(cache.get(key))
+
+        user_role = UserRole.objects.get(
+            user=self.user,
+            role=self.viewer_role,
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            user_role.delete()
+
+        self.assertIsNone(cache.get(key))
+
+        refreshed = self._warm_cache()
+        self.assertNotIn("ASSET:VIEW", refreshed["permissions"])
+        self.assertFalse(refreshed["has_any_role"])
+
+
+    def test_role_permission_delete_invalidates_cached_bundle(self):
+        key = self._cache_key()
+        self._warm_cache()
+        self.assertIsNotNone(cache.get(key))
+
+        role_permission = RolePermission.objects.get(
+            role=self.viewer_role,
+            permission=self.asset_view,
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            role_permission.delete()
+
+        self.assertIsNone(cache.get(key))
+
+        refreshed = self._warm_cache()
+        self.assertNotIn("ASSET:VIEW", refreshed["permissions"])
+
+
+    def test_project_membership_delete_invalidates_cached_bundle(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            membership = ProjectMember.objects.create(
+                user=self.user,
+                project=self.project,
+                role="member",
+            )
+
+        key = self._cache_key()
+        self._warm_cache()
+        self.assertIsNotNone(cache.get(key))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            membership.delete()
+
+        self.assertIsNone(cache.get(key))
+
+
+    def test_team_membership_delete_invalidates_cached_bundle(self):
+        with self.captureOnCommitCallbacks(execute=True):
+            membership = TeamMember.objects.create(
+                user=self.user,
+                team=self.team,
+                role_id=TeamRole.MEMBER,
+            )
+
+        key = self._cache_key()
+        self._warm_cache()
+        self.assertIsNotNone(cache.get(key))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            membership.delete()
+
+        self.assertIsNone(cache.get(key))
+
+
+    def test_redis_failure_falls_back_to_database(self):
+        # Redis failure must not block permission resolution from PostgreSQL.
+        with patch(
+            "access_control.services.cache.get",
+            side_effect=Exception("Redis unavailable"),
+        ), patch(
+            "access_control.services.cache.set",
+            side_effect=Exception("Redis unavailable"),
+        ):
+            bundle = get_user_permission_bundle(
+                self.user.id,
+                self.schema,
+            )
+
+        self.assertIn("ASSET:VIEW", bundle["permissions"])
+        self.assertTrue(bundle["has_any_role"])
