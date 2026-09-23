@@ -298,6 +298,39 @@ def test_invalid_date_is_rejected_with_a_field_key(supervisor_client):
     assert 'date_from' in response.data
 
 
+def test_filter_options_lists_each_customer_once(supervisor_client, csm_queue, customer):
+    """Regression: the dropdown listed a customer once per conversation.
+
+    Conversation.Meta.ordering puts started_at into a SELECT DISTINCT, so the
+    DISTINCT deduplicated per conversation unless the ordering is cleared.
+    """
+    for _ in range(4):
+        _conversation(csm_queue, customer=customer)
+
+    response = supervisor_client.get(_options_url())
+    ids = [row['id'] for row in response.data['customers']]
+
+    assert ids == [customer.id]
+    assert len(ids) == len(set(ids))
+
+
+def test_filter_options_lists_each_agent_once(
+    supervisor_client, user2, csm_queue, project, customer_organisation
+):
+    """One human with a CustomerUser row per queue is still one dropdown entry."""
+    second_queue = Queue.objects.create(
+        project=project, organisation=customer_organisation, name='Escalations',
+        tier='T2', display_order=1, is_active=True,
+    )
+    _agent(user2, csm_queue, customer_organisation)
+    _agent(user2, second_queue, customer_organisation)
+
+    response = supervisor_client.get(_options_url())
+    user_ids = [row['user_id'] for row in response.data['agents']]
+
+    assert user_ids.count(user2.id) == 1
+
+
 def test_filter_options_lists_scope_without_subject_tags(
     supervisor_client, csm_queue, other_queue
 ):

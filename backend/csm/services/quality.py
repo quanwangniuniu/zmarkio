@@ -469,11 +469,16 @@ def build_filter_options(user):
 
     conversations = Conversation.objects.filter(queue_id__in=queue_ids)
 
+    # .order_by() clears Conversation.Meta.ordering first. Without it Django
+    # must add started_at to a SELECT DISTINCT so the ORDER BY is valid, and the
+    # DISTINCT then applies per conversation — listing each customer once per
+    # conversation they appear on.
     customers = sorted(
         (
             {'id': row['customer_id'], 'name': row['customer__full_name'],
              'email': row['customer__email']}
             for row in conversations.filter(customer__isnull=False)
+                                    .order_by()
                                     .values('customer_id', 'customer__full_name', 'customer__email')
                                     .distinct()
         ),
