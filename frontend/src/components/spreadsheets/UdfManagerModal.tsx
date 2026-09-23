@@ -166,135 +166,71 @@ export default function UdfManagerModal({ isOpen, onClose, projectSlug }: Props)
               </div>
             ) : (
               <ul className="space-y-2">
-                {udfs.map((udf) => (
-                  <li
-                    key={udf.id}
-                    className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-4 py-3 gap-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 font-mono">
-                        {udf.name}({udf.params.join(', ')})
-                      </p>
-                      <p className="text-xs text-gray-500 truncate mt-0.5 font-mono">
-                        {udf.expression}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 gap-1">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(udf)}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-200 transition"
-                        title="Edit"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(udf.id)}
-                        disabled={deleting === udf.id}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-red-100 hover:text-red-600 transition disabled:opacity-40"
-                        title="Delete"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {/* Inline form */}
-            {showForm && (
-              <div className="rounded-lg border border-[#3CCED7]/40 bg-[#f0fdfe] p-4 space-y-3">
-                <p className="text-sm font-medium text-gray-800">
-                  {editingId != null ? 'Edit function' : 'New function'}
-                </p>
-
-                {errors.general && (
-                  <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                    {errors.general}
-                  </div>
+                {udfs.map((udf) =>
+                  editingId === udf.id ? (
+                    // Inline edit form replaces the row being edited
+                    <li key={udf.id}>
+                      <InlineForm
+                        form={form}
+                        errors={errors}
+                        saving={saving}
+                        isEdit
+                        onChange={(patch) => setForm((p) => ({ ...p, ...patch }))}
+                        onSave={handleSave}
+                        onCancel={cancelForm}
+                      />
+                    </li>
+                  ) : (
+                    <li
+                      key={udf.id}
+                      className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-4 py-3 gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 font-mono">
+                          {udf.name}({udf.params.join(', ')})
+                        </p>
+                        <p className="text-xs text-gray-500 truncate mt-0.5 font-mono">
+                          {udf.expression}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(udf)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-gray-200 transition"
+                          title="Edit"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(udf.id)}
+                          disabled={deleting === udf.id}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 hover:bg-red-100 hover:text-red-600 transition disabled:opacity-40"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </li>
+                  )
                 )}
 
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Function name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={(e) => setForm((p) => ({ ...p, name: e.target.value.toUpperCase() }))}
-                    placeholder="e.g. MYROAS"
-                    className={`w-full rounded-md border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#3CCED7] ${
-                      errors.name ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'
-                    }`}
-                  />
-                  {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Parameters <span className="text-red-500">*</span>
-                    <span className="font-normal text-gray-500 ml-1">
-                      (comma-separated — each param accepts a scalar value or a cell range like A1:A10)
-                    </span>
-                  </label>
-                  <input
-                    type="text"
-                    value={form.params}
-                    onChange={(e) => setForm((p) => ({ ...p, params: e.target.value }))}
-                    placeholder="e.g. revenue, cost  or  data  (pass A1:A10 as a range)"
-                    className={`w-full rounded-md border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#3CCED7] ${
-                      errors.params ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'
-                    }`}
-                  />
-                  {errors.params && <p className="mt-1 text-xs text-red-600">{errors.params}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">
-                    Expression <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={form.expression}
-                    onChange={(e) => setForm((p) => ({ ...p, expression: e.target.value }))}
-                    placeholder="e.g. revenue / cost"
-                    className={`w-full rounded-md border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#3CCED7] ${
-                      errors.expression ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'
-                    }`}
-                  />
-                  {errors.expression && (
-                    <p className="mt-1 text-xs text-red-600">{errors.expression}</p>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={cancelForm}
-                    className="px-3 py-1.5 text-xs font-medium text-gray-700 rounded-md border border-gray-200 hover:bg-gray-50 transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={saving}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#3CCED7] rounded-md hover:bg-[#2AB5BD] transition disabled:opacity-70"
-                  >
-                    {saving ? (
-                      'Saving…'
-                    ) : (
-                      <>
-                        <Check className="h-3.5 w-3.5" />
-                        {editingId != null ? 'Update' : 'Create'}
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
+                {/* New function form appended at the bottom of the list */}
+                {showForm && editingId === null && (
+                  <li>
+                    <InlineForm
+                      form={form}
+                      errors={errors}
+                      saving={saving}
+                      isEdit={false}
+                      onChange={(patch) => setForm((p) => ({ ...p, ...patch }))}
+                      onSave={handleSave}
+                      onCancel={cancelForm}
+                    />
+                  </li>
+                )}
+              </ul>
             )}
           </div>
 
@@ -320,5 +256,110 @@ export default function UdfManagerModal({ isOpen, onClose, projectSlug }: Props)
         </div>
       </div>
     </Modal>
+  );
+}
+
+interface InlineFormProps {
+  form: FormState;
+  errors: Partial<FormState & { general: string }>;
+  saving: boolean;
+  isEdit: boolean;
+  onChange: (patch: Partial<FormState>) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}
+
+function InlineForm({ form, errors, saving, isEdit, onChange, onSave, onCancel }: InlineFormProps) {
+  return (
+    <div className="rounded-lg border border-[#3CCED7]/40 bg-[#f0fdfe] p-4 space-y-3">
+      <p className="text-sm font-medium text-gray-800">
+        {isEdit ? 'Edit function' : 'New function'}
+      </p>
+
+      {errors.general && (
+        <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          {errors.general}
+        </div>
+      )}
+
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1">
+          Function name <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          value={form.name}
+          onChange={(e) => onChange({ name: e.target.value.toUpperCase() })}
+          placeholder="e.g. MYROAS"
+          className={`w-full rounded-md border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#3CCED7] ${
+            errors.name ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'
+          }`}
+        />
+        {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name}</p>}
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1">
+          Parameters <span className="text-red-500">*</span>
+          <span className="font-normal text-gray-500 ml-1">
+            (comma-separated — each param accepts a scalar value or a cell range like A1:A10)
+          </span>
+        </label>
+        <input
+          type="text"
+          value={form.params}
+          onChange={(e) => onChange({ params: e.target.value })}
+          placeholder="e.g. revenue, cost  or  data  (pass A1:A10 as a range)"
+          className={`w-full rounded-md border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#3CCED7] ${
+            errors.params ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'
+          }`}
+        />
+        {errors.params && <p className="mt-1 text-xs text-red-600">{errors.params}</p>}
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-gray-700 mb-1">
+          Expression <span className="text-red-500">*</span>
+        </label>
+        <input
+          type="text"
+          value={form.expression}
+          onChange={(e) => onChange({ expression: e.target.value })}
+          placeholder="e.g. revenue / cost"
+          className={`w-full rounded-md border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#3CCED7] ${
+            errors.expression ? 'border-red-300 bg-red-50' : 'border-gray-300 bg-white'
+          }`}
+        />
+        {errors.expression && (
+          <p className="mt-1 text-xs text-red-600">{errors.expression}</p>
+        )}
+      </div>
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 text-xs font-medium text-gray-700 rounded-md border border-gray-200 hover:bg-gray-50 transition"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-[#3CCED7] rounded-md hover:bg-[#2AB5BD] transition disabled:opacity-70"
+        >
+          {saving ? (
+            'Saving…'
+          ) : (
+            <>
+              <Check className="h-3.5 w-3.5" />
+              {isEdit ? 'Update' : 'Create'}
+            </>
+          )}
+        </button>
+      </div>
+    </div>
   );
 }

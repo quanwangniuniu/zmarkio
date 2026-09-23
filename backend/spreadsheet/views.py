@@ -1655,6 +1655,7 @@ class UserDefinedFunctionView(APIView):
             serializer.save(project=project)
         except IntegrityError:
             raise ValidationError({"name": f"A function named '{name}' already exists."})
+        CellService.recalculate_cells_using_udf(project, name)
         return Response(serializer.data, status=201)
 
 class UserDefinedFunctionDetailView(APIView):
@@ -1673,17 +1674,24 @@ class UserDefinedFunctionDetailView(APIView):
     @transaction.atomic
     def put(self, request, project_slug, udf_id):
         udf = self._get_udf(request, project_slug, udf_id, select_for_update=True)
+        old_name = udf.name
         serializer = UserDefinedFunctionSerializer(udf, data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
             serializer.save()
         except IntegrityError:
             raise ValidationError({"name": "A function with this name already exists."})
+        CellService.recalculate_cells_using_udf(udf.project, old_name)
+        new_name = udf.name
+        if new_name != old_name:
+            CellService.recalculate_cells_using_udf(udf.project, new_name)
         return Response(serializer.data)
 
     @transaction.atomic
     def delete(self, request, project_slug, udf_id):
         udf = self._get_udf(request, project_slug, udf_id, select_for_update=True)
+        udf_name = udf.name
         udf.is_deleted = True
         udf.save(update_fields=["is_deleted", "updated_at"])
+        CellService.recalculate_cells_using_udf(udf.project, udf_name)
         return Response(status=204)

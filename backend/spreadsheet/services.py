@@ -1578,6 +1578,38 @@ class CellService:
             CellService._recalculate_formula_cells(formula_cells)
 
     @staticmethod
+    def recalculate_cells_using_udf(project, udf_name: str) -> None:
+        """
+        Find all formula cells in the project whose raw_input references the
+        given UDF name, recalculate them, then broadcast the updated values to
+        all connected clients grouped by sheet.
+        """
+        search_token = f"{udf_name.upper()}("
+        formula_cells = list(
+            Cell.objects.filter(
+                sheet__spreadsheet__project=project,
+                is_deleted=False,
+                row__is_deleted=False,
+                column__is_deleted=False,
+            ).filter(
+                Q(raw_input__icontains=search_token)
+                | Q(formula_value__icontains=search_token)
+            ).select_related('sheet', 'row', 'column')
+        )
+        if not formula_cells:
+            return
+
+        updated_cells = CellService._recalculate_formula_cells(formula_cells)
+
+        # Group updated cells by sheet and broadcast once per sheet so peers
+        # see the new computed values without a page reload.
+        cells_by_sheet: dict[int, list] = {}
+        for cell in updated_cells:
+            cells_by_sheet.setdefault(cell.sheet_id, []).append(cell)
+        for sheet_id, cells in cells_by_sheet.items():
+            broadcast_cells_updated(sheet_id=sheet_id, cells=cells)
+
+    @staticmethod
     def _clear_cell(cell: Cell) -> None:
         cell.is_deleted = True
         cell.value_type = CellValueType.EMPTY
