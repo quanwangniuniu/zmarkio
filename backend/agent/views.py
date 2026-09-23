@@ -31,6 +31,7 @@ class EventStreamRenderer(BaseRenderer):
             return b''
         return json.dumps(data).encode('utf-8')
 
+from core.admin_utils import is_org_admin
 from core.models import Project
 from core.slug_mixins import resolve_project_pk, SlugLookupViewSetMixin, resolve_lookup_kwargs
 from core.services.file_parser import parse_file_to_json, FileParseError
@@ -1353,8 +1354,11 @@ class AgentConfigStatusView(EnglishResponseMixin, APIView):
             val = getattr(django_settings, settings_attr, None) or os.environ.get(env_var, '')
             result[key] = bool(val and val.strip())
 
+        if not (request.user.is_staff or is_org_admin(request.user)):
+            return Response(result)
+
         try:
-            validate_registry(include_templates=True)
+            validate_registry()
             result['column_registry'] = {'ok': True}
         except ColumnRegistryCollisionError as exc:
             # Keep the status endpoint available for admin diagnostics when a

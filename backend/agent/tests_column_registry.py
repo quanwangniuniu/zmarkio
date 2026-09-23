@@ -119,12 +119,23 @@ class ColumnRegistryCollisionTests(SimpleTestCase):
         state.initialize([('broken', {'name': 'Broken', 'columns': [('same', {}), ('same', {})]})])
         with self.assertRaises(ColumnRegistryCollisionError):
             state.check()
+        with patch.object(registry, 'SCHEMA_REGISTRY', state):
+            response = self._config_status(is_staff=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['column_registry']['ok'])
 
     def test_env_flag_allows_actual_overwrite(self):
         with patch.dict(os.environ, {'AGENT_COLUMN_REGISTRY_TEST_MODE': '1'}):
             register_column('test', 'revenue', {'aliases': ['New'], 'category': 'financial'})
             self.assertEqual(self.state['test']['columns']['revenue']['category'], 'financial')
             self.assertEqual(registry._try_rule_match(['New']).mappings['New'], 'revenue')
+            self.assertIsNone(registry._try_rule_match(['Sales']))
+
+    def test_collision_check_is_enabled_without_env_flag(self):
+        with patch.dict(os.environ):
+            os.environ.pop('AGENT_COLUMN_REGISTRY_TEST_MODE', None)
+            with self.assertRaises(ColumnRegistryCollisionError):
+                register_column('test', 'revenue', {})
 
     def test_module_reload_preserves_plugins_and_collision_type(self):
         import importlib
@@ -134,6 +145,9 @@ class ColumnRegistryCollisionTests(SimpleTestCase):
             self.assertIs(registry.SCHEMA_REGISTRY, self.state)
             self.assertIn('test', registry.SCHEMA_REGISTRY)
             self.assertIs(registry.ColumnRegistryCollisionError, ColumnRegistryCollisionError)
+            with self.assertRaises(ColumnRegistryCollisionError):
+                registry.register_schema('test', {'name': 'Reloaded plugin', 'columns': []})
+            self.assertEqual(self.state['test']['name'], 'Test')
         importlib.reload(registry)
         self.patcher.stop()
         self.patcher.start()
@@ -152,61 +166,46 @@ class ColumnRegistryCollisionTests(SimpleTestCase):
                 registry.SCHEMA_REGISTRY = self.state
         # Cleanup restores the original singleton even if the assertion fails.
 
-    def test_database_template_duplicate_is_rejected_on_read(self):
-        from types import SimpleNamespace
-        template = SimpleNamespace(name='Legacy', column_definitions=[
-            {'canonical_name': 'revenue'}, {'canonical_name': 'revenue'},
-        ])
-        with patch('agent.models.DataSchemaTemplate.objects') as manager:
-            manager.filter.return_value.order_by.return_value = [template]
-            with self.assertRaises(ColumnRegistryCollisionError):
-                registry.detect_columns(['revenue'])
-
-    def test_learned_template_rejected_before_database_write(self):
-        with patch('agent.models.DataSchemaTemplate.objects') as manager:
-            with self.assertRaises(ColumnRegistryCollisionError):
-                registry.save_learned_template('Broken', 'custom', [
-                    {'canonical_name': 'revenue'}, {'canonical_name': 'other', 'aliases': ['Revenue']},
-                ])
-            manager.get_or_create.assert_not_called()
-
     def test_rejected_registration_reaches_system_check_and_status_endpoint(self):
         from .checks import check_column_registry
-        from .views import AgentConfigStatusView
-        from rest_framework.test import APIRequestFactory, force_authenticate
         with self.assertRaises(ColumnRegistryCollisionError):
             register_column('test', 'revenue', {})
         self.assertEqual(check_column_registry(None)[0].id, 'agent.E001')
-        request = APIRequestFactory().get('/api/agent/config/status/')
-        force_authenticate(request, user=SimpleNamespace(is_authenticated=True, is_staff=True))
-        response = AgentConfigStatusView.as_view()(request)
+        response = self._config_status(is_staff=True)
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.data['column_registry']['ok'])
         self.assertEqual(response.data['column_registry']['code'], 'COLUMN_REGISTRY_COLLISION')
 
-    def test_database_collision_reaches_status_endpoint(self):
+    def _config_status(self, *, is_staff=False):
         from .views import AgentConfigStatusView
         from rest_framework.test import APIRequestFactory, force_authenticate
-        template = SimpleNamespace(name='Legacy', column_definitions=[
-            {'canonical_name': 'revenue'}, {'canonical_name': 'revenue'},
-        ])
         request = APIRequestFactory().get('/api/agent/config/status/')
-        force_authenticate(request, user=SimpleNamespace(is_authenticated=True, is_staff=True))
-        with patch('agent.models.DataSchemaTemplate.objects') as manager:
-            manager.filter.return_value = [template]
-            response = AgentConfigStatusView.as_view()(request)
-        self.assertFalse(response.data['column_registry']['ok'])
+        force_authenticate(request, user=SimpleNamespace(is_authenticated=True, is_staff=is_staff))
+        return AgentConfigStatusView.as_view()(request)
 
-    def test_model_clean_and_save_reject_duplicates_before_sql(self):
-        from django.core.exceptions import ValidationError
-        from .models import DataSchemaTemplate
-        template = DataSchemaTemplate(name='Broken', column_definitions=[
-            {'canonical_name': 'revenue'}, {'canonical_name': 'revenue'},
-        ])
-        for operation in (template.clean, template.save):
-            with self.assertRaises(ValidationError) as raised:
-                operation()
-            self.assertIn('column_definitions', raised.exception.message_dict)
+    def test_status_endpoint_does_not_read_database_templates(self):
+        with patch('agent.models.DataSchemaTemplate.objects') as manager:
+            response = self._config_status(is_staff=True)
+        self.assertEqual(response.data['column_registry'], {'ok': True})
+        manager.filter.assert_not_called()
+
+    @patch('agent.views.is_org_admin', return_value=False)
+    def test_status_endpoint_omits_registry_for_non_admin(self, _is_org_admin):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'revenue', {})
+        response = self._config_status()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('column_registry', response.data)
+        self.assertIn('gemini', response.data)
+
+    @patch('agent.views.is_org_admin', return_value=True)
+    def test_status_endpoint_exposes_collision_to_org_admin(self, _is_org_admin):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'revenue', {})
+        response = self._config_status()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['column_registry']['ok'])
+        self.assertEqual(response.data['column_registry']['code'], 'COLUMN_REGISTRY_COLLISION')
 
 
 # ---------------------------------------------------------------------------

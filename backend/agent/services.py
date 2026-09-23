@@ -2853,10 +2853,7 @@ class AgentOrchestrator:
                     workflow_run.error_message = result.error
                     workflow_run.save()
 
-                    error_event = {'type': 'error', 'content': result.error}
-                    if result.error_code:
-                        error_event['data'] = {'code': result.error_code}
-                    yield error_event
+                    yield {'type': 'error', 'content': result.error}
                     return
 
 

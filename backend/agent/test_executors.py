@@ -7,7 +7,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from .approval_gate import ExternalCommitResult
-from .column_registry import ColumnDetectionResult, ColumnRegistryCollisionError
+from .column_registry import ColumnDetectionResult
 from .executors import (
     AnalyzeDataExecutor,
     AwaitConfirmationExecutor,
@@ -1396,26 +1396,6 @@ class DetectColumnsExecutorTests(SimpleTestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.error, "Invalid detection result")
         mock_detect_columns.assert_called_once()
-
-    def test_registry_collision_is_not_retried_and_has_structured_code(self):
-        import os
-        from .column_registry_state import ColumnRegistry
-        state = ColumnRegistry()
-        state.initialize([('plugin', {'name': 'Plugin', 'columns': [('shared_metric', {})]})])
-        executor = DetectColumnsExecutor(
-            _StepStub(), _WorkflowRunStub(), _OrchestratorStub()
-        )
-
-        with patch.dict(os.environ, {'AGENT_COLUMN_REGISTRY_TEST_MODE': '0'}):
-            with self.assertRaises(ColumnRegistryCollisionError):
-                state.register_column('plugin', 'shared_metric', {})
-            with patch('agent.column_registry.SCHEMA_REGISTRY', state):
-                result = executor.execute({"spreadsheet_data": {"sheets": []}})
-
-        self.assertFalse(result.success)
-        self.assertFalse(result.skipped)
-        self.assertEqual(result.error_code, "COLUMN_REGISTRY_COLLISION")
-        self.assertIn("shared metric", result.error)
 
 
 class NormalizeDataExecutorTests(SimpleTestCase):

@@ -64,17 +64,6 @@ def build_columns(definitions, scope):
     return columns, index
 
 
-def validate_column_definitions(definitions, scope='template'):
-    if not isinstance(definitions, list):
-        raise ValueError('Column definitions must be a list.')
-    pairs = []
-    for spec in definitions:
-        if not isinstance(spec, dict):
-            raise ValueError('Each column definition must be an object.')
-        pairs.append((spec.get('canonical_name'), spec))
-    return build_columns(pairs, scope)
-
-
 def _freeze(value):
     if isinstance(value, Mapping):
         return MappingProxyType({key: _freeze(item) for key, item in value.items()})

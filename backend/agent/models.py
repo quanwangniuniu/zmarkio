@@ -278,20 +278,6 @@ class DataSchemaTemplate(TimeStampedModel):
     def __str__(self):
         return f"{self.name} ({self.source_platform})"
 
-    def clean(self):
-        super().clean()
-        from django.core.exceptions import ValidationError
-        from .column_registry_state import validate_column_definitions
-        try:
-            validate_column_definitions(self.column_definitions, self.name)
-        except ValueError as exc:
-            raise ValidationError({'column_definitions': str(exc)}) from exc
-
-    def save(self, *args, **kwargs):
-        # ModelForms call clean(); direct ORM writes must enforce this too.
-        self.clean()
-        return super().save(*args, **kwargs)
-
 
 class ImportedDataField(TimeStampedModel):
     """

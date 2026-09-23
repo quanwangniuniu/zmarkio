@@ -17,6 +17,19 @@ Public API:
   save_learned_template(schema_name, source_platform, columns, project) -> DataSchemaTemplate | None
   register_schema(schema_key, schema)         -> registered schema
   register_column(schema_key, canonical_name, spec) -> registered column
+
+Plugin author guidance:
+  Register through these APIs; SCHEMA_REGISTRY and nested definitions are read-only.
+  Example: register_schema('my_plugin', {'name': 'My export', 'columns': []})
+           register_column('my_plugin', 'sales', {'aliases': ['Total Sales']})
+  Schema keys must be unique. Within a schema, canonical names and aliases must
+  be unambiguous after ignoring case and whitespace/underscore differences.
+  Use (name, spec) pairs for bulk columns: dict literals discard duplicate keys.
+  Registration raises ColumnRegistryCollisionError without replacing live data.
+  AGENT_COLUMN_REGISTRY_TEST_MODE=1 permits overwrites for test fixtures only.
+  State survives reload of this module; registering the same plugin again raises.
+  Catch registration collisions at the plugin startup boundary if diagnostics
+  must remain available. Fix the definitions and restart to clear the failure.
 """
 
 import json
@@ -25,13 +38,9 @@ import os
 import re
 from .column_registry_state import (
     ColumnRegistryCollisionError, registry as SCHEMA_REGISTRY,
-    test_mode_enabled as column_registry_test_mode_enabled,
-    validate_column_definitions,
 )
 
 logger = logging.getLogger(__name__)
-
-COLUMN_REGISTRY_TEST_MODE_ENV = "AGENT_COLUMN_REGISTRY_TEST_MODE"
 
 # ---------------------------------------------------------------------------
 # Semantic category constants
@@ -122,9 +131,9 @@ def _try_db_template_match(headers: list) -> "ColumnDetectionResult | None":
     """
     try:
         from .models import DataSchemaTemplate
-        templates = list(DataSchemaTemplate.objects.filter(
+        templates = DataSchemaTemplate.objects.filter(
             is_deleted=False,
-        ).order_by('-usage_count', '-is_system'))
+        ).order_by('-usage_count', '-is_system')
     except Exception:
         return None
 
@@ -137,8 +146,16 @@ def _try_db_template_match(headers: list) -> "ColumnDetectionResult | None":
         if not col_defs:
             continue
 
-        columns, alias_index = validate_column_definitions(col_defs, template.name)
-        cat_map = {name: spec['category'] for name, spec in columns.items()}
+        # Build alias index for this template
+        alias_index = {}
+        cat_map = {}
+        for col in col_defs:
+            canonical = col.get('canonical_name', '')
+            category = col.get('category', CAT_UNKNOWN)
+            for alias in col.get('aliases', []):
+                alias_index[_normalise(alias)] = canonical
+            alias_index[_normalise(canonical)] = canonical
+            cat_map[canonical] = category
 
         mappings = {}
         categories = {}
@@ -194,7 +211,6 @@ def save_learned_template(schema_name: str, source_platform: str,
     """
     if not columns:
         return None
-    validate_column_definitions(columns, schema_name)
     try:
         from .models import DataSchemaTemplate
         template, created = DataSchemaTemplate.objects.get_or_create(
@@ -389,21 +405,19 @@ def _normalise(text: str) -> str:
     return re.sub(r"[\s_]+", " ", text.strip().lower())
 
 
-def validate_registry(*, include_templates=False) -> list:
+def validate_registry() -> list:
     """Report retained registration failures without preventing diagnostics boot."""
     SCHEMA_REGISTRY.check()
-    if include_templates:
-        from .models import DataSchemaTemplate
-        for template in DataSchemaTemplate.objects.filter(is_deleted=False):
-            validate_column_definitions(template.column_definitions, template.name)
     return []
 
 
 def register_schema(schema_key: str, schema: dict):
+    """Register a unique schema; use (name, spec) pairs to preserve duplicates."""
     return SCHEMA_REGISTRY.register_schema(schema_key, schema)
 
 
 def register_column(schema_key: str, canonical_name: str, spec: dict):
+    """Register a column, raising on a canonical-name or alias collision."""
     return SCHEMA_REGISTRY.register_column(schema_key, canonical_name, spec)
 
 
@@ -733,17 +747,17 @@ def detect_columns(headers: list, sample_rows: list = None,
 
     # Persist as a learned template if the LLM was confident enough
     if result.source == "llm" and result.confidence >= 0.6 and result.schema_name != "Unknown format":
-        learned_by_name = {}
-        for original, canonical in result.mappings.items():
-            if canonical == CAT_UNKNOWN:
-                continue
-            spec = learned_by_name.setdefault(canonical, {
-                "canonical_name": canonical, "aliases": [],
+        learned_cols = [
+            {
+                "canonical_name": canonical,
+                "aliases": [original],
                 "category": result.categories.get(canonical, CAT_UNKNOWN),
-                "value_type": "string", "description": "",
-            })
-            spec["aliases"].append(original)
-        learned_cols = list(learned_by_name.values())
+                "value_type": "string",
+                "description": "",
+            }
+            for original, canonical in result.mappings.items()
+            if canonical != CAT_UNKNOWN
+        ]
         if learned_cols:
             save_learned_template(
                 schema_name=result.schema_name,
