@@ -362,6 +362,51 @@ def test_invalid_date_is_rejected_with_a_field_key(supervisor_client):
     assert 'date_from' in response.data
 
 
+def test_filter_options_count_conversations_per_option(
+    supervisor_client, user2, csm_queue, customer, customer_organisation
+):
+    """Every control shows where the volume is, not just the customer one."""
+    agent = _agent(user2, csm_queue, customer_organisation)
+    _conversation(csm_queue, assigned_to=agent, channel='email', status='closed',
+                  customer=customer, tags=['Subject', 'vip'])
+    _conversation(csm_queue, assigned_to=agent, channel='email', status='closed',
+                  tags=['Subject', 'vip'])
+    _conversation(csm_queue, assigned_to=None, channel='web', status='active',
+                  tags=['Subject', 'refund'])
+
+    data = supervisor_client.get(_options_url()).data
+
+    queue = next(q for q in data['queues'] if q['id'] == csm_queue.id)
+    assert queue['conversation_count'] == 3
+
+    agent_row = next(a for a in data['agents'] if a['user_id'] == user2.id)
+    assert agent_row['conversation_count'] == 2
+    assert data['unassigned_count'] == 1
+
+    email = next(c for c in data['channels'] if c['value'] == 'email')
+    assert email['conversation_count'] == 2
+
+    closed = next(st for st in data['statuses'] if st['value'] == 'closed')
+    assert closed['conversation_count'] == 2
+
+    tags = {t['value']: t['conversation_count'] for t in data['tags']}
+    assert tags == {'vip': 2, 'refund': 1}
+
+    person = next(c for c in data['customers'] if c['id'] == customer.id)
+    assert person['conversation_count'] == 1
+
+
+def test_filter_options_order_by_volume(supervisor_client, csm_queue):
+    """Busiest first, so the useful options are at the top of each list."""
+    for _ in range(3):
+        _conversation(csm_queue, tags=['Subject', 'busy'])
+    _conversation(csm_queue, tags=['Subject', 'quiet'])
+
+    tags = supervisor_client.get(_options_url()).data['tags']
+
+    assert [t['value'] for t in tags] == ['busy', 'quiet']
+
+
 def test_filter_options_lists_each_customer_once(supervisor_client, csm_queue, customer):
     """Regression: the dropdown listed a customer once per conversation.
 
@@ -427,7 +472,7 @@ def test_filter_options_lists_scope_without_subject_tags(
     response = supervisor_client.get(_options_url())
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.data['tags'] == ['vip']
+    assert [t['value'] for t in response.data['tags']] == ['vip']
     assert [q['id'] for q in response.data['queues']] == [csm_queue.id]
     assert {c['value'] for c in response.data['channels']} == {'web', 'email', 'whatsapp'}
 

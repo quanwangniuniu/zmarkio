@@ -444,14 +444,37 @@ def _echo(filters, basis, granularity):
 # filter options
 # ---------------------------------------------------------------------------
 
+def _counts_by(conversations, field):
+    """conversations grouped by *field* -> count.
+
+    .order_by() clears Conversation.Meta.ordering so the grouping is only the
+    field asked for.
+    """
+    return {
+        row[field]: row['n']
+        for row in conversations.order_by().values(field).annotate(n=Count('id'))
+    }
+
+
 def build_filter_options(user):
-    """Values for the six filter controls, within the supervised scope."""
+    """Values for the six filter controls, within the supervised scope.
+
+    Every option carries how many conversations it accounts for, so a
+    supervisor can see where the volume is before picking one.
+    """
     queues = list(
         supervised_queues_for(user)
         .select_related('organisation')
         .order_by('organisation__name', 'display_order', 'name')
     )
     queue_ids = [q.id for q in queues]
+    conversations = Conversation.objects.filter(queue_id__in=queue_ids)
+
+    queue_counts = _counts_by(conversations, 'queue_id')
+    channel_counts = _counts_by(conversations, 'channel')
+    status_counts = _counts_by(conversations, 'status')
+    agent_counts = _counts_by(conversations, 'assigned_to__user_id')
+    unassigned_count = agent_counts.pop(None, 0)
 
     agents = (
         CustomerUser.objects
@@ -467,10 +490,9 @@ def build_filter_options(user):
             'user_id': customer_user.user_id,
             'name': _display_name(customer_user.user),
             'email': customer_user.user.email,
+            'conversation_count': agent_counts.get(customer_user.user_id, 0),
         })
-    agent_rows.sort(key=lambda row: (row['name'] or '').lower())
-
-    conversations = Conversation.objects.filter(queue_id__in=queue_ids)
+    agent_rows.sort(key=lambda row: (-row['conversation_count'], (row['name'] or '').lower()))
 
     # GROUP BY rather than DISTINCT, so each customer appears once and carries
     # how many conversations they account for. .order_by() clears
@@ -492,12 +514,13 @@ def build_filter_options(user):
     # tags[0] doubles as the conversation subject (see ConversationViewSet.claim),
     # so it is skipped here: including it would fill the dropdown with one-off
     # subject lines. Filtering itself still matches any tag.
-    tags = set()
+    # Counted in Python because a JSON array has nothing to group by.
+    tag_counts = {}
     for tag_list in conversations.values_list('tags', flat=True)[:TAG_VOCABULARY_SCAN_LIMIT]:
         if isinstance(tag_list, list):
             for tag in tag_list[1:]:
                 if isinstance(tag, str) and tag.strip():
-                    tags.add(tag.strip())
+                    tag_counts[tag.strip()] = tag_counts.get(tag.strip(), 0) + 1
 
     organisations = []
     seen_orgs = set()
@@ -510,12 +533,23 @@ def build_filter_options(user):
         'organisations': organisations,
         'queues': [
             {'id': q.id, 'name': q.name, 'organisation': q.organisation_id,
-             'is_active': q.is_active}
+             'is_active': q.is_active,
+             'conversation_count': queue_counts.get(q.id, 0)}
             for q in queues
         ],
         'agents': agent_rows,
-        'channels': [{'value': v, 'label': l} for v, l in Conversation.CHANNEL_CHOICES],
-        'statuses': [{'value': v, 'label': l} for v, l in Conversation.STATUS_CHOICES],
-        'tags': sorted(tags),
+        'unassigned_count': unassigned_count,
+        'channels': [
+            {'value': v, 'label': l, 'conversation_count': channel_counts.get(v, 0)}
+            for v, l in Conversation.CHANNEL_CHOICES
+        ],
+        'statuses': [
+            {'value': v, 'label': l, 'conversation_count': status_counts.get(v, 0)}
+            for v, l in Conversation.STATUS_CHOICES
+        ],
+        'tags': [
+            {'value': tag, 'conversation_count': count}
+            for tag, count in sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+        ],
         'customers': customers,
     }

@@ -69,14 +69,22 @@ export const EMPTY_QUALITY_FILTERS: QualityFilters = {
   status: [],
 };
 
+/** Every option carries how many conversations in scope it accounts for. */
 export interface QualityFilterOptions {
   organisations: { id: number; name: string }[];
-  queues: { id: number; name: string; organisation: number | null; is_active: boolean }[];
-  agents: { user_id: number; name: string; email: string }[];
-  channels: { value: string; label: string }[];
-  statuses: { value: string; label: string }[];
-  tags: string[];
-  /** conversation_count is how many conversations in scope that customer accounts for. */
+  queues: {
+    id: number;
+    name: string;
+    organisation: number | null;
+    is_active: boolean;
+    conversation_count: number;
+  }[];
+  agents: { user_id: number; name: string; email: string; conversation_count: number }[];
+  /** Conversations with no assigned agent, for the Unassigned option. */
+  unassigned_count: number;
+  channels: { value: string; label: string; conversation_count: number }[];
+  statuses: { value: string; label: string; conversation_count: number }[];
+  tags: { value: string; conversation_count: number }[];
   customers: { id: number; name: string; email: string; conversation_count: number }[];
 }
 

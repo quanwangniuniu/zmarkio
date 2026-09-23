@@ -8,19 +8,23 @@ import { EMPTY_QUALITY_FILTERS, QualityFilterOptions } from '@/types/csmQuality'
 const options: QualityFilterOptions = {
   organisations: [{ id: 1, name: 'Acme' }],
   queues: [
-    { id: 3, name: 'T1 Frontline', organisation: 1, is_active: true },
-    { id: 4, name: 'Retired', organisation: 1, is_active: false },
+    { id: 3, name: 'T1 Frontline', organisation: 1, is_active: true, conversation_count: 12 },
+    { id: 4, name: 'Retired', organisation: 1, is_active: false, conversation_count: 2 },
   ],
-  agents: [{ user_id: 9, name: 'Ada L.', email: 'ada@x.io' }],
+  agents: [{ user_id: 9, name: 'Ada L.', email: 'ada@x.io', conversation_count: 5 }],
+  unassigned_count: 3,
   channels: [
-    { value: 'web', label: 'Web' },
-    { value: 'email', label: 'Email' },
+    { value: 'web', label: 'Web', conversation_count: 8 },
+    { value: 'email', label: 'Email', conversation_count: 6 },
   ],
   statuses: [
-    { value: 'closed', label: 'Closed' },
-    { value: 'active', label: 'Active' },
+    { value: 'closed', label: 'Closed', conversation_count: 11 },
+    { value: 'active', label: 'Active', conversation_count: 4 },
   ],
-  tags: ['vip', 'refund'],
+  tags: [
+    { value: 'vip', conversation_count: 9 },
+    { value: 'refund', conversation_count: 2 },
+  ],
   customers: [
     { id: 5, name: 'Grace H.', email: 'grace@x.io', conversation_count: 7 },
     { id: 6, name: 'Quiet Co.', email: 'quiet@x.io', conversation_count: 1 },
@@ -61,10 +65,10 @@ describe('QualityFiltersPanel — AC2 all six filters', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
     const list = screen.getByRole('listbox', { name: 'Agent' });
 
-    fireEvent.click(within(list).getByLabelText('Ada L.'));
+    fireEvent.click(within(list).getByLabelText(/Ada L\./));
     expect(onChange).toHaveBeenCalledWith({ agent: [9] });
 
-    fireEvent.click(within(list).getByLabelText('Unassigned'));
+    fireEvent.click(within(list).getByLabelText(/Unassigned/));
     expect(onChange).toHaveBeenCalledWith({ agent: ['unassigned'] });
   });
 
@@ -74,8 +78,8 @@ describe('QualityFiltersPanel — AC2 all six filters', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
     const list = screen.getByRole('listbox', { name: 'Queue' });
 
-    expect(within(list).getByLabelText('Retired (archived)')).toBeInTheDocument();
-    fireEvent.click(within(list).getByLabelText('T1 Frontline'));
+    expect(within(list).getByLabelText(/Retired \(archived\)/)).toBeInTheDocument();
+    fireEvent.click(within(list).getByLabelText(/T1 Frontline/));
     expect(onChange).toHaveBeenCalledWith({ queue: [3] });
   });
 
@@ -83,7 +87,7 @@ describe('QualityFiltersPanel — AC2 all six filters', () => {
     const { onChange } = renderPanel();
 
     fireEvent.click(screen.getByRole('button', { name: 'Channel' }));
-    fireEvent.click(within(screen.getByRole('listbox', { name: 'Channel' })).getByLabelText('Email'));
+    fireEvent.click(within(screen.getByRole('listbox', { name: 'Channel' })).getByLabelText(/Email/));
     expect(onChange).toHaveBeenCalledWith({ channel: ['email'] });
 
     fireEvent.click(screen.getByRole('button', { name: 'Customer' }));
@@ -91,22 +95,29 @@ describe('QualityFiltersPanel — AC2 all six filters', () => {
     expect(onChange).toHaveBeenCalledWith({ customer: [5] });
 
     fireEvent.click(screen.getByRole('button', { name: 'Tag' }));
-    fireEvent.click(within(screen.getByRole('listbox', { name: 'Tag' })).getByLabelText('vip'));
+    fireEvent.click(within(screen.getByRole('listbox', { name: 'Tag' })).getByLabelText(/vip/));
     expect(onChange).toHaveBeenCalledWith({ tag: ['vip'] });
 
     fireEvent.click(screen.getByRole('button', { name: 'Status' }));
-    fireEvent.click(within(screen.getByRole('listbox', { name: 'Status' })).getByLabelText('Closed'));
+    fireEvent.click(within(screen.getByRole('listbox', { name: 'Status' })).getByLabelText(/Closed/));
     expect(onChange).toHaveBeenCalledWith({ status: ['closed'] });
   });
 
-  it('shows how many conversations each customer accounts for', () => {
+  it.each([
+    ['Customer', /Grace H\..*7 conversations/],
+    ['Agent', /Ada L\..*5 conversations/],
+    ['Agent', /Unassigned.*3 conversations/],
+    ['Queue', /T1 Frontline.*12 conversations/],
+    ['Channel', /Email.*6 conversations/],
+    ['Tag', /vip.*9 conversations/],
+    ['Status', /Closed.*11 conversations/],
+  ])('shows conversation counts in the %s filter', (label, expected) => {
     renderPanel();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Customer' }));
-    const list = screen.getByRole('listbox', { name: 'Customer' });
+    fireEvent.click(screen.getByRole('button', { name: label }));
+    const list = screen.getByRole('listbox', { name: label });
 
-    expect(within(list).getByLabelText(/Grace H\..*7 conversations/)).toBeInTheDocument();
-    expect(within(list).getByLabelText(/Quiet Co\..*1 conversations/)).toBeInTheDocument();
+    expect(within(list).getByLabelText(expected)).toBeInTheDocument();
   });
 
   it('shows the date-basis toggle only on the report tab', () => {

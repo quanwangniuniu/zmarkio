@@ -26,11 +26,14 @@ export function QualityFiltersPanel({
   onChange,
   onClear,
 }: QualityFiltersPanelProps) {
+  // Counts sit beside every option so a supervisor can see where the volume
+  // is before picking one.
   const agentOptions = [
-    { value: UNASSIGNED, label: 'Unassigned' },
+    { value: UNASSIGNED, label: 'Unassigned', count: options?.unassigned_count },
     ...(options?.agents ?? []).map((agent) => ({
       value: String(agent.user_id),
       label: agent.name || agent.email,
+      count: agent.conversation_count,
     })),
   ];
 
@@ -83,6 +86,7 @@ export function QualityFiltersPanel({
           options={(options?.queues ?? []).map((queue) => ({
             value: String(queue.id),
             label: queue.is_active ? queue.name : `${queue.name} (archived)`,
+            count: queue.conversation_count,
           }))}
           selected={filters.queue.map(String)}
           onChange={(next) => onChange({ queue: next.map(Number) })}
@@ -93,6 +97,7 @@ export function QualityFiltersPanel({
           options={(options?.channels ?? []).map((channel) => ({
             value: channel.value,
             label: channel.label,
+            count: channel.conversation_count,
           }))}
           selected={filters.channel}
           onChange={(next) => onChange({ channel: next })}
@@ -104,8 +109,6 @@ export function QualityFiltersPanel({
           options={(options?.customers ?? []).map((customer) => ({
             value: String(customer.id),
             label: customer.name || customer.email,
-            // How many conversations they account for, so a supervisor can see
-            // where the volume is before picking.
             count: customer.conversation_count,
           }))}
           selected={filters.customer.map(String)}
@@ -115,7 +118,11 @@ export function QualityFiltersPanel({
         <QualityMultiSelect
           label="Tag"
           searchable
-          options={(options?.tags ?? []).map((tag) => ({ value: tag, label: tag }))}
+          options={(options?.tags ?? []).map((tag) => ({
+            value: tag.value,
+            label: tag.value,
+            count: tag.conversation_count,
+          }))}
           selected={filters.tag}
           onChange={(next) => onChange({ tag: next })}
         />
@@ -127,6 +134,7 @@ export function QualityFiltersPanel({
           options={(options?.statuses ?? []).map((status) => ({
             value: status.value,
             label: status.label,
+            count: status.conversation_count,
           }))}
           selected={filters.status}
           onChange={(next) => onChange({ status: next })}
