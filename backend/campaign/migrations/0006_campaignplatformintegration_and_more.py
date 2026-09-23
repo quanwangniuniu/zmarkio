@@ -17,6 +17,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('last_sync_error', models.CharField(blank=True, choices=[('', 'No error'), ('auth', 'Reconnect required'), ('transient', 'Temporary failure'), ('unknown', 'Sync failed')], default='', max_length=16)),
+                ('last_sync_error_at', models.DateTimeField(blank=True, null=True)),
                 ('last_sync_attempted_at', models.DateTimeField(blank=True, null=True)),
                 ('last_synced_at', models.DateTimeField(blank=True, null=True)),
                 ('ad_account', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='facebook_integration.metaadaccount')),

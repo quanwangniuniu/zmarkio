@@ -1,6 +1,7 @@
 """Campaign sync health is fed by the real Meta sync entry points."""
 
 from datetime import timedelta
+from itertools import permutations
 from unittest.mock import patch
 
 import pytest
@@ -147,6 +148,105 @@ def test_older_completion_cannot_clear_newer_failure(account):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize('auth_finishes_first', [True, False])
+def test_overlapping_auth_and_timeout_preserve_warning(account, auth_finishes_first):
+    older = IntegrationService.begin_sync(ad_account=account)
+    newer = IntegrationService.begin_sync(ad_account=account)
+    outcomes = [(older, MetaApiError('expired', 401)), (newer, requests.Timeout())]
+    for attempt, error in outcomes if auth_finishes_first else reversed(outcomes):
+        IntegrationService.finish_sync(ad_account=account, attempted_at=attempt, error=error)
+    integration = CampaignPlatformIntegration.objects.get(ad_account=account)
+    assert integration.last_sync_error == 'auth'
+    assert integration.last_sync_attempted_at == newer
+    assert Notification.objects.count() == 1
+
+    recovery = IntegrationService.begin_sync(ad_account=account)
+    IntegrationService.finish_sync(ad_account=account, attempted_at=recovery)
+    # A delayed/repeated failure from before recovery must not reopen the warning.
+    IntegrationService.finish_sync(ad_account=account, attempted_at=older, error=outcomes[0][1])
+    integration.refresh_from_db()
+    assert integration.last_sync_error == ''
+    assert integration.last_synced_at == recovery
+    assert Notification.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_newer_success_supersedes_late_auth_failure(account):
+    older = IntegrationService.begin_sync(ad_account=account)
+    newer = IntegrationService.begin_sync(ad_account=account)
+    IntegrationService.finish_sync(ad_account=account, attempted_at=newer)
+    IntegrationService.finish_sync(ad_account=account, attempted_at=older, error=MetaApiError('expired', 401))
+    integration = CampaignPlatformIntegration.objects.get(ad_account=account)
+    assert integration.last_sync_error == ''
+    assert integration.last_synced_at == newer
+    assert Notification.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_older_success_does_not_hide_newer_auth_failure(account):
+    older = IntegrationService.begin_sync(ad_account=account)
+    newer = IntegrationService.begin_sync(ad_account=account)
+    IntegrationService.finish_sync(ad_account=account, attempted_at=older)
+    IntegrationService.finish_sync(ad_account=account, attempted_at=newer, error=MetaApiError('expired', 401))
+    integration = CampaignPlatformIntegration.objects.get(ad_account=account)
+    assert integration.last_sync_error == 'auth'
+    assert integration.last_synced_at == older
+    assert Notification.objects.count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('completion_order', list(permutations(range(3))))
+@pytest.mark.parametrize('outcomes', [
+    ('auth', 'success', 'transient'),
+    ('success', 'auth', 'transient'),
+    ('auth', 'auth', 'success'),
+    ('auth', 'success', 'auth'),
+])
+def test_overlapping_recovery_depends_on_attempt_order(account, completion_order, outcomes):
+    attempts = [IntegrationService.begin_sync(ad_account=account) for _ in outcomes]
+    errors = {'auth': MetaApiError('expired', 401), 'success': None, 'transient': requests.Timeout()}
+    for index in completion_order:
+        IntegrationService.finish_sync(
+            ad_account=account, attempted_at=attempts[index], error=errors[outcomes[index]],
+        )
+
+    integration = CampaignPlatformIntegration.objects.get(ad_account=account)
+    latest_auth = max(attempt for attempt, outcome in zip(attempts, outcomes) if outcome == 'auth')
+    latest_success = max(attempt for attempt, outcome in zip(attempts, outcomes) if outcome == 'success')
+    assert (integration.last_sync_error == 'auth') == (latest_auth > latest_success)
+    if integration.last_sync_error == 'auth':
+        assert integration.last_sync_error_at == latest_auth
+    elif not integration.last_sync_error:
+        assert integration.last_sync_error_at is None
+    assert integration.last_synced_at == latest_success
+    assert integration.last_sync_attempted_at == attempts[-1]
+
+
+@pytest.mark.django_db
+def test_delayed_start_cannot_replace_newer_attempt(account):
+    original_filter = Campaign.objects.filter
+    newer = None
+
+    def start_newer_sync_before_loading_campaigns(*args, **kwargs):
+        nonlocal newer
+        with patch.object(Campaign.objects, 'filter', original_filter):
+            newer = IntegrationService.begin_sync(ad_account=account)
+        return original_filter(*args, **kwargs)
+
+    with patch.object(Campaign.objects, 'filter', side_effect=start_newer_sync_before_loading_campaigns):
+        older = IntegrationService.begin_sync(ad_account=account)
+
+    integration = CampaignPlatformIntegration.objects.get(ad_account=account)
+    assert older < newer
+    assert integration.last_sync_attempted_at == newer
+    IntegrationService.finish_sync(ad_account=account, attempted_at=newer, error=MetaApiError('expired', 401))
+    IntegrationService.finish_sync(ad_account=account, attempted_at=older)
+    integration.refresh_from_db()
+    assert integration.last_sync_error == 'auth'
+    assert Notification.objects.count() == 1
+
+
+@pytest.mark.django_db
 def test_only_matching_project_and_platform_receive_sync_state(account, campaign, organization, user):
     from core.models import Project
 
@@ -157,6 +257,26 @@ def test_only_matching_project_and_platform_receive_sync_state(account, campaign
                            objective='CONVERSION', platforms=['GOOGLE_ADS'], start_date=timezone.now().date())
     IntegrationService.begin_sync(ad_account=account)
     assert list(CampaignPlatformIntegration.objects.values_list('campaign_id', flat=True)) == [campaign.id]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('removed_before_start', [True, False])
+def test_removed_meta_platform_does_not_receive_sync_failures(account, campaign, member_client, removed_before_start):
+    previous = IntegrationService.begin_sync(ad_account=account)
+    IntegrationService.finish_sync(ad_account=account, attempted_at=previous)
+    if not removed_before_start:
+        attempt = IntegrationService.begin_sync(ad_account=account)
+    campaign.platforms = [Campaign.Platform.GOOGLE_ADS]
+    campaign.save(update_fields=['platforms'])
+    if removed_before_start:
+        attempt = IntegrationService.begin_sync(ad_account=account)
+    IntegrationService.finish_sync(ad_account=account, attempted_at=attempt, error=MetaApiError('expired', 401))
+
+    integration = CampaignPlatformIntegration.objects.get(ad_account=account)
+    assert integration.last_sync_error == ''
+    assert integration.last_synced_at == previous
+    assert Notification.objects.count() == 0
+    assert member_client.get(f'/api/campaigns/{campaign.slug}/').data['platform_integrations'] == []
 
 
 @pytest.mark.django_db

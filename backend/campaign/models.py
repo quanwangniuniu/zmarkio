@@ -607,6 +607,8 @@ class CampaignPlatformIntegration(models.Model):
     campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name='platform_integrations')
     ad_account = models.ForeignKey('facebook_integration.MetaAdAccount', on_delete=models.CASCADE)
     last_sync_error = models.CharField(max_length=16, choices=SyncError.choices, blank=True, default='')
+    # Start of the failed attempt, used to order overlapping sync results.
+    last_sync_error_at = models.DateTimeField(null=True, blank=True)
     last_sync_attempted_at = models.DateTimeField(null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
 

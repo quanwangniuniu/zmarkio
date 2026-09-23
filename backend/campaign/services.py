@@ -15,6 +15,7 @@ import requests
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError
 
@@ -63,10 +64,14 @@ class CampaignPlatformIntegrationService:
         for campaign in campaigns:
             if Campaign.Platform.META not in (campaign.platforms or []):
                 continue
-            CampaignPlatformIntegration.objects.update_or_create(
+            integration, created = CampaignPlatformIntegration.objects.get_or_create(
                 campaign=campaign, ad_account=ad_account,
                 defaults={'last_sync_attempted_at': attempted_at},
             )
+            if not created:
+                CampaignPlatformIntegration.objects.filter(pk=integration.pk).filter(
+                    Q(last_sync_attempted_at__isnull=True) | Q(last_sync_attempted_at__lt=attempted_at),
+                ).update(last_sync_attempted_at=attempted_at)
         return attempted_at
 
     @staticmethod
@@ -75,20 +80,38 @@ class CampaignPlatformIntegrationService:
         from notifications.dispatch import notify_campaign_platform_auth_error
 
         codes = CampaignPlatformIntegration.SyncError
-        error_code = CampaignPlatformIntegrationService.classify_sync_error(error) if error else codes.NONE
+        error_code = CampaignPlatformIntegrationService.classify_sync_error(error) if error is not None else codes.NONE
         integrations = CampaignPlatformIntegration.objects.select_for_update(of=('self',)).filter(
             ad_account=ad_account,
             campaign__project_id=ad_account.project_id,
             campaign__is_deleted=False,
-            last_sync_attempted_at=attempted_at,
         ).select_related('campaign__project__organization', 'ad_account__connection__user')
         for integration in integrations:
+            if Campaign.Platform.META not in (integration.campaign.platforms or []):
+                continue
+            # A successful newer attempt supersedes any late result from this one.
+            if integration.last_synced_at and integration.last_synced_at >= attempted_at:
+                continue
             was_auth_error = integration.last_sync_error == codes.AUTH
-            # A retry timeout does not resolve an already known credential failure.
-            integration.last_sync_error = codes.AUTH if was_auth_error and error else error_code
+            is_latest_attempt = integration.last_sync_attempted_at == attempted_at
             if error is None:
-                integration.last_synced_at = timezone.now()
-            integration.save(update_fields=['last_sync_error', 'last_synced_at'])
+                # Store the successful attempt's start, so completion order cannot
+                # make an older success supersede a newer credential failure.
+                integration.last_synced_at = attempted_at
+                if not integration.last_sync_error_at or integration.last_sync_error_at <= attempted_at:
+                    integration.last_sync_error = codes.NONE
+                    integration.last_sync_error_at = None
+            elif error_code == codes.AUTH:
+                if was_auth_error and integration.last_sync_error_at and integration.last_sync_error_at >= attempted_at:
+                    continue
+                integration.last_sync_error = codes.AUTH
+                integration.last_sync_error_at = attempted_at
+            elif is_latest_attempt and not was_auth_error:
+                integration.last_sync_error = error_code
+                integration.last_sync_error_at = attempted_at
+            else:
+                continue
+            integration.save(update_fields=['last_sync_error', 'last_sync_error_at', 'last_synced_at'])
             if error_code == codes.AUTH and not was_auth_error:
                 notify_campaign_platform_auth_error(integration=integration)
 
