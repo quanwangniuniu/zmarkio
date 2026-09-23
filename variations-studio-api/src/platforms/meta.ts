@@ -1,10 +1,7 @@
 import { CTA_ENUM_ALLOWLIST, PROMPT_VERSION, SYSTEM_PROMPT } from '@/src/ai/prompts';
 import type { PlatformSpec } from './types';
 
-/**
- * C1 compatibility bridge: reuse the live Meta constants verbatim. C2 owns
- * moving their source here and switching existing consumers to the registry.
- */
+/** Reuse the live Meta constants to keep prompt text and CTA values in sync. */
 export const metaSpec = {
   id: 'meta',
   displayName: 'Meta (Facebook + Instagram Feed)',
@@ -24,7 +21,7 @@ export const metaSpec = {
     normalization: 'trim-uppercase-underscores',
     fallback: 'SHOP_NOW',
   },
-  // Feed creative presets for future M6 consumers; no crop/upload behavior changes.
+  // Feed creative presets.
   aspectRatios: ['1:1', '4:5'],
   language: { mode: 'source', excludedFields: ['cta'] },
   promptFragment: SYSTEM_PROMPT,

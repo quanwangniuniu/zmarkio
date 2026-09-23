@@ -1,7 +1,7 @@
 import type { PlatformSpec } from '../types';
 
 /**
- * MED-372/MED-389 design check only, deliberately absent from platformRegistry.
+ * Design-check example for repeated text fields, excluded from the live registry.
  * One variation is a complete asset set, not one variation per headline.
  * https://support.google.com/google-ads/answer/7684791?hl=en
  */
