@@ -1675,7 +1675,10 @@ class UserDefinedFunctionDetailView(APIView):
         udf = self._get_udf(request, project_slug, udf_id, select_for_update=True)
         serializer = UserDefinedFunctionSerializer(udf, data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
+        try:
+            serializer.save()
+        except IntegrityError:
+            raise ValidationError({"name": "A function with this name already exists."})
         return Response(serializer.data)
 
     @transaction.atomic
