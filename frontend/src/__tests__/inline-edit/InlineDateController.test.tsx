@@ -11,13 +11,6 @@ function openEditor(container: HTMLElement): HTMLInputElement {
   return input as HTMLInputElement
 }
 
-/** Let the auto-save timeout fire and the async save settle. */
-async function flushAutoSave() {
-  await act(async () => {
-    jest.advanceTimersByTime(200)
-  })
-}
-
 describe('InlineDateController', () => {
   beforeEach(() => {
     jest.useFakeTimers()
@@ -27,39 +20,37 @@ describe('InlineDateController', () => {
     jest.useRealTimers()
   })
 
-  it('saves a date picked from the calendar', async () => {
+  it('does not save while a date is only being browsed', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { container } = render(<InlineDateController value="2026-09-30" onSave={onSave} />)
+
+    // Moving between months in the native picker carries the selected day
+    // along and changes the value — that must not be saved.
+    const input = openEditor(container)
+    fireEvent.change(input, { target: { value: '2026-10-30' } })
+    await act(async () => {
+      jest.advanceTimersByTime(1000)
+    })
+
+    expect(onSave).not.toHaveBeenCalled()
+    expect(input).toBeInTheDocument()
+  })
+
+  it('saves the picked date on Enter', async () => {
     const onSave = jest.fn().mockResolvedValue(undefined)
     const { container } = render(<InlineDateController value={null} onSave={onSave} />)
 
-    fireEvent.change(openEditor(container), { target: { value: '2026-10-31' } })
-    await flushAutoSave()
+    const input = openEditor(container)
+    fireEvent.change(input, { target: { value: '2026-10-31' } })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
 
     expect(onSave).toHaveBeenCalledTimes(1)
     expect(onSave).toHaveBeenCalledWith('2026-10-31')
   })
 
-  it('does not auto-save while a typed year is still incomplete', async () => {
-    const onSave = jest.fn().mockResolvedValue(undefined)
-    const { container } = render(<InlineDateController value={null} onSave={onSave} />)
-
-    // Typing a year digit by digit fires change with 0002, 0020, 0202 first.
-    fireEvent.change(openEditor(container), { target: { value: '0202-10-31' } })
-    await flushAutoSave()
-
-    expect(onSave).not.toHaveBeenCalled()
-  })
-
-  it('does not save when the same date is picked again', async () => {
-    const onSave = jest.fn().mockResolvedValue(undefined)
-    const { container } = render(<InlineDateController value="2026-10-31" onSave={onSave} />)
-
-    fireEvent.change(openEditor(container), { target: { value: '2026-10-31' } })
-    await flushAutoSave()
-
-    expect(onSave).not.toHaveBeenCalled()
-  })
-
-  it('saves once when the input blurs before the auto-save fires', async () => {
+  it('saves the picked date when the input loses focus', async () => {
     const onSave = jest.fn().mockResolvedValue(undefined)
     const { container } = render(<InlineDateController value={null} onSave={onSave} />)
 
@@ -68,9 +59,36 @@ describe('InlineDateController', () => {
     await act(async () => {
       fireEvent.blur(input)
     })
-    await flushAutoSave()
 
     expect(onSave).toHaveBeenCalledTimes(1)
     expect(onSave).toHaveBeenCalledWith('2026-10-31')
+  })
+
+  it('saves once when clicking outside, which also blurs the input', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { container } = render(<InlineDateController value={null} onSave={onSave} />)
+
+    const input = openEditor(container)
+    fireEvent.change(input, { target: { value: '2026-10-31' } })
+    await act(async () => {
+      fireEvent.mouseDown(document.body)
+      fireEvent.blur(input)
+    })
+
+    expect(onSave).toHaveBeenCalledTimes(1)
+    expect(onSave).toHaveBeenCalledWith('2026-10-31')
+  })
+
+  it('does not save when the committed date is unchanged', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined)
+    const { container } = render(<InlineDateController value="2026-10-31" onSave={onSave} />)
+
+    const input = openEditor(container)
+    fireEvent.change(input, { target: { value: '2026-10-31' } })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+
+    expect(onSave).not.toHaveBeenCalled()
   })
 })

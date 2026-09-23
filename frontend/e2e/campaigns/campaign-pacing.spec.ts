@@ -219,6 +219,46 @@ test.describe('Campaign budget pacing', () => {
         'data-pacing-status',
         'no_data',
       );
+      // Nothing changed since the page loaded, so the user is told so.
+      await expect(page.getByText('Pacing is already up to date')).toBeVisible();
+    } finally {
+      await deleteCampaign(page, campaign.slug);
+    }
+  });
+
+  test('recompute reports new data when the forecast changed behind the page', async ({
+    page,
+  }) => {
+    const campaign = await createCampaign(page, {
+      end_date: isoDaysFromToday(30),
+      budget_estimate: 1000,
+    });
+
+    try {
+      await page.goto(`/campaigns/${campaign.slug}`, { waitUntil: 'domcontentloaded' });
+
+      const section = page.getByTestId('pacing-section');
+      await expect(section.getByTestId('pacing-badge')).toHaveAttribute(
+        'data-pacing-status',
+        'no_data',
+        { timeout: 20_000 },
+      );
+
+      // Change the campaign outside this page, so what the panel shows is stale.
+      const token = await getToken(page);
+      const edited = await page.request.patch(`${API_BASE}/api/campaigns/${campaign.slug}/`, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        data: { budget_estimate: null },
+      });
+      expect(edited.ok()).toBe(true);
+
+      await section.getByTestId('pacing-recompute').click();
+
+      await expect(page.getByText('New data found — pacing updated')).toBeVisible();
+      await expect(section.getByTestId('pacing-badge')).toHaveAttribute(
+        'data-pacing-status',
+        'not_configured',
+      );
     } finally {
       await deleteCampaign(page, campaign.slug);
     }
@@ -267,11 +307,14 @@ test.describe('Campaign budget pacing', () => {
         page.getByTestId('pacing-section').getByTestId('pacing-prompt'),
       ).toContainText('Add a budget estimate and an end date', { timeout: 20_000 });
 
-      // End date first — the inline date editor auto-saves on change.
-      const endDateSaved = patched();
+      // End date first. Picking a date only browses; clicking elsewhere commits
+      // it. (Not Enter: the editor opens the native picker, which takes the
+      // keypress while it's still open under automation.)
       const endDate = page.getByTestId('campaign-end-date');
       await endDate.getByTitle('Click to edit').click();
       await endDate.locator('input[type="date"]').fill(isoDaysFromToday(30));
+      const endDateSaved = patched();
+      await page.getByText('Project:', { exact: true }).click();
       expect((await endDateSaved).status()).toBe(200);
 
       await expect(
