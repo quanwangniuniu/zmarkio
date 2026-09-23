@@ -205,66 +205,68 @@ def test_filter_by_date_range_includes_both_boundaries(supervisor_client, csm_qu
     assert outside.id not in ids
 
 
-def test_date_filter_uses_the_viewers_timezone(supervisor_client, csm_queue):
-    """A conversation late on the 16th UTC is the 17th in Melbourne.
+# UserLocaleMiddleware activates UserPreferences.timezone for the request, so
+# timezone.get_current_timezone() is the viewer's zone and these filters follow
+# it. The tests below activate it directly: DRF's force_authenticate resolves
+# the user at the view layer, so the middleware only ever sees AnonymousUser,
+# and it calls timezone.deactivate() after each response - hence one request
+# per override.
 
-    Timestamps are stored in UTC and rendered in the browser's zone, so
-    filtering in UTC would put a row on a day the supervisor never sees.
-    """
-    import datetime as _dt
-
-    late_utc = _conversation(
-        csm_queue,
-        started_at=_dt.datetime(2026, 9, 16, 23, 59, tzinfo=_dt.timezone.utc),
-    )
-
-    melbourne = supervisor_client.get(_list_url(), {
-        'date_from': '2026-09-17', 'date_to': '2026-09-17',
-        'tz': 'Australia/Melbourne',
-    })
-    assert [row['id'] for row in _rows(melbourne)] == [late_utc.id]
-
-    # The same filter a day earlier must NOT match it in that zone.
-    earlier = supervisor_client.get(_list_url(), {
-        'date_from': '2026-09-16', 'date_to': '2026-09-16',
-        'tz': 'Australia/Melbourne',
-    })
-    assert _rows(earlier) == []
-
-    # In UTC it belongs to the 16th, which is what the server used to assume.
-    utc = supervisor_client.get(_list_url(), {
-        'date_from': '2026-09-16', 'date_to': '2026-09-16', 'tz': 'UTC',
-    })
-    assert [row['id'] for row in _rows(utc)] == [late_utc.id]
+MELBOURNE_LATE_UTC = _dt.datetime(2026, 9, 16, 23, 59, tzinfo=_dt.timezone.utc)
 
 
-def test_unknown_timezone_is_rejected(supervisor_client):
-    response = supervisor_client.get(_list_url(), {'tz': 'Mars/Olympus_Mons'})
+def test_date_filter_uses_the_active_timezone(supervisor_client, csm_queue):
+    """23:59 UTC on the 16th is the 17th in Melbourne, so it filters as the 17th."""
+    late_utc = _conversation(csm_queue, started_at=MELBOURNE_LATE_UTC)
 
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert 'tz' in response.data
+    with timezone.override('Australia/Melbourne'):
+        response = supervisor_client.get(
+            _list_url(), {'date_from': '2026-09-17', 'date_to': '2026-09-17'})
+
+    assert [row['id'] for row in _rows(response)] == [late_utc.id]
 
 
-def test_report_buckets_in_the_viewers_timezone(supervisor_client, csm_queue):
+def test_date_filter_excludes_the_day_before_in_that_timezone(
+    supervisor_client, csm_queue
+):
+    _conversation(csm_queue, started_at=MELBOURNE_LATE_UTC)
+
+    with timezone.override('Australia/Melbourne'):
+        response = supervisor_client.get(
+            _list_url(), {'date_from': '2026-09-16', 'date_to': '2026-09-16'})
+
+    assert _rows(response) == []
+
+
+def test_same_conversation_belongs_to_the_previous_day_in_utc(
+    supervisor_client, csm_queue
+):
+    """The mirror image, so the pair documents the whole behaviour."""
+    late_utc = _conversation(csm_queue, started_at=MELBOURNE_LATE_UTC)
+
+    with timezone.override('UTC'):
+        response = supervisor_client.get(
+            _list_url(), {'date_from': '2026-09-16', 'date_to': '2026-09-16'})
+
+    assert [row['id'] for row in _rows(response)] == [late_utc.id]
+
+
+def test_report_buckets_use_the_active_timezone(supervisor_client, csm_queue):
     """The bucket a review lands in follows the viewer, like the list does."""
-    import datetime as _dt
-    from csm.models import ConversationQualityReview
-
     conversation = _conversation(csm_queue)
     response = supervisor_client.post(
         _review_url(conversation.id), {'rating': 'good'}, format='json')
     review = ConversationQualityReview.objects.get(id=response.data['id'])
-    review.reviewed_at = _dt.datetime(2026, 9, 16, 23, 59, tzinfo=_dt.timezone.utc)
+    review.reviewed_at = MELBOURNE_LATE_UTC
     review.save(update_fields=['reviewed_at'])
 
-    report = supervisor_client.get(_report_url(), {
-        'date_from': '2026-09-17', 'date_to': '2026-09-17',
-        'tz': 'Australia/Melbourne', 'bucket': 'day',
-    }).data
+    with timezone.override('Australia/Melbourne'):
+        report = supervisor_client.get(_report_url(), {
+            'date_from': '2026-09-17', 'date_to': '2026-09-17', 'bucket': 'day',
+        }).data
 
     assert report['totals']['reviews'] == 1
     assert [row['bucket'] for row in report['by_date']] == ['2026-09-17']
-    assert report['filters_echo']['tz'] == 'Australia/Melbourne'
 
 
 def test_filter_by_agent_matches_across_their_customer_user_rows(

@@ -14,21 +14,6 @@ import {
 const BASE = '/api/csm/quality';
 
 /**
- * The viewer's IANA timezone, e.g. 'Australia/Melbourne'.
- *
- * Sent on every quality request so a date the supervisor picks means their
- * day. Timestamps are stored in UTC and rendered in the browser's zone, so
- * without this a conversation shown as 17 Sep would be filtered as 16 Sep.
- */
-export function viewerTimeZone(): string | undefined {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Flatten filters into axios params.
  *
  * Arrays stay arrays: the shared axios instance is configured with
@@ -52,8 +37,6 @@ export function toQueryParams(
   Object.entries(extra).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') params[key] = value;
   });
-  const tz = viewerTimeZone();
-  if (tz) params.tz = tz;
   return params;
 }
 
