@@ -40,11 +40,17 @@ export function QualityInspectionView() {
   // depending on object identity.
   const filterKey = JSON.stringify(filters);
 
-  useEffect(() => {
-    CsmQualityAPI.getFilterOptions()
-      .then(setOptions)
-      .catch(() => toast.error('Could not load the filter options.'));
+  const loadOptions = useCallback(async () => {
+    try {
+      setOptions(await CsmQualityAPI.getFilterOptions());
+    } catch {
+      toast.error('Could not load the filter options.');
+    }
   }, []);
+
+  useEffect(() => {
+    loadOptions();
+  }, [loadOptions]);
 
   const loadConversations = useCallback(async () => {
     setLoading(true);
@@ -82,10 +88,14 @@ export function QualityInspectionView() {
   }, [tab, loadConversations, loadReport]);
 
   const handleSaved = useCallback(() => {
-    // The rating shown in the table and the report both change on save.
+    // A new annotation changes the rating on the row, the report's counts, and
+    // the per-option tallies in the filter bar - which are annotation counts on
+    // the Report tab. Refresh the options too, or switching tabs shows stale
+    // numbers until the page is reloaded.
+    loadOptions();
     if (tab === 'conversations') loadConversations();
     else loadReport();
-  }, [tab, loadConversations, loadReport]);
+  }, [tab, loadConversations, loadReport, loadOptions]);
 
   return (
     <div className="space-y-4 p-6">
