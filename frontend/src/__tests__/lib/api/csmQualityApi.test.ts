@@ -1,4 +1,4 @@
-import CsmQualityAPI, { toQueryParams } from '@/lib/api/csmQualityApi';
+import CsmQualityAPI, { toQueryParams, viewerTimeZone } from '@/lib/api/csmQualityApi';
 import api, { LONG_REQUEST_TIMEOUT_MS } from '@/lib/api';
 
 jest.mock('@/lib/api', () => ({
@@ -30,13 +30,21 @@ describe('toQueryParams', () => {
       date_to: '2026-03-31',
     });
 
-    expect(params).toEqual({ date_to: '2026-03-31' });
+    expect(params).toEqual({ date_to: '2026-03-31', tz: viewerTimeZone() });
+  });
+
+  it("carries the viewer's timezone, so a picked date means their day", () => {
+    // Timestamps are stored in UTC and rendered in the browser's zone, so a
+    // conversation shown as 17 Sep would otherwise be filtered as 16 Sep.
+    expect(toQueryParams({}).tz).toBe(viewerTimeZone());
+    expect(typeof viewerTimeZone()).toBe('string');
   });
 
   it('merges extra params but still drops blanks', () => {
     expect(toQueryParams({ queue: [7] }, { page: 2, page_size: undefined })).toEqual({
       queue: [7],
       page: 2,
+      tz: viewerTimeZone(),
     });
   });
 });
@@ -48,7 +56,7 @@ describe('listConversations', () => {
     const page = await CsmQualityAPI.listConversations({ channel: ['email'] }, 3, 25);
 
     expect(mockedApi.get).toHaveBeenCalledWith('/api/csm/quality/conversations/', {
-      params: { channel: ['email'], page: 3, page_size: 25 },
+      params: { channel: ['email'], page: 3, page_size: 25, tz: viewerTimeZone() },
     });
     expect(page.results).toEqual([{ id: 1 }]);
     expect(page.count).toBe(42);
@@ -89,7 +97,7 @@ describe('exportCsv', () => {
     const result = await CsmQualityAPI.exportCsv({ channel: ['email'] });
 
     expect(mockedApi.get).toHaveBeenCalledWith('/api/csm/quality/report/export.csv/', {
-      params: { channel: ['email'] },
+      params: { channel: ['email'], tz: viewerTimeZone() },
       responseType: 'blob',
       timeout: LONG_REQUEST_TIMEOUT_MS,
     });
@@ -113,7 +121,7 @@ describe('getReport and getFilterOptions', () => {
     await CsmQualityAPI.getReport({ date_from: '2026-03-01', bucket: 'day' });
 
     expect(mockedApi.get).toHaveBeenCalledWith('/api/csm/quality/report/', {
-      params: { date_from: '2026-03-01', bucket: 'day' },
+      params: { date_from: '2026-03-01', bucket: 'day', tz: viewerTimeZone() },
     });
   });
 

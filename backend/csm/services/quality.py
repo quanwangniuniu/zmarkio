@@ -5,6 +5,7 @@ can never disagree about which conversations are in scope.
 """
 
 import datetime as _dt
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -47,14 +48,19 @@ def _parse_day(raw, field):
     return day
 
 
-def _day_bounds(date_from, date_to):
+def _day_bounds(date_from, date_to, tz=None):
     """Return tz-aware [start, end] covering whole local days, both inclusive.
+
+    *tz* is the viewer's timezone, so "17 September" means their 17th. The
+    server stores UTC, and a conversation at 23:59 UTC on the 16th is 09:59 on
+    the 17th in Melbourne — filtering in UTC would put it on a day the
+    supervisor never sees.
 
     Deliberately not ``started_at__date__range``: the ``__date`` lookup wraps
     the column in a timezone-converting function, which cannot use an index and
     can place a boundary conversation on the wrong day.
     """
-    tz = timezone.get_current_timezone()
+    tz = tz or timezone.get_current_timezone()
     start = end = None
     if date_from:
         start = timezone.make_aware(_dt.datetime.combine(date_from, _dt.time.min), tz)
@@ -104,6 +110,16 @@ def parse_filters(query_params):
     if date_basis and date_basis not in DATE_BASES:
         raise ValidationError({'date_basis': f'Expected one of {", ".join(DATE_BASES)}.'})
 
+    # The viewer's IANA timezone, so a date they pick means their day. The
+    # frontend sends this on every quality request.
+    tz_name = (query_params.get('tz') or '').strip()
+    tz = None
+    if tz_name:
+        try:
+            tz = ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValidationError({'tz': f'Unknown time zone {tz_name!r}.'})
+
     return {
         'date_from': date_from,
         'date_to': date_to,
@@ -118,6 +134,8 @@ def parse_filters(query_params):
         'statuses': [s for s in many('status') if s],
         'bucket': bucket,
         'date_basis': date_basis,
+        'tz': tz,
+        'tz_name': tz_name,
     }
 
 
@@ -139,7 +157,8 @@ def filtered_conversations(user, filters, apply_date=True):
     )
 
     if apply_date:
-        start, end = _day_bounds(filters.get('date_from'), filters.get('date_to'))
+        start, end = _day_bounds(
+            filters.get('date_from'), filters.get('date_to'), filters.get('tz'))
         if start:
             qs = qs.filter(started_at__gte=start)
         if end:
@@ -319,7 +338,7 @@ def _zero_filled_dates(rows, start, end, granularity, tz):
 def build_quality_report(user, filters):
     """Aggregate annotation counts by rating, agent and date bucket."""
     Rating = ConversationQualityReview.Rating
-    tz = timezone.get_current_timezone()
+    tz = filters.get('tz') or timezone.get_current_timezone()
     basis = filters.get('date_basis') or 'review'
     granularity = filters.get('bucket') or default_bucket(
         filters.get('date_from'), filters.get('date_to'))
@@ -334,7 +353,8 @@ def build_quality_report(user, filters):
         conversation_id__in=conv_qs.values('pk'),
     )
 
-    start, end = _day_bounds(filters.get('date_from'), filters.get('date_to'))
+    start, end = _day_bounds(
+        filters.get('date_from'), filters.get('date_to'), tz)
     if basis == 'review':
         if start:
             base = base.filter(reviewed_at__gte=start)
@@ -437,6 +457,7 @@ def _echo(filters, basis, granularity):
         'customer_search': filters.get('customer_search') or '',
         'tag': filters.get('tags') or [],
         'status': filters.get('statuses') or [],
+        'tz': filters.get('tz_name') or str(timezone.get_current_timezone()),
     }
 
 
