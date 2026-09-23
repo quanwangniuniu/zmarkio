@@ -22,6 +22,8 @@ const EMPTY_FORM: FormState = { name: '', params: '', expression: '' };
 export default function UdfManagerModal({ isOpen, onClose, projectSlug }: Props) {
   const [udfs, setUdfs] = useState<UdfData[]>([]);
   const [loadingList, setLoadingList] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -32,11 +34,12 @@ export default function UdfManagerModal({ isOpen, onClose, projectSlug }: Props)
   const fetchUdfs = useCallback(async () => {
     if (!projectSlug) return;
     setLoadingList(true);
+    setLoadError(null);
     try {
       const data = await SpreadsheetAPI.listUdfs(projectSlug);
       setUdfs(data);
     } catch {
-      // silently fail — list just stays empty
+      setLoadError('Unable to load custom functions. Please try again.');
     } finally {
       setLoadingList(false);
     }
@@ -121,12 +124,13 @@ export default function UdfManagerModal({ isOpen, onClose, projectSlug }: Props)
 
   async function handleDelete(id: number) {
     setDeleting(id);
+    setDeleteError(null);
     try {
       await SpreadsheetAPI.deleteUdf(projectSlug, id);
       setUdfs((prev) => prev.filter((u) => u.id !== id));
       if (editingId === id) cancelForm();
     } catch {
-      // ignore
+      setDeleteError('Failed to delete function. Please try again.');
     } finally {
       setDeleting(null);
     }
@@ -154,10 +158,26 @@ export default function UdfManagerModal({ isOpen, onClose, projectSlug }: Props)
           </div>
 
           <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+            {/* Load error */}
+            {loadError && (
+              <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {loadError}
+              </div>
+            )}
+
+            {/* Delete error */}
+            {deleteError && (
+              <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {deleteError}
+              </div>
+            )}
+
             {/* UDF list */}
             {loadingList ? (
               <p className="text-sm text-gray-400 text-center py-6">Loading…</p>
-            ) : udfs.length === 0 && !showForm ? (
+            ) : loadError ? null : udfs.length === 0 && !showForm ? (
               <div className="flex flex-col items-center justify-center py-10 text-center">
                 <p className="text-sm text-gray-500">No custom functions yet.</p>
                 <p className="text-xs text-gray-400 mt-1">
