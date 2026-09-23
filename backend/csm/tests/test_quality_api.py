@@ -667,10 +667,10 @@ def test_export_streams_the_report_after_the_view_returns(
 
     rows = _csv_rows(response)
     assert rows[0] == [
-        'section', 'key', 'label',
-        'total', 'good', 'needs_improvement', 'poor',
-        'good_pct', 'needs_improvement_pct', 'poor_pct',
-        'conversations', 'coverage_pct']
+        'Section', 'Key', 'Label',
+        'Total', 'Good', 'Needs Improvement', 'Poor',
+        'Good %', 'Needs Improvement %', 'Poor %',
+        'Conversations', 'Coverage %']
     assert len(rows) > 1, 'streaming must survive the middleware resetting search_path'
 
     sections = {row[0] for row in rows[1:]}

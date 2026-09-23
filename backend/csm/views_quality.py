@@ -42,14 +42,14 @@ ORDERING_WHITELIST = {'started_at', '-started_at', 'ended_at', '-ended_at'}
 #   agent          — one row per agent
 #   day/week/month — one row per bucket, named for the granularity in use
 #
-# Percentages are fractions (0.667, not 66.7), which is what a spreadsheet
-# wants: format the column as a percentage and it renders correctly, and the
-# values stay usable in arithmetic.
+# The percent columns hold fractions (0.667, not 66.7). That is how a
+# spreadsheet stores a percentage: format the column as a percentage and it
+# displays 66.7%, and the values stay usable in arithmetic.
 QUALITY_SUMMARY_CSV_HEADER = (
-    'section', 'key', 'label',
-    'total', 'good', 'needs_improvement', 'poor',
-    'good_pct', 'needs_improvement_pct', 'poor_pct',
-    'conversations', 'coverage_pct',
+    'Section', 'Key', 'Label',
+    'Total', 'Good', 'Needs Improvement', 'Poor',
+    'Good %', 'Needs Improvement %', 'Poor %',
+    'Conversations', 'Coverage %',
 )
 
 MAX_CSV_ROWS = 50_000
