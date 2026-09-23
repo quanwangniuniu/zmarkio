@@ -108,7 +108,7 @@ export function QualityInspectionView() {
         onClear={clearFilters}
       />
 
-      <div className="flex items-center justify-between border-b border-slate-200">
+      <div className="border-b border-slate-200">
         <nav className="flex gap-4" aria-label="Quality inspection tabs">
           {TABS.map((entry) => (
             <button
@@ -126,10 +126,6 @@ export function QualityInspectionView() {
             </button>
           ))}
         </nav>
-
-        {/* Sits with the Report tab because that is what it exports: the
-            aggregates, not the conversation list. */}
-        {tab === 'report' && <QualityExportButton filters={filters} />}
       </div>
 
       {tab === 'conversations' ? (
@@ -147,7 +143,14 @@ export function QualityInspectionView() {
           />
         </div>
       ) : (
-        <QualityReportView report={report} loading={loading} />
+        <>
+          {/* Its own row above the report, because that is what it exports:
+              the aggregates, not the conversation list. */}
+          <div className="flex">
+            <QualityExportButton filters={filters} />
+          </div>
+          <QualityReportView report={report} loading={loading} />
+        </>
       )}
 
       <ConversationReviewDrawer
