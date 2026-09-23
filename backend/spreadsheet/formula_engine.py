@@ -2,11 +2,14 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_FLOOR, ROUND_CEILING
 import logging
 import re
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 from .models import Cell, ComputedCellType, Sheet, SheetColumn, SheetRow, CellValueType
 
 logger = logging.getLogger(__name__)
+
+# Resolves a bare identifier to a number, or None when the name is unknown.
+IdentifierResolver = Callable[[str], Optional[Decimal]]
 
 
 class FormulaError(Exception):
@@ -184,19 +187,37 @@ def _format_currency_string(symbol: Optional[str], value: Optional[Decimal]) -> 
     return f"{symbol}{normalized}"
 
 
+def tokenize_formula(raw_input: str) -> List[Token]:
+    """Public tokenizer for callers that validate a formula before evaluating it.
+
+    Unlike `extract_references`, this propagates `FormulaError` so the caller can
+    report *why* a formula is malformed instead of silently seeing no references.
+    """
+    expression = raw_input[1:] if raw_input.startswith('=') else raw_input
+    return _tokenize(expression)
+
+
 def evaluate_formula(
     raw_input: str,
     sheet: Sheet,
     udfs: Optional[dict] = None,
     _call_stack: frozenset = frozenset(),
+    identifier_resolver: Optional[IdentifierResolver] = None,
 ) -> FormulaResult:
+    """Evaluate a formula against `sheet`.
+
+    `udfs` is a dict of user-defined functions keyed by uppercase name.
+    `_call_stack` tracks active UDF calls to detect mutual recursion.
+    `identifier_resolver` optionally binds bare identifiers to numbers for
+    callers outside the spreadsheet (e.g. report.kpi_registry).
+    """
     expression = raw_input[1:] if raw_input.startswith('=') else raw_input
     if not expression.strip():
         return FormulaResult(computed_type=ComputedCellType.ERROR, error_code="#REF!")
 
     try:
         tokens = _tokenize(expression)
-        parser = _Parser(tokens, sheet, udfs=udfs, call_stack=_call_stack)
+        parser = _Parser(tokens, sheet, udfs=udfs, call_stack=_call_stack, identifier_resolver=identifier_resolver)
         result = parser.parse_comparison()
         if parser.has_more_tokens():
             raise FormulaError("#REF!")
@@ -289,6 +310,17 @@ def _tokenize(expression: str) -> List[Token]:
             continue
 
         if char.isalpha():
+            # Look ahead over the whole identifier-shaped run first. A run holding
+            # an underscore is a named identifier (e.g. a KPI metric key); every
+            # other run keeps the historical letters / letters+digits (A1) split.
+            scan = index
+            while scan < length and (expression[scan].isalnum() or expression[scan] == '_'):
+                scan += 1
+            if '_' in expression[index:scan]:
+                tokens.append(Token('IDENT', expression[index:scan]))
+                index = scan
+                continue
+
             start = index
             index += 1
             while index < length and expression[index].isalpha():
@@ -316,12 +348,27 @@ class _Parser:
         sheet: Sheet,
         udfs: Optional[dict] = None,
         call_stack: frozenset = frozenset(),
+        identifier_resolver: Optional[IdentifierResolver] = None,
     ) -> None:
         self.tokens = tokens
         self.sheet = sheet
         self.udfs = udfs or {}
         self.call_stack = call_stack
+        self.identifier_resolver = identifier_resolver
         self.index = 0
+
+    def _is_bound_identifier(self, token: Optional[Token]) -> bool:
+        """True when `token` is a bare name a resolver should supply a value for."""
+        if self.identifier_resolver is None or token is None or token.type != 'IDENT':
+            return False
+        next_token = self._peek()
+        return next_token is None or next_token.type != 'LPAREN'
+
+    def _resolve_identifier(self, name: str) -> Decimal:
+        resolved = self.identifier_resolver(name) if self.identifier_resolver else None
+        if resolved is None:
+            raise FormulaError("#NAME?")
+        return resolved
 
     def has_more_tokens(self) -> bool:
         return self.index < len(self.tokens)
@@ -639,12 +686,17 @@ class _Parser:
         if token.type == "IDENT":
             func_name = token.value.upper()
             udf = (self.udfs or {}).get(func_name)
-            if udf is None:
-                raise FormulaError("#REF!")
-            self._consume("IDENT")
-            self._consume("LPAREN")
-            return self._parse_udf_arguments(udf)
-            
+            if udf is not None:
+                self._consume("IDENT")
+                self._consume("LPAREN")
+                return self._parse_udf_arguments(udf)
+
+        # Checked last so every built-in function name above keeps priority over
+        # a resolver-supplied name.
+        if self._is_bound_identifier(token):
+            self._consume('IDENT')
+            return self._resolve_identifier(token.value)
+
         raise FormulaError("#REF!")
 
     def _consume_expression(self) -> None:
@@ -677,6 +729,10 @@ class _Parser:
             self._consume(token.type)
             return
         if token.type == 'IDENT':
+            if self._is_bound_identifier(token):
+                # A bare name in a branch we are skipping: consume, don't resolve.
+                self._consume('IDENT')
+                return
             self._consume('IDENT')
             if self._current_token() is None or self._current_token().type != 'LPAREN':
                 raise FormulaError("#REF!")
@@ -1074,6 +1130,11 @@ class _Parser:
         token = self._current_token()
         if token is None:
             raise FormulaError("#VALUE!")
+        if self.identifier_resolver is not None:
+            # Named-variable callers get full expressions as arguments, so
+            # ROUND(revenue / spend, 2) works. Sheets keep the single-operand
+            # behaviour they have always had.
+            return self.parse_expression()
         sign = Decimal(1)
         if token.type == 'OP' and token.value in '+-':
             sign = Decimal(-1) if token.value == '-' else Decimal(1)
@@ -1091,8 +1152,13 @@ class _Parser:
             ref = self._consume('REF').value
             return sign * _resolve_reference(self.sheet, ref)
         raise FormulaError("#VALUE!")
+
     def _parse_min_max_argument_value(self) -> Tuple[Decimal, Decimal]:
         token = self._current_token()
+        if self.identifier_resolver is not None:
+            # Named variables are scalars, so each argument is its own min/max.
+            value = self.parse_expression()
+            return value, value
         if token is None or token.type != 'REF':
             raise FormulaError("#VALUE!")
         start_ref = self._consume('REF').value

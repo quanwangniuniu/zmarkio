@@ -73,6 +73,64 @@ export async function mockAuthenticatedUserApis(
 			body: JSON.stringify({ team_ids: [] }),
 		});
 	});
+
+	await page.route('**/auth/me/projects/**', async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify([]),
+		});
+	});
+
+	// Fake E2E refresh token must not hit the real backend (401 → /login).
+	// Needed especially when running Playwright on the host (headed) against localhost.
+	await page.route('**/auth/token/refresh/**', async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				access: 'e2e-access-token',
+				refresh: 'e2e-refresh-token',
+			}),
+		});
+	});
+}
+
+/**
+ * Register FIRST (before specific mocks). Playwright matches routes in reverse
+ * registration order, so later handlers win.
+ *
+ * Unmocked `/api/**` calls must NOT hit the real backend with the fake E2E
+ * token (401 → `/login`) when running headed on the host. Return 404 instead
+ * of a fake 200 body — many UI hooks swallow errors, while a wrong 200 shape
+ * (e.g. TokenBadge quota-preview) can crash the page.
+ */
+export async function installApiMockSafetyNet(page: Page) {
+	await page.route('**/api/**', async (route) => {
+		const method = route.request().method().toUpperCase();
+		if (method === 'OPTIONS') {
+			await route.fulfill({ status: 204, body: '' });
+			return;
+		}
+		await route.fulfill({
+			status: 404,
+			contentType: 'application/json',
+			body: JSON.stringify({ detail: 'e2e mock: unhandled api route' }),
+		});
+	});
+
+	// Registered after the catch-all so it wins for this path.
+	await page.route('**/api/stripe/quota-preview/**', async (route) => {
+		await route.fulfill({
+			status: 200,
+			contentType: 'application/json',
+			body: JSON.stringify({
+				project_name: 'E2E Project',
+				tokens_used: 0,
+				monthly_token_quota: null,
+			}),
+		});
+	});
 }
 
 export async function mockProjectShellApis(page: Page) {
