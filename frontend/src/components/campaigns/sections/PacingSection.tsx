@@ -4,12 +4,25 @@ import { useCallback, useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 
 import { OptimizationAPI } from '@/lib/api/optimizationApi';
-import type { CampaignPacingForecast } from '@/types/campaign';
+import type { CampaignPacingForecast, PacingStatus } from '@/types/campaign';
 import CampaignPacingBadge from '../CampaignPacingBadge';
 
 export interface PacingSectionProps {
   campaignSlug: string;
+  /**
+   * Changes whenever an input to the forecast (budget, start or end date)
+   * changes. The backend recomputes on those edits, so a new key only has to
+   * trigger a re-read.
+   */
+  configKey?: string;
 }
+
+/** States that carry a real projection, where the linear/seasonal label means something. */
+const FORECAST_STATUSES: ReadonlySet<PacingStatus> = new Set([
+  'under_pacing',
+  'on_track',
+  'over_pacing',
+]);
 
 function formatComputedAt(timestamp: string): string {
   const date = new Date(timestamp);
@@ -22,7 +35,7 @@ function formatComputedAt(timestamp: string): string {
   });
 }
 
-export default function PacingSection({ campaignSlug }: PacingSectionProps) {
+export default function PacingSection({ campaignSlug, configKey }: PacingSectionProps) {
   const [pacing, setPacing] = useState<CampaignPacingForecast | null>(null);
   const [loading, setLoading] = useState(true);
   const [recomputing, setRecomputing] = useState(false);
@@ -47,7 +60,7 @@ export default function PacingSection({ campaignSlug }: PacingSectionProps) {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, configKey]);
 
   const handleRecompute = useCallback(async () => {
     if (!campaignSlug) return;
@@ -109,7 +122,11 @@ export default function PacingSection({ campaignSlug }: PacingSectionProps) {
           {pacing ? (
             <p className="mt-3 text-[11px] text-gray-400">
               Updated {formatComputedAt(pacing.computed_at)}
-              {pacing.seasonality_applied ? ' · day-of-week adjusted' : ' · linear'}
+              {FORECAST_STATUSES.has(pacing.status)
+                ? pacing.seasonality_applied
+                  ? ' · day-of-week adjusted'
+                  : ' · linear'
+                : null}
             </p>
           ) : null}
         </>

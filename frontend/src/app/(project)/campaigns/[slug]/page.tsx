@@ -175,7 +175,10 @@ export default function CampaignV2DetailPage() {
             <TasksSection ref={tasksRef} campaignId={campaignId} />
           </div>
           <div className="space-y-6 lg:col-span-1">
-            <PacingSection campaignSlug={campaignId} />
+            <PacingSection
+              campaignSlug={campaignId}
+              configKey={`${currentCampaign.budget_estimate ?? ''}|${currentCampaign.start_date}|${currentCampaign.end_date ?? ''}`}
+            />
             <CheckInsSection
               ref={checkInsRef}
               campaignId={campaignId}

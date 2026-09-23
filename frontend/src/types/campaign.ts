@@ -115,7 +115,8 @@ export interface UpdateCampaignData {
   end_date?: string;
   hypothesis?: string;
   tags?: string[];
-  budget_estimate?: number;
+  /** null clears the budget. */
+  budget_estimate?: number | null;
   status_note?: string;
   assignee_id?: number;
   owner_id?: number;

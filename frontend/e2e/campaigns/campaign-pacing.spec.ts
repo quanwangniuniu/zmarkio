@@ -82,7 +82,11 @@ async function createCampaign(
       name: `Pacing E2E ${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       objective: 'CONVERSION',
       platforms: ['META'],
-      start_date: isoDaysFromToday(-30),
+      // Today, not in the past: Campaign.save() full_cleans on every update —
+      // soft delete included — and rejects a PLANNING campaign whose start date
+      // has passed, so a past start makes the campaign un-editable and
+      // un-deletable. Today still counts as elapsed for pacing.
+      start_date: isoDaysFromToday(0),
       owner_id: await getOwnerId(page),
       project_id: await getProjectId(page),
       ...overrides,
@@ -97,9 +101,29 @@ async function createCampaign(
 
 async function deleteCampaign(page: Page, slug: string) {
   const token = await getToken(page);
-  await page.request.delete(`${API_BASE}/api/campaigns/${slug}/`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  const headers = { Authorization: `Bearer ${token}` };
+
+  // Creating a campaign auto-creates linked budget + asset tasks, and deleting
+  // the campaign leaves them behind, so remove them first.
+  // Soft assertions throughout: a failed cleanup should fail the test, but must
+  // not mask whatever error the test body already threw.
+  const links = await page.request.get(
+    `${API_BASE}/api/campaign-task-links/?campaign=${encodeURIComponent(slug)}`,
+    { headers },
+  );
+  expect.soft(links.ok(), `cleanup failed to list tasks for ${slug} (${links.status()})`).toBe(true);
+  if (links.ok()) {
+    const body = await links.json();
+    const rows: Array<{ task_slug?: string }> = Array.isArray(body) ? body : (body.results ?? []);
+    for (const { task_slug } of rows) {
+      if (!task_slug) continue;
+      const task = await page.request.delete(`${API_BASE}/api/tasks/${task_slug}/`, { headers });
+      expect.soft(task.ok(), `cleanup failed to delete task ${task_slug} (${task.status()})`).toBe(true);
+    }
+  }
+
+  const response = await page.request.delete(`${API_BASE}/api/campaigns/${slug}/`, { headers });
+  expect.soft(response.ok(), `cleanup failed to delete campaign ${slug} (${response.status()})`).toBe(true);
 }
 
 test.describe('Campaign budget pacing', () => {
@@ -220,6 +244,47 @@ test.describe('Campaign budget pacing', () => {
         timeout: 20_000,
       });
       await expect(page.getByTestId('pacing-badge').first()).toBeVisible({ timeout: 20_000 });
+    } finally {
+      await deleteCampaign(page, campaign.slug);
+    }
+  });
+
+  test('filling in the budget from the header refreshes pacing without a recompute', async ({
+    page,
+  }) => {
+    const campaign = await createCampaign(page, {
+      end_date: isoDaysFromToday(30),
+    });
+
+    try {
+      await page.goto(`/campaigns/${campaign.slug}`, { waitUntil: 'domcontentloaded' });
+
+      const section = page.getByTestId('pacing-section');
+      await expect(section.getByTestId('pacing-badge')).toHaveAttribute(
+        'data-pacing-status',
+        'not_configured',
+        { timeout: 20_000 },
+      );
+      await expect(section.getByTestId('pacing-prompt')).toContainText(
+        'Add a budget estimate to this campaign',
+      );
+
+      const saved = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/api/campaigns/${campaign.slug}/`) &&
+          response.request().method() === 'PATCH',
+      );
+      await page.getByTestId('campaign-budget').click();
+      await page.getByRole('textbox', { name: 'Edit content' }).fill('1000');
+      await page.keyboard.press('Enter');
+      expect((await saved).status()).toBe(200);
+
+      await expect(page.getByTestId('campaign-budget')).toHaveText('$1,000', { timeout: 20_000 });
+      // No Meta spend is linked, so the next state is no_data — the point is it
+      // moved off not_configured on its own.
+      await expect(
+        page.getByTestId('pacing-section').getByTestId('pacing-badge'),
+      ).toHaveAttribute('data-pacing-status', 'no_data', { timeout: 20_000 });
     } finally {
       await deleteCampaign(page, campaign.slug);
     }

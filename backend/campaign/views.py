@@ -2,6 +2,7 @@
 Campaign Management Module - Views
 ============================================================================
 """
+import logging
 
 from rest_framework import viewsets, status, permissions
 from core.slug_mixins import SlugLookupViewSetMixin, resolve_project_pk, resolve_lookup_kwargs
@@ -52,6 +53,11 @@ from .serializers import (
     CampaignCalendarLinkCreateSerializer,
     UserSummarySerializer,
 )
+
+logger = logging.getLogger(__name__)
+
+# Campaign fields the budget pacing forecast is computed from.
+PACING_INPUT_FIELDS = ('budget_estimate', 'start_date', 'end_date')
 
 
 # ============================================================================
@@ -164,9 +170,27 @@ class CampaignViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
             raise DRFValidationError({
                 'status': 'Archived campaigns cannot be edited. Use restore() to move back to Completed status.'
             })
-        
-        serializer.save()
-    
+
+        pacing_inputs_before = {f: getattr(instance, f) for f in PACING_INPUT_FIELDS}
+        campaign = serializer.save()
+
+        if any(getattr(campaign, f) != pacing_inputs_before[f] for f in PACING_INPUT_FIELDS):
+            self._refresh_pacing(campaign)
+
+    def _refresh_pacing(self, campaign):
+        """Recompute the pacing forecast after its inputs changed.
+
+        Without this, a user who fills in a budget or end date keeps seeing the
+        stale forecast until the nightly run. Best-effort: a pacing failure must
+        never fail the campaign update itself — the nightly task will catch up.
+        """
+        from optimization.services import PacingService
+
+        try:
+            PacingService.recompute_for_campaign(campaign)
+        except Exception:
+            logger.exception('Pacing recompute failed for campaign %s', campaign.pk)
+
     def perform_destroy(self, instance):
         """Soft delete campaign"""
         CampaignService.soft_delete(campaign=instance)

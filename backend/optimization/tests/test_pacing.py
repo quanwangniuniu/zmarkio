@@ -595,3 +595,54 @@ class PacingAPITest(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.data['pacing'])
+
+    def editable_campaign(self, **fields):
+        """A campaign the update endpoint will accept.
+
+        Campaign.save() full_cleans on update and rejects a PLANNING campaign
+        whose start date has passed, so move it on via a queryset update (the
+        FSM status field is protected against direct assignment).
+        """
+        campaign = Campaign.objects.create(
+            name='Editable Paced Campaign',
+            objective=Campaign.Objective.CONVERSION,
+            platforms=[Campaign.Platform.META],
+            start_date=date(2026, 1, 1),
+            project=self.project,
+            owner=self.user,
+            # full_clean on update rejects a blank creator; API-created campaigns always have one.
+            creator=self.user,
+            **fields,
+        )
+        Campaign.objects.filter(pk=campaign.pk).update(status=Campaign.Status.TESTING)
+        return Campaign.objects.get(pk=campaign.pk)
+
+    def test_updating_budget_recomputes_pacing_immediately(self):
+        campaign = self.editable_campaign(end_date=date(2026, 1, 10))
+        PacingService.recompute_for_campaign(campaign)
+        self.assertEqual(campaign.pacing_forecast.status, PacingStatus.NOT_CONFIGURED)
+
+        response = self.client.patch(
+            f'/api/campaigns/{campaign.slug}/',
+            {'budget_estimate': '5000.00'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        forecast = CampaignPacingForecast.objects.get(campaign=campaign)
+        self.assertEqual(forecast.status, PacingStatus.NO_DATA)
+        self.assertEqual(forecast.budget, Decimal('5000.00'))
+
+    def test_unrelated_update_does_not_touch_pacing(self):
+        campaign = self.editable_campaign(
+            end_date=date(2026, 1, 10), budget_estimate=Decimal('5000.00')
+        )
+
+        response = self.client.patch(
+            f'/api/campaigns/{campaign.slug}/',
+            {'name': 'Renamed Paced Campaign'},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(CampaignPacingForecast.objects.filter(campaign=campaign).exists())

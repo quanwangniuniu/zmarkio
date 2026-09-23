@@ -12,7 +12,7 @@ import InlineUserSelector from '@/inline-edit/InlineUserSelector';
 import UserAvatar from '@/people/UserAvatar';
 import { User } from '@/people/UserPicker';
 import Button from '@/components/button/Button';
-import { Calendar, User as UserIcon, FolderOpen, Settings, Save } from 'lucide-react';
+import { Calendar, User as UserIcon, FolderOpen, Settings, Save, Wallet } from 'lucide-react';
 import { ProjectAPI } from '@/lib/api/projectApi';
 import { DecorativeGlow } from '@/components/ui/decorative-glow';
 
@@ -26,6 +26,7 @@ interface CampaignHeaderProps {
     end_date?: string;
     hypothesis?: string;
     owner_id?: number;
+    budget_estimate?: number | null;
   }) => Promise<void>;
   loading?: boolean;
   onChangeStatus?: () => void;
@@ -82,12 +83,31 @@ const platformOptions: Array<{ value: CampaignPlatform; label: string }> = [
 
 const formatDate = (dateString: string) => {
   const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', { 
-    month: 'short', 
-    day: 'numeric', 
-    year: 'numeric' 
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
   });
 };
+
+/**
+ * Accepts "30000", "30,000" or "$30,000"; blank means "clear the budget".
+ * Rounded to cents because the backend rejects more than 2 decimal places.
+ */
+const parseBudget = (raw: string): number | null => {
+  const cleaned = raw.replace(/[$,\s]/g, '');
+  if (cleaned === '') return null;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : NaN;
+};
+
+const formatBudget = (value: number) =>
+  value.toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
 
 export default function CampaignHeader({ campaign, onUpdate, loading, onChangeStatus, onSaveAsTemplate }: CampaignHeaderProps) {
   const [users, setUsers] = useState<User[]>([]);
@@ -188,6 +208,15 @@ export default function CampaignHeader({ campaign, onUpdate, loading, onChangeSt
     await onUpdate({ end_date: newEndDate || undefined });
   };
 
+  const handleBudgetSave = async (newBudget: string) => {
+    const parsed = parseBudget(newBudget);
+    const current = campaign.budget_estimate != null ? Number(campaign.budget_estimate) : null;
+    if (parsed === current) {
+      return; // No change
+    }
+    await onUpdate({ budget_estimate: parsed });
+  };
+
   const handleOwnerSave = async (newOwnerId: number | null) => {
     const currentOwnerId = campaign.owner_id;
     if (newOwnerId === currentOwnerId) {
@@ -231,6 +260,15 @@ export default function CampaignHeader({ campaign, onUpdate, loading, onChangeSt
   const validateEndDate = (value: string | null): string | null => {
     if (value && campaign.start_date && value < campaign.start_date) {
       return 'End date must be after start date';
+    }
+    return null;
+  };
+
+  const validateBudget = (value: string): string | null => {
+    const parsed = parseBudget(value);
+    if (parsed === null) return null; // blank clears the budget
+    if (Number.isNaN(parsed) || parsed <= 0) {
+      return 'Budget must be a positive number';
     }
     return null;
   };
@@ -398,6 +436,41 @@ export default function CampaignHeader({ campaign, onUpdate, loading, onChangeSt
           <FolderOpen className="h-4 w-4 text-gray-400" />
           <span className="text-sm font-medium text-gray-500">Project:</span>
           <span className="text-sm text-gray-900">{campaign.project?.name || 'N/A'}</span>
+        </div>
+
+        {/* Budget — editable here so the pacing panel's "add a budget" prompt is actionable */}
+        <div className="flex items-center gap-2">
+          <Wallet className="h-4 w-4 text-gray-400" />
+          <span className="text-sm font-medium text-gray-500">Budget:</span>
+          {isArchived ? (
+            <span className="text-sm text-gray-900">
+              {campaign.budget_estimate != null ? formatBudget(Number(campaign.budget_estimate)) : 'Not set'}
+            </span>
+          ) : (
+            <InlineEditController
+              value={campaign.budget_estimate != null ? String(Number(campaign.budget_estimate)) : ''}
+              onSave={handleBudgetSave}
+              validate={validateBudget}
+              inputType="input"
+              placeholder="e.g. 30000"
+              className="text-sm text-gray-900"
+              renderTrigger={(value) => {
+                const parsed = parseBudget(value);
+                return (
+                  <span
+                    data-testid="campaign-budget"
+                    className="text-sm text-gray-900 hover:text-[#0E8A96] transition-colors cursor-pointer"
+                  >
+                    {parsed !== null && !Number.isNaN(parsed) ? (
+                      formatBudget(parsed)
+                    ) : (
+                      <span className="text-gray-400 italic">Not set</span>
+                    )}
+                  </span>
+                );
+              }}
+            />
+          )}
         </div>
       </div>
 
