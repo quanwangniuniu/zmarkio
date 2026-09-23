@@ -558,15 +558,17 @@ def test_export_streams_the_report_after_the_view_returns(
 
     rows = _csv_rows(response)
     assert rows[0] == [
-        'Section', 'Key', 'Label', 'Total', 'Good', 'Needs Improvement', 'Poor',
-        'Percent']
+        'section', 'key', 'label',
+        'total', 'good', 'needs_improvement', 'poor',
+        'good_pct', 'needs_improvement_pct', 'poor_pct',
+        'conversations', 'coverage_pct']
     assert len(rows) > 1, 'streaming must survive the middleware resetting search_path'
 
     sections = {row[0] for row in rows[1:]}
-    assert {'rating', 'coverage', 'agent', 'date', 'total'} <= sections
+    assert {'summary', 'agent', 'day'} <= sections
 
-    total_row = next(row for row in rows if row[0] == 'total')
-    assert total_row[3] == '2'
+    summary = next(row for row in rows if row[0] == 'summary')
+    assert summary[3] == '2'
 
 
 def test_export_matches_the_on_screen_report(supervisor_client, csm_queue):
@@ -578,31 +580,60 @@ def test_export_matches_the_on_screen_report(supervisor_client, csm_queue):
     rows = _csv_rows(supervisor_client.get(_export_url()))
 
     by_rating = {row['rating']: row['count'] for row in report['by_rating']}
-    csv_ratings = {row[1]: int(row[3]) for row in rows if row[0] == 'rating'}
+    summary = next(row for row in rows if row[0] == 'summary')
 
-    assert csv_ratings == by_rating
+    assert int(summary[4]) == by_rating['good']
+    assert int(summary[5]) == by_rating['needs_improvement']
+    assert int(summary[6]) == by_rating['poor']
+    assert int(summary[3]) == report['totals']['reviews']
 
 
-def test_export_carries_the_coverage_tile_and_percentages(supervisor_client, csm_queue):
+def test_export_summary_row_carries_the_four_tiles(supervisor_client, csm_queue):
     """AC5: the file must contain everything the screen shows.
 
-    Coverage and the per-rating percentages are on the report tiles, so they
-    belong in the export too.
+    One summary row holds the rating split, its percentages, the population
+    and coverage - the four tiles on the report.
     """
     for _ in range(3):
         _conversation(csm_queue)
-    reviewed = _conversation(csm_queue)
-    supervisor_client.post(_review_url(reviewed.id), {'rating': 'good'}, format='json')
+    good = _conversation(csm_queue)
+    needs = _conversation(csm_queue)
+    supervisor_client.post(_review_url(good.id), {'rating': 'good'}, format='json')
+    supervisor_client.post(
+        _review_url(needs.id), {'rating': 'needs_improvement'}, format='json')
 
     rows = _csv_rows(supervisor_client.get(_export_url()))
-    by_section = {(row[0], row[1]): row for row in rows[1:]}
+    summary = next(row for row in rows if row[0] == 'summary')
 
-    assert by_section[('coverage', 'reviewed')][3] == '1'
-    assert by_section[('coverage', 'in_scope')][3] == '4'
-    assert by_section[('coverage', 'reviewed')][7] == '25.0'
+    # total, good, needs_improvement, poor
+    assert summary[3:7] == ['2', '1', '1', '0']
+    # percentages are fractions, so a spreadsheet can format them as percent
+    assert summary[7:10] == ['0.500', '0.500', '0.000']
+    # conversations in scope, and the share of them reviewed
+    assert summary[10] == '5'
+    assert summary[11] == '0.400'
 
-    assert by_section[('rating', 'good')][7] == '100.0'
-    assert by_section[('rating', 'poor')][7] == '0.0'
+
+def test_export_breakdown_rows_leave_coverage_blank(supervisor_client, csm_queue):
+    """Coverage is a whole-population figure, so it is meaningless per agent."""
+    conversation = _conversation(csm_queue)
+    supervisor_client.post(_review_url(conversation.id), {'rating': 'good'}, format='json')
+
+    rows = _csv_rows(supervisor_client.get(_export_url()))
+
+    for row in rows[1:]:
+        if row[0] != 'summary':
+            assert row[10] == ''
+            assert row[11] == ''
+
+
+def test_export_names_date_rows_after_the_bucket(supervisor_client, csm_queue):
+    conversation = _conversation(csm_queue)
+    supervisor_client.post(_review_url(conversation.id), {'rating': 'good'}, format='json')
+
+    rows = _csv_rows(supervisor_client.get(_export_url(), {'bucket': 'month'}))
+
+    assert any(row[0] == 'month' for row in rows[1:])
 
 
 def test_export_honours_the_filters(supervisor_client, csm_queue):
@@ -612,9 +643,9 @@ def test_export_honours_the_filters(supervisor_client, csm_queue):
     supervisor_client.post(_review_url(web.id), {'rating': 'poor'}, format='json')
 
     rows = _csv_rows(supervisor_client.get(_export_url(), {'channel': 'email'}))
-    total_row = next(row for row in rows if row[0] == 'total')
+    summary = next(row for row in rows if row[0] == 'summary')
 
-    assert total_row[3] == '1'
+    assert summary[3] == '1'
 
 
 def test_export_escapes_spreadsheet_formulas(supervisor_client, user2, csm_queue, customer_organisation):
