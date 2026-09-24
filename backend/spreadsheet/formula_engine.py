@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP, ROUND_FLOOR, ROUND_CEILING
 import logging
+import re
 from typing import Callable, List, Optional, Tuple
 
 from .models import Cell, ComputedCellType, Sheet, SheetColumn, SheetRow, CellValueType
@@ -58,6 +59,25 @@ def _value_empty() -> Value:
 
 def _value_error(code: str) -> Value:
     return Value(kind='error', error_code=code)
+
+
+def _arg_needs_parens(val: str) -> bool:
+    """Return True if a UDF argument string needs wrapping in parentheses.
+
+    Wrapping is only needed when the argument contains a top-level operator
+    (outside any nested parens), which would cause wrong precedence if spliced
+    bare into the expression. Simple tokens — numbers, cell refs, ranges like
+    A1:A3, and function calls — do not need wrapping.
+    """
+    depth = 0
+    for ch in val:
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+        elif depth == 0 and ch in '+-*/':
+            return True
+    return False
 
 
 def _extract_currency_symbol(raw_input: str) -> Optional[str]:
@@ -180,15 +200,16 @@ def tokenize_formula(raw_input: str) -> List[Token]:
 def evaluate_formula(
     raw_input: str,
     sheet: Sheet,
+    udfs: Optional[dict] = None,
+    _call_stack: frozenset = frozenset(),
     identifier_resolver: Optional[IdentifierResolver] = None,
 ) -> FormulaResult:
     """Evaluate a formula against `sheet`.
 
-    `identifier_resolver` optionally binds bare identifiers (names that are not
-    functions and not A1 references) to numbers, which lets callers outside the
-    spreadsheet reuse this engine for named variables — see
-    `report.kpi_registry`. It returns None for an unknown name, which surfaces as
-    `#NAME?`. Without a resolver a bare identifier stays an error, as before.
+    `udfs` is a dict of user-defined functions keyed by uppercase name.
+    `_call_stack` tracks active UDF calls to detect mutual recursion.
+    `identifier_resolver` optionally binds bare identifiers to numbers for
+    callers outside the spreadsheet (e.g. report.kpi_registry).
     """
     expression = raw_input[1:] if raw_input.startswith('=') else raw_input
     if not expression.strip():
@@ -196,7 +217,7 @@ def evaluate_formula(
 
     try:
         tokens = _tokenize(expression)
-        parser = _Parser(tokens, sheet, identifier_resolver)
+        parser = _Parser(tokens, sheet, udfs=udfs, call_stack=_call_stack, identifier_resolver=identifier_resolver)
         result = parser.parse_comparison()
         if parser.has_more_tokens():
             raise FormulaError("#REF!")
@@ -325,10 +346,14 @@ class _Parser:
         self,
         tokens: List[Token],
         sheet: Sheet,
+        udfs: Optional[dict] = None,
+        call_stack: frozenset = frozenset(),
         identifier_resolver: Optional[IdentifierResolver] = None,
     ) -> None:
         self.tokens = tokens
         self.sheet = sheet
+        self.udfs = udfs or {}
+        self.call_stack = call_stack
         self.identifier_resolver = identifier_resolver
         self.index = 0
 
@@ -464,6 +489,95 @@ class _Parser:
                 value = value / right
         return value
 
+    def _read_argument_as_text(self) -> str:
+        """Read one argument as raw text without evaluating it."""
+        parts = []
+        depth = 0
+        while True:
+            token = self._current_token()
+            if token is None:
+                raise FormulaError("#VALUE!")
+            if token.type == "LPAREN":
+                depth += 1
+                parts.append("(")
+                self._consume("LPAREN")
+            elif token.type == "RPAREN":
+                if depth == 0:
+                    break
+                depth -= 1
+                parts.append(")")
+                self._consume("RPAREN")
+            elif token.type == "COMMA" and depth == 0:
+                break
+            elif token.type == "COLON":
+                parts.append(":")
+                self._consume("COLON")
+            elif token.type == "STRING":
+                parts.append(f'"{token.value}"')
+                self._consume("STRING")
+            else:
+                parts.append(token.value)
+                self._consume(token.type)
+        return ''.join(parts)
+
+    def _parse_udf_arguments(self, udf: dict) -> Decimal:
+        func_name = udf["name"]
+
+        # Direct self-recursion: UDF expression directly calls itself by name.
+        if re.search(r'\b' + re.escape(func_name) + r'\b', udf["expression"].upper()):
+            raise FormulaError("#REF!")
+
+        # Indirect mutual recursion: check whether this UDF's expression
+        # references any UDF already in the active call chain.
+        # e.g. call_stack={"FOO"}, current UDF BAR has expression "FOO(x)"
+        # → BAR would call FOO which is already running → cycle → #REF!
+        # This correctly allows TOTALSUM(TOTALSUM(B2:B7)) because TOTALSUM's
+        # expression "SUM(data)" does not reference TOTALSUM or any other
+        # UDF in the chain.
+        expr_upper = udf["expression"].upper()
+        for active_name in self.call_stack:
+            if re.search(r'\b' + re.escape(active_name) + r'\b', expr_upper):
+                raise FormulaError("#REF!")
+
+        args = []
+        if self._current_token() and self._current_token().type != "RPAREN":
+            while True:
+                args.append(self._read_argument_as_text())
+                token = self._current_token()
+                if token is None:
+                    raise FormulaError("#VALUE!")
+                if token.type == "COMMA":
+                    self._consume("COMMA")
+                    continue
+                if token.type == "RPAREN":
+                    self._consume("RPAREN")
+                    break
+                raise FormulaError("#VALUE!")
+        else:
+            self._consume("RPAREN")
+
+        params = udf["params"]
+        if len(args) != len(params):
+            raise FormulaError("#VALUE!")
+
+        expr = udf["expression"]
+        for param, val in zip(params, args):
+            # Wrap complex arguments in parentheses to preserve operator
+            # precedence. Simple tokens (numbers, cell refs, ranges) are left
+            # as-is to avoid breaking range syntax like SUM(A1:A3).
+            safe_val = f'({val})' if _arg_needs_parens(val) else val
+            expr = re.sub(r'\b' + re.escape(param) + r'\b', safe_val, expr)
+
+        # Pass the updated call stack (with this UDF added) to prevent
+        # indirect mutual recursion in the evaluated sub-expression.
+        new_call_stack = self.call_stack | {func_name}
+        result = evaluate_formula("=" + expr, self.sheet, udfs=self.udfs, _call_stack=new_call_stack)
+        if result.computed_type == ComputedCellType.ERROR:
+            raise FormulaError(result.error_code or "#VALUE!")
+        if result.computed_number is not None:
+            return result.computed_number
+        raise FormulaError("#VALUE!")
+
     def parse_factor(self) -> Decimal:
         token = self._current_token()
         if token is None:
@@ -568,6 +682,14 @@ class _Parser:
                 raise FormulaError("#REF!")
             self._consume('RPAREN')
             return value
+
+        if token.type == "IDENT":
+            func_name = token.value.upper()
+            udf = (self.udfs or {}).get(func_name)
+            if udf is not None:
+                self._consume("IDENT")
+                self._consume("LPAREN")
+                return self._parse_udf_arguments(udf)
 
         # Checked last so every built-in function name above keeps priority over
         # a resolver-supplied name.
