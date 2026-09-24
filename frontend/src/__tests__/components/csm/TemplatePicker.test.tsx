@@ -148,3 +148,27 @@ describe('TemplatePicker', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('TemplatePicker (sandbox preview mode)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  test('lists templates as the chosen team and hides the close button', async () => {
+    mockedList.mockResolvedValue([makeTemplate({})]);
+    render(<TemplatePicker organisationId={5} viewAsTeam={12} onSelect={jest.fn()} />);
+
+    expect(await screen.findByText('Greeting')).toBeInTheDocument();
+    expect(mockedList).toHaveBeenCalledWith({ organisation: 5, view_as_team: 12 });
+    expect(screen.queryByRole('button', { name: '' })).not.toBeInTheDocument();
+  });
+
+  test('uses the custom insert label in the preview', async () => {
+    const onSelect = jest.fn();
+    mockedList.mockResolvedValue([makeTemplate({})]);
+    render(
+      <TemplatePicker organisationId={5} viewAsTeam="none" insertLabel="Insert as preview" onSelect={onSelect} />,
+    );
+    fireEvent.click(await screen.findByText('Preview'));
+    fireEvent.click(screen.getByRole('button', { name: 'Insert as preview' }));
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }));
+  });
+});

@@ -1,10 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
 import { ConversationMessage, MessageSenderType } from '@/types/csmConversation';
 import { cn } from '@/lib/utils';
+import { RichMessageBody } from './RichMessageBody';
 
 const SENDER_LABELS: Record<MessageSenderType, string> = {
   agent: 'Agent',
@@ -32,27 +31,6 @@ function formatDateDivider(iso: string): string {
   const options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
   if (date.getFullYear() !== today.getFullYear()) options.year = 'numeric';
   return date.toLocaleDateString([], options);
-}
-
-// Read-only rich text renderer using Tiptap
-function RichMessageBody({ body, isAgent }: { body: object; isAgent: boolean }) {
-  const editor = useEditor({
-    extensions: [StarterKit],
-    content: body,
-    editable: false,
-    immediatelyRender: false,
-    editorProps: {
-      attributes: {
-        class: isAgent ? 'csm-rich-dark text-sm' : 'csm-rich-light text-sm text-gray-900',
-      },
-    },
-  });
-
-  useEffect(() => {
-    editor?.commands.setContent(body);
-  }, [editor, body]);
-
-  return <EditorContent editor={editor} />;
 }
 
 interface ConversationThreadProps {

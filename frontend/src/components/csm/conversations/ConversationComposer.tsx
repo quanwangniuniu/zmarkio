@@ -7,6 +7,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import CsmConversationAPI, { QuickReplyTemplateAPI } from '@/lib/api/csmConversationApi';
 import { useCsmConversationStore } from '@/lib/csmConversationStore';
 import type { QuickReplyTemplate } from '@/types/csmConversation';
+import { RichMessageBody } from './RichMessageBody';
 import { AlertCircle, FileImage, Tag, Search, X, Bold, Italic, List, ListOrdered, LayoutTemplate, ImagePlus } from 'lucide-react';
 
 type ComposerFormat = 'bold' | 'italic' | 'bulletList' | 'orderedList';
@@ -60,10 +61,18 @@ export function TemplatePicker({
   organisationId,
   onSelect,
   onClose,
+  viewAsTeam,
+  renderRich = false,
+  insertLabel = 'Insert',
 }: {
   organisationId: number;
   onSelect: (template: QuickReplyTemplate) => void;
-  onClose: () => void;
+  onClose?: () => void;
+  // Sandbox only: preview another team's template list (CSM admins).
+  viewAsTeam?: number | 'none';
+  // Render rich_body in the preview, matching what the composer inserts.
+  renderRich?: boolean;
+  insertLabel?: string;
 }) {
   const [templates, setTemplates] = useState<QuickReplyTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,11 +81,15 @@ export function TemplatePicker({
   const [previewId, setPreviewId] = useState<number | null>(null);
 
   useEffect(() => {
-    QuickReplyTemplateAPI.list({ organisation: organisationId })
+    setLoading(true);
+    const params = viewAsTeam === undefined
+      ? { organisation: organisationId }
+      : { organisation: organisationId, view_as_team: viewAsTeam };
+    QuickReplyTemplateAPI.list(params)
       .then(setTemplates)
       .catch(() => setTemplates([]))
       .finally(() => setLoading(false));
-  }, [organisationId]);
+  }, [organisationId, viewAsTeam]);
 
   const allTags = Array.from(new Set(templates.flatMap((t) => t.tags))).sort();
 
@@ -107,9 +120,11 @@ export function TemplatePicker({
               ← Back
             </button>
           )}
-          <button onClick={onClose} className="p-0.5 text-gray-400 hover:text-gray-600">
-            <X size={14} />
-          </button>
+          {onClose && (
+            <button onClick={onClose} className="p-0.5 text-gray-400 hover:text-gray-600">
+              <X size={14} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -126,12 +141,16 @@ export function TemplatePicker({
               ))}
             </div>
           )}
-          <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{previewTemplate.content}</p>
+          {renderRich && previewTemplate.rich_body ? (
+            <RichMessageBody body={previewTemplate.rich_body} isAgent={false} />
+          ) : (
+            <p className="text-xs text-gray-700 leading-relaxed whitespace-pre-wrap">{previewTemplate.content}</p>
+          )}
           <button
             onClick={() => { onSelect(previewTemplate); setPreviewId(null); }}
             className="self-end text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium transition-colors"
           >
-            Insert
+            {insertLabel}
           </button>
         </div>
       ) : (

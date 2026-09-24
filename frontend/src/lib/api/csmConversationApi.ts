@@ -10,6 +10,7 @@ import {
   QuickReplyTemplatePayload,
   QuickReplyTemplateHistory,
   TemplateTag,
+  TemplatePreviewTeam,
   Ticket,
   AssignableAgent,
 } from '@/types/csmConversation';
@@ -125,9 +126,22 @@ export class TicketAPI {
 }
 
 export class QuickReplyTemplateAPI {
-  static async list(params?: { organisation?: number; tag?: string; search?: string }): Promise<QuickReplyTemplate[]> {
+  static async list(params?: {
+    organisation?: number;
+    tag?: string;
+    search?: string;
+    // CSM admins only: list templates as an agent in this team sees them.
+    view_as_team?: number | 'none';
+  }): Promise<QuickReplyTemplate[]> {
     const res = await api.get(`${TMPL_BASE}/`, { params });
     return Array.isArray(res.data) ? res.data : (res.data?.results ?? []);
+  }
+
+  static async previewTeams(organisation: number): Promise<TemplatePreviewTeam[]> {
+    const res = await api.get<TemplatePreviewTeam[]>(`${TMPL_BASE}/preview-teams/`, {
+      params: { organisation },
+    });
+    return Array.isArray(res.data) ? res.data : [];
   }
 
   static async get(slug: string): Promise<QuickReplyTemplate> {
