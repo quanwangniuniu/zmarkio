@@ -13,6 +13,8 @@ from .views import (
     BusinessHoursCalendarViewSet,
     TicketStatusViewSet,
     StatusMachineView,
+    RoutingRuleViewSet,
+    RoutingSandboxViewSet,
 )
 
 router = DefaultRouter()
@@ -30,6 +32,8 @@ router.register(r'support-channels', SupportChannelViewSet, basename='support-ch
 router.register(r'sla-policy', SLAPolicyViewSet, basename='sla-policy')
 router.register(r'business-hours-calendars', BusinessHoursCalendarViewSet, basename='business-hours-calendar')
 router.register(r'ticket-statuses', TicketStatusViewSet, basename='ticket-status')
+router.register(r'routing-rules', RoutingRuleViewSet, basename='routing-rule')
+router.register(r'routing-sandbox', RoutingSandboxViewSet, basename='routing-sandbox')
 
 urlpatterns = [
     # Standard routes

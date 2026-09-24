@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from experience_group.models import ExperienceGroup
 from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, CsmNotification,
     Conversation, ConversationMessage, Ticket, QuickReplyTemplate, QuickReplyTemplateHistory,
@@ -7,6 +8,7 @@ from .models import (
     SupportProject, CsmWorkType, SupportChannel,
     SLAPolicy, SLAPriorityTarget, BusinessHoursCalendar,
     TicketStatus, TicketStatusTransition, TicketAutoResolveConfig,
+    RoutingRule,
 )
 
 
@@ -750,3 +752,67 @@ class ReplaceTransitionsSerializer(serializers.Serializer):
         child=serializers.DictField(child=serializers.CharField()),
         default=list,
     )
+
+
+# ---------------------------------------------------------------------------
+# Routing rules & sandbox (CSM-S03-05)
+# ---------------------------------------------------------------------------
+
+class RoutingRuleSerializer(serializers.ModelSerializer):
+    target_queue_name = serializers.CharField(
+        source='target_queue.name', read_only=True, default=None,
+    )
+    target_queue_is_active = serializers.BooleanField(
+        source='target_queue.is_active', read_only=True, default=None,
+    )
+
+    class Meta:
+        model = RoutingRule
+        fields = [
+            'id', 'experience_group', 'name', 'position', 'is_enabled',
+            'match_mode', 'conditions', 'action_type',
+            'target_queue', 'target_queue_name', 'target_queue_is_active',
+            'add_tags', 'created_at', 'updated_at',
+        ]
+        read_only_fields = fields
+
+
+class RoutingRuleWriteSerializer(serializers.Serializer):
+    """Shape-only validation; business rules live in services.routing_rules."""
+    experience_group = serializers.PrimaryKeyRelatedField(
+        queryset=ExperienceGroup.objects.all(),
+    )
+    name = serializers.CharField(max_length=200)
+    is_enabled = serializers.BooleanField(required=False)
+    match_mode = serializers.ChoiceField(choices=RoutingRule.MatchMode.choices, required=False)
+    conditions = serializers.ListField(
+        child=serializers.DictField(), required=False, allow_empty=True,
+    )
+    target_queue = serializers.PrimaryKeyRelatedField(
+        queryset=Queue.objects.all(), allow_null=True,
+    )
+    add_tags = serializers.ListField(
+        child=serializers.CharField(allow_blank=True), required=False, allow_empty=True,
+    )
+
+
+class RoutingRuleReorderSerializer(serializers.Serializer):
+    experience_group = serializers.IntegerField(min_value=1)
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+
+
+class RoutingSandboxRequestSerializer(serializers.Serializer):
+    experience_group = serializers.IntegerField(min_value=1)
+    support_channel = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    customer_organisation = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    subject = serializers.CharField(max_length=200, required=False, allow_blank=True, default='')
+    messages = serializers.ListField(
+        child=serializers.CharField(max_length=5000, trim_whitespace=False),
+        min_length=1,
+        max_length=50,
+    )
+    simulated_at = serializers.DateTimeField(required=False, allow_null=True)
+    evaluate_each_prefix = serializers.BooleanField(required=False, default=False)
