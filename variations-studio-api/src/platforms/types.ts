@@ -49,15 +49,6 @@ export type PlatformSpec = {
   };
   readonly promptFragment: string;
   readonly promptVersion: string;
-  /** Index is required for a repeated field and forbidden for a scalar. */
+  /** Index selects one item of a repeated field. */
   readonly slugSource: { readonly field: string; readonly index?: number };
 };
-
-/** Variable field sets are data, never a union of platform-specific copy shapes. */
-export type PlatformCopy = Record<string, string | string[]>;
-
-/** Public form/validation data; internal generation instructions stay server-side. */
-export type PlatformPresentation = Pick<
-  PlatformSpec,
-  'id' | 'displayName' | 'fields' | 'cta' | 'aspectRatios' | 'language'
->;
