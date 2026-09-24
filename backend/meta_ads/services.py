@@ -7,13 +7,16 @@ Each `sync_*` function is idempotent (update_or_create). The entry point
 
 import datetime as _dt
 import logging
+import re
 from decimal import Decimal
 from typing import Any
 
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
 from facebook_integration.models import MetaAdAccount
+from utils.ad_preview_cache_keys import creative_preview_cache_key
 
 from .meta_client import MetaApiError, graph_get, graph_paged
 from .models import (
@@ -24,6 +27,108 @@ from .models import (
     MetaInsightDaily,
     MetaSyncRun,
 )
+
+# Default preview cache TTL. 
+CREATIVE_PREVIEW_CACHE_TTL_SECONDS = 3600
+
+
+class CreativePreviewError(Exception):
+    """Domain error while building a Meta creative preview payload."""
+
+    def __init__(
+        self,
+        detail: str,
+        *,
+        status: int = 400,
+        code: str | None = None,
+        extra: dict[str, Any] | None = None,
+    ):
+        self.detail = detail
+        self.status = status
+        self.code = code
+        self.extra = extra or {}
+        super().__init__(detail)
+
+
+def get_creative_preview(creative: MetaAdCreative, ad_format: str) -> dict[str, Any]:
+    """Return a Meta iframe preview payload, cached per account + creative + format.
+
+    Cache keys use ``meta_creative_id`` (which can collide across accounts) plus
+    ``ad_account_id`` so another account's preview cannot leak .
+    """
+    key = creative_preview_cache_key(
+        platform="meta",
+        account_id=creative.ad_account_id,
+        # Platform creative id can reuse the same numeric range across accounts;
+        # account_id is what keeps those keys from colliding .
+        creative_id=creative.meta_creative_id,
+        variant=ad_format,
+    )
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+
+    ad = creative.ads.order_by("-updated_at").first()
+    if ad is None:
+        raise CreativePreviewError(
+            "No ad references this creative in the synced data, "
+            "so no preview can be rendered. Try re-running sync.",
+            status=400,
+            code="no_linked_ad",
+        )
+
+    token = creative.ad_account.connection.get_access_token()
+    if not token:
+        raise CreativePreviewError(
+            "Meta connection is missing its access token.",
+            status=400,
+        )
+
+    try:
+        graph_payload = graph_get(
+            f"/{ad.meta_ad_id}/previews",
+            token,
+            params={"ad_format": ad_format},
+        )
+    except MetaApiError as err:
+        raise CreativePreviewError(
+            f"Graph API error: {err}",
+            status=502,
+            extra={"status_code": err.status_code},
+        ) from err
+
+    previews = (graph_payload or {}).get("data") or []
+    if not previews:
+        raise CreativePreviewError(
+            "Meta returned no preview for this ad.",
+            status=502,
+        )
+
+    body = previews[0].get("body", "") or ""
+    match = re.search(r"""src\s*=\s*["']([^"']+)["']""", body)
+    iframe_src = match.group(1).replace("&amp;", "&") if match else ""
+    if not iframe_src.strip():
+        # VideoModal only renders iframe_src; a 200 with an empty src looks
+        # successful but shows "No preview data available." Do not cache it.
+        raise CreativePreviewError(
+            "Meta preview HTML did not include an iframe src.",
+            status=502,
+            code="missing_iframe_src",
+        )
+
+    payload = {
+        "creative_id": creative.id,
+        "video_id": creative.video_id,
+        "meta_ad_id": ad.meta_ad_id,
+        "ad_name": ad.name,
+        "ad_format": ad_format,
+        "iframe_src": iframe_src,
+        "iframe_html": body,
+        "thumbnail_url": creative.thumbnail_url,
+        "permalink_url": "",
+    }
+    cache.set(key, payload, timeout=CREATIVE_PREVIEW_CACHE_TTL_SECONDS)
+    return payload
 
 
 logger = logging.getLogger(__name__)
