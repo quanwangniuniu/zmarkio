@@ -4,7 +4,16 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from core.models import Organization, Project
-from spreadsheet.models import Cell, ComputedCellType, Sheet, SheetColumn, SheetRow, Spreadsheet
+from spreadsheet.formula_engine import evaluate_formula
+from spreadsheet.models import (
+    Cell,
+    CellValueType,
+    ComputedCellType,
+    Sheet,
+    SheetColumn,
+    SheetRow,
+    Spreadsheet,
+)
 from spreadsheet.services import CellService, SheetService
 
 User = get_user_model()
@@ -341,3 +350,74 @@ class FormulaEngineTest(TestCase):
         self.assertEqual(normal_cell.computed_type, ComputedCellType.NUMBER)
         self.assertEqual(normal_cell.computed_number, Decimal('15'))
         self.assertIsNone(normal_cell.error_code)
+
+class FormulaIdentifierResolverTest(TestCase):
+    """`evaluate_formula`'s optional `identifier_resolver`, which lets callers
+    outside the spreadsheet bind bare names to numbers (see
+    `report.kpi_registry`). Sheet behaviour must be unchanged without one."""
+
+    def setUp(self):
+        self.user = create_test_user(username='resolveruser', email='resolver@example.com')
+        self.organization = create_test_organization(name='Resolver Org')
+        self.project = create_test_project(self.organization, name='Resolver Project', owner=self.user)
+        self.spreadsheet = Spreadsheet.objects.create(project=self.project, name='Resolver Spreadsheet')
+        self.sheet = Sheet.objects.create(spreadsheet=self.spreadsheet, name='Sheet1', position=0)
+        self.values = {'revenue': Decimal('1000'), 'spend': Decimal('250'), 'net_profit': Decimal('750')}
+
+    def _resolve(self, name):
+        return self.values.get(name.lower())
+
+    def test_bare_identifier_is_an_error_without_a_resolver(self):
+        result = evaluate_formula('=revenue/spend', self.sheet)
+        self.assertEqual(result.computed_type, ComputedCellType.ERROR)
+
+    def test_underscore_identifier_is_an_error_without_a_resolver(self):
+        """Used to fail while tokenizing; must still be an error, not a value."""
+        result = evaluate_formula('=net_profit', self.sheet)
+        self.assertEqual(result.computed_type, ComputedCellType.ERROR)
+
+    def test_resolver_binds_bare_identifiers(self):
+        result = evaluate_formula('=revenue/spend', self.sheet, identifier_resolver=self._resolve)
+        self.assertEqual(result.computed_type, ComputedCellType.NUMBER)
+        self.assertEqual(result.computed_number, Decimal('4'))
+
+    def test_resolver_binds_underscore_identifiers(self):
+        result = evaluate_formula('=net_profit/spend', self.sheet, identifier_resolver=self._resolve)
+        self.assertEqual(result.computed_number, Decimal('3'))
+
+    def test_unknown_identifier_reports_name_error(self):
+        result = evaluate_formula('=revenue/unknown', self.sheet, identifier_resolver=self._resolve)
+        self.assertEqual(result.computed_type, ComputedCellType.ERROR)
+        self.assertEqual(result.error_code, '#NAME?')
+
+    def test_functions_keep_priority_over_resolved_names(self):
+        """A resolver must not shadow a built-in: MIN stays MIN."""
+        resolver = lambda name: Decimal('99') if name.lower() == 'min' else self._resolve(name)
+        result = evaluate_formula('=MIN(revenue, spend)', self.sheet, identifier_resolver=resolver)
+        self.assertEqual(result.computed_number, Decimal('250'))
+
+    def test_resolved_names_work_inside_function_arguments(self):
+        result = evaluate_formula('=ROUND(revenue/spend, 1)', self.sheet, identifier_resolver=self._resolve)
+        self.assertEqual(result.computed_number, Decimal('4.0'))
+
+    def test_skipped_conditional_branch_is_not_resolved(self):
+        result = evaluate_formula(
+            '=IF(spend>0, revenue, missing_name)', self.sheet, identifier_resolver=self._resolve
+        )
+        self.assertEqual(result.computed_number, Decimal('1000'))
+
+    def test_cell_references_still_resolve_alongside_named_values(self):
+        row = SheetRow.objects.create(sheet=self.sheet, position=0)
+        column = SheetColumn.objects.create(sheet=self.sheet, position=0, name='A')
+        Cell.objects.create(
+            sheet=self.sheet,
+            row=row,
+            column=column,
+            raw_input='4',
+            value_type=CellValueType.NUMBER,
+            number_value=Decimal('4'),
+            computed_type=ComputedCellType.NUMBER,
+            computed_number=Decimal('4'),
+        )
+        result = evaluate_formula('=revenue/A1', self.sheet, identifier_resolver=self._resolve)
+        self.assertEqual(result.computed_number, Decimal('250'))
