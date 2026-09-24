@@ -844,6 +844,69 @@ class SupportChannelExperienceGroup(models.Model):
         return f"Channel {self.channel_id} → EG {self.experience_group_id}"
 
 
+class RoutingRule(TimeStampedModel):
+    """
+    Ordered routing rule for an Experience Group (CSM-S03-05).
+
+    Rules are evaluated top-down by `position`; the first enabled rule whose
+    conditions match decides the queue. `conditions` is a list of
+    {"field", "operator", "value"} dicts validated by
+    csm.services.routing_rules.validate_conditions. Rules are currently only
+    evaluated by the routing sandbox; live intake still uses channel defaults.
+    """
+
+    class MatchMode(models.TextChoices):
+        ALL = 'all', 'All conditions'
+        ANY = 'any', 'Any condition'
+
+    class ActionType(models.TextChoices):
+        ROUTE_TO_QUEUE = 'route_to_queue', 'Route to queue'
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name='routing_rules',
+    )
+    experience_group = models.ForeignKey(
+        'experience_group.ExperienceGroup', on_delete=models.CASCADE,
+        related_name='routing_rules',
+    )
+    name = models.CharField(max_length=200)
+    position = models.PositiveIntegerField(default=0)
+    is_enabled = models.BooleanField(default=True)
+    match_mode = models.CharField(
+        max_length=8, choices=MatchMode.choices, default=MatchMode.ALL,
+    )
+    conditions = models.JSONField(default=list, blank=True)
+    action_type = models.CharField(
+        max_length=32, choices=ActionType.choices, default=ActionType.ROUTE_TO_QUEUE,
+    )
+    target_queue = models.ForeignKey(
+        Queue, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='routing_rules',
+    )
+    add_tags = models.JSONField(default=list, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='+',
+    )
+
+    class Meta:
+        ordering = ['experience_group', 'position', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['experience_group', 'name'],
+                name='csm_rr_unique_name_per_eg',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['experience_group', 'position'], name='csm_rr_eg_pos_idx'),
+        ]
+
+    def __str__(self):
+        return f"RoutingRule '{self.name}' (EG {self.experience_group_id}, #{self.position})"
+
+
 class CSMInvitation(TimeStampedModel):
     email = models.EmailField()
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='csm_invitations')
