@@ -189,6 +189,9 @@ cd marketing-simplified
 # Copy environment file
 cp env.example .env
 
+# Generate your own SECRET_KEY and paste it into .env (the template leaves it empty)
+python3 -c "import secrets; print(secrets.token_urlsafe(50))"
+
 ```
 
 ### 2. Configure environment variables
@@ -196,6 +199,7 @@ cp env.example .env
 - The only template file in this repository is `env.example` at repo root.
 - There is no `.env.example`, `backend/.env.example`, or `frontend/.env.example`.
 - Update `.env` with valid local values before startup, especially database credentials and integration keys you need.
+- `SECRET_KEY` is required; the backend refuses to start without it. Generate one with the command above, keep it out of git (never commit or push `.env`), and do not reuse a value that was previously committed to this repository.
 
 Minimum local DB-related values:
 
