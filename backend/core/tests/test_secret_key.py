@@ -32,7 +32,7 @@ class MissingSecretKeyTest(SimpleTestCase):
             validate_secret_key("", debug=True)
 
     def test_error_explains_how_to_generate_a_key(self):
-        with self.assertRaisesMessage(ImproperlyConfigured, "get_random_secret_key"):
+        with self.assertRaisesMessage(ImproperlyConfigured, "secrets.token_urlsafe"):
             validate_secret_key("", debug=False)
 
 

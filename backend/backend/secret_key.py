@@ -13,8 +13,8 @@ import warnings
 from django.core.exceptions import ImproperlyConfigured
 
 GENERATE_HINT = (
-    'Generate a unique key with: python -c "from django.core.management.utils '
-    'import get_random_secret_key; print(get_random_secret_key())"'
+    'Generate a new key with: '
+    'python3 -c "import secrets; print(secrets.token_urlsafe(50))"'
 )
 
 # Why this list exists: older versions of settings.py and env.example shipped
