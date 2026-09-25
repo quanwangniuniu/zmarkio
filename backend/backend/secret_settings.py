@@ -40,6 +40,9 @@ COMMITTED_SECRET_KEY_DIGESTS = frozenset({
     '74b6bf35804827ee73c32855d00d606b95952159c578eb9c265406cfb7a91355',
     # Former placeholder in env.example (the template now leaves it empty)
     '9185e3300d24e5439503a795c6709e6aadb8f7806a6795c6dcf473634dd1196a',
+    # Earlier env.example placeholders (2025-06 to 2025-09)
+    '55a2aa619c852bbc2a756b83696b60ab1b91ab7163f3e0d8463da815fb93a268',
+    '021ed2c9c90f9eac77e634a56b5c357389e3fc394668fc3296beed353494d089',
 })
 COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS = frozenset({
     # Former inline fallback in backend/settings.py, also the former env.example value
