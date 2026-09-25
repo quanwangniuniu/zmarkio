@@ -17,6 +17,8 @@ from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 from celery.schedules import crontab
 
+from .secret_key import validate_secret_key
+
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -26,11 +28,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-4g=$b1l14w5*aia@bgix6zv9%ky2#elk0f*jso867wpgcq8&3u')
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
+
+# SECURITY WARNING: keep the secret key used in production secret!
+# Required, with no fallback: it signs every JWT and is shared with
+# variations-studio-api and decision-service. See backend/secret_key.py.
+SECRET_KEY = validate_secret_key(config('SECRET_KEY', default=''), debug=DEBUG)
 
 ALLOWED_HOSTS = [
     h.strip() for h in config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0').split(',')
