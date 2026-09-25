@@ -6,6 +6,7 @@ import { ProjectAPI } from '@/lib/api/projectApi';
 import { OrganizationAPI } from '@/lib/api/organizationApi';
 import { useProjectStore } from '@/lib/projectStore';
 import { useAuthStore } from '@/lib/authStore';
+import { ChatWebSocketProvider } from '@/hooks/useChatWebSocket';
 
 /**
  * Resolves [orgSlug]/[projectSlug] from the URL and syncs org + project
@@ -96,5 +97,9 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
     return null;
   }
 
-  return <>{children}</>;
+  return (
+    <ChatWebSocketProvider userId={user?.id ? Number(user.id) : null}>
+      {children}
+    </ChatWebSocketProvider>
+  );
 }

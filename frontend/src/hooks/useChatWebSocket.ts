@@ -1,10 +1,22 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  createElement,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { buildWsUrl } from '@/lib/ws';
 import { useAuthStore } from '@/lib/authStore';
 import { useChatStore } from '@/lib/chatStore';
+import { getChat, resolveLegacyChatSlug } from '@/lib/api/chatApi';
 import type { MessageLinkPreview } from '@/types/chat';
+import toast from 'react-hot-toast';
 
 // WebSocket message types (server -> client)
 export type ChatWsEventType =
@@ -18,6 +30,8 @@ export type ChatWsEventType =
   | 'presence_snapshot'
   | 'in_app_notification'
   | 'user_session_revoked'
+  | 'chat_access_revoked'
+  | 'chat_access_granted'
   | 'error'
   | 'outbox_ack'
   | 'pong'
@@ -28,6 +42,9 @@ export interface ChatWsEvent<T = any> {
   payload?: T;
   // Specific fields for different event types
   chat_id?: number;
+  chat_slug?: string;
+  project_id?: number;
+  project_slug?: string;
   user_id?: number;
   is_online?: boolean;
   is_typing?: boolean;
@@ -55,6 +72,8 @@ export interface UseChatWebSocketHandlers {
   onPresenceUpdate?: (e: ChatWsEvent) => void;
   onPresenceSnapshot?: (e: ChatWsEvent) => void;
   onInAppNotification?: (e: ChatWsEvent) => void;
+  onChatAccessRevoked?: (e: ChatWsEvent) => void;
+  onChatAccessGranted?: (e: ChatWsEvent) => void;
   onError?: (e: ChatWsEvent) => void;
   onUnknownEvent?: (e: ChatWsEvent) => void;
   onOpen?: () => void;
@@ -63,11 +82,32 @@ export interface UseChatWebSocketHandlers {
   onConnectionError?: (ev: Event) => void;
 }
 
+type ChatWebSocketControls = {
+  connected: boolean;
+  sendTypingStart: (chatId: number) => void;
+  sendTypingStop: (chatId: number) => void;
+  sendOutboxDigest: (clientMessageIds: string[]) => void;
+};
+
+type SharedChatWebSocket = ChatWebSocketControls & {
+  subscribe: (handlers: UseChatWebSocketHandlers) => () => void;
+};
+
+const ChatWebSocketContext = createContext<SharedChatWebSocket | null>(null);
+
+const HANDLER_KEYS: Array<keyof UseChatWebSocketHandlers> = [
+  'onChatMessage', 'onTypingIndicator', 'onMessageStatusUpdate',
+  'onReactionUpdate', 'onPinUpdate', 'onLinkPreview', 'onPresenceUpdate',
+  'onPresenceSnapshot', 'onInAppNotification', 'onChatAccessRevoked',
+  'onChatAccessGranted', 'onError', 'onUnknownEvent', 'onOpen',
+  'onOutboxAck', 'onClose', 'onConnectionError',
+];
+
 /**
  * WebSocket hook for real-time chat functionality.
  * Connects to /ws/chat/{user_id}/ and handles chat events.
  */
-export function useChatWebSocket(
+function useChatWebSocketConnection(
   userId: number | null | undefined,
   handlers: UseChatWebSocketHandlers = {}
 ) {
@@ -76,6 +116,7 @@ export function useChatWebSocket(
   const [connected, setConnected] = useState(false);
   const retryRef = useRef(0);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const accessGenerationRef = useRef<Map<number, number>>(new Map());
   const shouldRun = useMemo(() => !!userId, [userId]);
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
@@ -168,6 +209,50 @@ export function useChatWebSocket(
                 window.location.href = '/login';
               }
               break;
+            case 'chat_access_revoked': {
+              const chatId = Number(data.chat_id);
+              if (Number.isFinite(chatId)) {
+                accessGenerationRef.current.set(
+                  chatId,
+                  (accessGenerationRef.current.get(chatId) ?? 0) + 1,
+                );
+                useChatStore.getState().removeChat(chatId);
+                toast.error('You were removed from this chat', {
+                  id: `chat-access-revoked-${chatId}`,
+                });
+              }
+              handlersRef.current.onChatAccessRevoked?.(data);
+              break;
+            }
+            case 'chat_access_granted': {
+              const chatId = Number(data.chat_id);
+              if (Number.isFinite(chatId)) {
+                const generation = (accessGenerationRef.current.get(chatId) ?? 0) + 1;
+                accessGenerationRef.current.set(chatId, generation);
+                void (async () => {
+                  try {
+                    const slug = data.chat_slug || await resolveLegacyChatSlug(chatId);
+                    const chat = await getChat(slug);
+                    if (accessGenerationRef.current.get(chatId) !== generation) {
+                      return;
+                    }
+                    const store = useChatStore.getState();
+                    store.addChat(chat);
+                    if (data.project_slug) {
+                      const existing = store.getChatsForProject(data.project_slug);
+                      store.setChatsForProject(data.project_slug, [
+                        chat,
+                        ...existing.filter((item) => item.id !== chat.id),
+                      ]);
+                    }
+                  } catch (error) {
+                    console.error('[ChatWS] failed to load granted chat', error);
+                  }
+                })();
+              }
+              handlersRef.current.onChatAccessGranted?.(data);
+              break;
+            }
             case 'error':
               handlersRef.current.onError?.(data);
               break;
@@ -235,7 +320,7 @@ export function useChatWebSocket(
   /**
    * Send typing start event
    */
-  const sendTypingStart = (chatId: number) => {
+  const sendTypingStart = useCallback((chatId: number) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
@@ -244,12 +329,12 @@ export function useChatWebSocket(
         })
       );
     }
-  };
+  }, []);
 
   /**
    * Send typing stop event
    */
-  const sendTypingStop = (chatId: number) => {
+  const sendTypingStop = useCallback((chatId: number) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
         JSON.stringify({
@@ -258,9 +343,9 @@ export function useChatWebSocket(
         })
       );
     }
-  };
+  }, []);
 
-  const sendOutboxDigest = (clientMessageIds: string[]) => {
+  const sendOutboxDigest = useCallback((clientMessageIds: string[]) => {
     if (!clientMessageIds.length) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
@@ -270,12 +355,67 @@ export function useChatWebSocket(
         }),
       );
     }
-  };
+  }, []);
 
-  return {
+  return useMemo(() => ({
     connected,
     sendTypingStart,
     sendTypingStop,
     sendOutboxDigest,
-  };
+  }), [connected, sendTypingStart, sendTypingStop, sendOutboxDigest]);
+}
+
+export function ChatWebSocketProvider({
+  userId,
+  children,
+}: {
+  userId: number | null | undefined;
+  children: ReactNode;
+}) {
+  const subscribersRef = useRef(new Set<UseChatWebSocketHandlers>());
+  const fanOutHandlers = useMemo(() => {
+    const fanOut: UseChatWebSocketHandlers = {};
+    HANDLER_KEYS.forEach((key) => {
+      (fanOut as Record<string, (...args: any[]) => void>)[key] = (...args: any[]) => {
+        subscribersRef.current.forEach((subscriber) => {
+          const handler = subscriber[key] as ((...handlerArgs: any[]) => void) | undefined;
+          handler?.(...args);
+        });
+      };
+    });
+    return fanOut;
+  }, []);
+  const controls = useChatWebSocketConnection(userId, fanOutHandlers);
+  const value = useMemo<SharedChatWebSocket>(() => ({
+    ...controls,
+    subscribe: (handlers) => {
+      subscribersRef.current.add(handlers);
+      return () => subscribersRef.current.delete(handlers);
+    },
+  }), [controls]);
+
+  return createElement(ChatWebSocketContext.Provider, { value }, children);
+}
+
+export function useChatWebSocket(
+  userId: number | null | undefined,
+  handlers: UseChatWebSocketHandlers = {},
+): ChatWebSocketControls {
+  const shared = useContext(ChatWebSocketContext);
+  const direct = useChatWebSocketConnection(shared ? null : userId, handlers);
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+
+  useEffect(() => {
+    if (!shared) return;
+    const proxy = new Proxy({} as UseChatWebSocketHandlers, {
+      get: (_target, key: keyof UseChatWebSocketHandlers) => (...args: any[]) => {
+        const handler = handlersRef.current[key] as ((...handlerArgs: any[]) => void) | undefined;
+        handler?.(...args);
+      },
+    });
+    return shared.subscribe(proxy);
+  }, [shared]);
+
+  return shared ?? direct;
 }

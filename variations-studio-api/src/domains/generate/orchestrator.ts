@@ -4,13 +4,13 @@ import {
   AI_QUOTA_MESSAGE,
   BATCH_CONCURRENCY,
   MAX_BATCH,
-  PROMPT_VERSION,
-  SYSTEM_PROMPT,
   defaultCopyGenerator,
   type CopyGenerator,
   type CopyJson,
 } from '@/src/ai';
 import { ApiError, projectIdParam } from '@/src/platform/http';
+import { getPlatformSpec, type PlatformSpec } from '@/src/platforms';
+import { applyCtaPolicy } from '@/src/platforms/cta';
 import { requireProjectForUser } from '@/lib/projects';
 import { allocateSlugs } from '@/lib/slugs';
 import { insertVariations } from '@/src/repo';
@@ -39,6 +39,7 @@ function parseCount(raw: unknown): number {
 }
 
 async function generateCopies(
+  systemPrompt: string,
   userPrompt: string,
   count: number,
   generator: CopyGenerator
@@ -54,7 +55,7 @@ async function generateCopies(
       next += 1;
       if (index >= count) return;
       try {
-        ordered[index] = await generator.generateCopy(SYSTEM_PROMPT, userPrompt);
+        ordered[index] = await generator.generateCopy(systemPrompt, userPrompt);
       } catch (err) {
         if (generator.isQuotaError(err)) quotaFailed = true;
         failedIndices.push(index);
@@ -72,8 +73,16 @@ async function generateCopies(
   };
 }
 
+function readCopyField(copy: CopyJson, field: string): string {
+  if (!Object.prototype.hasOwnProperty.call(copy, field)) {
+    throw new Error(`Generated copy is missing field "${field}"`);
+  }
+  return copy[field as keyof CopyJson];
+}
+
 async function persistBatch(args: {
   schema: string;
+  spec: PlatformSpec;
   copies: CopyJson[];
   batchId: string;
   projectId: bigint;
@@ -84,9 +93,9 @@ async function persistBatch(args: {
   creativeId: bigint | null;
   modelName: string;
 }) {
-  const slugs = await allocateSlugs(
-    args.schema,
-    args.copies.map((copy) => copy.headline)
+  const { spec } = args;
+  const slugs = allocateSlugs(
+    args.copies.map((copy) => readCopyField(copy, spec.slugSource.field))
   );
   return insertVariations(
     args.schema,
@@ -96,10 +105,10 @@ async function persistBatch(args: {
       hook: copy.hook,
       headline: copy.headline,
       description: copy.description,
-      cta: copy.cta,
+      cta: applyCtaPolicy(spec.cta, copy.cta),
       instruction: args.instruction,
       modelName: args.modelName,
-      promptVersion: PROMPT_VERSION,
+      promptVersion: spec.promptVersion,
       batchId: args.batchId,
       batchPosition: index,
       status: 'draft',
@@ -149,8 +158,10 @@ export async function runCustomGenerate(args: {
 
   if (isEarlyReturn(modeResult)) return modeResult.response;
 
+  const spec = getPlatformSpec('meta');
   const batchId = randomUUID();
   const { copies, failedIndices, quotaFailed } = await generateCopies(
+    spec.promptFragment,
     modeResult.userPrompt,
     count,
     generator
@@ -159,6 +170,7 @@ export async function runCustomGenerate(args: {
   const saved = copies.length
     ? await persistBatch({
         schema: args.schema,
+        spec,
         copies,
         batchId,
         projectId: project.projectId,

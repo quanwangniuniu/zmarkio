@@ -40,10 +40,18 @@ export default function VideoModal({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open || !creativeId) return;
+    // Drop cached iframe payload whenever the modal is closed (or has no
+    // creative) so reopening never flashes another account's preview.
+    if (!open || !creativeId) {
+      setPreview(null);
+      setErrorMsg(null);
+      setLoading(false);
+      return;
+    }
     let active = true;
     setLoading(true);
     setErrorMsg(null);
+    setPreview(null);
     facebookApi
       .getMetaCreativePreview(creativeId, format)
       .then((d) => {

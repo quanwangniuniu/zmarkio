@@ -172,6 +172,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         WorkflowPattern,
         WorkflowPatternStep,
         PatternJob,
+        UserDefinedFunction,
     )
 
     # ------------------------------------------------------------------
@@ -349,6 +350,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         WorkflowPattern,
         WorkflowPatternStep,
         PatternJob,
+        UserDefinedFunction,    # depends on Project
         # calendars (RecurrenceRule + EventCategory have no intra-tenant deps)
         RecurrenceRule,
         EventCategory,
