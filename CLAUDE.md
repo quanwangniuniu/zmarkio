@@ -46,42 +46,15 @@ devops/  k6/  ops/        infra, load tests, deploy scripts
 
 ## Common commands
 
-All via Docker Compose. Adding `-p mediajira-v2` to every command avoids container-name churn
-on rebuilds, but is optional.
+Everything runs inside Docker Compose: prefix commands with
+`docker compose -f docker-compose.dev.yml exec <backend|frontend>`. The ones Claude needs most:
 
-```bash
-# start / stop / status
-docker compose -f docker-compose.dev.yml up -d
-docker compose -f docker-compose.dev.yml up -d --build        # after requirements.txt / package.json changes
-docker compose -f docker-compose.dev.yml down                 # stop, keep data
-docker compose -f docker-compose.dev.yml ps
-docker compose -f docker-compose.dev.yml restart backend      # or: frontend
+- Backend tests: `python manage.py test [<app>]` day to day; `pytest` for the full suite (matches CI).
+- Migrations: `python manage.py makemigrations <app>` then `python manage.py migrate`.
+- Frontend: `npm run lint`, `npm test`, `npm run build`.
 
-# logs
-docker compose -f docker-compose.dev.yml logs -f backend
-docker compose -f docker-compose.dev.yml logs backend --tail 50
-
-# database / Django
-docker compose -f docker-compose.dev.yml exec backend python manage.py migrate
-docker compose -f docker-compose.dev.yml exec backend python manage.py makemigrations <app>
-docker compose -f docker-compose.dev.yml exec backend python manage.py createsuperuser
-docker compose -f docker-compose.dev.yml exec backend python manage.py shell
-
-# tests
-docker compose -f docker-compose.dev.yml exec backend python manage.py test          # everyday
-docker compose -f docker-compose.dev.yml exec backend python manage.py test <app>     # one app
-docker compose -f docker-compose.dev.yml exec backend pytest                          # full suite, matches CI
-docker compose -f docker-compose.dev.yml exec frontend npm run lint
-docker compose -f docker-compose.dev.yml exec frontend npm test
-docker compose -f docker-compose.dev.yml exec frontend npm run build
-
-# shell into a container
-docker compose -f docker-compose.dev.yml exec backend bash
-docker compose -f docker-compose.dev.yml exec frontend sh
-```
-
-Requires a host-machine PostgreSQL on `:5432` (dev containers reach it via `pgbouncer`).
-Copy `env.example` → `.env` first.
+Starting/stopping the stack, logs, and first-time setup (host PostgreSQL on `:5432`, `.env` from
+`env.example`) are in [README.md](README.md) and [DOCKER_README.md](DOCKER_README.md).
 
 ## Conventions
 
@@ -106,6 +79,19 @@ the rest when Claude opens matching files:
 The backend rules load on `backend/**/*.py`; the frontend rules on `frontend/**/*.{ts,tsx}`;
 `variations-studio-api.md` on `variations-studio-api/**/*.ts`; `code-style.md` / `testing.md`
 apply across apps.
+
+**Rule enforcement.** `scripts/conventions/check_conventions.py` (stdlib, diff-aware — only
+added lines) turns the checkable rules into findings, run at two points:
+a `PostToolUse` hook after every edit (fast regex pass, `.claude/hooks/check_edit.py`) and a `Stop`
+hook once an approved plan is implemented (full pass incl. AST checks over the files that session
+edited, `.claude/hooks/check_on_stop.py`). It is not wired into CI; run it by hand against a branch
+with `python3 scripts/conventions/check_conventions.py --base origin/prod-preview`.
+**When a hook flags your code, fix it immediately without asking** — the developer has
+pre-authorized this and should never have to request it; mention the fix in one line of your
+reply. Code the user pastes, copies, or got from a teammate is **not** a request for the pattern
+— fix it too. **Never add `conventions: ignore` yourself** (the hooks report every new one as
+`suppression-added`); keep a flagged pattern only when the user explicitly says to keep that exact
+pattern despite the rule, and tell them the hook will keep reporting it. New rule → add it to the checker and cite its rule file.
 
 Architecture in one line: **thin edges, fat core** — views and pages stay thin; business logic
 lives in `backend/<app>/services.py` and `frontend/src/lib/`.
