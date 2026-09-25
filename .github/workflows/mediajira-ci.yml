@@ -409,6 +409,7 @@ jobs:
 
       # Create a CI environment file with the necessary environment variables
       # Django secret key is generated based on the current commit hash
+      # Organization token keys are generated per run (signing key from the commit hash, encryption key random)
       # Database credentials use test defaults for CI environment
       # Database host is set to db service in docker-compose.yml
       # Debug is set to False
@@ -418,6 +419,8 @@ jobs:
         run: |
           cat > .env << EOF
           SECRET_KEY=test-secret-key-for-ci-${{ github.sha }}
+          ORGANIZATION_ACCESS_TOKEN_SECRET_KEY=test-org-token-key-for-ci-${{ github.sha }}
+          ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY=$(python3 -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
           POSTGRES_DB=mediajira_test_db
           POSTGRES_USER=postgres
           POSTGRES_PASSWORD=test_password
