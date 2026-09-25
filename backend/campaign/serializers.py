@@ -3,9 +3,12 @@ Campaign Management Module - Serializers
 ============================================================================
 """
 
+from functools import cached_property
+
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from core.models import Project
+from core.tenant_context import current_tenant_schema
 from core.utils.project import has_project_access
 from .models import (
     Campaign,
@@ -73,11 +76,16 @@ class CampaignSerializer(serializers.ModelSerializer):
     project_id = serializers.IntegerField(write_only=True, required=True)
     platform_integrations = serializers.SerializerMethodField()
 
+    @cached_property
+    def _sync_schema(self):
+        return current_tenant_schema()
+
     def get_platform_integrations(self, obj):
         if Campaign.Platform.META not in (obj.platforms or []):
             return []
         integrations = [integration for integration in obj.platform_integrations.all()
-                        if integration.ad_account.project_id == obj.project_id]
+                        if integration.ad_account.project_id == obj.project_id
+                        and integration.ad_account.project_schema == self._sync_schema]
         return CampaignPlatformIntegrationSerializer(integrations, many=True, context=self.context).data
     
     class Meta:

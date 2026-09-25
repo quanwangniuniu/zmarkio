@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from facebook_integration.models import MetaAdAccount
 from campaign.services import CampaignPlatformIntegrationService
+from core.tenant_context import current_tenant_schema, tenant_schema_context
 from utils.ad_preview_cache_keys import creative_preview_cache_key
 
 from .meta_client import MetaApiError, graph_get, graph_paged
@@ -210,7 +211,10 @@ def _set_phase(run_id: int, phase: str, progress: str) -> None:
 def sync_ad_account(ad_account: MetaAdAccount, access_token: str | None, *, days: int = 30, kind: str = "hourly") -> MetaSyncRun:
     """Run a full hydration pass. Returns the MetaSyncRun log row."""
     run = MetaSyncRun.objects.create(ad_account=ad_account, kind=kind, status="running")
-    attempted_at = CampaignPlatformIntegrationService.begin_sync(ad_account=ad_account)
+    attempted_at = None
+    with tenant_schema_context(ad_account.project_schema):
+        if current_tenant_schema() == ad_account.project_schema:
+            attempted_at = CampaignPlatformIntegrationService.begin_sync(ad_account=ad_account)
     counts: dict[str, int] = {}
     error_message = ""
     sync_error = None
@@ -274,9 +278,12 @@ def sync_ad_account(ad_account: MetaAdAccount, access_token: str | None, *, days
         updated_at=timezone.now(),
     )
     run.refresh_from_db()
-    CampaignPlatformIntegrationService.finish_sync(
-        ad_account=ad_account, attempted_at=attempted_at, error=sync_error,
-    )
+    if attempted_at is not None:
+        with tenant_schema_context(ad_account.project_schema):
+            if current_tenant_schema() == ad_account.project_schema:
+                CampaignPlatformIntegrationService.finish_sync(
+                    ad_account=ad_account, attempted_at=attempted_at, error=sync_error,
+                )
     return run
 
 

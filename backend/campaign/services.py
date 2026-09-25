@@ -21,6 +21,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError as DRFVa
 
 from core.models import Project
 from core.utils.project import has_project_access
+from core.tenant_context import current_tenant_schema
 from core.models import ProjectMember
 from task.models import Task
 from .models import Campaign, CampaignTemplate, CampaignTaskLink, AutomationTrigger, AutomationExecution
@@ -58,7 +59,7 @@ class CampaignPlatformIntegrationService:
     @staticmethod
     def begin_sync(*, ad_account):
         attempted_at = timezone.now()
-        if ad_account.project_id is None:
+        if ad_account.project_id is None or ad_account.project_schema != current_tenant_schema():
             return attempted_at
         campaigns = Campaign.objects.filter(project_id=ad_account.project_id, is_deleted=False)
         for campaign in campaigns:
@@ -83,6 +84,7 @@ class CampaignPlatformIntegrationService:
         error_code = CampaignPlatformIntegrationService.classify_sync_error(error) if error is not None else codes.NONE
         integrations = CampaignPlatformIntegration.objects.select_for_update(of=('self',)).filter(
             ad_account=ad_account,
+            ad_account__project_schema=current_tenant_schema(),
             ad_account__project_id=ad_account.project_id,
             campaign__project_id=ad_account.project_id,
             campaign__is_deleted=False,
