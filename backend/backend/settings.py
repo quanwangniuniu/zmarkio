@@ -17,7 +17,13 @@ from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 from celery.schedules import crontab
 
-from .secret_settings import COMMITTED_SECRET_KEY_DIGESTS, validate_secret_setting
+from .secret_settings import (
+    COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
+    COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
+    COMMITTED_SECRET_KEY_DIGESTS,
+    validate_fernet_key_setting,
+    validate_secret_setting,
+)
 
 
 
@@ -945,8 +951,20 @@ FAIR_USE_THRESHOLD_RATIO = 0.30   # alert when user > 30% of org quota
 FREE_USER_MAX_COST_CENTS = 200    # safety cap for fair-use alert on Free tier
 
 # Organization Access Token Configuration
-ORGANIZATION_ACCESS_TOKEN_SECRET_KEY = config('ORGANIZATION_ACCESS_TOKEN_SECRET_KEY', default='52r(=liv3ro&zsuau-doa(wekq-(x^&y8(b$5h@k(g(c9&jlmp')
-ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY = config('ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY', default='jtBsdl7-HVKnF61JnesSM0xpqB-vkAXboBbIRawVUhU=')
+# Required, with no fallback: they sign and encrypt the organization access
+# token. See backend/secret_settings.py.
+ORGANIZATION_ACCESS_TOKEN_SECRET_KEY = validate_secret_setting(
+    'ORGANIZATION_ACCESS_TOKEN_SECRET_KEY',
+    config('ORGANIZATION_ACCESS_TOKEN_SECRET_KEY', default=''),
+    debug=DEBUG,
+    committed_digests=COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
+)
+ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY = validate_fernet_key_setting(
+    'ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY',
+    config('ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY', default=''),
+    debug=DEBUG,
+    committed_digests=COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
+)
 
 # Field-level encryption keys for OAuth tokens and API secrets stored in the DB.
 # Format: comma-separated list of "key_id:fernet_base64_key" pairs.
