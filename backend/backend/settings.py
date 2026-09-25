@@ -17,7 +17,7 @@ from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 from celery.schedules import crontab
 
-from .secret_key import validate_secret_key
+from .secret_settings import COMMITTED_SECRET_KEY_DIGESTS, validate_secret_setting
 
 
 
@@ -33,8 +33,13 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 
 # SECURITY WARNING: keep the secret key used in production secret!
 # Required, with no fallback: it signs every JWT and is shared with
-# variations-studio-api and decision-service. See backend/secret_key.py.
-SECRET_KEY = validate_secret_key(config('SECRET_KEY', default=''), debug=DEBUG)
+# variations-studio-api and decision-service. See backend/secret_settings.py.
+SECRET_KEY = validate_secret_setting(
+    'SECRET_KEY',
+    config('SECRET_KEY', default=''),
+    debug=DEBUG,
+    committed_digests=COMMITTED_SECRET_KEY_DIGESTS,
+)
 
 ALLOWED_HOSTS = [
     h.strip() for h in config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0').split(',')
