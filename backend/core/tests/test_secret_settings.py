@@ -6,6 +6,7 @@ Covers the acceptance criteria from MED-393 and MED-394:
 - The same value only warns when DEBUG is on (local Docker development)
 - Any other value is accepted unchanged
 - A Fernet key that Fernet cannot use is refused at boot (MED-394)
+- Surrounding whitespace or quotes do not bypass either check
 """
 
 import hashlib
@@ -53,6 +54,65 @@ class MissingSecretTest(SimpleTestCase):
     def test_error_uses_a_custom_hint(self):
         with self.assertRaisesMessage(ImproperlyConfigured, "custom generation hint"):
             validate_secret_setting("SECRET_KEY", "", debug=False, hint="custom generation hint")
+
+
+class NormalizedSecretTest(SimpleTestCase):
+    """Surrounding whitespace and quotes must not bypass either check."""
+
+    def test_whitespace_only_counts_as_not_set(self):
+        for value in ("   ", "\t", "\n", " \t\n "):
+            with self.subTest(value=value):
+                with self.assertRaisesMessage(ImproperlyConfigured, "SECRET_KEY is not set"):
+                    validate_secret_setting("SECRET_KEY", value, debug=False)
+
+    def test_empty_quotes_count_as_not_set(self):
+        for value in ('""', "''", '" "'):
+            with self.subTest(value=value):
+                with self.assertRaisesMessage(ImproperlyConfigured, "SECRET_KEY is not set"):
+                    validate_secret_setting("SECRET_KEY", value, debug=False)
+
+    def test_padded_committed_value_is_still_rejected(self):
+        for value in (
+            f" {COMMITTED_VALUE}",
+            f"{COMMITTED_VALUE} ",
+            f"{COMMITTED_VALUE}\n",
+            f"\t{COMMITTED_VALUE}\t",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):
+                    validate_secret_setting(
+                        "SECRET_KEY", value, debug=False, committed_digests=COMMITTED_DIGESTS
+                    )
+
+    def test_quoted_committed_value_is_still_rejected(self):
+        for value in (f'"{COMMITTED_VALUE}"', f"'{COMMITTED_VALUE}'", f' "{COMMITTED_VALUE}" '):
+            with self.subTest(value=value):
+                with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):
+                    validate_secret_setting(
+                        "SECRET_KEY", value, debug=False, committed_digests=COMMITTED_DIGESTS
+                    )
+
+    def test_mismatched_quotes_are_not_stripped(self):
+        """Only a matching pair is treated as quoting; anything else is part of the key."""
+        value = f'"{COMMITTED_VALUE}' + "'"
+        result = validate_secret_setting(
+            "SECRET_KEY", value, debug=False, committed_digests=COMMITTED_DIGESTS
+        )
+        self.assertEqual(result, value)
+
+    def test_value_is_returned_unchanged(self):
+        value = "  a-unique-key-with-padding  "
+        result = validate_secret_setting("SECRET_KEY", value, debug=False)
+        self.assertEqual(result, value)
+
+    def test_padded_committed_fernet_key_is_still_rejected(self):
+        with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):
+            validate_fernet_key_setting(
+                "ENCRYPTION_KEY",
+                f"{COMMITTED_FERNET_KEY} ",
+                debug=False,
+                committed_digests=COMMITTED_FERNET_DIGESTS,
+            )
 
 
 class CommittedSecretTest(SimpleTestCase):

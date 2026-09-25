@@ -54,6 +54,14 @@ COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS = frozenset({
 })
 
 
+def _normalize(value: str) -> str:
+    """Strip surrounding whitespace and one layer of matching quotes."""
+    candidate = value.strip()
+    if len(candidate) >= 2 and candidate[0] == candidate[-1] and candidate[0] in '"\'':
+        candidate = candidate[1:-1].strip()
+    return candidate
+
+
 def validate_secret_setting(
     name: str,
     value: str,
@@ -66,16 +74,24 @@ def validate_secret_setting(
     """
     Return *value* if it is usable as the secret setting *name*, otherwise fail.
 
-    - Missing or empty: always raises, so a misconfigured environment stops at
-      boot instead of silently falling back to a public value.
+    - Missing, empty or whitespace-only: always raises, so a misconfigured
+      environment stops at boot instead of silently falling back to a public
+      value.
     - A value whose digest is in *committed_digests*: raises when DEBUG is off;
       with DEBUG on (local Docker development) it only warns, so existing local
       setups keep working.
+
+    Both checks look at the value with surrounding whitespace and quotes
+    removed. docker compose strips these when it reads an env file, but other
+    ways of injecting environment variables do not, and a committed value
+    padded with a space or wrapped in quotes is still a public value. The
+    value itself is returned unchanged.
     """
-    if not value:
+    candidate = _normalize(value)
+    if not candidate:
         raise ImproperlyConfigured(f'{name} is not set. {hint}')
 
-    digest = hashlib.sha256(value.encode()).hexdigest()
+    digest = hashlib.sha256(candidate.encode()).hexdigest()
     if digest in committed_digests:
         message = (
             f'{name} is a value that has been committed to this repository '
