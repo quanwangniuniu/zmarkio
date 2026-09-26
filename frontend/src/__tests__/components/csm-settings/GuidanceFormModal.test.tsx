@@ -9,6 +9,7 @@ import type { ExperienceGroupListItem } from '@/types/experienceGroup';
 jest.mock('@/lib/api/csmGuidanceApi', () => ({
   __esModule: true,
   default: { create: jest.fn(), update: jest.fn() },
+  isGuidanceConflict: (err: { response?: { status?: number } }) => err?.response?.status === 409,
 }));
 
 const mockedCreate = CsmGuidanceAPI.create as jest.Mock;
@@ -134,7 +135,19 @@ describe('GuidanceFormModal', () => {
       trigger_description: 'Customer wants a manager',
       recommended_response: 'Transfer to the T2 queue.',
       experience_group_ids: [11],
-    }));
+    }, '2026-09-20T00:00:00Z'));
+  });
+
+  it('explains a conflict when another admin changed the entry first', async () => {
+    const onConflict = jest.fn();
+    mockedUpdate.mockRejectedValue({ response: { status: 409, data: { detail: 'changed' } } });
+    renderModal({ editing: makeEntry(), onConflict });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    expect(await screen.findByText(/Someone else changed this entry/)).toBeInTheDocument();
+    expect(onConflict).toHaveBeenCalledTimes(1);
+    expect(onSaved).not.toHaveBeenCalled();
   });
 
   it('shows server field errors', async () => {

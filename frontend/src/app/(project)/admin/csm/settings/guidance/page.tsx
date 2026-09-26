@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { AlertCircle, Plus } from 'lucide-react';
-import CsmGuidanceAPI from '@/lib/api/csmGuidanceApi';
+import CsmGuidanceAPI, { isGuidanceConflict } from '@/lib/api/csmGuidanceApi';
 import { ExperienceGroupAPI } from '@/lib/api/experienceGroupApi';
 import type { GuidanceEntry } from '@/types/csmGuidance';
 import type { ExperienceGroupListItem } from '@/types/experienceGroup';
@@ -42,11 +42,16 @@ export default function GuidanceSettingsPage() {
   const [editing, setEditing] = useState<GuidanceEntry | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<GuidanceEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Only the newest request may write state, so a slow response for a previous
+  // project or group can never overwrite the current one.
+  const groupsRequestRef = useRef(0);
+  const entriesRequestRef = useRef(0);
 
   const selectedGroupId = selected && selected !== UNASSIGNED ? Number(selected) : null;
 
   const loadGroups = useCallback(async () => {
     if (!projectValid) return;
+    const requestId = ++groupsRequestRef.current;
     setLoadingGroups(true);
     setError(null);
     try {
@@ -54,6 +59,7 @@ export default function GuidanceSettingsPage() {
         ExperienceGroupAPI.list({ project: projectId }),
         CsmGuidanceAPI.capabilities(projectId),
       ]);
+      if (requestId !== groupsRequestRef.current) return;
       const list = Array.isArray(groupRes.data) ? groupRes.data : groupRes.data.results ?? [];
       setGroups(list);
       setCanManage(caps.can_manage);
@@ -65,27 +71,27 @@ export default function GuidanceSettingsPage() {
           : { projectId, value: list[0] ? String(list[0].id) : UNASSIGNED },
       );
     } catch {
-      setError('Failed to load experience groups.');
+      if (requestId === groupsRequestRef.current) setError('Failed to load experience groups.');
     } finally {
-      setLoadingGroups(false);
+      if (requestId === groupsRequestRef.current) setLoadingGroups(false);
     }
   }, [projectId, projectValid]);
 
   const loadEntries = useCallback(async () => {
     if (!projectValid || !selected) return;
+    const requestId = ++entriesRequestRef.current;
     setLoadingEntries(true);
     setError(null);
     try {
-      if (selected === UNASSIGNED) {
-        const all = await CsmGuidanceAPI.list(projectId);
-        setEntries(all.filter((e) => e.experience_groups.length === 0));
-      } else {
-        setEntries(await CsmGuidanceAPI.list(projectId, Number(selected)));
-      }
+      const rows = selected === UNASSIGNED
+        ? await CsmGuidanceAPI.listUnassigned(projectId)
+        : await CsmGuidanceAPI.list(projectId, Number(selected));
+      if (requestId !== entriesRequestRef.current) return;
+      setEntries(rows);
     } catch {
-      setError('Failed to load guidance.');
+      if (requestId === entriesRequestRef.current) setError('Failed to load guidance.');
     } finally {
-      setLoadingEntries(false);
+      if (requestId === entriesRequestRef.current) setLoadingEntries(false);
     }
   }, [projectId, projectValid, selected]);
 
@@ -115,11 +121,16 @@ export default function GuidanceSettingsPage() {
     if (!row) return;
     setDeleting(true);
     try {
-      await CsmGuidanceAPI.remove(row.id);
+      await CsmGuidanceAPI.remove(row.id, row.updated_at);
       toast.success('Guidance deleted.');
       setEntries((prev) => prev.filter((e) => e.id !== row.id));
-    } catch {
-      toast.error('Could not delete guidance.');
+    } catch (err) {
+      if (isGuidanceConflict(err)) {
+        toast.error('Someone else changed this entry. The list has been refreshed; review it before deleting.');
+        loadEntries();
+      } else {
+        toast.error('Could not delete guidance.');
+      }
     } finally {
       setDeleting(false);
     }
@@ -231,6 +242,7 @@ export default function GuidanceSettingsPage() {
           defaultExperienceGroupId={selectedGroupId}
           onClose={() => { setModalOpen(false); setEditing(null); }}
           onSaved={handleSaved}
+          onConflict={loadEntries}
         />
       )}
 

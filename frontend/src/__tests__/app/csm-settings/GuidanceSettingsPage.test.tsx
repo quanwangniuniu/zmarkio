@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import toast from 'react-hot-toast';
 import GuidanceSettingsPage from '@/app/(project)/admin/csm/settings/guidance/page';
@@ -9,7 +9,8 @@ import type { GuidanceEntry } from '@/types/csmGuidance';
 
 jest.mock('@/lib/api/csmGuidanceApi', () => ({
   __esModule: true,
-  default: { list: jest.fn(), remove: jest.fn(), capabilities: jest.fn() },
+  default: { list: jest.fn(), listUnassigned: jest.fn(), remove: jest.fn(), capabilities: jest.fn() },
+  isGuidanceConflict: (err: { response?: { status?: number } }) => err?.response?.status === 409,
 }));
 
 jest.mock('@/lib/api/experienceGroupApi', () => ({
@@ -33,6 +34,7 @@ jest.mock('@/components/csm-settings/GuidanceFormModal', () => ({
 }));
 
 const mockedList = CsmGuidanceAPI.list as jest.Mock;
+const mockedListUnassigned = CsmGuidanceAPI.listUnassigned as jest.Mock;
 const mockedRemove = CsmGuidanceAPI.remove as jest.Mock;
 const mockedCapabilities = CsmGuidanceAPI.capabilities as jest.Mock;
 const mockedGroups = ExperienceGroupAPI.list as jest.Mock;
@@ -98,7 +100,7 @@ describe('GuidanceSettingsPage delete confirmation', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
-    await waitFor(() => expect(mockedRemove).toHaveBeenCalledWith(entry.id));
+    await waitFor(() => expect(mockedRemove).toHaveBeenCalledWith(entry.id, entry.updated_at));
     await waitFor(() =>
       expect(screen.queryByText(entry.trigger_description)).not.toBeInTheDocument(),
     );
@@ -127,5 +129,63 @@ describe('GuidanceSettingsPage delete confirmation', () => {
 
     const dialog = await screen.findByRole('dialog');
     expect(dialog).toHaveTextContent(`Delete "${'x'.repeat(120)}…"`);
+  });
+});
+
+describe('GuidanceSettingsPage concurrency', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockedGroups.mockResolvedValue({
+      data: [{ id: 10, name: 'VIP Support' }, { id: 11, name: 'Standard Support' }],
+    });
+    mockedCapabilities.mockResolvedValue({ can_manage: true });
+    mockedRemove.mockResolvedValue(undefined);
+  });
+
+  it('refreshes the list instead of deleting when another admin changed the entry', async () => {
+    mockedList.mockResolvedValue([entry]);
+    mockedRemove.mockRejectedValue({ response: { status: 409 } });
+    await renderPage();
+    openDeleteDialog();
+    await screen.findByRole('dialog');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(
+      'Someone else changed this entry. The list has been refreshed; review it before deleting.',
+    ));
+    await waitFor(() => expect(mockedList).toHaveBeenCalledTimes(2));
+  });
+
+  it('asks the server for unassigned entries', async () => {
+    mockedList.mockResolvedValue([entry]);
+    const orphan = { ...entry, id: 8, trigger_description: 'Orphaned entry', experience_groups: [] };
+    mockedListUnassigned.mockResolvedValue([orphan]);
+    await renderPage();
+
+    fireEvent.change(screen.getByLabelText('Experience group'), { target: { value: 'unassigned' } });
+
+    expect(await screen.findByText('Orphaned entry')).toBeInTheDocument();
+    expect(mockedListUnassigned).toHaveBeenCalledWith(1);
+  });
+
+  it('ignores a slow response for a group the admin already left', async () => {
+    let resolveVip: (rows: GuidanceEntry[]) => void = () => {};
+    const standardEntry = { ...entry, id: 9, trigger_description: 'Standard only' };
+    mockedList.mockImplementation((_project: number, groupId: number) =>
+      groupId === 10
+        ? new Promise((resolve) => { resolveVip = resolve; })
+        : Promise.resolve([standardEntry]),
+    );
+    render(<GuidanceSettingsPage />);
+    await waitFor(() => expect(mockedList).toHaveBeenCalledWith(1, 10));
+
+    fireEvent.change(screen.getByLabelText('Experience group'), { target: { value: '11' } });
+    expect(await screen.findByText('Standard only')).toBeInTheDocument();
+
+    await act(async () => { resolveVip([entry]); });
+
+    expect(screen.getByText('Standard only')).toBeInTheDocument();
+    expect(screen.queryByText(entry.trigger_description)).not.toBeInTheDocument();
   });
 });

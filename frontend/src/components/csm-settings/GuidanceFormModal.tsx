@@ -6,7 +6,7 @@ import Modal from '@/components/ui/Modal';
 import PortalMultiSelect from '@/components/ticket-form/portal/PortalMultiSelect';
 import { parseFieldErrors } from '@/components/ticket-form/formErrors';
 import { GuidanceEntryCard } from '@/components/csm/conversations/GuidanceEntryCard';
-import CsmGuidanceAPI from '@/lib/api/csmGuidanceApi';
+import CsmGuidanceAPI, { isGuidanceConflict } from '@/lib/api/csmGuidanceApi';
 import {
   GUIDANCE_TYPE_OPTIONS,
   type GuidanceEntry,
@@ -40,6 +40,8 @@ interface Props {
   defaultExperienceGroupId: number | null;
   onClose: () => void;
   onSaved: (entry: GuidanceEntry) => void;
+  /** Called when the save was rejected because the entry changed underneath. */
+  onConflict?: () => void;
 }
 
 export default function GuidanceFormModal({
@@ -50,6 +52,7 @@ export default function GuidanceFormModal({
   defaultExperienceGroupId,
   onClose,
   onSaved,
+  onConflict,
 }: Props) {
   const isEdit = editing !== null;
   const [guidanceType, setGuidanceType] = useState<GuidanceType>('suggested_reply');
@@ -107,10 +110,17 @@ export default function GuidanceFormModal({
     };
     try {
       const saved = isEdit
-        ? await CsmGuidanceAPI.update(editing!.id, payload)
+        ? await CsmGuidanceAPI.update(editing!.id, payload, editing!.updated_at)
         : await CsmGuidanceAPI.create(projectId, payload);
       onSaved(saved);
     } catch (err: unknown) {
+      if (isGuidanceConflict(err)) {
+        setServerError(
+          'Someone else changed this entry while you were editing. Close and reopen it to see their changes.',
+        );
+        onConflict?.();
+        return;
+      }
       const data = (err as { response?: { data?: unknown } })?.response?.data;
       const parsed = parseFieldErrors(data);
       if (Object.keys(parsed).length > 0) {

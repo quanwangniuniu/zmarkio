@@ -82,6 +82,34 @@ describe('GuidancePanel', () => {
     expect(screen.getByText('Claim this conversation to reply.')).toBeInTheDocument();
   });
 
+  it('keeps the newest response when an older refetch resolves last', async () => {
+    mockedForConversation.mockResolvedValueOnce(
+      makeGuidance([makeEntry({ id: 1, trigger_description: 'Initial' })])
+    );
+    render(<GuidancePanel conversationId={42} canInsert />);
+    await screen.findByText('Initial');
+
+    let resolveOlder: (g: ConversationGuidance) => void = () => {};
+    mockedForConversation
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveOlder = resolve; }))
+      .mockResolvedValueOnce(makeGuidance([makeEntry({ id: 2, trigger_description: 'Newest' })]));
+    act(() => {
+      useCsmConversationStore.getState().bumpGuidance([11]);
+    });
+    await waitFor(() => expect(mockedForConversation).toHaveBeenCalledTimes(2));
+    act(() => {
+      useCsmConversationStore.getState().bumpGuidance([11]);
+    });
+    expect(await screen.findByText('Newest')).toBeInTheDocument();
+
+    await act(async () => {
+      resolveOlder(makeGuidance([makeEntry({ id: 3, trigger_description: 'Stale' })]));
+    });
+
+    expect(screen.getByText('Newest')).toBeInTheDocument();
+    expect(screen.queryByText('Stale')).not.toBeInTheDocument();
+  });
+
   it('refetches when a live update arrives for its group', async () => {
     mockedForConversation.mockResolvedValueOnce(
       makeGuidance([makeEntry({ id: 1, trigger_description: 'Old trigger' })])

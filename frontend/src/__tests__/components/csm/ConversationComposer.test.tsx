@@ -19,6 +19,7 @@ let mockEditor: {
   getText: jest.Mock;
   getJSON: jest.Mock;
   isEmpty: boolean;
+  isDestroyed?: boolean;
   isActive: jest.Mock;
   commands: {
     clearContent: jest.Mock;
@@ -288,7 +289,7 @@ describe('ConversationComposer — insert requested by another panel', () => {
       commands: {
         clearContent: jest.fn(),
         setContent: jest.fn(),
-        insertContent: jest.fn(),
+        insertContent: jest.fn(() => true),
         focus: jest.fn(),
       },
       // Formatting commands are not exercised here.
@@ -316,6 +317,32 @@ describe('ConversationComposer — insert requested by another panel', () => {
       { type: 'paragraph', content: [{ type: 'text', text: 'A refund <b>needs</b> approval.' }] },
     ]);
     expect(useCsmConversationStore.getState().pendingComposerInsert).toBeNull();
+  });
+
+  it('keeps the request pending when the insert does not apply', async () => {
+    mockEditor.commands.insertContent.mockReturnValue(false);
+    render(<ConversationComposer conversationId={42} organisationId={5} />);
+
+    act(() => {
+      useCsmConversationStore.getState().requestComposerInsert(42, 'Retry me');
+    });
+
+    await waitFor(() => expect(mockEditor.commands.insertContent).toHaveBeenCalledTimes(1));
+    expect(useCsmConversationStore.getState().pendingComposerInsert?.text).toBe('Retry me');
+  });
+
+  it('leaves the request pending while the editor is destroyed', async () => {
+    mockEditor.isDestroyed = true;
+    render(<ConversationComposer conversationId={42} organisationId={5} />);
+
+    act(() => {
+      useCsmConversationStore.getState().requestComposerInsert(42, 'Later');
+    });
+
+    await waitFor(() =>
+      expect(useCsmConversationStore.getState().pendingComposerInsert?.text).toBe('Later')
+    );
+    expect(mockEditor.commands.insertContent).not.toHaveBeenCalled();
   });
 
   it('ignores requests for a different conversation', async () => {

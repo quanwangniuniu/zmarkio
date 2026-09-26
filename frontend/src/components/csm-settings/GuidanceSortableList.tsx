@@ -15,7 +15,7 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import CsmGuidanceAPI from '@/lib/api/csmGuidanceApi';
+import CsmGuidanceAPI, { isGuidanceConflict } from '@/lib/api/csmGuidanceApi';
 import type { GuidanceEntry } from '@/types/csmGuidance';
 import GuidanceSortableRow from './GuidanceSortableRow';
 
@@ -60,11 +60,20 @@ export default function GuidanceSortableList({
 
     setSavingOrder(true);
     try {
-      await CsmGuidanceAPI.reorder(projectId, experienceGroupId!, reordered.map((r) => r.id));
+      await CsmGuidanceAPI.reorder(
+        projectId,
+        experienceGroupId!,
+        reordered.map((r) => r.id),
+        previous.map((r) => r.id),
+      );
       toast.success('Guidance order saved.');
-    } catch {
+    } catch (err) {
       onChange(previous);
-      toast.error('Could not save order. The list has been refreshed.');
+      toast.error(
+        isGuidanceConflict(err)
+          ? 'Someone else changed this list. It has been refreshed; please try again.'
+          : 'Could not save order. The list has been refreshed.',
+      );
       onReorderFailed();
     } finally {
       setSavingOrder(false);

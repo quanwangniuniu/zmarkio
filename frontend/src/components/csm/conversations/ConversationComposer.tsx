@@ -441,11 +441,15 @@ export function ConversationComposer({
 
   // Text pushed from a sibling panel (e.g. a guidance entry's "Insert into
   // reply"). Appended at the end so an in-progress reply is never overwritten.
+  // The request is consumed only after a successful insert; while the editor
+  // is being torn down it stays pending for the next mounted composer.
   useEffect(() => {
-    if (!editor || !pendingInsert || pendingInsert.conversationId !== conversationId) return;
-    consumeComposerInsert(pendingInsert.nonce);
+    if (!editor || editor.isDestroyed) return;
+    if (!pendingInsert || pendingInsert.conversationId !== conversationId) return;
     editor.commands.focus('end');
-    editor.commands.insertContent(plainTextToParagraphs(pendingInsert.text));
+    const inserted = editor.commands.insertContent(plainTextToParagraphs(pendingInsert.text));
+    if (!inserted) return;
+    consumeComposerInsert(pendingInsert.nonce);
     setHasReplyContent(editor.getText().trim().length > 0);
   }, [editor, pendingInsert, conversationId, consumeComposerInsert]);
 
