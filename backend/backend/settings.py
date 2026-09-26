@@ -719,6 +719,12 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(hour=6, minute=0),  # daily at 06:00 UTC
         'options': {'timezone': 'UTC'},
     },
+    'recompute-pacing-forecasts': {
+        'task': 'optimization.tasks.recompute_all_pacing_forecasts',
+        # 06:30 UTC: after the Meta daily fan-out so forecasts read fresh insights
+        'schedule': crontab(hour=6, minute=30),
+        'options': {'timezone': 'UTC'},
+    },
     'expire-stale-tracking-sessions': {
         'task': 'tracking.tasks.expire_stale_sessions',
         'schedule': crontab(minute='*/5'),

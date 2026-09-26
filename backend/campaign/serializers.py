@@ -54,21 +54,39 @@ class CampaignSerializer(serializers.ModelSerializer):
     assignee_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     project = ProjectSummarySerializer(read_only=True)
     project_id = serializers.IntegerField(write_only=True, required=True)
-    
+    pacing = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = Campaign
-        fields = ['slug', 
+        fields = ['slug',
             'id', 'name', 'objective', 'platforms', 'hypothesis', 'tags',
             'start_date', 'end_date', 'actual_completion_date',
             'owner', 'owner_id', 'creator', 'assignee', 'assignee_id',
             'project', 'project_id', 'budget_estimate',
             'status', 'status_note', 'latest_performance_summary',
+            'pacing',
             'created_at', 'updated_at', 'is_deleted'
         ]
-        read_only_fields = ['slug', 
+        read_only_fields = ['slug',
             'id', 'creator', 'status', 'actual_completion_date',
-            'latest_performance_summary', 'created_at', 'updated_at', 'is_deleted'
+            'latest_performance_summary', 'pacing',
+            'created_at', 'updated_at', 'is_deleted'
         ]
+
+    def get_pacing(self, obj):
+        """Latest budget pacing forecast, or None if never computed.
+
+        Read-only passenger on the campaign payload so campaign lists can render
+        pacing badges without a request per row. Callers that need a fresh
+        number use the optimization pacing recompute endpoint.
+        """
+        from optimization.serializers import CampaignPacingForecastSerializer
+
+        # Reverse OneToOne raises an AttributeError subclass when absent.
+        forecast = getattr(obj, 'pacing_forecast', None)
+        if forecast is None:
+            return None
+        return CampaignPacingForecastSerializer(forecast).data
 
     def validate_platforms(self, value):
         """Validate platforms list"""

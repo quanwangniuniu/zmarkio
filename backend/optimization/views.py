@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404
 
 from core.slug_mixins import resolve_pk_for
 from task.models import Task
-from .services import ExperimentService, RollbackHistoryService
+from .services import ExperimentService, PacingService, RollbackHistoryService
 from .models import (
     OptimizationExperiment,
     ExperimentMetric,
@@ -32,6 +32,7 @@ from .serializers import (
     ScalingPlanSerializer,
     ScalingStepSerializer,
     OptimizationSerializer,
+    CampaignPacingForecastSerializer,
 )
 
 
@@ -551,3 +552,72 @@ class OptimizationRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIVie
         return Optimization.objects.select_related("task", "task__project").filter(
             task__project_id__in=accessible_project_ids
         )
+
+
+# ==================== BUDGET PACING VIEWS ====================
+
+def _get_accessible_campaign(user, slug):
+    """Resolve a campaign by slug, scoped to the user's project memberships.
+
+    Mirrors CampaignViewSet.get_queryset so pacing cannot leak a campaign the
+    user would not otherwise be able to read. Returns None when not found or
+    not accessible — callers answer 404 either way, so membership is not
+    disclosed.
+    """
+    from campaign.models import Campaign
+
+    accessible_project_ids = set(
+        ProjectMember.objects.filter(
+            user=user,
+            is_active=True
+        ).values_list('project_id', flat=True)
+    )
+    if not accessible_project_ids:
+        return None
+
+    return Campaign.objects.filter(
+        slug=slug,
+        project_id__in=accessible_project_ids,
+        is_deleted=False
+    ).first()
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def campaign_pacing(request, slug):
+    """
+    GET /optimization/campaigns/{slug}/pacing/
+    """
+    campaign = _get_accessible_campaign(request.user, slug)
+    if campaign is None:
+        return Response(
+            {'detail': 'Campaign not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # Reverse OneToOne raises an AttributeError subclass when absent, so getattr
+    # with a default is safe here.
+    forecast = getattr(campaign, 'pacing_forecast', None)
+    if forecast is None:
+        # No nightly run has covered this campaign yet (newly created, or first
+        # deploy) — compute once now so the UI is never blank.
+        forecast = PacingService.recompute_for_campaign(campaign)
+
+    return Response(CampaignPacingForecastSerializer(forecast).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def recompute_campaign_pacing(request, slug):
+    """
+    POST /optimization/campaigns/{slug}/pacing/recompute/
+    """
+    campaign = _get_accessible_campaign(request.user, slug)
+    if campaign is None:
+        return Response(
+            {'detail': 'Campaign not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    forecast = PacingService.recompute_for_campaign(campaign)
+    return Response(CampaignPacingForecastSerializer(forecast).data)
