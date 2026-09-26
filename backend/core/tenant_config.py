@@ -79,6 +79,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     # ------------------------------------------------------------------
     from campaign.models import (
         Campaign,
+        CampaignPlatformIntegration,
         CampaignStatusHistory,
         PerformanceCheckIn,
         PerformanceSnapshot,
@@ -282,6 +283,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         BudgetRequest,              # depends on BudgetPool + Task + AdChannel
         # campaign (base + non-cross-linking)
         Campaign,
+        CampaignPlatformIntegration,
         CampaignStatusHistory,
         PerformanceCheckIn,
         PerformanceSnapshot,

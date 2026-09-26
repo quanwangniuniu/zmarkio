@@ -3,12 +3,16 @@ Campaign Management Module - Serializers
 ============================================================================
 """
 
+from functools import cached_property
+
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from core.models import Project
+from core.tenant_context import current_tenant_schema
 from core.utils.project import has_project_access
 from .models import (
     Campaign,
+    CampaignPlatformIntegration,
     CampaignStatusHistory,
     PerformanceCheckIn,
     PerformanceSnapshot,
@@ -45,6 +49,22 @@ class ProjectSummarySerializer(serializers.ModelSerializer):
 # Campaign Serializers
 # ============================================================================
 
+class CampaignPlatformIntegrationSerializer(serializers.ModelSerializer):
+    account_name = serializers.CharField(source='ad_account.name', read_only=True)
+    connector_name = serializers.CharField(source='ad_account.connection.user.username', read_only=True)
+    can_reconnect = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CampaignPlatformIntegration
+        fields = ['id', 'account_name', 'connector_name', 'can_reconnect',
+                  'last_sync_error', 'last_sync_attempted_at', 'last_synced_at']
+        read_only_fields = fields
+
+    def get_can_reconnect(self, obj):
+        request = self.context.get('request')
+        return bool(request and request.user.id == obj.ad_account.connection.user_id)
+
+
 class CampaignSerializer(serializers.ModelSerializer):
     """Full Campaign serializer with all fields"""
     owner = UserSummarySerializer(read_only=True)
@@ -54,6 +74,19 @@ class CampaignSerializer(serializers.ModelSerializer):
     assignee_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     project = ProjectSummarySerializer(read_only=True)
     project_id = serializers.IntegerField(write_only=True, required=True)
+    platform_integrations = serializers.SerializerMethodField()
+
+    @cached_property
+    def _sync_schema(self):
+        return current_tenant_schema()
+
+    def get_platform_integrations(self, obj):
+        if Campaign.Platform.META not in (obj.platforms or []):
+            return []
+        integrations = [integration for integration in obj.platform_integrations.all()
+                        if integration.ad_account.project_id == obj.project_id
+                        and integration.ad_account.project_schema == self._sync_schema]
+        return CampaignPlatformIntegrationSerializer(integrations, many=True, context=self.context).data
     
     class Meta:
         model = Campaign
@@ -63,7 +96,7 @@ class CampaignSerializer(serializers.ModelSerializer):
             'owner', 'owner_id', 'creator', 'assignee', 'assignee_id',
             'project', 'project_id', 'budget_estimate',
             'status', 'status_note', 'latest_performance_summary',
-            'created_at', 'updated_at', 'is_deleted'
+            'created_at', 'updated_at', 'is_deleted', 'platform_integrations'
         ]
         read_only_fields = ['slug', 
             'id', 'creator', 'status', 'actual_completion_date',

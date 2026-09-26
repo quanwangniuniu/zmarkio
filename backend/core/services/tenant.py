@@ -64,6 +64,10 @@ def rename_tenant_schema(old_slug: str, new_slug: str) -> None:
             )
         )
 
+    from facebook_integration.models import MetaAdAccount
+
+    MetaAdAccount.objects.filter(project_schema=old_schema).update(project_schema=new_schema)
+
 
 def lock_tenant_provisioning() -> None:
     """Serialize provisioning until the enclosing transaction commits or rolls back.

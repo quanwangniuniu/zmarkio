@@ -21,6 +21,7 @@ const budgetRealE2eSpecs = [
 
 const mockOnlyE2eSpecs = [
   /e2e[\\/]budget[\\/]budget-admin-override\.spec\.ts$/,
+  /e2e[\\/]campaigns[\\/]platform-sync\.spec\.ts$/,
   /e2e[\\/]meta-ads[\\/]meta-ads-preview-account-switch\.spec\.ts$/,
 ];
 
@@ -168,6 +169,11 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
       },
       testMatch: /e2e[\\/]budget[\\/]budget-admin-override\.spec\.ts$/,
+    },
+    {
+      name: 'campaign-mock',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /e2e[\\/]campaigns[\\/]platform-sync\.spec\.ts$/,
     },
     {
       /* Fully mocked Meta Ads preview account-switch; no real Meta. */

@@ -12,6 +12,7 @@ import { useBuildUrl } from '@/lib/buildUrl';
 import { useCampaignData } from '@/hooks/useCampaignData';
 import type { CampaignCheckIn, CampaignData, PerformanceSnapshot } from '@/types/campaign';
 import CampaignHeader from '@/components/campaigns/CampaignHeader';
+import CampaignSyncBanner from '@/components/campaigns/CampaignSyncBanner';
 import TimelineSection, { type TimelineSectionHandle } from '@/components/campaigns/sections/TimelineSection';
 import CheckInsSection, { type CheckInsSectionHandle } from '@/components/campaigns/sections/CheckInsSection';
 import SnapshotsSection, { type SnapshotsSectionHandle } from '@/components/campaigns/sections/SnapshotsSection';
@@ -146,6 +147,11 @@ export default function CampaignV2DetailPage() {
           <ArrowLeft className="h-4 w-4" />
           Back to Campaigns
         </Button>
+
+        <CampaignSyncBanner
+          projectId={currentCampaign.project.id}
+          integrations={currentCampaign.platform_integrations}
+        />
 
         <CampaignHeader
           campaign={currentCampaign}

@@ -189,6 +189,36 @@ components:
           type: object
           default: {}
           description: Latest performance snapshot data for dashboard display
+        platform_integrations:
+          type: array
+          readOnly: true
+          description: >-
+            Sync health for Meta ad accounts linked to this campaign's project.
+            Auth failures require the original connector to use the existing
+            Facebook integration connect flow. Errors clear after a successful sync.
+          items:
+            type: object
+            properties:
+              id:
+                type: integer
+              account_name:
+                type: string
+              connector_name:
+                type: string
+              can_reconnect:
+                type: boolean
+                description: Whether the current user originally connected the account.
+              last_sync_error:
+                type: string
+                enum: ['', auth, transient, unknown]
+              last_sync_attempted_at:
+                type: string
+                format: date-time
+                nullable: true
+              last_synced_at:
+                type: string
+                format: date-time
+                nullable: true
         created_at:
           type: string
           format: date-time

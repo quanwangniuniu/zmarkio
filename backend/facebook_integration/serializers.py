@@ -1,4 +1,7 @@
+from functools import cached_property
+
 from rest_framework import serializers
+from core.tenant_context import current_tenant_schema
 
 from .access import (
     user_can_manage_meta_ad_account,
@@ -8,9 +11,7 @@ from .models import FacebookConnection, MetaAdAccount
 
 
 class MetaAdAccountSerializer(serializers.ModelSerializer):
-    project_id = serializers.PrimaryKeyRelatedField(
-        source="project", read_only=True
-    )
+    project_id = serializers.SerializerMethodField()
     connected_by_current_user = serializers.SerializerMethodField()
     can_manage = serializers.SerializerMethodField()
     can_sync = serializers.SerializerMethodField()
@@ -37,6 +38,13 @@ class MetaAdAccountSerializer(serializers.ModelSerializer):
     def _request_user(self):
         request = self.context.get("request")
         return getattr(request, "user", None) if request else None
+
+    @cached_property
+    def _project_schema(self):
+        return current_tenant_schema()
+
+    def get_project_id(self, obj):
+        return obj.project_id if obj.project_schema == self._project_schema else None
 
     def get_connected_by_current_user(self, obj):
         user = self._request_user()

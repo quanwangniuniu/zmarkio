@@ -15,6 +15,33 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 
+def notify_campaign_platform_auth_error(*, integration):
+    """Notify the campaign owner once when an account needs authorization."""
+    from .models import NotificationCategory, NotificationEventType
+    from .services import create_notification
+
+    campaign = integration.campaign
+    project = campaign.project
+    connector = integration.ad_account.connection.user
+    action_url = f'/campaigns/{campaign.slug}'
+    if project.organization_id:
+        action_url = f'/{project.organization.slug}/{project.slug}{action_url}'
+    return create_notification(
+        recipient_id=campaign.owner_id,
+        actor_id=None,
+        category=NotificationCategory.INTEGRATIONS,
+        event_type=NotificationEventType.ACCOUNT_PERMISSION,
+        title=f'Reconnect Meta for {campaign.name}',
+        body=(f'Meta authorization for {integration.ad_account.name or "your ad account"} '
+              f'has expired or been revoked. Metrics may be out of date. '
+              f'{connector.get_full_name() or connector.username} must reconnect the account.'),
+        related_object_type='campaign',
+        related_object_id=str(campaign.id),
+        action_url=action_url,
+        metadata={'action': 'campaign_platform_auth_error', 'integration_id': integration.pk},
+    )
+
+
 def maybe_dispatch_external_channels(*, notification, user, event_type: str) -> None:
     dispatch_notification_channels(user.id, event_type, notification.title)
 
