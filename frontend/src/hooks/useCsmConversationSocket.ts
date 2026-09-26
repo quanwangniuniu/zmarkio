@@ -15,6 +15,7 @@ export function useCsmConversationSocket(activeConversationId: number | null) {
   const addMessage = useCsmConversationStore((s) => s.addMessage);
   const updateConversation = useCsmConversationStore((s) => s.updateConversation);
   const setTyping = useCsmConversationStore((s) => s.setTyping);
+  const bumpGuidance = useCsmConversationStore((s) => s.bumpGuidance);
 
   // Keep ref in sync so the stable send function always sees latest conversation id
   useEffect(() => {
@@ -87,6 +88,8 @@ export function useCsmConversationSocket(activeConversationId: number | null) {
         if (parsed.is_typing) {
           setTimeout(() => setTyping(parsed.conversation_id, parsed.user_id, false), 3000);
         }
+      } else if (parsed.type === 'guidance_updated') {
+        bumpGuidance(parsed.experience_group_ids);
       }
     };
 
@@ -98,7 +101,7 @@ export function useCsmConversationSocket(activeConversationId: number | null) {
       ws.close();
       wsRef.current = null;
     };
-  }, [user?.id, token, addMessage, updateConversation, setTyping]);
+  }, [user?.id, token, addMessage, updateConversation, setTyping, bumpGuidance]);
 
   const sendTyping = useCallback(
     (isTyping: boolean) => {

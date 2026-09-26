@@ -17,6 +17,17 @@ export interface ComposerDraft {
   imagePreviewUrl: string | null; // ObjectURL tied to imageFile
 }
 
+/**
+ * Text another panel (e.g. guidance) asks the reply composer to insert. The
+ * composer for ``conversationId`` consumes it; ``nonce`` makes each request
+ * unique so the same text can be inserted twice.
+ */
+export interface ComposerInsertRequest {
+  conversationId: number;
+  text: string;
+  nonce: number;
+}
+
 interface CsmConversationState {
   conversations: Conversation[];
   activeConversationId: number | null;
@@ -24,6 +35,9 @@ interface CsmConversationState {
   messagesByConversation: Record<number, ConversationMessage[]>;
   typingByConversation: TypingState;
   draftsByConversation: Record<number, ComposerDraft>;
+  /** Bumped when guidance for an Experience Group changes (live updates). */
+  guidanceVersionByGroup: Record<number, number>;
+  pendingComposerInsert: ComposerInsertRequest | null;
 
   // Actions
   setConversations: (conversations: Conversation[]) => void;
@@ -35,7 +49,12 @@ interface CsmConversationState {
   setTyping: (conversationId: number, userId: number, isTyping: boolean) => void;
   setDraft: (conversationId: number, draft: ComposerDraft) => void;
   clearDraft: (conversationId: number) => void;
+  bumpGuidance: (experienceGroupIds: number[]) => void;
+  requestComposerInsert: (conversationId: number, text: string) => void;
+  consumeComposerInsert: (nonce: number) => void;
 }
+
+let composerInsertNonce = 0;
 
 export const useCsmConversationStore = create<CsmConversationState>((set) => ({
   conversations: [],
@@ -44,6 +63,8 @@ export const useCsmConversationStore = create<CsmConversationState>((set) => ({
   messagesByConversation: {},
   typingByConversation: {},
   draftsByConversation: {},
+  guidanceVersionByGroup: {},
+  pendingComposerInsert: null,
 
   setConversations: (conversations) => set({ conversations }),
 
@@ -99,4 +120,23 @@ export const useCsmConversationStore = create<CsmConversationState>((set) => ({
       delete next[conversationId];
       return { draftsByConversation: next };
     }),
+
+  bumpGuidance: (experienceGroupIds) =>
+    set((state) => {
+      const next = { ...state.guidanceVersionByGroup };
+      experienceGroupIds.forEach((id) => {
+        next[id] = (next[id] ?? 0) + 1;
+      });
+      return { guidanceVersionByGroup: next };
+    }),
+
+  requestComposerInsert: (conversationId, text) => {
+    composerInsertNonce += 1;
+    set({ pendingComposerInsert: { conversationId, text, nonce: composerInsertNonce } });
+  },
+
+  consumeComposerInsert: (nonce) =>
+    set((state) =>
+      state.pendingComposerInsert?.nonce === nonce ? { pendingComposerInsert: null } : state
+    ),
 }));

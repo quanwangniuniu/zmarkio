@@ -189,4 +189,5 @@ export type CsmWsEvent =
   | { type: 'conversation_updated'; conversation: Conversation }
   | { type: 'typing_indicator'; conversation_id: number; user_id: number; is_typing: boolean }
   | { type: 'joined'; conversation_id: number }
+  | { type: 'guidance_updated'; experience_group_ids: number[] }
   | { type: 'error'; detail: string };

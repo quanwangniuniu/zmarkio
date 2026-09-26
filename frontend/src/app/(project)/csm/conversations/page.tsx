@@ -10,6 +10,7 @@ import { ConversationList } from '@/components/csm/conversations/ConversationLis
 import { ConversationThread } from '@/components/csm/conversations/ConversationThread';
 import { ConversationComposer } from '@/components/csm/conversations/ConversationComposer';
 import { CustomerProfilePanel } from '@/components/csm/conversations/CustomerProfilePanel';
+import { GuidancePanel } from '@/components/csm/conversations/GuidancePanel';
 import { MyTicketsPanel } from '@/components/csm/conversations/MyTicketsPanel';
 import { ConversationActions } from '@/components/csm/conversations/ConversationActions';
 import { CreateTicketModal } from '@/components/csm/conversations/CreateTicketModal';
@@ -20,6 +21,7 @@ function ConversationsPageContent() {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [leftTab, setLeftTab] = useState<'conversations' | 'mytickets'>('conversations');
+  const [rightTab, setRightTab] = useState<'profile' | 'guidance'>('profile');
   const [ticketRefreshKey, setTicketRefreshKey] = useState(0);
   const [showCreateTicket, setShowCreateTicket] = useState(false);
 
@@ -211,21 +213,57 @@ function ConversationsPageContent() {
         )}
       </div>
 
-      {/* RIGHT: Customer profile panel */}
+      {/* RIGHT: Customer profile / guidance panel */}
       <div className="hidden h-full w-72 shrink-0 border-l border-gray-200 md:flex md:flex-col">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 shrink-0">
-          <h2 className="font-semibold text-gray-900 text-sm">Customer Profile</h2>
-          {detail && !activeConversation?.ticket && (
+        <div className="flex border-b border-gray-100 shrink-0" role="tablist">
+          <button
+            role="tab"
+            aria-selected={rightTab === 'profile'}
+            onClick={() => setRightTab('profile')}
+            className={`flex-1 py-2.5 text-xs font-medium transition-colors ${
+              rightTab === 'profile'
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Customer Profile
+          </button>
+          <button
+            role="tab"
+            aria-selected={rightTab === 'guidance'}
+            onClick={() => setRightTab('guidance')}
+            className={`flex-1 py-2.5 text-xs font-medium transition-colors ${
+              rightTab === 'guidance'
+                ? 'text-blue-600 border-b-2 border-blue-600'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Guidance
+          </button>
+        </div>
+        {rightTab === 'profile' && detail && !activeConversation?.ticket && (
+          <div className="flex justify-end px-4 py-2 border-b border-gray-100 shrink-0">
             <button
               onClick={() => setShowCreateTicket(true)}
               className="px-2.5 py-1 text-xs font-medium bg-blue-600 text-white rounded-md hover:bg-blue-700"
             >
               Create Ticket
             </button>
-          )}
-        </div>
+          </div>
+        )}
         <div className="flex-1 min-h-0 overflow-y-auto">
-          {detail ? (
+          {rightTab === 'guidance' ? (
+            activeId ? (
+              <GuidancePanel
+                conversationId={activeId}
+                canInsert={!!activeConversation?.ticket}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-sm text-gray-400">
+                No conversation selected
+              </div>
+            )
+          ) : detail ? (
             <CustomerProfilePanel
               profile={detail.customer_profile}
               linkedTickets={detail.linked_tickets}

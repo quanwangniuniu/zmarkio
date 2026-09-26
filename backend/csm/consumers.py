@@ -3,6 +3,7 @@ import logging
 from channels.db import database_sync_to_async
 
 from core.consumers import InstrumentedAsyncWebsocketConsumer
+from csm.services.guidance import guidance_group_name
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class CsmConversationConsumer(InstrumentedAsyncWebsocketConsumer):
     - new_message: New message in a conversation
     - conversation_updated: Conversation metadata changed (status, queue, etc.)
     - typing_indicator: Someone is typing
+    - guidance_updated: Guidance for an Experience Group changed; refetch it
     - error: Error message
     """
 
@@ -32,6 +34,8 @@ class CsmConversationConsumer(InstrumentedAsyncWebsocketConsumer):
         self.user_id = self.scope['url_route']['kwargs']['user_id']
         self.user = self.scope.get('user')
         self.joined_conversations = set()
+        # conversation id -> matched Experience Group id (guidance subscriptions)
+        self.guidance_groups = {}
         self.accessible_queue_ids = set()
         self.is_privileged = False
 
@@ -68,6 +72,10 @@ class CsmConversationConsumer(InstrumentedAsyncWebsocketConsumer):
             await self.channel_layer.group_discard(
                 f'csm_conversation_{conv_id}', self.channel_name
             )
+        for eg_id in set(getattr(self, 'guidance_groups', {}).values()):
+            await self.channel_layer.group_discard(
+                guidance_group_name(eg_id), self.channel_name
+            )
 
         logger.info(f'[CSM WS] Agent {self.user_id} disconnected (code={close_code})')
 
@@ -101,6 +109,7 @@ class CsmConversationConsumer(InstrumentedAsyncWebsocketConsumer):
         group = f'csm_conversation_{conv_id}'
         await self.channel_layer.group_add(group, self.channel_name)
         self.joined_conversations.add(conv_id)
+        await self._join_guidance_group(conv_id)
         await self.send(text_data=json.dumps({'type': 'joined', 'conversation_id': conv_id}))
 
     async def handle_leave_conversation(self, data):
@@ -110,6 +119,28 @@ class CsmConversationConsumer(InstrumentedAsyncWebsocketConsumer):
         group = f'csm_conversation_{conv_id}'
         await self.channel_layer.group_discard(group, self.channel_name)
         self.joined_conversations.discard(conv_id)
+        await self._leave_guidance_group(conv_id)
+
+    async def _join_guidance_group(self, conv_id):
+        eg_id = await self._conversation_experience_group_id(conv_id)
+        previous = self.guidance_groups.pop(conv_id, None)
+        if previous is not None and previous != eg_id:
+            await self._discard_guidance_group_if_unused(previous)
+        if eg_id is None:
+            return
+        if eg_id not in self.guidance_groups.values():
+            await self.channel_layer.group_add(guidance_group_name(eg_id), self.channel_name)
+        self.guidance_groups[conv_id] = eg_id
+
+    async def _leave_guidance_group(self, conv_id):
+        eg_id = self.guidance_groups.pop(conv_id, None)
+        if eg_id is not None:
+            await self._discard_guidance_group_if_unused(eg_id)
+
+    async def _discard_guidance_group_if_unused(self, eg_id):
+        # Several open conversations can share one Experience Group.
+        if eg_id not in self.guidance_groups.values():
+            await self.channel_layer.group_discard(guidance_group_name(eg_id), self.channel_name)
 
     async def handle_typing(self, data, is_typing: bool):
         conv_id = data.get('conversation_id')
@@ -173,6 +204,13 @@ class CsmConversationConsumer(InstrumentedAsyncWebsocketConsumer):
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
+    async def guidance_updated(self, event):
+        """Guidance for one or more Experience Groups changed; clients refetch."""
+        await self.send(text_data=json.dumps({
+            'type': 'guidance_updated',
+            'experience_group_ids': event.get('experience_group_ids', []),
+        }))
+
     async def send_error(self, detail: str):
         await self.send(text_data=json.dumps({'type': 'error', 'detail': detail}))
 
@@ -224,6 +262,16 @@ class CsmConversationConsumer(InstrumentedAsyncWebsocketConsumer):
         ).distinct().values_list('id', flat=True))
 
         return False, ids
+
+    @database_sync_to_async
+    def _conversation_experience_group_id(self, conversation_id):
+        """The conversation's matched Experience Group: its customer's EG."""
+        from .models import Conversation
+        return (
+            Conversation.objects.filter(id=conversation_id)
+            .values_list('customer__experience_group_id', flat=True)
+            .first()
+        )
 
     @database_sync_to_async
     def can_access_conversation(self, conversation_id: int) -> bool:
