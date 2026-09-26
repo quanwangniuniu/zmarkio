@@ -13,6 +13,5 @@ export {
   SYSTEM_PROMPT,
   buildExternalUrlPrompt,
   buildUserPrompt,
-  lockCta,
 } from '@/src/ai/prompts';
 export type { CopyJson } from '@/src/ai/types';

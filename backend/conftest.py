@@ -1,5 +1,6 @@
 """Shared backend test fixtures for CSM and experience_group tests."""
 
+import json
 import os
 
 import django
@@ -9,6 +10,63 @@ from django.conf import settings
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 if not settings.configured:
     django.setup()
+
+# PBKDF2 is deliberately slow, and tests create users and log in thousands of
+# times. No test depends on the hashing algorithm, so use a fast one (MED-447).
+settings.PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config, items):
+    """Keep only one CI shard's tests when PYTEST_SHARD_INDEX/COUNT are set.
+
+    Whole modules go to the shard with the least expected run time so far, so
+    every collected test lands in exactly one shard (no hand-kept path lists
+    that a new app could miss) and `--dist loadscope` still sees complete
+    modules. Expected time comes from test_durations.json (seconds per module,
+    measured in CI); modules missing from it count as the average seconds per
+    test times their test count. A stale file only makes shards less even, it
+    never drops tests. The assignment only depends on the collected node ids
+    and that file, so every xdist worker computes the same split.
+    """
+    index = os.environ.get('PYTEST_SHARD_INDEX')
+    count = os.environ.get('PYTEST_SHARD_COUNT')
+    if index is None or count is None:
+        return
+    index, count = int(index), int(count)
+    if not 0 <= index < count:
+        raise pytest.UsageError(
+            f'PYTEST_SHARD_INDEX={index} is outside 0..{count - 1}'
+        )
+
+    modules = {}
+    for item in items:
+        modules.setdefault(item.nodeid.split('::')[0], []).append(item)
+
+    durations_path = os.path.join(os.path.dirname(__file__), 'test_durations.json')
+    try:
+        with open(durations_path) as f:
+            durations = json.load(f)
+    except FileNotFoundError:
+        durations = {}
+    known = [p for p in modules if p in durations]
+    known_tests = sum(len(modules[p]) for p in known)
+    per_test = sum(durations[p] for p in known) / known_tests if known_tests else 1.0
+    expected = {p: durations.get(p, per_test * len(modules[p])) for p in modules}
+
+    loads = [0.0] * count
+    shard_of = {}
+    for path in sorted(modules, key=lambda p: (-expected[p], p)):
+        shard = min(range(count), key=lambda i: (loads[i], i))
+        shard_of[path] = shard
+        loads[shard] += expected[path]
+
+    selected = [i for i in items if shard_of[i.nodeid.split('::')[0]] == index]
+    deselected = [i for i in items if shard_of[i.nodeid.split('::')[0]] != index]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+    items[:] = selected
+
 
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
