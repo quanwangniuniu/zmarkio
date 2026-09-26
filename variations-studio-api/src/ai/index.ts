@@ -14,7 +14,6 @@ export {
   SYSTEM_PROMPT,
   buildExternalUrlPrompt,
   buildUserPrompt,
-  lockCta,
 } from './prompts';
 
 export {

@@ -1,4 +1,3 @@
-import { lockCta } from '@/src/ai/prompts';
 import type { CopyJson } from '@/src/ai/types';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
@@ -97,7 +96,7 @@ function asCopy(raw: unknown): CopyJson {
         hook: row.hook as string,
         headline: row.headline as string,
         description: row.description as string,
-        cta: lockCta(row.cta as string),
+        cta: row.cta as string,
     };
 }
 

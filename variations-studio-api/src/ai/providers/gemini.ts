@@ -1,4 +1,4 @@
-import { AI_QUOTA_MESSAGE, MODEL_NAME, lockCta, } from '@/src/ai/prompts';
+import { AI_QUOTA_MESSAGE, MODEL_NAME } from '@/src/ai/prompts';
 import type { CopyGenerator, CopyJson } from '@/src/ai/types';
 
 const VERTEX_BASE = 'https://aiplatform.googleapis.com/v1/publishers/google/models';
@@ -38,7 +38,7 @@ function asCopy(raw: unknown): CopyJson {
     hook: typeof row.hook === 'string' ? row.hook : '',
     headline: typeof row.headline === 'string' ? row.headline : '',
     description: typeof row.description === 'string' ? row.description : '',
-    cta: lockCta(typeof row.cta === 'string' ? row.cta : ''),
+    cta: typeof row.cta === 'string' ? row.cta : '',
   };
 }
 

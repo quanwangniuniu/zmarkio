@@ -21,6 +21,7 @@ from .models import (
     SpreadsheetHighlightScope,
     SpreadsheetCellFormat,
     SheetKind,
+    UserDefinedFunction,
 )
 from .services import SheetService
 
@@ -661,3 +662,34 @@ class PatternJobStatusSerializer(serializers.ModelSerializer):
             'startedAt',
             'finishedAt',
         ]
+
+class UserDefinedFunctionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserDefinedFunction
+        fields = ["id", "name", "params", "expression", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_name(self, value):
+        import re
+        if not re.fullmatch(r"[A-Za-z]+", value):
+            raise serializers.ValidationError("Name must contain letters only (no digits or underscores).")
+        BUILTIN = {"SUM", "AVERAGE", "COUNT", "MIN", "MAX", "IF", "AND", "OR", "NOT", "VLOOKUP", "ABS", "ROUND", "FLOOR", "CEILING"}
+        if value.upper() in BUILTIN:
+            raise serializers.ValidationError("Cannot override a built-in function.")
+        return value.upper()
+
+    def validate_params(self, value):
+        import re
+        if not isinstance(value, list) or len(value) == 0:
+            raise serializers.ValidationError("At least one parameter is required.")
+        seen: set[str] = set()
+        for p in value:
+            if not isinstance(p, str) or not re.fullmatch(r"[A-Za-z]+", p):
+                raise serializers.ValidationError(
+                    "Each parameter name must contain letters only (no digits, spaces, or underscores)."
+                )
+            upper = p.upper()
+            if upper in seen:
+                raise serializers.ValidationError(f"Duplicate parameter name: '{p}'.")
+            seen.add(upper)
+        return value

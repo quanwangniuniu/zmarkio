@@ -679,4 +679,50 @@ export const SpreadsheetAPI = {
     );
     return captureSheetRevision(sheetId, response.data);
   },
+
+  // -----------------------------------------------------------------------
+  // User-Defined Functions (UDFs)
+  // -----------------------------------------------------------------------
+
+  listUdfs: async (projectSlug: string): Promise<UdfData[]> => {
+    const response = await api.get<UdfData[]>(
+      `/api/spreadsheet/projects/${projectSlug}/udfs/`
+    );
+    return response.data;
+  },
+
+  createUdf: async (projectSlug: string, data: UdfPayload): Promise<UdfData> => {
+    const response = await api.post<UdfData>(
+      `/api/spreadsheet/projects/${projectSlug}/udfs/`,
+      data
+    );
+    return response.data;
+  },
+
+  updateUdf: async (projectSlug: string, udfId: number, data: UdfPayload): Promise<UdfData> => {
+    const response = await api.put<UdfData>(
+      `/api/spreadsheet/projects/${projectSlug}/udfs/${udfId}`,
+      data
+    );
+    return response.data;
+  },
+
+  deleteUdf: async (projectSlug: string, udfId: number): Promise<void> => {
+    await api.delete(`/api/spreadsheet/projects/${projectSlug}/udfs/${udfId}`);
+  },
 };
+
+export interface UdfData {
+  id: number;
+  name: string;
+  params: string[];
+  expression: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UdfPayload {
+  name: string;
+  params: string[];
+  expression: string;
+}

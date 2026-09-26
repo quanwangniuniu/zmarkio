@@ -77,7 +77,7 @@ describe('Ollama provider', () => {
             hook: 'A useful hook',
             headline: 'A useful headline',
             description: 'A useful description',
-            cta: 'LEARN_MORE',
+            cta: 'learn more',
         });
 
         expect(fetchMock).toHaveBeenCalledTimes(1);

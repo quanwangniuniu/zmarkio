@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { createPortal } from 'react-dom';
-import { Undo2, Redo2, Bold, Italic, Strikethrough, Palette, ChevronLeft, ChevronRight, ChevronDown, Snowflake, Check, Table2, Upload, Download, FileSpreadsheet, Loader2 } from 'lucide-react';
+import { Undo2, Redo2, Bold, Italic, Strikethrough, Palette, ChevronLeft, ChevronRight, ChevronDown, Snowflake, Check, Table2, Upload, Download, FileSpreadsheet, Loader2, FunctionSquare } from 'lucide-react';
 import { SpreadsheetAPI } from '@/lib/api/spreadsheetApi';
 import { googleDocsApi } from '@/lib/api/googleDocsApi';
 import toast from 'react-hot-toast';
@@ -77,6 +77,8 @@ interface SpreadsheetGridProps {
     rowCount: number;
     colCount: number;
   }) => void;
+  /** Called when user clicks the Functions button to manage UDFs. */
+  onOpenUdfManager?: () => void;
 }
 
 export interface SpreadsheetGridHandle {
@@ -614,6 +616,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
   frozenRowCount = 0,
   onFreezeHeaderChange,
   onOpenPivotBuilder,
+  onOpenUdfManager,
   onSelectionChange,
   collabClientId,
   remotePresenceUsers = [],
@@ -5792,6 +5795,18 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
           <Table2 className="h-3.5 w-3.5" strokeWidth={2.3} />
           Pivot
         </button>
+        {onOpenUdfManager && (
+          <button
+            type="button"
+            onClick={onOpenUdfManager}
+            title="Custom Functions"
+            className="inline-flex h-8 items-center gap-1 rounded-md px-3 text-xs font-medium text-gray-700 transition hover:bg-gray-100 hover:text-gray-900"
+            data-testid="udf-button"
+          >
+            <FunctionSquare className="h-3.5 w-3.5" strokeWidth={2.3} />
+            Functions
+          </button>
+        )}
         </div>
 
         {/* Highlight & Text formatting controls */}
