@@ -1,7 +1,13 @@
 import { MODEL_NAME } from '@/src/ai/prompts';
 import type { CopyGenerator, CopyJson } from '@/src/ai/types';
 
-const VERTEX_BASE = 'https://aiplatform.googleapis.com/v1/publishers/google/models';
+// GEMINI_API_KEY is a Vertex API key ("AQ." prefix) bound to this project. The
+// path must name the project and location: the short /v1/publishers/... form
+// resolves to the key's default region (asia-southeast1), where the model 404s.
+// Defaults match backend/core/services/gemini_client.py. Verify a key with
+// `npm run smoke:gemini` (MED-356).
+const DEFAULT_VERTEX_PROJECT = '406201877905';
+const DEFAULT_VERTEX_LOCATION = 'global';
 const TIMEOUT_MS = 60_000;
 const RATE_LIMIT_BACKOFF_MS = [2000, 4000];
 
@@ -89,7 +95,11 @@ async function postVertex(systemPrompt: string, userPrompt: string): Promise<unk
     throw new GeminiError('GEMINI_API_KEY is not configured');
   }
 
-  const url = `${VERTEX_BASE}/${MODEL_NAME}:streamGenerateContent?key=${encodeURIComponent(apiKey)}`;
+  const project = process.env.GEMINI_VERTEX_PROJECT || DEFAULT_VERTEX_PROJECT;
+  const location = process.env.GEMINI_VERTEX_LOCATION || DEFAULT_VERTEX_LOCATION;
+  const url =
+    `https://aiplatform.googleapis.com/v1/projects/${project}/locations/${location}` +
+    `/publishers/google/models/${MODEL_NAME}:streamGenerateContent`;
   const body = {
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
@@ -103,7 +113,8 @@ async function postVertex(systemPrompt: string, userPrompt: string): Promise<unk
   for (let attempt = 0; attempt <= RATE_LIMIT_BACKOFF_MS.length; attempt += 1) {
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // Header rather than ?key= so the key never lands in a logged URL.
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
