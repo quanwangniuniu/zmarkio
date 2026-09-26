@@ -22,7 +22,13 @@ def guidance_group_name(experience_group_id):
     return f'csm_guidance_eg_{experience_group_id}'
 
 
+class GuidanceConflict(Exception):
+    """The client's view of the data is stale; another admin changed it first."""
+
+
 def guidance_queryset():
+    # Orders each entry's group chips by name. Entry order within a group is
+    # display_order, applied by list_guidance / get_guidance_for_conversation.
     return GuidanceEntry.objects.prefetch_related(
         Prefetch(
             'experience_group_links',
@@ -76,6 +82,17 @@ def _lock_experience_groups(project_id, eg_ids):
                 'experience_group_ids': f'Experience group {group.id} is not in this project.',
             })
     return unique_ids
+
+
+def _lock_entry(entry, expected_updated_at):
+    """
+    Lock the entry row and, when the client sent the ``updated_at`` it last
+    saw, reject the write if someone else changed the entry since.
+    """
+    current = GuidanceEntry.objects.select_for_update().get(pk=entry.pk)
+    if expected_updated_at is not None and current.updated_at != expected_updated_at:
+        raise GuidanceConflict('This guidance entry was changed by someone else.')
+    return current
 
 
 def _next_display_order(experience_group_id):
@@ -133,10 +150,17 @@ def broadcast_guidance_updated(experience_group_ids):
     transaction.on_commit(_send)
 
 
-def list_guidance(project_id, *, experience_group_id=None):
+def list_guidance(project_id, *, experience_group_id=None, unassigned=False):
     """
-    All entries for a project, or one EG's entries in display order.
+    All entries for a project, one EG's entries in display order, or (with
+    ``unassigned``) the entries left with no EG after their groups were deleted.
     """
+    if unassigned:
+        return list(
+            guidance_queryset().filter(
+                project_id=project_id, experience_group_links__isnull=True,
+            ),
+        )
     if experience_group_id is None:
         return list(guidance_queryset().filter(project_id=project_id))
 
@@ -183,8 +207,9 @@ def create_guidance(
 @transaction.atomic
 def update_guidance(
     entry, *, guidance_type=None, trigger_description=None,
-    recommended_response=None, experience_group_ids=None,
+    recommended_response=None, experience_group_ids=None, expected_updated_at=None,
 ):
+    entry = _lock_entry(entry, expected_updated_at)
     if guidance_type is not None:
         _validate_guidance_type(guidance_type)
         entry.guidance_type = guidance_type
@@ -207,19 +232,27 @@ def update_guidance(
 
 
 @transaction.atomic
-def delete_guidance(entry):
+def delete_guidance(entry, *, expected_updated_at=None):
+    entry = _lock_entry(entry, expected_updated_at)
     affected = list(entry.experience_group_links.values_list('experience_group_id', flat=True))
+    # Take the same group locks as reorder/create so their order writes serialize.
+    list(
+        ExperienceGroup.objects.select_for_update()
+        .filter(pk__in=affected).order_by('pk').values_list('pk', flat=True),
+    )
     entry.delete()
     broadcast_guidance_updated(affected)
     return affected
 
 
 @transaction.atomic
-def reorder_guidance(project_id, experience_group_id, ordered_ids):
+def reorder_guidance(project_id, experience_group_id, ordered_ids, *, expected_ids=None):
     """
     Set the display order of one EG's entries. ``ordered_ids`` must list every
     entry currently linked to the group exactly once, so a stale admin view
-    is rejected instead of silently dropping entries.
+    is rejected instead of silently dropping entries. ``expected_ids`` is the
+    order the client saw before the drag; if the stored order differs, another
+    admin reordered first and the request is rejected as a conflict.
     """
     _lock_experience_groups(project_id, [experience_group_id])
 
@@ -230,8 +263,10 @@ def reorder_guidance(project_id, experience_group_id, ordered_ids):
         GuidanceEntryExperienceGroup.objects.filter(
             experience_group_id=experience_group_id,
             entry__project_id=project_id,
-        ),
+        ).order_by('display_order', 'id'),
     )
+    if expected_ids is not None and [link.entry_id for link in links] != list(expected_ids):
+        raise GuidanceConflict('The guidance order was changed by someone else.')
     by_entry = {link.entry_id: link for link in links}
     if set(ordered_ids) != set(by_entry):
         raise ValidationError({

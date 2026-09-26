@@ -8,6 +8,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Q, Case, When, IntegerField, Value
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django_filters.rest_framework import DjangoFilterBackend
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
@@ -80,6 +81,7 @@ from .services.work_types import (
     reorder_work_types,
 )
 from .services.guidance import (
+    GuidanceConflict,
     guidance_queryset,
     list_guidance,
     create_guidance,
@@ -1372,7 +1374,12 @@ class GuidanceEntryViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
 
     List/create/reorder/capabilities require ?project={id}. Any project member
     can read; writes are limited to the project owner or an org admin.
-    ``?experience_group={id}`` on list returns that group's entries in display order.
+    ``?experience_group={id}`` on list returns that group's entries in display order;
+    ``?unassigned=true`` returns entries whose groups were all deleted.
+
+    Edits are optimistically versioned: PATCH may send ``expected_updated_at``,
+    DELETE may pass it as a query param, and reorder may send ``expected_ids``.
+    A stale value returns 409 instead of silently overwriting another admin.
     """
     serializer_class = GuidanceEntrySerializer
     permission_classes = [IsAuthenticated, IsProjectMember]
@@ -1400,8 +1407,13 @@ class GuidanceEntryViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
         if not self._can_manage(project_id):
             raise PermissionDenied('Only the project owner or an org admin can manage guidance.')
 
+    @staticmethod
+    def _conflict(exc):
+        return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+
     def list(self, request, *args, **kwargs):
         project_id = self.get_required_project_id()
+        unassigned = request.query_params.get('unassigned', '').lower() in ('1', 'true')
         raw_group = request.query_params.get('experience_group')
         experience_group_id = None
         if raw_group:
@@ -1410,7 +1422,9 @@ class GuidanceEntryViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
             except (TypeError, ValueError):
                 raise ValidationError({'experience_group': 'Must be an integer id.'})
         try:
-            rows = list_guidance(project_id, experience_group_id=experience_group_id)
+            rows = list_guidance(
+                project_id, experience_group_id=experience_group_id, unassigned=unassigned,
+            )
         except DjangoValidationError as exc:
             _raise_drf_validation(exc)
         return Response(GuidanceEntrySerializer(rows, many=True).data)
@@ -1451,7 +1465,7 @@ class GuidanceEntryViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
         data = serializer.validated_data
         fields = (
             'guidance_type', 'trigger_description',
-            'recommended_response', 'experience_group_ids',
+            'recommended_response', 'experience_group_ids', 'expected_updated_at',
         )
         try:
             instance = update_guidance(
@@ -1459,11 +1473,22 @@ class GuidanceEntryViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
             )
         except DjangoValidationError as exc:
             _raise_drf_validation(exc)
+        except GuidanceConflict as exc:
+            return self._conflict(exc)
         return Response(GuidanceEntrySerializer(instance).data)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
-        delete_guidance(instance)
+        expected = None
+        raw_expected = request.query_params.get('expected_updated_at')
+        if raw_expected:
+            expected = parse_datetime(raw_expected)
+            if expected is None:
+                raise ValidationError({'expected_updated_at': 'Must be an ISO 8601 datetime.'})
+        try:
+            delete_guidance(instance, expected_updated_at=expected)
+        except GuidanceConflict as exc:
+            return self._conflict(exc)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=['put'], url_path='reorder')
@@ -1477,9 +1502,12 @@ class GuidanceEntryViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
                 project_id,
                 serializer.validated_data['experience_group'],
                 serializer.validated_data['ids'],
+                expected_ids=serializer.validated_data.get('expected_ids'),
             )
         except DjangoValidationError as exc:
             _raise_drf_validation(exc)
+        except GuidanceConflict as exc:
+            return self._conflict(exc)
         return Response(GuidanceEntrySerializer(rows, many=True).data)
 
     @action(detail=False, methods=['get'], url_path='capabilities')

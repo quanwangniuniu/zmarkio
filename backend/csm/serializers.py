@@ -587,13 +587,15 @@ class GuidanceEntrySerializer(serializers.ModelSerializer):
         allow_empty=False,
         write_only=True,
     )
+    # Optimistic concurrency: the updated_at the client last saw (PATCH only).
+    expected_updated_at = serializers.DateTimeField(write_only=True, required=False)
 
     class Meta:
         model = GuidanceEntry
         fields = [
             'id', 'project', 'guidance_type', 'guidance_type_display',
             'trigger_description', 'recommended_response',
-            'experience_groups', 'experience_group_ids',
+            'experience_groups', 'experience_group_ids', 'expected_updated_at',
             'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'project', 'created_at', 'updated_at']
@@ -614,6 +616,12 @@ class GuidanceReorderSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
         allow_empty=True,
+    )
+    # The order the client saw before the drag; a mismatch means a conflict.
+    expected_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=True,
+        required=False,
     )
 
 

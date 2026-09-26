@@ -1,5 +1,6 @@
 """Guidance entry configuration and workspace display (CSM-S03-02 / MED-222)."""
 from unittest.mock import patch
+from urllib.parse import urlencode
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -360,6 +361,148 @@ def test_reorder_requires_exact_set(member_client, project, experience_group, id
     ) == [a.id, b.id]
 
 
+def test_reorder_is_reflected_in_later_reads_despite_group_name_order(
+    api_client, member_client, user2, project, csm_queue, customer, experience_group,
+):
+    # Group chips on an entry are sorted by name; entry order within a group
+    # must still follow display_order, including in the agent workspace.
+    zulu = ExperienceGroup.objects.create(project=project, name='Zulu')
+    a = _make_entry(project, [(experience_group, 0), (zulu, 0)])
+    b = _make_entry(project, [(experience_group, 1), (zulu, 1)])
+
+    response = member_client.put(
+        _reorder_url(project),
+        {'experience_group': experience_group.id, 'ids': [b.id, a.id]},
+        format='json',
+    )
+    assert response.status_code == status.HTTP_200_OK, response.data
+
+    listed = member_client.get(_list_url(project, experience_group=experience_group.id))
+    assert [row['id'] for row in listed.data] == [b.id, a.id]
+
+    customer.experience_group = experience_group
+    customer.save()
+    conversation = Conversation.objects.create(customer=customer, queue=csm_queue)
+    _authenticate_queue_agent(api_client, user2, csm_queue)
+    workspace = api_client.get(_conversation_guidance_url(conversation))
+    assert [row['id'] for row in workspace.data['entries']] == [b.id, a.id]
+
+
+def test_reorder_with_current_expected_order_succeeds(member_client, project, experience_group):
+    a = _make_entry(project, [(experience_group, 0)])
+    b = _make_entry(project, [(experience_group, 1)])
+
+    response = member_client.put(
+        _reorder_url(project),
+        {'experience_group': experience_group.id, 'ids': [b.id, a.id], 'expected_ids': [a.id, b.id]},
+        format='json',
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.data
+    assert [row['id'] for row in response.data] == [b.id, a.id]
+
+
+def test_reorder_with_stale_expected_order_conflicts(member_client, project, experience_group):
+    a = _make_entry(project, [(experience_group, 0)])
+    b = _make_entry(project, [(experience_group, 1)])
+    c = _make_entry(project, [(experience_group, 2)])
+    # Another admin already moved c to the top.
+    GuidanceEntryExperienceGroup.objects.filter(entry=c).update(display_order=0)
+    GuidanceEntryExperienceGroup.objects.filter(entry=a).update(display_order=1)
+    GuidanceEntryExperienceGroup.objects.filter(entry=b).update(display_order=2)
+
+    with patch('csm.services.guidance.async_to_sync') as sender:
+        response = member_client.put(
+            _reorder_url(project),
+            {
+                'experience_group': experience_group.id,
+                'ids': [b.id, a.id, c.id],
+                'expected_ids': [a.id, b.id, c.id],
+            },
+            format='json',
+        )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert list(
+        GuidanceEntryExperienceGroup.objects.order_by('display_order').values_list('entry_id', flat=True),
+    ) == [c.id, a.id, b.id]
+    sender.assert_not_called()
+
+
+# ── Optimistic concurrency on edit / delete ───────────────────────────────
+
+
+def test_update_with_current_version_succeeds(member_client, project, experience_group):
+    entry = _make_entry(project, [(experience_group, 0)])
+    seen = member_client.get(_list_url(project)).data[0]['updated_at']
+
+    response = member_client.patch(
+        _detail_url(entry),
+        {'trigger_description': 'Edited', 'expected_updated_at': seen},
+        format='json',
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.data
+    assert response.data['trigger_description'] == 'Edited'
+
+
+def test_update_with_stale_version_conflicts(member_client, project, experience_group, second_group):
+    entry = _make_entry(project, [(experience_group, 0)])
+    seen = member_client.get(_list_url(project)).data[0]['updated_at']
+    # Another admin moves the entry to a different group first.
+    first = member_client.patch(
+        _detail_url(entry), {'experience_group_ids': [second_group.id]}, format='json',
+    )
+    assert first.status_code == status.HTTP_200_OK
+
+    response = member_client.patch(
+        _detail_url(entry),
+        {'trigger_description': 'Edited', 'expected_updated_at': seen},
+        format='json',
+    )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    entry.refresh_from_db()
+    assert entry.trigger_description == 'Trigger'
+    assert list(entry.experience_group_links.values_list('experience_group_id', flat=True)) == [
+        second_group.id,
+    ]
+
+
+def test_delete_with_stale_version_conflicts(member_client, project, experience_group):
+    entry = _make_entry(project, [(experience_group, 0)])
+    seen = member_client.get(_list_url(project)).data[0]['updated_at']
+    member_client.patch(_detail_url(entry), {'trigger_description': 'Edited'}, format='json')
+
+    response = member_client.delete(
+        f"{_detail_url(entry)}?{urlencode({'expected_updated_at': seen})}",
+    )
+
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert GuidanceEntry.objects.filter(pk=entry.pk).exists()
+
+
+def test_delete_with_current_version_succeeds(member_client, project, experience_group):
+    entry = _make_entry(project, [(experience_group, 0)])
+    seen = member_client.get(_list_url(project)).data[0]['updated_at']
+
+    response = member_client.delete(
+        f"{_detail_url(entry)}?{urlencode({'expected_updated_at': seen})}",
+    )
+
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    assert not GuidanceEntry.objects.filter(pk=entry.pk).exists()
+
+
+def test_delete_rejects_malformed_version(member_client, project, experience_group):
+    entry = _make_entry(project, [(experience_group, 0)])
+
+    response = member_client.delete(f'{_detail_url(entry)}?expected_updated_at=yesterday')
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert GuidanceEntry.objects.filter(pk=entry.pk).exists()
+
+
 # ── Broadcasts ────────────────────────────────────────────────────────────
 
 
@@ -493,3 +636,17 @@ def test_deleting_experience_group_keeps_entry_reachable_in_full_list(
 
     assert [row['id'] for row in response.data] == [entry.id]
     assert response.data[0]['experience_groups'] == []
+
+
+def test_list_unassigned_returns_only_entries_without_groups(
+    member_client, project, experience_group, second_group,
+):
+    orphan = _make_entry(project, [(experience_group, 0)])
+    kept = _make_entry(project, [(second_group, 0)])
+    experience_group.delete()
+
+    response = member_client.get(_list_url(project, unassigned='true'))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [row['id'] for row in response.data] == [orphan.id]
+    assert kept.id not in {row['id'] for row in response.data}
