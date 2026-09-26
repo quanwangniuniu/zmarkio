@@ -88,6 +88,7 @@ urlpatterns = [
     path('api/', include('customer.urls')),
     path('api/tracking/', include('tracking.urls')),
     path('api/portal/', include('portal.urls')),
+    path('api/org-customization/', include('org_customization.urls')),
 ]
 
 if settings.DEBUG:

@@ -104,6 +104,7 @@ INSTALLED_APPS = [
     'tracking',
     'csm',
     'portal',
+    'org_customization.apps.OrgCustomizationConfig',
 ]
 
 MIDDLEWARE = [
