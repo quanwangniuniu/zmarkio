@@ -1,14 +1,12 @@
 from django.http import JsonResponse
-from django.utils import timezone
-from django.db.models import Q
 from django.db import connection
-from datetime import timedelta
 from core.models import Organization
 from core.services.tenant import slug_to_schema_name
-from access_control.models import RolePermission, UserRole, AdminOverrideAudit
-from typing import Optional, Callable, Any
+from access_control.models import AdminOverrideAudit
+from access_control.services import get_user_permission_bundle
+from typing import Callable
 from functools import wraps
-from core.models import Team, TeamMember, TeamRole
+from core.models import TeamMember, TeamRole
 
 class AuthorizationMiddleware:
     """
@@ -82,72 +80,43 @@ class AuthorizationMiddleware:
                 self._log_override(request, user, 'SUPERUSER', module_key, action_key)
             return None
 
-        # Propagate org-admin role context for downstream permission checks (MED-240).
-        # Default False; set True when a valid Organization Admin (level == 2) role exists.
         request.is_org_admin = False
 
-        # Org admins (role level == 2) bypass module-level permission checks.
-        # Level 2 is the Organization Admin level created by assign_org_admin().
-        # This matches the criterion used by is_org_admin() in admin_utils.py.
-        # TenantSchemaMiddleware has already set the correct search_path, so
-        # querying UserRole here hits the right tenant schema directly.
-        # Temporal validity is enforced: expired admin roles do not grant bypass.
         try:
-            _now = timezone.now()
-            if UserRole.objects.filter(
-                user=user,
-                role__level=2,
-                valid_from__lte=_now,
-            ).filter(Q(valid_to__gte=_now) | Q(valid_to__isnull=True)).exists():
+            with connection.cursor() as cursor:
+                cursor.execute("SHOW search_path")
+                search_path = cursor.fetchone()[0]
+            schema_name = search_path.split(",")[0].strip().strip('"')
+
+            bundle = get_user_permission_bundle(user.id, schema_name)
+
+            if bundle["is_org_admin"]:
                 request.is_org_admin = True
                 if has_permission_gate:
-                    self._log_override(request, user, 'ORG_ADMIN', module_key, action_key)
+                    self._log_override(
+                        request,
+                        user,
+                        'ORG_ADMIN',
+                        module_key,
+                        action_key,
+                    )
                 return None
-        except Exception:
-            pass
 
-        if not has_permission_gate:
-            return None
+            if not has_permission_gate:
+                return None
 
-        # CRITICAL: After multi-organization restructuring, UserRole and RolePermission
-        # tables now live in TENANT schemas, not public schema. TenantSchemaMiddleware
-        # has already set the correct search_path, so we query directly without switching.
-        #
-        # Wrap permission queries in try/except to gracefully handle cases where:
-        # 1. Tables don't exist yet (new organizations)
-        # 2. No roles/permissions have been set up yet
-        try:
-            # Only consider roles that are currently valid
-            now = timezone.now()
-            role_ids = UserRole.objects.filter(
-                user=request.user,
-                valid_from__lte=now
-            ).filter(Q(valid_to__gte=now) | Q(valid_to__isnull=True)).values_list('role_id', flat=True)
+            required_permission = f"{module_key}:{action_key}"
+            if required_permission in bundle["permissions"]:
+                return None
 
-            # Check if any of the user's roles grants the required permission
-            has = RolePermission.objects.filter(
-                role_id__in=role_ids,
-                permission__module=module_key,
-                permission__action=action_key
-            ).exists()
-
-            if not has:
-                # Only enforce denial if the user has been assigned at least one role.
-                # If no roles exist (new org / no RBAC configured), allow through as a
-                # grace period.  Users with roles that are all expired or lack the
-                # required permission are still denied.
-                any_role = UserRole.objects.filter(user=request.user).exists()
-                if not any_role:
-                    return None
+            if not bundle["has_any_role"]:
+                return None
 
         except Exception:
-            # If permission tables don't exist or query fails, allow access.
-            # This handles new organizations where RBAC hasn't been configured yet.
+            # Preserve the existing fail-open behavior for organizations where
+            # RBAC tables are not available or permission resolution fails.
             return None
 
-        if has:
-            return None  # Allow request to proceed
-        # Deny if no matching permission found
         return JsonResponse({'detail': 'Permission denied'}, status=403)
 
     def _resolve_org_id_from_search_path(self):
