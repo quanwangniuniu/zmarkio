@@ -8,10 +8,12 @@ import OnboardingGate from '@/components/onboarding/OnboardingGate';
 import { TrackingProvider } from '@/lib/tracking/TrackingProvider';
 import UpgradeModal from '@/components/plans/UpgradeModal';
 import ToastDedupeCleaner from './ToastDedupeCleaner';
+import { ApiMockingProvider } from './ApiMockingProvider';
 
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
-    <AuthProvider>
+    <ApiMockingProvider>
+      <AuthProvider>
       <TrackingProvider>
         <OnboardingProvider>
           <OnboardingGate>{children}</OnboardingGate>
@@ -46,6 +48,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
           },
         }}
       />
-    </AuthProvider>
+      </AuthProvider>
+    </ApiMockingProvider>
   );
 }

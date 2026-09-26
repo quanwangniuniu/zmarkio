@@ -12,6 +12,12 @@ const customJestConfig = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
+  // Transpile msw and its ESM-only dependency chain for Jest (needed by the
+  // MSW handler tests); keep next/jest's css-module pattern.
+  transformIgnorePatterns: [
+    '/node_modules/(?!(msw|@mswjs|until-async|strict-event-emitter|outvariant|headers-polyfill)/)',
+    '^.+\\.module\\.(css|sass|scss)$',
+  ],
   testMatch: [
     '<rootDir>/src/**/__tests__/**/*.{js,jsx,ts,tsx}',
     '<rootDir>/src/**/*.{test,spec}.{js,jsx,ts,tsx}'
@@ -116,4 +122,12 @@ const customJestConfig = {
 }
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async
-module.exports = createJestConfig(customJestConfig)
+module.exports = async () => {
+  const jestConfig = await createJestConfig(customJestConfig)()
+  // next/jest prepends a blanket '/node_modules/' ignore which defeats the
+  // ESM transpile allowlist above (any matching pattern skips the file).
+  jestConfig.transformIgnorePatterns = jestConfig.transformIgnorePatterns.filter(
+    (pattern) => pattern !== '/node_modules/'
+  )
+  return jestConfig
+}

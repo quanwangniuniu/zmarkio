@@ -1,0 +1,700 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`effective config fixtures matches the stored snapshot 1`] = `
+{
+  "modules": {
+    "admin": {
+      "enabled": true,
+      "label": null,
+      "order": 190,
+    },
+    "ads_draft": {
+      "enabled": true,
+      "label": null,
+      "order": 90,
+    },
+    "agent": {
+      "enabled": true,
+      "label": null,
+      "order": 210,
+    },
+    "budget_pools": {
+      "enabled": true,
+      "label": null,
+      "order": 60,
+    },
+    "calendar": {
+      "enabled": true,
+      "label": null,
+      "order": 130,
+    },
+    "campaigns": {
+      "enabled": true,
+      "label": null,
+      "order": 30,
+    },
+    "csm": {
+      "enabled": true,
+      "label": null,
+      "order": 180,
+    },
+    "decisions": {
+      "enabled": true,
+      "label": null,
+      "order": 50,
+    },
+    "email_draft": {
+      "enabled": true,
+      "label": null,
+      "order": 100,
+    },
+    "integrations": {
+      "enabled": true,
+      "label": null,
+      "order": 200,
+    },
+    "meetings": {
+      "enabled": true,
+      "label": null,
+      "order": 120,
+    },
+    "messages": {
+      "enabled": true,
+      "label": null,
+      "order": 140,
+    },
+    "meta_ads": {
+      "enabled": true,
+      "label": null,
+      "order": 40,
+    },
+    "miro": {
+      "enabled": true,
+      "label": null,
+      "order": 150,
+    },
+    "notifications": {
+      "enabled": true,
+      "label": null,
+      "order": 220,
+    },
+    "notion": {
+      "enabled": true,
+      "label": null,
+      "order": 110,
+    },
+    "overview": {
+      "enabled": true,
+      "label": null,
+      "order": 10,
+    },
+    "shell": {
+      "enabled": true,
+      "label": null,
+      "order": 230,
+    },
+    "spreadsheets": {
+      "enabled": true,
+      "label": null,
+      "order": 70,
+    },
+    "tasks": {
+      "enabled": true,
+      "label": null,
+      "order": 20,
+    },
+    "timeline": {
+      "enabled": true,
+      "label": null,
+      "order": 170,
+    },
+    "variations_studio": {
+      "enabled": true,
+      "label": null,
+      "order": 80,
+    },
+    "workflows": {
+      "enabled": true,
+      "label": null,
+      "order": 160,
+    },
+  },
+  "surfaces": {
+    "integrations.provider.slack": {
+      "label": null,
+      "order": 10,
+      "visible": true,
+    },
+    "nav.group.manage": {
+      "label": null,
+      "order": 0,
+      "visible": true,
+    },
+    "nav.item.ads_draft.facebook_meta": {
+      "label": null,
+      "order": 20,
+      "visible": true,
+    },
+    "nav.item.tasks": {
+      "label": null,
+      "order": 10,
+      "visible": true,
+    },
+    "overview.card.meetings": {
+      "label": null,
+      "order": 40,
+      "visible": true,
+    },
+    "shell.usermenu.subscription": {
+      "label": null,
+      "order": 10,
+      "visible": true,
+    },
+    "tasks.tab.gantt": {
+      "label": null,
+      "order": 30,
+      "visible": true,
+    },
+  },
+  "version": 1,
+}
+`;
+
+exports[`effective config fixtures matches the stored snapshot 2`] = `
+{
+  "modules": {
+    "admin": {
+      "enabled": true,
+      "label": null,
+      "order": 190,
+    },
+    "ads_draft": {
+      "enabled": true,
+      "label": null,
+      "order": 90,
+    },
+    "agent": {
+      "enabled": true,
+      "label": null,
+      "order": 210,
+    },
+    "budget_pools": {
+      "enabled": true,
+      "label": null,
+      "order": 60,
+    },
+    "calendar": {
+      "enabled": true,
+      "label": null,
+      "order": 130,
+    },
+    "campaigns": {
+      "enabled": true,
+      "label": null,
+      "order": 30,
+    },
+    "csm": {
+      "enabled": false,
+      "label": null,
+      "order": 180,
+    },
+    "decisions": {
+      "enabled": true,
+      "label": null,
+      "order": 50,
+    },
+    "email_draft": {
+      "enabled": true,
+      "label": null,
+      "order": 100,
+    },
+    "integrations": {
+      "enabled": true,
+      "label": null,
+      "order": 200,
+    },
+    "meetings": {
+      "enabled": true,
+      "label": null,
+      "order": 120,
+    },
+    "messages": {
+      "enabled": true,
+      "label": null,
+      "order": 140,
+    },
+    "meta_ads": {
+      "enabled": true,
+      "label": null,
+      "order": 40,
+    },
+    "miro": {
+      "enabled": false,
+      "label": null,
+      "order": 150,
+    },
+    "notifications": {
+      "enabled": true,
+      "label": null,
+      "order": 220,
+    },
+    "notion": {
+      "enabled": true,
+      "label": null,
+      "order": 110,
+    },
+    "overview": {
+      "enabled": true,
+      "label": null,
+      "order": 10,
+    },
+    "shell": {
+      "enabled": true,
+      "label": null,
+      "order": 230,
+    },
+    "spreadsheets": {
+      "enabled": true,
+      "label": null,
+      "order": 70,
+    },
+    "tasks": {
+      "enabled": true,
+      "label": "Work Items",
+      "order": 20,
+    },
+    "timeline": {
+      "enabled": false,
+      "label": null,
+      "order": 170,
+    },
+    "variations_studio": {
+      "enabled": true,
+      "label": null,
+      "order": 80,
+    },
+    "workflows": {
+      "enabled": true,
+      "label": null,
+      "order": 160,
+    },
+  },
+  "surfaces": {
+    "integrations.provider.slack": {
+      "label": "Slack Connect",
+      "order": 10,
+      "visible": true,
+    },
+    "nav.group.manage": {
+      "label": null,
+      "order": 0,
+      "visible": true,
+    },
+    "nav.item.ads_draft.facebook_meta": {
+      "label": null,
+      "order": 20,
+      "visible": true,
+    },
+    "nav.item.tasks": {
+      "label": null,
+      "order": 10,
+      "visible": true,
+    },
+    "overview.card.meetings": {
+      "label": null,
+      "order": 40,
+      "visible": true,
+    },
+    "shell.usermenu.subscription": {
+      "label": null,
+      "order": 10,
+      "visible": true,
+    },
+    "tasks.tab.gantt": {
+      "label": null,
+      "order": 30,
+      "visible": false,
+    },
+  },
+  "version": 1,
+}
+`;
+
+exports[`effective config fixtures matches the stored snapshot 3`] = `
+{
+  "modules": {
+    "admin": {
+      "enabled": true,
+      "label": null,
+      "order": 190,
+    },
+    "ads_draft": {
+      "enabled": true,
+      "label": null,
+      "order": 90,
+    },
+    "agent": {
+      "enabled": false,
+      "label": null,
+      "order": 210,
+    },
+    "budget_pools": {
+      "enabled": true,
+      "label": null,
+      "order": 60,
+    },
+    "calendar": {
+      "enabled": true,
+      "label": null,
+      "order": 130,
+    },
+    "campaigns": {
+      "enabled": true,
+      "label": null,
+      "order": 30,
+    },
+    "csm": {
+      "enabled": true,
+      "label": null,
+      "order": 180,
+    },
+    "decisions": {
+      "enabled": true,
+      "label": null,
+      "order": 50,
+    },
+    "email_draft": {
+      "enabled": true,
+      "label": null,
+      "order": 100,
+    },
+    "integrations": {
+      "enabled": true,
+      "label": null,
+      "order": 200,
+    },
+    "meetings": {
+      "enabled": true,
+      "label": null,
+      "order": 120,
+    },
+    "messages": {
+      "enabled": true,
+      "label": null,
+      "order": 140,
+    },
+    "meta_ads": {
+      "enabled": true,
+      "label": null,
+      "order": 40,
+    },
+    "miro": {
+      "enabled": true,
+      "label": null,
+      "order": 150,
+    },
+    "notifications": {
+      "enabled": true,
+      "label": null,
+      "order": 220,
+    },
+    "notion": {
+      "enabled": true,
+      "label": null,
+      "order": 110,
+    },
+    "overview": {
+      "enabled": true,
+      "label": "Project Home",
+      "order": 5,
+    },
+    "shell": {
+      "enabled": true,
+      "label": null,
+      "order": 230,
+    },
+    "spreadsheets": {
+      "enabled": true,
+      "label": null,
+      "order": 70,
+    },
+    "tasks": {
+      "enabled": true,
+      "label": null,
+      "order": 20,
+    },
+    "timeline": {
+      "enabled": true,
+      "label": null,
+      "order": 170,
+    },
+    "variations_studio": {
+      "enabled": true,
+      "label": null,
+      "order": 80,
+    },
+    "workflows": {
+      "enabled": true,
+      "label": null,
+      "order": 160,
+    },
+  },
+  "surfaces": {
+    "integrations.provider.slack": {
+      "label": null,
+      "order": 10,
+      "visible": true,
+    },
+    "nav.group.manage": {
+      "label": null,
+      "order": 0,
+      "visible": true,
+    },
+    "nav.item.ads_draft.facebook_meta": {
+      "label": null,
+      "order": 20,
+      "visible": true,
+    },
+    "nav.item.tasks": {
+      "label": null,
+      "order": 10,
+      "visible": true,
+    },
+    "overview.card.meetings": {
+      "label": null,
+      "order": 5,
+      "visible": false,
+    },
+    "shell.usermenu.subscription": {
+      "label": "Plan",
+      "order": 10,
+      "visible": true,
+    },
+    "tasks.tab.gantt": {
+      "label": null,
+      "order": 30,
+      "visible": true,
+    },
+  },
+  "version": 2,
+}
+`;
+
+exports[`registry fixture matches the stored snapshot 1`] = `
+{
+  "modules": [
+    {
+      "default_order": 10,
+      "default_visible": true,
+      "key": "overview",
+      "label": "Overview",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 20,
+      "default_visible": true,
+      "key": "tasks",
+      "label": "Tasks",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 30,
+      "default_visible": true,
+      "key": "campaigns",
+      "label": "Campaigns",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 40,
+      "default_visible": true,
+      "key": "meta_ads",
+      "label": "Meta Ads",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 50,
+      "default_visible": true,
+      "key": "decisions",
+      "label": "Decisions",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 60,
+      "default_visible": true,
+      "key": "budget_pools",
+      "label": "Budget Pools",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 70,
+      "default_visible": true,
+      "key": "spreadsheets",
+      "label": "Spreadsheets",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 80,
+      "default_visible": true,
+      "key": "variations_studio",
+      "label": "Variations Studio",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 90,
+      "default_visible": true,
+      "key": "ads_draft",
+      "label": "Ads Draft",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 100,
+      "default_visible": true,
+      "key": "email_draft",
+      "label": "Email Draft",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 110,
+      "default_visible": true,
+      "key": "notion",
+      "label": "Notion",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 120,
+      "default_visible": true,
+      "key": "meetings",
+      "label": "Meetings",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 130,
+      "default_visible": true,
+      "key": "calendar",
+      "label": "Calendar",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 140,
+      "default_visible": true,
+      "key": "messages",
+      "label": "Messages",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 150,
+      "default_visible": true,
+      "key": "miro",
+      "label": "Miro",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 160,
+      "default_visible": true,
+      "key": "workflows",
+      "label": "Workflows",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 170,
+      "default_visible": true,
+      "key": "timeline",
+      "label": "Timeline",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 180,
+      "default_visible": true,
+      "key": "csm",
+      "label": "CSM",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 190,
+      "default_visible": true,
+      "key": "admin",
+      "label": "Admin",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 200,
+      "default_visible": true,
+      "key": "integrations",
+      "label": "Integrations",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 210,
+      "default_visible": true,
+      "key": "agent",
+      "label": "Agent",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 220,
+      "default_visible": true,
+      "key": "notifications",
+      "label": "Notifications",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 230,
+      "default_visible": true,
+      "key": "shell",
+      "label": "Shell",
+      "route_prefixes": [],
+    },
+  ],
+  "surfaces": [
+    {
+      "default_order": 0,
+      "default_visible": true,
+      "key": "nav.group.manage",
+      "label": "Manage",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 10,
+      "default_visible": true,
+      "key": "nav.item.tasks",
+      "label": "Tasks",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 20,
+      "default_visible": true,
+      "key": "nav.item.ads_draft.facebook_meta",
+      "label": "Meta Ads Draft",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 30,
+      "default_visible": true,
+      "key": "tasks.tab.gantt",
+      "label": "Gantt",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 40,
+      "default_visible": true,
+      "key": "overview.card.meetings",
+      "label": "Meetings",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 10,
+      "default_visible": true,
+      "key": "integrations.provider.slack",
+      "label": "Slack",
+      "route_prefixes": [],
+    },
+    {
+      "default_order": 10,
+      "default_visible": true,
+      "key": "shell.usermenu.subscription",
+      "label": "Subscription",
+      "route_prefixes": [],
+    },
+  ],
+}
+`;
