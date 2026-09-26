@@ -6,5 +6,6 @@ class AgentConfig(AppConfig):
     name = 'agent'
 
     def ready(self):
-        """Import signal handlers when Django starts."""
+        """Register checks without disabling the diagnostics endpoint."""
         import agent.signals  # noqa: F401
+        import agent.checks  # noqa: F401

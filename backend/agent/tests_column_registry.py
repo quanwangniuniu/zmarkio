@@ -10,6 +10,7 @@ Coverage:
   - ColumnDetectionResult: to_dict round-trip, column_confidences defaults
 """
 import json
+import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -24,8 +25,12 @@ from .column_registry import (
     CAT_UNKNOWN,
     CAT_TEMPORAL,
     ColumnDetectionResult,
+    ColumnRegistryCollisionError,
     detect_columns,
     normalize_spreadsheet,
+    register_column,
+    register_schema,
+    validate_registry,
 )
 from . import column_registry as registry
 
@@ -50,6 +55,157 @@ def _make_spreadsheet(columns, rows=None):
         'name': 'Test',
         'sheets': [{'name': 'Sheet1', 'columns': columns, 'rows': rows or []}],
     }
+
+
+# ---------------------------------------------------------------------------
+# Registry collision detection
+# ---------------------------------------------------------------------------
+
+class ColumnRegistryCollisionTests(SimpleTestCase):
+    def setUp(self):
+        from .column_registry_state import ColumnRegistry
+        self.env = patch.dict(os.environ, {'AGENT_COLUMN_REGISTRY_TEST_MODE': '0'})
+        self.env.start()
+        self.addCleanup(self.env.stop)
+        self.state = ColumnRegistry()
+        self.state.initialize([('test', {'name': 'Test', 'columns': [('revenue', {'aliases': ['Sales']})]})])
+        self.patcher = patch.object(registry, 'SCHEMA_REGISTRY', self.state)
+        self.patcher.start()
+        self.addCleanup(self.patcher.stop)
+
+    def test_duplicate_registration_preserves_original_and_blocks_detection(self):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'revenue', {'category': 'identifier'})
+        self.assertEqual(self.state['test']['columns']['revenue']['aliases'], ('Sales',))
+        with self.assertRaises(ColumnRegistryCollisionError):
+            registry.detect_columns(['Sales'])
+        with self.assertRaises(ColumnRegistryCollisionError):
+            validate_registry()
+
+    def test_alias_collision_is_normalised(self):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'other', {'aliases': [' SALES ']})
+
+    def test_duplicate_schema_key_is_rejected(self):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_schema('test', {'name': 'Replacement', 'columns': []})
+        self.assertEqual(self.state['test']['name'], 'Test')
+
+    def test_normalised_canonical_collision_is_rejected(self):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', ' REVENUE ', {})
+
+    def test_distinct_schemas_can_share_names(self):
+        register_schema('other', {'name': 'Other', 'columns': {'revenue': {}}})
+        self.assertEqual(len(self.state), 2)
+
+    def test_direct_mutations_are_blocked(self):
+        with self.assertRaises(TypeError):
+            self.state['test']['columns']['revenue']['category'] = 'identifier'
+        with self.assertRaises(TypeError):
+            self.state['test'] = {}
+
+    def test_malformed_registration_is_atomic(self):
+        before = self.state.snapshot()
+        with self.assertRaises(ValueError):
+            register_schema('broken', {'name': 'Broken'})
+        self.assertIs(before, self.state.snapshot())
+        self.assertNotIn('broken', self.state)
+        self.assertEqual(registry._try_rule_match(['Sales']).mappings['Sales'], 'revenue')
+
+    def test_duplicate_pairs_survive_until_boot_check(self):
+        from .column_registry_state import ColumnRegistry
+        state = ColumnRegistry()
+        state.initialize([('broken', {'name': 'Broken', 'columns': [('same', {}), ('same', {})]})])
+        with self.assertRaises(ColumnRegistryCollisionError):
+            state.check()
+        with patch.object(registry, 'SCHEMA_REGISTRY', state):
+            response = self._config_status(is_staff=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['column_registry']['ok'])
+
+    def test_env_flag_allows_actual_overwrite(self):
+        with patch.dict(os.environ, {'AGENT_COLUMN_REGISTRY_TEST_MODE': '1'}):
+            register_column('test', 'revenue', {'aliases': ['New'], 'category': 'financial'})
+            self.assertEqual(self.state['test']['columns']['revenue']['category'], 'financial')
+            self.assertEqual(registry._try_rule_match(['New']).mappings['New'], 'revenue')
+            self.assertIsNone(registry._try_rule_match(['Sales']))
+
+    def test_collision_check_is_enabled_without_env_flag(self):
+        with patch.dict(os.environ):
+            os.environ.pop('AGENT_COLUMN_REGISTRY_TEST_MODE', None)
+            with self.assertRaises(ColumnRegistryCollisionError):
+                register_column('test', 'revenue', {})
+
+    def test_module_reload_preserves_plugins_and_collision_type(self):
+        import importlib
+        from . import column_registry_state
+        with patch.object(column_registry_state, 'registry', self.state):
+            importlib.reload(registry)
+            self.assertIs(registry.SCHEMA_REGISTRY, self.state)
+            self.assertIn('test', registry.SCHEMA_REGISTRY)
+            self.assertIs(registry.ColumnRegistryCollisionError, ColumnRegistryCollisionError)
+            with self.assertRaises(ColumnRegistryCollisionError):
+                registry.register_schema('test', {'name': 'Reloaded plugin', 'columns': []})
+            self.assertEqual(self.state['test']['name'], 'Test')
+        importlib.reload(registry)
+        self.patcher.stop()
+        self.patcher.start()
+
+    def test_pending_error_survives_module_reload(self):
+        import importlib
+        from . import column_registry_state
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'revenue', {})
+        with patch.object(column_registry_state, 'registry', self.state):
+            try:
+                importlib.reload(registry)
+                with self.assertRaises(ColumnRegistryCollisionError):
+                    registry.detect_columns(['Sales'])
+            finally:
+                registry.SCHEMA_REGISTRY = self.state
+        # Cleanup restores the original singleton even if the assertion fails.
+
+    def test_rejected_registration_reaches_system_check_and_status_endpoint(self):
+        from .checks import check_column_registry
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'revenue', {})
+        self.assertEqual(check_column_registry(None)[0].id, 'agent.E001')
+        response = self._config_status(is_staff=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['column_registry']['ok'])
+        self.assertEqual(response.data['column_registry']['code'], 'COLUMN_REGISTRY_COLLISION')
+
+    def _config_status(self, *, is_staff=False):
+        from .views import AgentConfigStatusView
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        request = APIRequestFactory().get('/api/agent/config/status/')
+        force_authenticate(request, user=SimpleNamespace(is_authenticated=True, is_staff=is_staff))
+        return AgentConfigStatusView.as_view()(request)
+
+    def test_status_endpoint_does_not_read_database_templates(self):
+        with patch('agent.models.DataSchemaTemplate.objects') as manager:
+            response = self._config_status(is_staff=True)
+        self.assertEqual(response.data['column_registry'], {'ok': True})
+        manager.filter.assert_not_called()
+
+    @patch('agent.views.is_org_admin', return_value=False)
+    def test_status_endpoint_omits_registry_for_non_admin(self, _is_org_admin):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'revenue', {})
+        response = self._config_status()
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('column_registry', response.data)
+        self.assertIn('gemini', response.data)
+
+    @patch('agent.views.is_org_admin', return_value=True)
+    def test_status_endpoint_exposes_collision_to_org_admin(self, _is_org_admin):
+        with self.assertRaises(ColumnRegistryCollisionError):
+            register_column('test', 'revenue', {})
+        response = self._config_status()
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['column_registry']['ok'])
+        self.assertEqual(response.data['column_registry']['code'], 'COLUMN_REGISTRY_COLLISION')
 
 
 # ---------------------------------------------------------------------------

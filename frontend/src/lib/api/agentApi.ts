@@ -350,11 +350,13 @@ export const AgentAPI = {
   },
 
   getConfigStatus: async (): Promise<{
-    dify_api: boolean;
-    dify_chat: boolean;
-    dify_calendar: boolean;
-    dify_miro: boolean;
+    gemini: boolean;
     anthropic: boolean;
+    column_registry?: {
+      ok: boolean;
+      code?: string;
+      error?: string;
+    };
   }> => {
     const response = await api.get('/api/agent/config/status/');
     return response.data;

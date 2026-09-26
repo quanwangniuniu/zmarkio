@@ -15,12 +15,30 @@ Public API:
   normalize_spreadsheet(data, column_mapping) -> normalized data dict
   auto_categorize_by_name(canonical_name)     -> category string
   save_learned_template(schema_name, source_platform, columns, project) -> DataSchemaTemplate | None
+  register_schema(schema_key, schema)         -> registered schema
+  register_column(schema_key, canonical_name, spec) -> registered column
+
+Plugin author guidance:
+  Register through these APIs; SCHEMA_REGISTRY and nested definitions are read-only.
+  Example: register_schema('my_plugin', {'name': 'My export', 'columns': []})
+           register_column('my_plugin', 'sales', {'aliases': ['Total Sales']})
+  Schema keys must be unique. Within a schema, canonical names and aliases must
+  be unambiguous after ignoring case and whitespace/underscore differences.
+  Use (name, spec) pairs for bulk columns: dict literals discard duplicate keys.
+  Registration raises ColumnRegistryCollisionError without replacing live data.
+  AGENT_COLUMN_REGISTRY_TEST_MODE=1 permits overwrites for test fixtures only.
+  State survives reload of this module; registering the same plugin again raises.
+  Catch registration collisions at the plugin startup boundary if diagnostics
+  must remain available. Fix the definitions and restart to clear the failure.
 """
 
 import json
 import logging
 import os
 import re
+from .column_registry_state import (
+    ColumnRegistryCollisionError, registry as SCHEMA_REGISTRY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -222,161 +240,161 @@ def save_learned_template(schema_name: str, source_platform: str,
 #   columns     — {canonical_name: {aliases, category, description}}
 # ---------------------------------------------------------------------------
 
-SCHEMA_REGISTRY = {
-    "meta_ads": {
+_BUILTIN_SCHEMAS = [
+    ("meta_ads", {
         "name": "Meta Ads Performance",
         "source_hint": "Meta Ads Manager export",
-        "columns": {
+        "columns": [
             # --- Identifiers ---
-            "campaign_name": {
+            ("campaign_name", {
                 "aliases": ["campaign name", "campaign", "campaign_name"],
                 "category": CAT_IDENTIFIER,
                 "description": "Campaign name",
-            },
-            "ad_set_name": {
+            }),
+            ("ad_set_name", {
                 "aliases": [
                     "ad set name", "adset name", "adset_name", "ad_set_name",
                 ],
                 "category": CAT_IDENTIFIER,
                 "description": "Ad set name",
-            },
-            "ad_name": {
+            }),
+            ("ad_name", {
                 "aliases": [
                     "ad name", "ad_name", "creative name", "creative_name",
                 ],
                 "category": CAT_IDENTIFIER,
                 "description": "Ad name / creative",
-            },
-            "campaign_id": {
+            }),
+            ("campaign_id", {
                 "aliases": ["campaign id", "campaign_id"],
                 "category": CAT_IDENTIFIER,
                 "description": "Campaign ID",
-            },
-            "ad_set_id": {
+            }),
+            ("ad_set_id", {
                 "aliases": [
                     "ad set id", "adset id", "adset_id", "ad_set_id",
                 ],
                 "category": CAT_IDENTIFIER,
                 "description": "Ad set ID",
-            },
-            "ad_id": {
+            }),
+            ("ad_id", {
                 "aliases": ["ad id", "ad_id"],
                 "category": CAT_IDENTIFIER,
                 "description": "Ad ID",
-            },
+            }),
             # --- Financial ---
-            "amount_spent": {
+            ("amount_spent", {
                 "aliases": [
                     "amount spent", "amount_spent", "spend", "ad spend",
                     "ad_spend", "cost", "total spend", "total_spend",
                 ],
                 "category": CAT_FINANCIAL,
                 "description": "Total amount spent (currency)",
-            },
-            "cpm": {
+            }),
+            ("cpm", {
                 "aliases": [
                     "cpm", "cost per 1000 impressions",
                     "cost per thousand impressions",
                 ],
                 "category": CAT_FINANCIAL,
                 "description": "Cost per 1,000 impressions",
-            },
-            "cpc": {
+            }),
+            ("cpc", {
                 "aliases": ["cpc", "cost per click", "cost per link click"],
                 "category": CAT_FINANCIAL,
                 "description": "Cost per click",
-            },
-            "cpp": {
+            }),
+            ("cpp", {
                 "aliases": ["cpp", "cost per purchase", "cost per result"],
                 "category": CAT_FINANCIAL,
                 "description": "Cost per purchase / result",
-            },
+            }),
             # --- Engagement ---
-            "impressions": {
+            ("impressions", {
                 "aliases": ["impressions", "impression"],
                 "category": CAT_ENGAGEMENT,
                 "description": "Total impressions",
-            },
-            "reach": {
+            }),
+            ("reach", {
                 "aliases": ["reach", "unique reach"],
                 "category": CAT_ENGAGEMENT,
                 "description": "Unique accounts reached",
-            },
-            "clicks": {
+            }),
+            ("clicks", {
                 "aliases": ["clicks", "all clicks", "total clicks"],
                 "category": CAT_ENGAGEMENT,
                 "description": "Total clicks (all)",
-            },
-            "link_clicks": {
+            }),
+            ("link_clicks", {
                 "aliases": ["link clicks", "link_clicks", "unique link clicks"],
                 "category": CAT_ENGAGEMENT,
                 "description": "Link clicks",
-            },
-            "frequency": {
+            }),
+            ("frequency", {
                 "aliases": ["frequency"],
                 "category": CAT_ENGAGEMENT,
                 "description": "Average times each person saw the ad",
-            },
-            "video_views": {
+            }),
+            ("video_views", {
                 "aliases": [
                     "video views", "video_views", "3-second video views",
                     "thruplays", "thruplay", "2-second continuous video views",
                 ],
                 "category": CAT_ENGAGEMENT,
                 "description": "Video views",
-            },
+            }),
             # --- Conversion ---
-            "purchases": {
+            ("purchases", {
                 "aliases": [
                     "purchases", "purchase", "conversions", "results",
                     "website purchases", "omni purchases",
                 ],
                 "category": CAT_CONVERSION,
                 "description": "Purchase / conversion events",
-            },
-            "purchase_roas": {
+            }),
+            ("purchase_roas", {
                 "aliases": [
                     "purchase roas", "purchase_roas", "roas",
                     "website purchase roas",
                 ],
                 "category": CAT_CONVERSION,
                 "description": "Return on ad spend (purchases)",
-            },
-            "add_to_cart": {
+            }),
+            ("add_to_cart", {
                 "aliases": [
                     "add to cart", "add_to_cart", "adds to cart",
                     "website adds to cart",
                 ],
                 "category": CAT_CONVERSION,
                 "description": "Add-to-cart events",
-            },
-            "leads": {
+            }),
+            ("leads", {
                 "aliases": [
                     "leads", "lead", "on-facebook leads", "website leads",
                 ],
                 "category": CAT_CONVERSION,
                 "description": "Lead generation events",
-            },
+            }),
             # --- Performance ratios ---
-            "ctr": {
+            ("ctr", {
                 "aliases": [
                     "ctr", "click-through rate", "click through rate",
                     "ctr (all)", "all ctr",
                 ],
                 "category": CAT_PERFORMANCE_RATIO,
                 "description": "Click-through rate (all clicks / impressions)",
-            },
-            "link_ctr": {
+            }),
+            ("link_ctr", {
                 "aliases": [
                     "link ctr", "link_ctr",
                     "ctr (link click-through rate)",
                 ],
                 "category": CAT_PERFORMANCE_RATIO,
                 "description": "Link click-through rate",
-            },
-        },
-    },
-}
+            }),
+        ],
+    }),
+]
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -387,20 +405,23 @@ def _normalise(text: str) -> str:
     return re.sub(r"[\s_]+", " ", text.strip().lower())
 
 
-def _build_alias_index(schema: dict) -> dict:
-    """Return {normalised_alias: canonical_name} for a single schema."""
-    index = {}
-    for canonical, spec in schema["columns"].items():
-        for alias in spec["aliases"]:
-            index[_normalise(alias)] = canonical
-    return index
+def validate_registry() -> list:
+    """Report retained registration failures without preventing diagnostics boot."""
+    SCHEMA_REGISTRY.check()
+    return []
 
 
-# Pre-compute alias indexes for every schema at import time.
-_SCHEMA_INDEXES = {
-    schema_key: _build_alias_index(schema)
-    for schema_key, schema in SCHEMA_REGISTRY.items()
-}
+def register_schema(schema_key: str, schema: dict):
+    """Register a unique schema; use (name, spec) pairs to preserve duplicates."""
+    return SCHEMA_REGISTRY.register_schema(schema_key, schema)
+
+
+def register_column(schema_key: str, canonical_name: str, spec: dict):
+    """Register a column, raising on a canonical-name or alias collision."""
+    return SCHEMA_REGISTRY.register_column(schema_key, canonical_name, spec)
+
+
+SCHEMA_REGISTRY.initialize(_BUILTIN_SCHEMAS)
 
 # ---------------------------------------------------------------------------
 # Detection result
@@ -470,8 +491,9 @@ def _try_rule_match(headers: list) -> "ColumnDetectionResult | None":
     best_result = None
     best_confidence = 0.0
 
-    for schema_key, alias_index in _SCHEMA_INDEXES.items():
-        schema = SCHEMA_REGISTRY[schema_key]
+    schemas, indexes = SCHEMA_REGISTRY.snapshot()
+    for schema_key, alias_index in indexes.items():
+        schema = schemas[schema_key]
         mappings = {}
         categories = {}
         unrecognized = []
@@ -693,6 +715,7 @@ def detect_columns(headers: list, sample_rows: list = None,
         confidence scores.  Columns the AI could not classify receive the category
         inferred by auto_categorize_by_name(), or 'unknown' if inference also fails.
     """
+    validate_registry()
     if not headers:
         return _unknown_result([])
 
