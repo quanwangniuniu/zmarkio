@@ -25,13 +25,14 @@ package*.json
 frontend/storybook-static/
 backend/venv/
 docker-compose.dev.override.yml
-.claude/
-**/.env.local
+# Claude Code — shared config (CLAUDE.md, .claude/) is committed; personal overrides are not
+.claude/settings.local.json
+.claude/rules/*.local.md
 .claude/.cursorrules
-CLAUDE.md
+CLAUDE.local.md
+**/.env.local
 figma/
 nul
-.claude/
 .cursorrules
 backend/celerybeat-schedule
 backend/celerybeat.pid
