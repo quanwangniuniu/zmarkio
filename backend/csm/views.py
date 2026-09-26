@@ -16,6 +16,7 @@ from core.admin_permissions import IsCsmAccessAllowed
 from core.permissions import IsProjectMember
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from core.slug_mixins import SlugLookupViewSetMixin
+from csm.services.scope import accessible_queues_for
 
 from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, Ticket, CsmNotification,
@@ -366,29 +367,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
     pagination_class = ConversationPagination
 
     def _accessible_queues(self):
-        user = self.request.user
-        qs = Queue.objects.filter(is_active=True)
-        if user.is_staff or user.is_superuser:
-            return qs
-
-        admin_org_ids = CustomerUser.objects.filter(
-            user=user,
-            is_active=True,
-            user_type__in=('supervisor', 'admin'),
-            organisation__isnull=False,
-        ).values_list('organisation_id', flat=True)
-        agent_queue_ids = QueueAgent.objects.filter(user=user).values_list('queue_id', flat=True)
-        profile_queue_ids = CustomerUser.objects.filter(
-            user=user,
-            is_active=True,
-            queue__isnull=False,
-        ).values_list('queue_id', flat=True)
-
-        return qs.filter(
-            Q(organisation_id__in=admin_org_ids)
-            | Q(id__in=agent_queue_ids)
-            | Q(id__in=profile_queue_ids)
-        ).distinct()
+        return accessible_queues_for(self.request.user)
 
     def get_queryset(self):
         user = self.request.user

@@ -162,6 +162,31 @@ def is_csm_admin(user):
     return len(get_csm_admin_org_ids(user)) > 0
 
 
+def get_csm_supervisor_org_ids(user):
+    """Return CustomerOrganisation IDs where user supervises CSM work.
+
+    Admins count as supervisors — that is already how queue access
+    (``csm.services.scope.accessible_queues_for``) and template-tag management
+    treat the two roles.
+    """
+    if not user or not getattr(user, 'is_authenticated', False):
+        return []
+    from csm.models import CustomerUser
+    return list(
+        CustomerUser.objects.filter(
+            user=user, user_type__in=('supervisor', 'admin'), is_active=True,
+            organisation__isnull=False,
+        ).values_list('organisation_id', flat=True).distinct()
+    )
+
+
+def is_csm_supervisor(user):
+    """Return True if user may review CSM conversation quality."""
+    if getattr(user, 'is_staff', False) or getattr(user, 'is_superuser', False):
+        return True
+    return len(get_csm_supervisor_org_ids(user)) > 0
+
+
 def get_user_organizations(user):
     """Get all organizations the user belongs to.
 

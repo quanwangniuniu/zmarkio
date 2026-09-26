@@ -15,8 +15,14 @@ import { ConversationActions } from '@/components/csm/conversations/Conversation
 import { CreateTicketModal } from '@/components/csm/conversations/CreateTicketModal';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import Link from 'next/link';
+import { ClipboardCheck } from 'lucide-react';
+import { useAuthStore } from '@/lib/authStore';
+import { useBuildUrl } from '@/lib/buildUrl';
 
 function ConversationsPageContent() {
+  const buildUrl = useBuildUrl();
+  const isSupervisor = useAuthStore((s) => Boolean(s.user?.is_csm_supervisor));
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<ConversationDetail | null>(null);
   const [leftTab, setLeftTab] = useState<'conversations' | 'mytickets'>('conversations');
@@ -116,6 +122,17 @@ function ConversationsPageContent() {
             My Tickets
           </button>
         </div>
+
+        {/* Supervisors review closed conversations in the quality area. */}
+        {isSupervisor && (
+          <Link
+            href={buildUrl('/csm/quality')}
+            className="flex shrink-0 items-center gap-1.5 border-b border-gray-100 px-3 py-2 text-xs font-medium text-gray-500 transition-colors hover:bg-gray-50 hover:text-[#1a9ba3]"
+          >
+            <ClipboardCheck className="h-3.5 w-3.5" />
+            Conversation quality
+          </Link>
+        )}
 
         {/* Queue selector — only shown on Conversations tab */}
         {leftTab === 'conversations' && (

@@ -10,6 +10,7 @@ interface ProtectedRouteProps {
   requiredAuth?: boolean; // Whether authentication is required
   requiredRoles?: string[]; // Required roles for access
   requireAdmin?: boolean; // Require org admin or CSM admin
+  requireSupervisor?: boolean; // Require CSM supervisor (admins and staff qualify)
   fallback?: string; // Redirect path if access is denied
   loadingComponent?: React.ReactNode; // Custom loading component
   renderChildrenWhileLoading?: boolean;
@@ -21,6 +22,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   requiredAuth = true,
   requiredRoles = [],
   requireAdmin = false,
+  requireSupervisor = false,
   fallback = '/login',
   loadingComponent,
   renderChildrenWhileLoading = false,
@@ -35,6 +37,10 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   const isAdmin = Boolean(user?.is_org_admin || user?.is_csm_admin);
   const passesAdminCheck = !requireAdmin || isAdmin;
+
+  // is_csm_supervisor already covers CSM admins and Django staff server-side.
+  const isSupervisor = Boolean(user?.is_csm_supervisor);
+  const passesSupervisorCheck = !requireSupervisor || isSupervisor;
 
   // Handle authentication and role checks
   useEffect(() => {
@@ -58,7 +64,13 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       router.push('/unauthorized');
       return;
     }
-  }, [isAuthenticated, authIsBooting, requiredAuth, requiredRoles, requireAdmin, router, fallback, hasRequiredRoles, passesAdminCheck]);
+
+    // If supervisor is required but user does not supervise anything
+    if (requireSupervisor && !passesSupervisorCheck) {
+      router.push('/unauthorized');
+      return;
+    }
+  }, [isAuthenticated, authIsBooting, requiredAuth, requiredRoles, requireAdmin, requireSupervisor, router, fallback, hasRequiredRoles, passesAdminCheck, passesSupervisorCheck]);
 
   // Show loading while authentication is being initialized
   if (authIsBooting) {
@@ -83,6 +95,11 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   // If admin required but not admin
   if (!passesAdminCheck) {
+    return null;
+  }
+
+  // If supervisor required but not a supervisor
+  if (!passesSupervisorCheck) {
     return null;
   }
 
