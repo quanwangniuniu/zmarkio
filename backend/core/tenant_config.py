@@ -50,6 +50,16 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     )
 
     # ------------------------------------------------------------------
+    # org_customization — project-level module/surface overrides (depend on
+    # core.Project only). The org-level config tables (Organization*Config)
+    # stay in public and are intentionally NOT registered here.
+    # ------------------------------------------------------------------
+    from org_customization.models import (
+        ProjectModuleOverride,
+        ProjectSurfaceOverride,
+    )
+
+    # ------------------------------------------------------------------
     # task
     # ------------------------------------------------------------------
     from task.models import (
@@ -261,6 +271,9 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         # core - other models
         Team,
         Project,
+        # org_customization (depend on Project; created after it)
+        ProjectModuleOverride,
+        ProjectSurfaceOverride,
         ProjectMember,
         ProjectInvitation,
         AdChannel,
