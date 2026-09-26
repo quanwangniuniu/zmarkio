@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto';
 
 import {
-  AI_QUOTA_MESSAGE,
   BATCH_CONCURRENCY,
   MAX_BATCH,
   defaultCopyGenerator,
@@ -43,10 +42,14 @@ async function generateCopies(
   userPrompt: string,
   count: number,
   generator: CopyGenerator
-): Promise<{ copies: CopyJson[]; failedIndices: number[]; quotaFailed: boolean }> {
+): Promise<{
+  copies: CopyJson[];
+  failedIndices: number[];
+  providerError?: string;
+}> {
   const ordered: Array<CopyJson | null> = Array.from({ length: count }, () => null);
   const failedIndices: number[] = [];
-  let quotaFailed = false;
+  let providerError: string | undefined;
   let next = 0;
 
   async function worker() {
@@ -57,7 +60,10 @@ async function generateCopies(
       try {
         ordered[index] = await generator.generateCopy(systemPrompt, userPrompt);
       } catch (err) {
-        if (generator.isQuotaError(err)) quotaFailed = true;
+        const message = generator.getErrorMessage(err);
+        if (!providerError && message) {
+          providerError = message;
+        }
         failedIndices.push(index);
       }
     }
@@ -69,7 +75,7 @@ async function generateCopies(
   return {
     copies: ordered.filter((row): row is CopyJson => row !== null),
     failedIndices,
-    quotaFailed,
+    providerError,
   };
 }
 
@@ -124,7 +130,7 @@ export async function runCustomGenerate(args: {
   schema: string;
   userId: number;
   body: Record<string, unknown>;
-  /** Optional inject for tests / alternate providers. Defaults to Gemini. */
+  /** Optional inject for tests / alternate providers. Defaults to Ollama. */
   generator?: CopyGenerator;
 }): Promise<GenerateBatchResponse> {
   const generator = args.generator ?? defaultCopyGenerator;
@@ -160,7 +166,7 @@ export async function runCustomGenerate(args: {
 
   const spec = getPlatformSpec('meta');
   const batchId = randomUUID();
-  const { copies, failedIndices, quotaFailed } = await generateCopies(
+  const { copies, failedIndices, providerError } = await generateCopies(
     spec.promptFragment,
     modeResult.userPrompt,
     count,
@@ -191,8 +197,8 @@ export async function runCustomGenerate(args: {
     results: saved.map(serializeVariation),
     failed_indices: failedIndices,
   };
-  if (!copies.length && quotaFailed) {
-    payload.error = AI_QUOTA_MESSAGE;
+  if (failedIndices.length > 0 && providerError) {
+    payload.error = providerError;
   }
   return payload;
 }

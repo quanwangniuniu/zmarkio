@@ -1,8 +1,8 @@
 import type { CopyGenerator } from './types';
-import { MODEL_NAME } from './prompts';
-import { callGeminiJson, isGeminiQuotaError } from './providers/gemini';
+import { callOllamaJson, getOllamaConfig, getOllamaErrorMessage, } from './providers/ollama';
 
 export type { CopyGenerator, CopyJson } from './types';
+
 export {
   MAX_BATCH,
   BATCH_CONCURRENCY,
@@ -15,6 +15,14 @@ export {
   buildExternalUrlPrompt,
   buildUserPrompt,
 } from './prompts';
+
+export {
+  OllamaError,
+  callOllamaJson,
+  getOllamaConfig,
+  getOllamaErrorMessage,
+} from './providers/ollama';
+
 export {
   GeminiError,
   callGeminiJson,
@@ -23,16 +31,18 @@ export {
 } from './providers/gemini';
 
 /**
- * Build the default CopyGenerator (Gemini today).
- * Uses live imports so Jest can mock `@/src/ai/providers/gemini` and still
- * exercise the real generate orchestrator path.
+ * Build the default CopyGenerator for Ads Generation.
+ * Configuration is read lazily so unrelated endpoints can start even when
+ * Ollama has not been configured.
  */
 export function createCopyGenerator(): CopyGenerator {
   return {
-    modelName: MODEL_NAME,
+    get modelName() {
+      return getOllamaConfig().model;
+    },
     generateCopy: (systemPrompt, userPrompt) =>
-      callGeminiJson(systemPrompt, userPrompt),
-    isQuotaError: (err) => isGeminiQuotaError(err),
+      callOllamaJson(systemPrompt, userPrompt),
+    getErrorMessage: getOllamaErrorMessage,
   };
 }
 

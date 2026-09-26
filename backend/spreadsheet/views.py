@@ -1660,7 +1660,7 @@ class UserDefinedFunctionView(APIView):
 
 class UserDefinedFunctionDetailView(APIView):
     permission_classes = [IsAuthenticated]
-    
+
     def _get_udf(self, request, project_slug, udf_id, select_for_update=False):
         from core.models import Project, ProjectMember
         project = get_object_or_404(Project, slug=project_slug, is_deleted=False)

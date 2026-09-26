@@ -1,5 +1,5 @@
 import { POST as generate } from '@/app/api/ad_copy_variation/variations/generate/route';
-import { callGeminiJson, isGeminiQuotaError } from '@/src/ai/providers/gemini';
+import { callOllamaJson, getOllamaErrorMessage, } from '@/src/ai/providers/ollama';
 import { prisma } from '@/lib/prisma';
 import {
   countVariations,
@@ -14,14 +14,27 @@ import {
 import { readJson, studioRequest } from './support/requests';
 import { accessToken } from './support/tokens';
 
-jest.mock('@/src/ai/providers/gemini', () => ({
-  callGeminiJson: jest.fn(),
-  isGeminiQuotaError: jest.fn(() => false),
-}));
+jest.mock('@/src/ai/providers/ollama', () => {
+  const actual = jest.requireActual('@/src/ai/providers/ollama');
 
-const geminiMock = callGeminiJson as jest.MockedFunction<typeof callGeminiJson>;
-const quotaMock = isGeminiQuotaError as jest.MockedFunction<
-  typeof isGeminiQuotaError
+  return {
+    ...actual,
+    callOllamaJson: jest.fn(),
+    getOllamaConfig: jest.fn(() => ({
+      baseUrl: 'http://ollama.test:11434',
+      model: 'test-model',
+      timeoutMs: 5000,
+    })),
+    getOllamaErrorMessage: jest.fn(),
+  };
+});
+
+const ollamaMock = callOllamaJson as jest.MockedFunction<
+  typeof callOllamaJson
+>;
+
+const errorMessageMock = getOllamaErrorMessage as jest.MockedFunction<
+  typeof getOllamaErrorMessage
 >;
 
 let fixture: StudioFixture;
@@ -39,7 +52,9 @@ afterAll(async () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  quotaMock.mockReturnValue(false);
+  errorMessageMock.mockImplementation((error) =>
+    error instanceof Error ? error.message : null
+  );
 });
 
 function copy(label: string) {
@@ -70,7 +85,7 @@ describe('batch generate failure handling', () => {
     // Concurrency means call order does not map to a fixed index, so this
     // asserts on the tallies rather than on which positions failed.
     let call = 0;
-    geminiMock.mockImplementation(async () => {
+    ollamaMock.mockImplementation(async () => {
       call += 1;
       if (call > 1) throw new Error('model exploded');
       return copy('Generated');
@@ -97,7 +112,7 @@ describe('batch generate failure handling', () => {
   });
 
   it('returns 502 and persists nothing when the whole batch fails', async () => {
-    geminiMock.mockRejectedValue(new Error('model exploded'));
+    ollamaMock.mockRejectedValue(new Error('model exploded'));
     const before = await countVariations(fixture.schema, {
       projectId: fixture.projectA,
     });
@@ -118,21 +133,30 @@ describe('batch generate failure handling', () => {
     expect(after).toBe(before);
   });
 
-  it('surfaces a quota exhaustion as its own message', async () => {
-    geminiMock.mockRejectedValue(new Error('429 RESOURCE_EXHAUSTED'));
-    quotaMock.mockReturnValue(true);
+  it('surfaces the Ollama provider error', async () => {
+    ollamaMock.mockRejectedValue(
+      new Error('Unable to connect to Ollama.')
+    );
+    errorMessageMock.mockReturnValue(
+      'Unable to connect to Ollama.'
+    );
 
     const response = await generateBatch(2);
 
     expect(response.status).toBe(502);
     const body = await readJson(response);
-    expect(body.count_succeeded).toBe(0);
-    expect(typeof body.error).toBe('string');
-    expect(body.error as string).toMatch(/quota/i);
+
+    expect(body).toMatchObject({
+      count_requested: 2,
+      count_succeeded: 0,
+      count_failed: 2,
+      results: [],
+      error: 'Unable to connect to Ollama.',
+    });
   });
 
   it('keeps every batch member on one shared batch_id', async () => {
-    geminiMock.mockResolvedValue(copy('Generated'));
+    ollamaMock.mockResolvedValue(copy('Generated'));
 
     const response = await generateBatch(3);
 
@@ -152,7 +176,7 @@ describe('batch generate failure handling', () => {
 
 describe('batch slug allocation', () => {
   it('persists two concurrent identical 50-item batches with unique slugs', async () => {
-    geminiMock.mockResolvedValue(copy('Same'));
+    ollamaMock.mockResolvedValue(copy('Same'));
 
     const [firstResponse, secondResponse] = await Promise.all([
       generateBatch(50),
