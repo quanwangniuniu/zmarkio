@@ -33,6 +33,19 @@ describe('RoutingTracePanel', () => {
     expect(screen.getByRole('button', { name: /re-run/i })).toBeDisabled();
   });
 
+  it('numbers rules by evaluation order even when stored positions have gaps', () => {
+    // After a rule is deleted the remaining positions are e.g. 1 and 3, not 0 and 1.
+    const base = makeTrace();
+    const trace = makeTrace({
+      steps: [{ ...base.steps[0], position: 1 }, { ...base.steps[1], position: 3 }],
+    });
+    renderPanel({ traces: [trace], customerMessages: ['I want a refund'] });
+
+    const steps = screen.getAllByTestId('trace-step');
+    expect(steps[0]).toHaveTextContent('1. Refunds');
+    expect(steps[1]).toHaveTextContent('2. Catch all');
+  });
+
   it('shows each evaluated rule, its condition results and the action', () => {
     renderPanel({ traces: [makeTrace()], customerMessages: ['I want a refund'] });
 

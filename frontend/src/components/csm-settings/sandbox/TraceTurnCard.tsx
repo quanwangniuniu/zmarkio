@@ -62,7 +62,9 @@ export default function TraceTurnCard({ trace, turn, message, previous, expanded
             <p className="text-xs text-gray-500">No routing rules in this experience group.</p>
           ) : (
             <ol className="flex flex-col gap-2">
-              {trace.steps.map((step) => <RuleStepItem key={step.rule_id} step={step} lookups={lookups} />)}
+              {trace.steps.map((step, index) => (
+                <RuleStepItem key={step.rule_id} number={index + 1} step={step} lookups={lookups} />
+              ))}
             </ol>
           )}
 

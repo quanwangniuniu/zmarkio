@@ -27,7 +27,11 @@ function formatActual(field: string, actual: string | number | null, lookups: Su
   return formatConditionValue(field, typeof actual === 'number' ? [actual] : actual, lookups);
 }
 
-export default function RuleStepItem({ step, lookups }: { step: RuleStep; lookups: SummaryLookups }) {
+// `number` is the step's place in evaluation order, like the rules list shows.
+// step.position is the stored sort key and can have gaps after a delete.
+export default function RuleStepItem(
+  { number, step, lookups }: { number: number; step: RuleStep; lookups: SummaryLookups },
+) {
   const style = STATUS_STYLES[step.status];
   const muted = step.status === 'not_reached' || step.status === 'disabled';
 
@@ -35,7 +39,7 @@ export default function RuleStepItem({ step, lookups }: { step: RuleStep; lookup
     <li className={`rounded-lg border border-gray-200 p-3 ${muted ? 'bg-gray-50' : 'bg-white'}`} data-testid="trace-step">
       <div className="flex items-center justify-between gap-2">
         <span className={`text-sm font-medium ${muted ? 'text-gray-500' : 'text-gray-900'}`}>
-          {step.position + 1}. {step.rule_name}
+          {number}. {step.rule_name}
         </span>
         <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${style.className}`}>
           {style.label}
