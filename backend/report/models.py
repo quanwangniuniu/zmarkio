@@ -241,8 +241,13 @@ class ReportShareLink(models.Model):
     """A tokenized, read-only link to one project's Custom KPIs.
 
     The project foreign key is the scope: a link for project A can never be
-    used to read project B. Expiry and revocation are stored here and enforced
-    by the public read path, not by deleting the row.
+    used to read project B. The partial unique constraint only sees
+    ``revoked_at IS NULL``, because a constraint cannot compare ``expires_at``
+    to the moving clock. The create path releases an already-expired row by
+    setting ``revoked_at`` (later than ``expires_at``) before inserting the
+    replacement. A user revoke sets ``revoked_at`` while the link is still
+    unexpired. Public reads check ``expires_at`` first, so a released expired
+    link still reports as expired.
     """
 
     project = models.ForeignKey(
