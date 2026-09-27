@@ -571,7 +571,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         self.assertEqual(result.error, "No spreadsheet_data in input")
 
     @patch("agent.executors.cache.get", return_value={"timezone": "Australia/Adelaide"})
-    @patch("agent.services._run_analysis")
+    @patch("agent.services.orchestrator._run_analysis")
     def test_success_saves_analysis_and_builds_summary(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -634,7 +634,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         mock_cache_get.assert_called_once_with("agent:context:run-123")
 
     @patch("agent.executors.cache.get", return_value=None)
-    @patch("agent.services._run_analysis", return_value={})
+    @patch("agent.services.orchestrator._run_analysis", return_value={})
     def test_analysis_without_recommendations_uses_plain_summary(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -650,7 +650,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         mock_cache_get.assert_called_once()
 
     @patch("agent.executors.cache.get", return_value=None)
-    @patch("agent.services._run_analysis", return_value={})
+    @patch("agent.services.orchestrator._run_analysis", return_value={})
     def test_saved_success_criteria_are_used_when_input_omits_them(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -669,7 +669,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         mock_cache_get.assert_called_once()
 
     @patch("agent.executors.cache.get", return_value=None)
-    @patch("agent.services._run_analysis")
+    @patch("agent.services.orchestrator._run_analysis")
     def test_invalid_generation_outputs_returns_failure(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -690,7 +690,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         mock_cache_get.assert_called_once()
 
     @patch("agent.executors.cache.get", return_value=None)
-    @patch("agent.services._run_analysis")
+    @patch("agent.services.orchestrator._run_analysis")
     def test_gemini_retry_exhaustion_returns_failure(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -706,7 +706,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         mock_cache_get.assert_called_once()
 
     @patch("agent.executors.cache.get", return_value=None)
-    @patch("agent.services._run_analysis")
+    @patch("agent.services.orchestrator._run_analysis")
     def test_unexpected_analysis_error_returns_failure(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -725,7 +725,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
 class CallLLMExecutorTests(SimpleTestCase):
     # Patch the imported name used by the executor, keeping billing and HTTP out.
     @patch("agent.executors._call_llm_unified", autospec=True)
-    @patch("agent.services._get_llm_client", return_value=None)
+    @patch("agent.services.orchestrator._get_llm_client", return_value=None)
     def test_missing_client_returns_configuration_failure(
         self, mock_get_client, mock_call_llm
     ):
@@ -741,7 +741,7 @@ class CallLLMExecutorTests(SimpleTestCase):
         mock_call_llm.assert_not_called()
 
     @patch("agent.executors._call_llm_unified", autospec=True)
-    @patch("agent.services._get_llm_client")
+    @patch("agent.services.orchestrator._get_llm_client")
     def test_success_returns_analysis_and_spreadsheet(
         self, mock_get_client, mock_call_llm
     ):
@@ -771,7 +771,7 @@ class CallLLMExecutorTests(SimpleTestCase):
         )
 
     @patch("agent.executors._call_llm_unified", autospec=True)
-    @patch("agent.services._get_llm_client")
+    @patch("agent.services.orchestrator._get_llm_client")
     def test_raw_input_is_used_when_spreadsheet_key_is_absent(
         self, mock_get_client, mock_call_llm
     ):
@@ -798,7 +798,7 @@ class CallLLMExecutorTests(SimpleTestCase):
         )
 
     @patch("agent.executors._call_llm_unified", autospec=True)
-    @patch("agent.services._get_llm_client", return_value=object())
+    @patch("agent.services.orchestrator._get_llm_client", return_value=object())
     def test_invalid_json_returns_failure(self, _mock_get_client, mock_call_llm):
         mock_call_llm.return_value = {
             "text": "Not JSON", "usage": {"input": 10, "output": 2}
@@ -814,7 +814,7 @@ class CallLLMExecutorTests(SimpleTestCase):
         self.assertIn("Expecting value", result.error)
 
     @patch("agent.executors._call_llm_unified", autospec=True)
-    @patch("agent.services._get_llm_client", return_value=object())
+    @patch("agent.services.orchestrator._get_llm_client", return_value=object())
     def test_json_non_objects_return_failure(self, _mock_get_client, mock_call_llm):
         for response in ([], None, "Plain reply", 7):
             with self.subTest(response=response):
@@ -836,7 +836,7 @@ class CallLLMExecutorTests(SimpleTestCase):
         autospec=True,
         side_effect=ValueError("Invalid LLM response"),
     )
-    @patch("agent.services._get_llm_client", return_value=object())
+    @patch("agent.services.orchestrator._get_llm_client", return_value=object())
     def test_unexpected_llm_error_returns_failure(
         self, mock_get_client, mock_call_llm
     ):

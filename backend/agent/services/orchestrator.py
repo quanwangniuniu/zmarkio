@@ -13,14 +13,14 @@ from spreadsheet.providers import (
     AiAnalysisDisabled,
 )
 from task.models import Task
-from .models import (
+from ..models import (
     AgentSession, AgentMessage, AgentWorkflowRun, ImportedCSVFile,
     AgentWorkflowDefinition, AgentStepExecution,
 )
-from . import data_service
+from .. import data_service
 from core.services import file_parser
-from .agent_utils import json_input, serialize_agent_messages
-from .llm_client import call_llm as _call_llm_unified
+from ..agent_utils import json_input, serialize_agent_messages
+from ..llm_client import call_llm as _call_llm_unified
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +309,7 @@ def _call_gemini_analysis(
 ):
     """Call Gemini to analyze spreadsheet data."""
     from core.services.gemini_client import call_gemini_json
-    from .generation_registry import (
+    from ..generation_registry import (
         build_analysis_prompt,
         normalize_generation_outputs,
     )
@@ -613,7 +613,7 @@ def _call_gemini_spreadsheet_insights(
     ``call_gemini_json``.
     """
     from core.services.gemini_client import call_gemini_json
-    from .llm_client import call_llm as _call_llm_unified
+    from ..llm_client import call_llm as _call_llm_unified
 
     column_summary, cleaned_data = _preprocess_spreadsheet_insights(spreadsheet_data)
     user_prompt = (
@@ -662,7 +662,7 @@ def _run_spreadsheet_insights(
     Propagates QuotaError from the billed path untouched.
     """
     from core.services.gemini_client import _get_api_key as _gemini_key
-    from .generation_registry import GenerationValidationError, validate_recommended_tasks
+    from ..generation_registry import GenerationValidationError, validate_recommended_tasks
     from stripe_meta.exceptions import QuotaError
 
     if not _gemini_key():
@@ -718,7 +718,7 @@ def _call_gemini_calendar_from_analysis(
 ):
     """Suggest calendar events from spreadsheet + analysis context."""
     from core.services.gemini_client import call_gemini_json
-    from .generation_registry import (
+    from ..generation_registry import (
         build_calendar_from_analysis_user_prompt,
         calendar_from_analysis_system_prompt,
         validate_calendar_events_response,
@@ -739,7 +739,7 @@ def _call_gemini_calendar_from_analysis(
             timeout=120,
         )
     else:
-        from .llm_client import call_llm as _call_llm_unified
+        from ..llm_client import call_llm as _call_llm_unified
 
         result = _call_llm_unified(
             agent_session=agent_session,
@@ -759,7 +759,7 @@ def _call_gemini_calendar_from_analysis(
 
 def _coerce_llm_analysis_for_requested(data, requested):
     """Map Claude/legacy full analysis JSON to the requested analysis key set."""
-    from .generation_registry import analysis_keys_for_request, validate_analysis_response
+    from ..generation_registry import analysis_keys_for_request, validate_analysis_response
 
     expected = analysis_keys_for_request(requested)
     if not expected:
@@ -789,7 +789,7 @@ def _run_analysis(
     Raises RuntimeError if no provider is configured or all providers fail.
     Raises GenerationValidationError if the model JSON does not match the contract.
     """
-    from .generation_registry import (
+    from ..generation_registry import (
         GenerationValidationError,
         normalize_generation_outputs,
         validate_analysis_response,
@@ -1023,7 +1023,7 @@ def _call_gemini_chat(
                 timeout=120,
             )
         else:
-            from .llm_client import call_llm as _call_llm_unified
+            from ..llm_client import call_llm as _call_llm_unified
 
             result = _call_llm_unified(
                 agent_session=agent_session,
@@ -1054,15 +1054,15 @@ def _generate_miro_board_for_workflow_run(orchestrator, workflow_run, context_pa
     Legacy ``generate_miro`` is an explicit user action — clicking Generate Miro
     counts as approval, so we never pause on a separate miro_board approval step.
     """
-    from .approval_gate import KIND_MIRO_BOARD
-    from .miro_generation import (
+    from ..approval_gate import KIND_MIRO_BOARD
+    from ..miro_generation import (
         build_miro_generation_context_from_run,
         call_gemini_miro_generator,
         deserialize_miro_generation_context,
         serialize_miro_generation_context,
     )
-    from .miro_board_service import create_board_from_snapshot
-    from .models import AgentPendingExternalApproval
+    from ..miro_board_service import create_board_from_snapshot
+    from ..models import AgentPendingExternalApproval
 
     snapshot = workflow_run.miro_snapshot
     if not snapshot:
@@ -1107,11 +1107,11 @@ def _generate_miro_board_for_workflow_run(orchestrator, workflow_run, context_pa
 
 def _enqueue_miro_generation_for_workflow_run(orchestrator, workflow_run):
     """Queue Miro generation so task creation can return immediately."""
-    from .miro_generation import (
+    from ..miro_generation import (
         build_miro_generation_context_from_run,
         serialize_miro_generation_context,
     )
-    from .tasks import generate_miro_board_for_workflow_run_task
+    from ..tasks import generate_miro_board_for_workflow_run_task
 
     context = build_miro_generation_context_from_run(
         session=orchestrator.session,
@@ -1285,8 +1285,8 @@ class AgentOrchestrator:
         """Complete or reject a pending external commit; resume workflow when applicable."""
         from django.utils import timezone as tz
 
-        from .approval_gate import resolve_pending
-        from .models import AgentPendingExternalApproval
+        from ..approval_gate import resolve_pending
+        from ..models import AgentPendingExternalApproval
         from miro.models import Board
 
         try:
@@ -1891,7 +1891,7 @@ class AgentOrchestrator:
         failed_count = 0
         calendar_refresh_emitted = False
         if events_to_create and org_id:
-            from .approval_gate import KIND_CALENDAR_EVENT, request_external_commit
+            from ..approval_gate import KIND_CALENDAR_EVENT, request_external_commit
 
             draft_events = [e for e in events_to_create if isinstance(e, dict)]
             gate = request_external_commit(
@@ -2116,7 +2116,7 @@ class AgentOrchestrator:
         except QuotaError:
             raise
         except Exception as e:
-            from .generation_registry import GenerationValidationError
+            from ..generation_registry import GenerationValidationError
 
             if isinstance(e, GenerationValidationError):
                 message = f"Task suggestions failed validation: {e}"
@@ -2419,7 +2419,7 @@ class AgentOrchestrator:
             yield {'type': 'text', 'content': 'No decision nodes found in analysis.'}
             return
 
-        from .approval_gate import KIND_DECISION_TREE, request_external_commit
+        from ..approval_gate import KIND_DECISION_TREE, request_external_commit
 
         draft = {'recommended_decision_tree': tree}
         commit_context = {
@@ -2493,7 +2493,7 @@ class AgentOrchestrator:
         included_anomalies = [a for a in reviewed if a.get('included', True)]
 
         decision = workflow_run.decision
-        from .approval_gate import KIND_TASK, request_external_commit
+        from ..approval_gate import KIND_TASK, request_external_commit
 
         draft = {'recommended_tasks': recommended_tasks}
         commit_context = {
@@ -2610,7 +2610,7 @@ class AgentOrchestrator:
     def _start_workflow(self, workflow_def, file_id=None, spreadsheet_id=None,
                         csv_filename=None, generation_outputs=None, user_context=None):
         """Create a new WorkflowRun and execute steps."""
-        from .generation_registry import normalize_generation_outputs
+        from ..generation_registry import normalize_generation_outputs
 
         outputs = normalize_generation_outputs(generation_outputs)
         input_data = self._prepare_input_data(
@@ -2643,7 +2643,7 @@ class AgentOrchestrator:
 
     def _emit_calendar_events_if_requested(self, workflow_run, input_data):
         """After workflow steps, optionally call Gemini for calendar_events."""
-        from .generation_registry import (
+        from ..generation_registry import (
             GenerationValidationError,
             normalize_generation_outputs,
         )
@@ -2706,8 +2706,8 @@ class AgentOrchestrator:
 
     def _execute_steps(self, workflow_run, input_data):
         """Run steps in order. Pause on await_confirmation. Record AgentStepExecution."""
-        from .executors import get_executor
-        from .generation_registry import normalize_generation_outputs, should_skip_workflow_step
+        from ..executors import get_executor
+        from ..generation_registry import normalize_generation_outputs, should_skip_workflow_step
         from django.utils import timezone as tz
 
         steps = workflow_run.workflow_definition.steps.filter(
@@ -2864,7 +2864,7 @@ class AgentOrchestrator:
         """Enqueue Celery job and persist started row at most once per workflow run."""
         from django.db import transaction
 
-        from .models import AgentMessage, AgentWorkflowRun
+        from ..models import AgentMessage, AgentWorkflowRun
 
         wr_pk = workflow_run.pk
         with transaction.atomic():
@@ -3035,7 +3035,7 @@ class AgentOrchestrator:
                     yield {"type": "text", "content": reply}
 
                     if forwards:
-                        from .approval_gate import KIND_FORWARD_MESSAGE, request_external_commit
+                        from ..approval_gate import KIND_FORWARD_MESSAGE, request_external_commit
 
                         gate = request_external_commit(
                             orchestrator=self,
