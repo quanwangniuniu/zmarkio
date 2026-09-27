@@ -63,8 +63,11 @@ stripe listen --forward-to localhost:8000/api/stripe/webhook/ --api-key sk_test_
 3.  Update your local `.env` file:
     ```ini
     STRIPE_WEBHOOK_SECRET=whsec_12345...
+    STRIPE_WEBHOOK_SECRET_NEXT=
     ```
 4.  Restart your backend server to apply the change.
+
+`STRIPE_WEBHOOK_SECRET_NEXT` is optional and should normally be left empty. It is used only during webhook signing secret rotation. See `docs/stripe-webhook-secret-rotation.md` for the rotation procedure.
 
 ## 4. Testing Payments
 

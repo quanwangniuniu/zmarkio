@@ -912,6 +912,7 @@ INTERNAL_WEBHOOK_ENABLED = config('INTERNAL_WEBHOOK_ENABLED', default=True, cast
 STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY', default='sk')
 STRIPE_PUBLISHABLE_KEY = config('STRIPE_PUBLISHABLE_KEY', default='pk')
 STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='wh')
+STRIPE_WEBHOOK_SECRET_NEXT = config('STRIPE_WEBHOOK_SECRET_NEXT', default='')
 # Token-billing Stripe price IDs (env-driven, no hardcoded IDs)
 STRIPE_TEAM_BASE_PRICE_ID = os.environ.get('STRIPE_TEAM_BASE_PRICE_ID', '')
 STRIPE_TEAM_EXTRA_SEAT_PRICE_ID = os.environ.get('STRIPE_TEAM_EXTRA_SEAT_PRICE_ID', '')
