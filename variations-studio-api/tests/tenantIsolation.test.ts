@@ -11,15 +11,24 @@ import {
 import { readJson, studioRequest } from './support/requests';
 import { accessToken } from './support/tokens';
 
-jest.mock('@/src/ai/providers/gemini', () => ({
-  callGeminiJson: jest.fn(async () => ({
-    hook: 'Tenant hook',
-    headline: 'Tenant headline',
-    description: 'Tenant description',
-    cta: 'LEARN_MORE',
-  })),
-  isGeminiQuotaError: jest.fn(() => false),
-}));
+jest.mock('@/src/ai/providers/ollama', () => {
+  const actual = jest.requireActual('@/src/ai/providers/ollama');
+
+  return {
+    ...actual,
+    callOllamaJson: jest.fn(async () => ({
+      hook: 'Tenant hook',
+      headline: 'Tenant headline',
+      description: 'Tenant description',
+      cta: 'LEARN_MORE',
+    })),
+    getOllamaConfig: jest.fn(() => ({
+      baseUrl: 'http://ollama.test:11434',
+      model: 'test-model',
+      timeoutMs: 5000,
+    })),
+  };
+});
 
 let fixture: StudioFixture;
 let token: string;
