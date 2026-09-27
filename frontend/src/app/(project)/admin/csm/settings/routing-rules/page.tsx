@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { AlertCircle, FlaskConical, Info, Plus } from 'lucide-react';
 import CsmSettingsPageRoot, { CsmSettingsProjectGuard } from '@/components/csm-settings/CsmSettingsPageRoot';
@@ -22,8 +23,18 @@ export default function RoutingRulesSettingsPage() {
   const { projectId, projectValid } = useProjectIdFromUrl();
   const buildUrl = useBuildUrl();
   const options = useRoutingOptions(projectId, projectValid);
-  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
-  const groupId = selectedGroupId ?? options.experienceGroups[0]?.id ?? null;
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // The selected group lives in ?group= so a refresh (or a shared link) keeps it.
+  // An unknown or stale id falls back to the first group.
+  const groupParam = Number(searchParams?.get('group'));
+  const groupId = options.experienceGroups.find((g) => g.id === groupParam)?.id
+    ?? options.experienceGroups[0]?.id ?? null;
+  const selectGroup = (value: string) => {
+    const params = new URLSearchParams(searchParams?.toString() || '');
+    params.set('group', value);
+    router.replace(buildUrl(`/admin/csm/settings/routing-rules?${params.toString()}`));
+  };
   const { rules, loading, error, load, upsert, reorder, toggle, remove } = useRoutingRules(projectId, groupId);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -114,7 +125,7 @@ export default function RoutingRulesSettingsPage() {
               id="rr-group"
               value={groupId === null ? '' : String(groupId)}
               options={groupOptions}
-              onChange={(v) => setSelectedGroupId(Number(v))}
+              onChange={selectGroup}
             />
           </div>
 
