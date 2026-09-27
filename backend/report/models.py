@@ -1,3 +1,5 @@
+import secrets
+
 from django.db import models
 from django.core.exceptions import ValidationError
 
@@ -233,3 +235,69 @@ class ReportTaskKeyAction(models.Model):
 
     def __str__(self) -> str:
         return f"ReportTaskKeyAction(report_task={self.report_task_id}, order={self.order_index})"
+
+
+class ReportShareLink(models.Model):
+    """A tokenized, read-only link to one project's Custom KPIs.
+
+    The project foreign key is the scope: a link for project A can never be
+    used to read project B. Expiry and revocation are stored here and enforced
+    by the public read path, not by deleting the row.
+    """
+
+    project = models.ForeignKey(
+        "core.Project",
+        on_delete=models.CASCADE,
+        related_name="report_share_links",
+        help_text="Project whose Custom KPIs this link may show. This is the scope.",
+    )
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="Unguessable token placed in the public URL. Generated on save when blank.",
+    )
+    expires_at = models.DateTimeField(
+        help_text="When the link stops working. The public read path compares this to the server clock.",
+    )
+    revoked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the link was revoked. Null means it has not been revoked.",
+    )
+    created_by = models.ForeignKey(
+        "core.CustomUser",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_report_share_links",
+        help_text="User who created the link",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "report_share_link"
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="uniq_active_report_share_link_per_project",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"ReportShareLink(project={self.project_id})"
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = self._generate_unique_token()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def _generate_unique_token(cls) -> str:
+        # token_urlsafe(32) is 43 characters. The column allows 64.
+        token = secrets.token_urlsafe(32)
+        while cls.objects.filter(token=token).exists():
+            token = secrets.token_urlsafe(32)
+        return token
