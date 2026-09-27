@@ -335,7 +335,7 @@ def _commit_calendar_events(orchestrator, draft: dict, destination: dict | None,
 
 
 def _commit_forward(orchestrator, draft: dict, destination: dict | None, commit_context: dict):
-    from .services import _forward_to_users
+    from .services.orchestrator import _forward_to_users
 
     forwards = draft.get('forwards') or []
     if destination and destination.get('usernames'):

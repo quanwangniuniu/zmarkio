@@ -312,7 +312,7 @@ def test_enqueue_miro_generation_passes_serialized_context_payload(mock_delay):
     assert payload["analysis"]["recommended_tasks"][0]["summary"] == "Audit placements"
 
 
-@patch("agent.services.Task.objects.create")
+@patch("agent.services.orchestrator.Task.objects.create")
 def test_create_tasks_from_analysis_creates_tasks_without_queueing_miro(mock_task_create):
     orchestrator = AgentOrchestrator(
         user=type("UserStub", (), {"id": 7})(),
@@ -347,7 +347,7 @@ def test_create_tasks_from_analysis_creates_tasks_without_queueing_miro(mock_tas
     assert len(events) == 2
 
 
-@patch("agent.services.Task.objects.create")
+@patch("agent.services.orchestrator.Task.objects.create")
 def test_create_tasks_from_analysis_is_idempotent_when_tasks_and_miro_exist(mock_task_create):
     orchestrator = AgentOrchestrator(
         user=type("UserStub", (), {"id": 7})(),

@@ -604,7 +604,7 @@ class OrchestratorTests(TestCase):
         self.assertEqual(workflow_run.status, 'completed')
 
 
-    @patch('agent.services._call_gemini_chat')
+    @patch('agent.services.orchestrator._call_gemini_chat')
     def test_follow_up_completed_marks_run_and_passes_project_members(self, mock_call_gemini_chat):
         teammate = CustomUser.objects.create_user(
             email='alice@test.com',
@@ -657,7 +657,7 @@ class OrchestratorTests(TestCase):
         self.assertIn('alice', usernames)
         self.assertNotIn('agent-bot', usernames)
 
-    @patch('agent.services._call_gemini_chat')
+    @patch('agent.services.orchestrator._call_gemini_chat')
     def test_follow_up_needs_clarification_keeps_run_open(self, mock_call_gemini_chat):
         workflow_run = AgentWorkflowRun.objects.create(
             session=self.session,
@@ -731,7 +731,7 @@ class OrchestratorTests(TestCase):
         self.assertFalse(workflow_run.chat_follow_up_started)
         self.assertFalse(workflow_run.chat_followed_up)
 
-    @patch('agent.services._call_gemini_chat')
+    @patch('agent.services.orchestrator._call_gemini_chat')
     def test_follow_up_requires_explicit_start(self, mock_call_gemini_chat):
         AgentWorkflowRun.objects.create(
             session=self.session,
@@ -1139,7 +1139,7 @@ class CalendarAgentTests(TestCase):
         self.assertIn('done', types)
         self.assertTrue(mock_call_gemini.called)
 
-    @patch('agent.services.requests.post')
+    @patch('agent.services.orchestrator.requests.post')
     def test_handle_message_without_calendar_context_skips_calendar(self, mock_post):
         """handle_message without calendar_context must NOT call the calendar Dify endpoint."""
         chunks = list(self.orchestrator.handle_message('Hello'))
@@ -1356,7 +1356,7 @@ class WorkflowEngineTests(TestCase):
         }
         self.assertEqual(set(EXECUTOR_REGISTRY.keys()), expected)
 
-    @patch('agent.services._run_analysis')
+    @patch('agent.services.orchestrator._run_analysis')
     def test_analyze_data_executor(self, mock_analysis):
         """AnalyzeDataExecutor calls _run_analysis and returns SSE events."""
         from .executors import AnalyzeDataExecutor
@@ -1378,7 +1378,7 @@ class WorkflowEngineTests(TestCase):
         self.assertEqual(result.sse_events[0]['type'], 'analysis')
         mock_analysis.assert_called_once()
 
-    @patch('agent.services._run_analysis')
+    @patch('agent.services.orchestrator._run_analysis')
     def test_await_confirmation_pauses_workflow(self, mock_analysis):
         """Workflow pauses at await_confirmation step and updates run status."""
         mock_analysis.return_value = _test_analysis_data()
@@ -1403,7 +1403,7 @@ class WorkflowEngineTests(TestCase):
         self.assertIn('analysis', types)
         self.assertIn('confirmation_request', types)
 
-    @patch('agent.services._run_analysis')
+    @patch('agent.services.orchestrator._run_analysis')
     def test_resume_workflow_continues_from_pause(self, mock_analysis):
         """Resume picks up from where workflow paused."""
         mock_analysis.return_value = _test_analysis_data()
@@ -1539,7 +1539,7 @@ class WorkflowEngineTests(TestCase):
         self.assertTrue(run.created_tasks)
         self.assertTrue(Task.objects.filter(project=self.project).exists())
 
-    @patch('agent.services._run_analysis')
+    @patch('agent.services.orchestrator._run_analysis')
     def test_step_execution_records_created(self, mock_analysis):
         """Each executed step creates an AgentStepExecution record."""
         mock_analysis.return_value = _test_analysis_data()
@@ -1560,7 +1560,7 @@ class WorkflowEngineTests(TestCase):
         self.assertEqual(executions.count(), 2)
         self.assertEqual(executions.filter(status='completed').count(), 2)
 
-    @patch('agent.services._run_analysis')
+    @patch('agent.services.orchestrator._run_analysis')
     def test_workflow_failure_handling(self, mock_analysis):
         """Failed step marks execution and run as failed."""
         mock_analysis.side_effect = RuntimeError("API unavailable")
@@ -2118,10 +2118,10 @@ class OrchestratorUserContextThreadingTests(TestCase):
             user=self.user, project=self.project,
         )
 
-    @patch('agent.services.cache')
-    @patch('agent.services._run_analysis')
-    @patch('agent.services.file_parser.parse_file_to_json')
-    @patch('agent.services.data_service._get_csv_dir')
+    @patch('agent.services.orchestrator.cache')
+    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.orchestrator.file_parser.parse_file_to_json')
+    @patch('agent.services.orchestrator.data_service._get_csv_dir')
     @patch('os.path.isfile')
     def test_start_workflow_stores_user_context_on_run(
         self, mock_isfile, mock_csv_dir, mock_parse, mock_analysis, mock_cache
@@ -2157,10 +2157,10 @@ class OrchestratorUserContextThreadingTests(TestCase):
             f"agent:context:{run.id}", 'Focus on ROAS efficiency', 3600
         )
 
-    @patch('agent.services.cache')
-    @patch('agent.services._run_analysis')
-    @patch('agent.services.file_parser.parse_file_to_json')
-    @patch('agent.services.data_service._get_csv_dir')
+    @patch('agent.services.orchestrator.cache')
+    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.orchestrator.file_parser.parse_file_to_json')
+    @patch('agent.services.orchestrator.data_service._get_csv_dir')
     @patch('os.path.isfile')
     def test_start_workflow_stores_empty_string_when_context_none(
         self, mock_isfile, mock_csv_dir, mock_parse, mock_analysis, mock_cache
@@ -2298,7 +2298,7 @@ class GeminiAnalysisPromptInjectionTests(TestCase):
 
 class RunAnalysisValidationRetryTests(TestCase):
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services._call_gemini_analysis')
+    @patch('agent.services.orchestrator._call_gemini_analysis')
     def test_retries_on_validation_error_then_succeeds(self, mock_call, _mock_key):
         from agent.services import _run_analysis
 
@@ -2328,7 +2328,7 @@ class RunAnalysisValidationRetryTests(TestCase):
         self.assertEqual(result['recommended_decision_tree']['nodes'][0]['parent_refs'], [])
 
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services._call_gemini_analysis')
+    @patch('agent.services.orchestrator._call_gemini_analysis')
     def test_raises_after_max_validation_retries(self, mock_call, _mock_key):
         from agent.generation_registry import GenerationValidationError
         from agent.services import _ANALYSIS_VALIDATION_MAX_ATTEMPTS, _run_analysis
@@ -2349,7 +2349,7 @@ class RunAnalysisValidationRetryTests(TestCase):
         self.assertEqual(mock_call.call_count, _ANALYSIS_VALIDATION_MAX_ATTEMPTS)
 
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services._call_gemini_analysis')
+    @patch('agent.services.orchestrator._call_gemini_analysis')
     def test_retries_on_recommended_tasks_validation_error_then_succeeds(self, mock_call, _mock_key):
         from agent.services import _run_analysis
 
@@ -2380,7 +2380,7 @@ class RunAnalysisValidationRetryTests(TestCase):
 
 class SpreadsheetInsightsValidationRetryTests(TestCase):
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services._call_gemini_spreadsheet_insights')
+    @patch('agent.services.orchestrator._call_gemini_spreadsheet_insights')
     def test_retries_on_recommended_tasks_validation_then_succeeds(self, mock_call, _mock_key):
         from agent.services import _run_spreadsheet_insights
 
@@ -2414,7 +2414,7 @@ class SpreadsheetInsightsValidationRetryTests(TestCase):
         self.assertEqual(result['recommended_tasks'][0]['priority'], 'HIGH')
 
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services._call_gemini_spreadsheet_insights')
+    @patch('agent.services.orchestrator._call_gemini_spreadsheet_insights')
     def test_raises_after_max_insights_validation_retries(self, mock_call, _mock_key):
         from agent.generation_registry import GenerationValidationError
         from agent.services import _ANALYSIS_VALIDATION_MAX_ATTEMPTS, _run_spreadsheet_insights
@@ -2435,7 +2435,7 @@ class SpreadsheetInsightsValidationRetryTests(TestCase):
         self.assertEqual(mock_call.call_count, _ANALYSIS_VALIDATION_MAX_ATTEMPTS)
 
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services._call_gemini_spreadsheet_insights')
+    @patch('agent.services.orchestrator._call_gemini_spreadsheet_insights')
     def test_retries_on_out_of_bounds_anomaly_location_then_succeeds(self, mock_call, _mock_key):
         from agent.services import _run_spreadsheet_insights
 
@@ -2487,7 +2487,7 @@ class AnalyzeDataExecutorUserContextTests(TestCase):
         )
 
     @patch('agent.executors.cache')
-    @patch('agent.services._run_analysis')
+    @patch('agent.services.orchestrator._run_analysis')
     def test_executor_passes_user_context_to_run_analysis(self, mock_analysis, mock_cache):
         from agent.executors import AnalyzeDataExecutor
         from agent.models import AgentWorkflowDefinition, AgentWorkflowStep, AgentWorkflowRun
@@ -2515,7 +2515,7 @@ class AnalyzeDataExecutorUserContextTests(TestCase):
         self.assertEqual(kwargs.get('user_context'), 'Prioritize high-spend campaigns')
 
     @patch('agent.executors.cache')
-    @patch('agent.services._run_analysis')
+    @patch('agent.services.orchestrator._run_analysis')
     def test_executor_passes_none_when_context_empty(self, mock_analysis, mock_cache):
         from agent.executors import AnalyzeDataExecutor
         from agent.models import AgentWorkflowDefinition, AgentWorkflowStep, AgentWorkflowRun
@@ -2689,7 +2689,7 @@ class SpreadsheetInsightsTests(TestCase):
         self.assertEqual(cols, 4)  # A, B, C, D deduped
         self.assertEqual(_spreadsheet_insights_sample_bounds({'sheets': []}), (0, 0))
 
-    @patch('agent.services._run_spreadsheet_insights')
+    @patch('agent.services.orchestrator._run_spreadsheet_insights')
     def test_analyze_spreadsheet_insights_yields_summary_and_anomalies(self, mock_insights):
         spreadsheet, sheet1, _sheet2 = self._create_spreadsheet_with_sheets()
         mock_insights.return_value = {
@@ -2845,8 +2845,8 @@ class FileUploadAnalyzeSpreadsheetImportTests(APITestCase):
                 ).exists()
             )
 
-    @patch('agent.services.file_parser.parse_file_to_json')
-    @patch('agent.services.data_service._get_csv_dir')
+    @patch('agent.services.orchestrator.file_parser.parse_file_to_json')
+    @patch('agent.services.orchestrator.data_service._get_csv_dir')
     @patch('os.path.isfile')
     def test_start_workflow_links_spreadsheet_when_both_ids_provided(
         self, mock_isfile, mock_csv_dir, mock_parse
@@ -2873,7 +2873,7 @@ class FileUploadAnalyzeSpreadsheetImportTests(APITestCase):
             workflow=wf, name='Analyze', step_type='analyze_data', order=1,
         )
 
-        with patch('agent.services._run_analysis', return_value={'anomalies': [], 'recommended_tasks': []}):
+        with patch('agent.services.orchestrator._run_analysis', return_value={'anomalies': [], 'recommended_tasks': []}):
             orch = AgentOrchestrator(user=self.user, project=self.project, session=self.session)
             list(orch.handle_message(
                 '',
