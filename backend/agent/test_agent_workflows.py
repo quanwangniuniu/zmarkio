@@ -2118,10 +2118,10 @@ class OrchestratorUserContextThreadingTests(TestCase):
             user=self.user, project=self.project,
         )
 
-    @patch('agent.services.orchestrator.cache')
+    @patch('agent.services.workflow.cache')
     @patch('agent.services.analysis._run_analysis')
-    @patch('agent.services.orchestrator.file_parser.parse_file_to_json')
-    @patch('agent.services.orchestrator.data_service._get_csv_dir')
+    @patch('agent.services.workflow.file_parser.parse_file_to_json')
+    @patch('agent.services.workflow.data_service._get_csv_dir')
     @patch('os.path.isfile')
     def test_start_workflow_stores_user_context_on_run(
         self, mock_isfile, mock_csv_dir, mock_parse, mock_analysis, mock_cache
@@ -2157,10 +2157,10 @@ class OrchestratorUserContextThreadingTests(TestCase):
             f"agent:context:{run.id}", 'Focus on ROAS efficiency', 3600
         )
 
-    @patch('agent.services.orchestrator.cache')
+    @patch('agent.services.workflow.cache')
     @patch('agent.services.analysis._run_analysis')
-    @patch('agent.services.orchestrator.file_parser.parse_file_to_json')
-    @patch('agent.services.orchestrator.data_service._get_csv_dir')
+    @patch('agent.services.workflow.file_parser.parse_file_to_json')
+    @patch('agent.services.workflow.data_service._get_csv_dir')
     @patch('os.path.isfile')
     def test_start_workflow_stores_empty_string_when_context_none(
         self, mock_isfile, mock_csv_dir, mock_parse, mock_analysis, mock_cache
@@ -2845,8 +2845,8 @@ class FileUploadAnalyzeSpreadsheetImportTests(APITestCase):
                 ).exists()
             )
 
-    @patch('agent.services.orchestrator.file_parser.parse_file_to_json')
-    @patch('agent.services.orchestrator.data_service._get_csv_dir')
+    @patch('agent.services.workflow.file_parser.parse_file_to_json')
+    @patch('agent.services.workflow.data_service._get_csv_dir')
     @patch('os.path.isfile')
     def test_start_workflow_links_spreadsheet_when_both_ids_provided(
         self, mock_isfile, mock_csv_dir, mock_parse
