@@ -368,10 +368,10 @@ class ConversationQualityReview(TimeStampedModel):
     than appending, so report counts stay truthful without having to
     de-duplicate to latest-per-reviewer in every aggregate.
 
-    The agent, queue and organisation are SNAPSHOTS taken at review time.
-    ``Conversation.assigned_to`` is mutable and nullable, so joining through it
-    live would let a later reassignment retroactively move a rating onto an
-    agent who never handled the conversation.
+    The agent is a SNAPSHOT taken at review time. ``Conversation.assigned_to``
+    is mutable and nullable, so joining through it live would let a later
+    reassignment retroactively move a rating onto an agent who never handled
+    the conversation. Queue and organisation are read through ``conversation``.
     """
 
     class Rating(models.TextChoices):
@@ -404,22 +404,7 @@ class ConversationQualityReview(TimeStampedModel):
         null=True, blank=True,
         related_name='csm_quality_reviews_received',
     )
-    agent_customer_user = models.ForeignKey(
-        CustomerUser, on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='quality_reviews_received',
-    )
     agent_name = models.CharField(max_length=200, blank=True, default='')
-    queue = models.ForeignKey(
-        Queue, on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='quality_reviews',
-    )
-    organisation = models.ForeignKey(
-        'customer.CustomerOrganisation', on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='csm_quality_reviews',
-    )
 
     class Meta:
         ordering = ['-reviewed_at', '-id']
@@ -430,7 +415,7 @@ class ConversationQualityReview(TimeStampedModel):
             ),
         ]
         indexes = [
-            models.Index(fields=['organisation', 'reviewed_at'], name='csm_cqr_org_reviewed_idx'),
+            models.Index(fields=['reviewed_at'], name='csm_cqr_reviewed_idx'),
             models.Index(fields=['agent_user', 'reviewed_at'], name='csm_cqr_agent_reviewed_idx'),
             models.Index(fields=['rating'], name='csm_cqr_rating_idx'),
         ]

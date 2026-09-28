@@ -26,7 +26,6 @@ User = get_user_model()
 
 BUCKETS = ('day', 'week', 'month')
 DATE_BASES = ('review', 'conversation')
-UNASSIGNED = 'unassigned'
 
 # Cap on rows scanned when deriving the tag vocabulary. tags is a JSON list, so
 # there is no index to read distinct values from.
@@ -77,10 +76,12 @@ def _int_list(values, field):
 
 
 def parse_filters(query_params):
-    """Normalise query params into a filter dict.
+    """Normalise query params into a sparse filter dict.
 
-    Repeatable params are read with ``getlist``; the frontend axios instance
-    serialises arrays as repeated keys (``?agent=1&agent=2``).
+    Only filters that were actually supplied appear as keys, so callers test
+    ``filters.get(key)`` and never see an empty placeholder. Repeatable params
+    are read with ``getlist``; the frontend axios instance serialises arrays as
+    repeated keys (``?agent=1&agent=2``).
     """
     getlist = getattr(query_params, 'getlist', None)
 
@@ -90,7 +91,6 @@ def parse_filters(query_params):
         value = query_params.get(key)
         return [value] if value else []
 
-    agents_raw = many('agent')
     date_from = _parse_day(query_params.get('date_from'), 'date_from')
     date_to = _parse_day(query_params.get('date_to'), 'date_to')
     if date_from and date_to and date_from > date_to:
@@ -104,12 +104,13 @@ def parse_filters(query_params):
     if date_basis and date_basis not in DATE_BASES:
         raise ValidationError({'date_basis': f'Expected one of {", ".join(DATE_BASES)}.'})
 
-    return {
+    parsed = {
         'date_from': date_from,
         'date_to': date_to,
-        # 'unassigned' is a sentinel, so agent ids are parsed separately.
-        'agent_user_ids': _int_list([a for a in agents_raw if a != UNASSIGNED], 'agent'),
-        'include_unassigned': UNASSIGNED in agents_raw,
+        'agent_user_ids': _int_list(many('agent'), 'agent'),
+        # Its own flag rather than a sentinel inside the agent id list, so
+        # agent stays a plain list of ints end to end.
+        'include_unassigned': (query_params.get('unassigned') or '').strip().lower() in ('1', 'true'),
         'queue_ids': _int_list(many('queue'), 'queue'),
         'channels': [c for c in many('channel') if c],
         'customer_ids': _int_list(many('customer'), 'customer'),
@@ -119,48 +120,34 @@ def parse_filters(query_params):
         'bucket': bucket,
         'date_basis': date_basis,
     }
+    return {key: value for key, value in parsed.items() if value}
 
 
 # ---------------------------------------------------------------------------
 # conversation scope
 # ---------------------------------------------------------------------------
 
-# Which filter keys each dropdown owns. Used to compute a facet's counts with
-# every OTHER filter applied but not its own.
-FACET_KEYS = {
-    'agent': ('agent_user_ids', 'include_unassigned'),
-    'queue': ('queue_ids',),
-    'channel': ('channels',),
-    'customer': ('customer_ids', 'customer_search'),
-    'tag': ('tags',),
-    'status': ('statuses',),
-}
+FACETS = ('agent', 'queue', 'channel', 'customer', 'tag', 'status')
 
 
-def without_facet(filters, facet):
-    """*filters* with the keys owned by *facet* cleared.
-
-    A facet must not narrow its own options: with Email selected, applying the
-    channel filter to the channel counts would show Web as 0 and make a second
-    channel look pointless to add. Every other filter still applies, which is
-    what makes the number mean "pick this as well and you get N".
-    """
-    if facet is None:
-        return filters
-    cleared = dict(filters)
-    for key in FACET_KEYS[facet]:
-        cleared[key] = [] if isinstance(filters.get(key), list) else (
-            False if isinstance(filters.get(key), bool) else ''
-        )
-    return cleared
-
-
-def filtered_conversations(user, filters, apply_date=True):
+def filtered_conversations(user, filters, apply_date=True, exclude_facet=None):
     """Conversations the user supervises, narrowed by *filters*.
 
     Unlike the agent inbox this applies no default status filter: quality
     inspection exists to review closed conversations as well as active ones.
+
+    *exclude_facet* skips one dropdown's own filter, for its option tallies. A
+    facet must not narrow its own options: with Email selected, applying the
+    channel filter to the channel counts would show Web as 0 and make a second
+    channel look pointless to add. Every other filter still applies, which is
+    what makes the number mean "pick this as well and you get N".
     """
+    if exclude_facet is not None and exclude_facet not in FACETS:
+        raise ValueError(f'Unknown facet {exclude_facet!r}')
+
+    def applies(facet):
+        return facet != exclude_facet
+
     supervised_ids = supervised_queues_for(user).values_list('id', flat=True)
     qs = (
         Conversation.objects
@@ -176,7 +163,7 @@ def filtered_conversations(user, filters, apply_date=True):
             qs = qs.filter(started_at__lte=end)
 
     agent_ids = filters.get('agent_user_ids') or []
-    if agent_ids or filters.get('include_unassigned'):
+    if applies('agent') and (agent_ids or filters.get('include_unassigned')):
         agent_q = Q()
         if agent_ids:
             # Matches on the auth user, never CustomerUser: one person may hold
@@ -187,21 +174,21 @@ def filtered_conversations(user, filters, apply_date=True):
             agent_q |= Q(assigned_to__isnull=True)
         qs = qs.filter(agent_q)
 
-    if filters.get('queue_ids'):
+    if applies('queue') and filters.get('queue_ids'):
         qs = qs.filter(queue_id__in=filters['queue_ids'])
-    if filters.get('channels'):
+    if applies('channel') and filters.get('channels'):
         qs = qs.filter(channel__in=filters['channels'])
-    if filters.get('customer_ids'):
+    if applies('customer') and filters.get('customer_ids'):
         qs = qs.filter(customer_id__in=filters['customer_ids'])
-    if filters.get('customer_search'):
+    if applies('customer') and filters.get('customer_search'):
         term = filters['customer_search']
         qs = qs.filter(
             Q(customer__full_name__icontains=term) | Q(customer__email__icontains=term)
         )
-    if filters.get('statuses'):
+    if applies('status') and filters.get('statuses'):
         qs = qs.filter(status__in=filters['statuses'])
 
-    if filters.get('tags'):
+    if applies('tag') and filters.get('tags'):
         # jsonb @> with the value wrapped in a list: an exact element match.
         # Never use icontains here — on a JSONField it degrades to LIKE over the
         # serialised JSON, so 'vip' would also match 'vip-escalation'.
@@ -248,8 +235,9 @@ def resolve_agent(conversation):
 def upsert_review(user, conversation, rating, comment=''):
     """Create or update *user*'s review of *conversation*.
 
-    Returns (review, created). Snapshots agent, queue and organisation so a
-    later reassignment cannot rewrite quality history.
+    Returns (review, created). Snapshots the agent so a later reassignment
+    cannot rewrite quality history; queue and organisation are read through
+    the conversation.
     """
     if conversation.queue_id is None:
         raise PermissionDenied(
@@ -268,10 +256,7 @@ def upsert_review(user, conversation, rating, comment=''):
             'reviewer_name': _display_name(user),
             'reviewed_at': timezone.now(),
             'agent_user': agent_user,
-            'agent_customer_user': agent_customer_user,
             'agent_name': _display_name(agent_user),
-            'queue_id': conversation.queue_id,
-            'organisation_id': conversation.queue.organisation_id,
         },
     )
     return review, created
@@ -358,11 +343,8 @@ def build_quality_report(user, filters):
     # in time; when it describes conversation dates, the reviews are not.
     conv_qs = filtered_conversations(user, filters, apply_date=(basis == 'conversation'))
 
-    supervised_ids = supervised_queues_for(user).values_list('id', flat=True)
-    base = ConversationQualityReview.objects.filter(
-        queue_id__in=supervised_ids,
-        conversation_id__in=conv_qs.values('pk'),
-    )
+    # conv_qs is already confined to the supervised queues.
+    base = ConversationQualityReview.objects.filter(conversation_id__in=conv_qs.values('pk'))
 
     start, end = _day_bounds(filters.get('date_from'), filters.get('date_to'))
     if basis == 'review':
@@ -464,7 +446,7 @@ def _echo(filters, basis, granularity):
         'date_basis': basis,
         'bucket': granularity,
         'agent': filters.get('agent_user_ids') or [],
-        'include_unassigned': bool(filters.get('include_unassigned')),
+        'unassigned': bool(filters.get('include_unassigned')),
         'queue': filters.get('queue_ids') or [],
         'channel': filters.get('channels') or [],
         'customer': filters.get('customer_ids') or [],
@@ -515,10 +497,10 @@ def build_filter_options(user, filters=None):
     them - most conversations are never reviewed.
 
     The tallies respect the filters already applied, except the facet's own:
-    see ``without_facet``. So with Email selected the agent counts are
+    see ``filtered_conversations(exclude_facet=...)``. So with Email selected the agent counts are
     email-only, while the channel counts still show what Web would add.
     """
-    filters = filters or parse_filters({})
+    filters = filters or {}
 
     queues = list(
         supervised_queues_for(user)
@@ -528,7 +510,7 @@ def build_filter_options(user, filters=None):
 
     def scoped(facet):
         """Conversations and their reviews, with every filter but *facet*'s own."""
-        conversations = filtered_conversations(user, without_facet(filters, facet))
+        conversations = filtered_conversations(user, filters, exclude_facet=facet)
         reviews = ConversationQualityReview.objects.filter(
             conversation_id__in=conversations.values('pk'))
         return conversations, reviews

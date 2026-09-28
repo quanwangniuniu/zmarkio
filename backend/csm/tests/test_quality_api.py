@@ -287,14 +287,60 @@ def test_filter_by_agent_matches_across_their_customer_user_rows(
     assert {row['id'] for row in _rows(response)} == {first.id, second.id}
 
 
-def test_filter_by_unassigned_sentinel(supervisor_client, user2, csm_queue, customer_organisation):
+def test_filter_by_unassigned_flag(supervisor_client, user2, csm_queue, customer_organisation):
     agent = _agent(user2, csm_queue, customer_organisation)
     _conversation(csm_queue, assigned_to=agent)
     orphan = _conversation(csm_queue, assigned_to=None)
 
-    response = supervisor_client.get(_list_url(), {'agent': 'unassigned'})
+    response = supervisor_client.get(_list_url(), {'unassigned': 'true'})
 
     assert [row['id'] for row in _rows(response)] == [orphan.id]
+
+
+def test_unassigned_flag_combines_with_agent_ids(
+    supervisor_client, user2, csm_queue, customer_organisation
+):
+    agent = _agent(user2, csm_queue, customer_organisation)
+    handled = _conversation(csm_queue, assigned_to=agent)
+    orphan = _conversation(csm_queue, assigned_to=None)
+
+    response = supervisor_client.get(_list_url(), {'agent': user2.id, 'unassigned': 'true'})
+
+    assert {row['id'] for row in _rows(response)} == {handled.id, orphan.id}
+
+
+def test_agent_filter_rejects_a_non_numeric_id(supervisor_client):
+    response = supervisor_client.get(_list_url(), {'agent': 'unassigned'})
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert 'agent' in response.data
+
+
+def test_list_orders_by_an_allowed_field(supervisor_client, csm_queue):
+    now = timezone.now()
+    early = _conversation(csm_queue, started_at=now - _dt.timedelta(hours=2),
+                          ended_at=now - _dt.timedelta(minutes=1))
+    late = _conversation(csm_queue, started_at=now - _dt.timedelta(hours=1),
+                         ended_at=now - _dt.timedelta(minutes=30))
+
+    default = [row['id'] for row in _rows(supervisor_client.get(_list_url()))]
+    by_end = [row['id'] for row in _rows(
+        supervisor_client.get(_list_url(), {'ordering': '-ended_at'}))]
+
+    assert default == [late.id, early.id], 'newest start first by default'
+    assert by_end == [early.id, late.id], 'early ended last'
+
+
+def test_list_ignores_ordering_by_a_field_not_allowed(supervisor_client, csm_queue):
+    """OrderingFilter accepts any serializer field unless ordering_fields is set."""
+    now = timezone.now()
+    early = _conversation(csm_queue, started_at=now - _dt.timedelta(hours=2))
+    late = _conversation(csm_queue, started_at=now - _dt.timedelta(hours=1))
+
+    response = supervisor_client.get(_list_url(), {'ordering': 'id'})
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [row['id'] for row in _rows(response)] == [late.id, early.id]
 
 
 def test_filter_by_queue(supervisor_client, csm_queue, project, customer_organisation):
@@ -736,15 +782,12 @@ def test_agent_cannot_read_the_report(api_client, user2, csm_queue, customer_org
 # ---------------------------------------------------------------------------
 
 def _csv_rows(response):
-    """Drain the streaming response AFTER the view returned, as a client would."""
-    body = b''.join(response.streaming_content).decode('utf-8')
-    return list(csv.reader(io.StringIO(body)))
+    return list(csv.reader(io.StringIO(response.content.decode('utf-8'))))
 
 
-def test_export_streams_the_report_after_the_view_returns(
+def test_export_returns_the_report_as_csv(
     supervisor_client, user2, csm_queue, customer_organisation
 ):
-    """Guards the tenant search_path trap: rows must be materialised eagerly."""
     agent = _agent(user2, csm_queue, customer_organisation)
     for rating in ('good', 'poor'):
         conversation = _conversation(csm_queue, assigned_to=agent)
@@ -762,7 +805,7 @@ def test_export_streams_the_report_after_the_view_returns(
         'Total', 'Good', 'Needs Improvement', 'Poor',
         'Good %', 'Needs Improvement %', 'Poor %',
         'Conversations', 'Coverage %']
-    assert len(rows) > 1, 'streaming must survive the middleware resetting search_path'
+    assert len(rows) > 1
 
     sections = {row[0] for row in rows[1:]}
     assert {'summary', 'agent', 'day'} <= sections

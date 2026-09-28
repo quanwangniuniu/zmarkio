@@ -10,9 +10,10 @@ import csv
 import datetime as _dt
 
 from django.db.models import Count, Max, Prefetch
-from django.http import StreamingHttpResponse
+from django.http import HttpResponse
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.filters import OrderingFilter
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -34,8 +35,6 @@ from csm.services.quality import (
     upsert_review,
 )
 
-ORDERING_WHITELIST = {'started_at', '-started_at', 'ended_at', '-ended_at'}
-
 # One row per entity, each fully described, so the file opens as a clean
 # rectangle rather than a sparse one. Sections:
 #   summary        — the whole filtered set: rating split, coverage, population
@@ -51,8 +50,6 @@ QUALITY_SUMMARY_CSV_HEADER = (
     'Good %', 'Needs Improvement %', 'Poor %',
     'Conversations', 'Coverage %',
 )
-
-MAX_CSV_ROWS = 50_000
 
 # Cells beginning with these execute as formulas when the file is opened in a
 # spreadsheet. The report carries free text (agent names, bucket labels), so
@@ -75,6 +72,12 @@ class QualityConversationViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated, IsCsmSupervisor]
     pagination_class = QualityPagination
     http_method_names = ['get', 'post', 'head', 'options']
+    # Filtering is done by parse_filters/filtered_conversations, so only the
+    # ordering backend applies. ordering_fields must stay explicit: left unset,
+    # OrderingFilter accepts any serializer field.
+    filter_backends = [OrderingFilter]
+    ordering_fields = ['started_at', 'ended_at']
+    ordering = ['-started_at']
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -97,11 +100,7 @@ class QualityConversationViewSet(viewsets.ReadOnlyModelViewSet):
                 to_attr='my_reviews',
             )
         )
-
-        ordering = self.request.query_params.get('ordering')
-        if ordering not in ORDERING_WHITELIST:
-            ordering = '-started_at'
-        return qs.order_by(ordering)
+        return qs
 
     @action(detail=True, methods=['post'])
     def review(self, request, pk=None):
@@ -140,13 +139,6 @@ class QualityReportView(APIView):
     def get(self, request):
         filters = parse_filters(request.query_params)
         return Response(build_quality_report(request.user, filters))
-
-
-class _CsvEcho:
-    """File-like buffer that returns its writes instead of accumulating them."""
-
-    def write(self, value):
-        return value
 
 
 def _csv_cell(value):
@@ -218,37 +210,28 @@ def _summary_rows(report):
 
 
 class QualityReportCsvView(APIView):
-    """CSV of the on-screen report."""
+    """CSV of the on-screen report.
+
+    A plain HttpResponse, not a streaming one: the file is the report's
+    aggregates (one summary row, one per agent, one per date bucket), so it is
+    small and fully built before the response exists. That also keeps every
+    query inside the request, where TenantSchemaMiddleware has set search_path.
+    """
     permission_classes = [IsAuthenticated, IsCsmSupervisor]
 
     def get(self, request):
         filters = parse_filters(request.query_params)
         report = build_quality_report(request.user, filters)
 
-        # Build every row BEFORE the response object exists. TenantSchemaMiddleware
-        # resets search_path in a finally that runs as soon as the view returns,
-        # i.e. before a streaming generator is consumed — a lazy queryset inside
-        # stream() would read the wrong schema.
-        rows = [tuple(_csv_cell(cell) for cell in row) for row in _summary_rows(report)]
-        if len(rows) > MAX_CSV_ROWS:
-            return Response(
-                {'detail': f'Too many rows ({len(rows)}). Narrow your filters.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        pseudo = _CsvEcho()
-        writer = csv.writer(pseudo)
-
-        def stream():
-            yield writer.writerow(QUALITY_SUMMARY_CSV_HEADER)
-            for row in rows:
-                yield writer.writerow(row)
-
         echo = report['filters_echo']
         ts = _dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d-%H%M%S')
         span = f"{echo.get('date_from') or 'all'}_{echo.get('date_to') or 'all'}"
         filename = f'quality-inspection-{span}-{ts}.csv'
 
-        response = StreamingHttpResponse(stream(), content_type='text/csv; charset=utf-8')
+        response = HttpResponse(content_type='text/csv; charset=utf-8')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        writer = csv.writer(response)
+        writer.writerow(QUALITY_SUMMARY_CSV_HEADER)
+        for row in _summary_rows(report):
+            writer.writerow([_csv_cell(cell) for cell in row])
         return response

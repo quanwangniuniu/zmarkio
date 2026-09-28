@@ -55,15 +55,8 @@ def _conversation(queue, customer=None, **kwargs):
 
 
 def _filters(**overrides):
-    base = {
-        'date_from': None, 'date_to': None,
-        'agent_user_ids': [], 'include_unassigned': False,
-        'queue_ids': [], 'channels': [], 'customer_ids': [],
-        'customer_search': '', 'tags': [], 'statuses': [],
-        'bucket': None, 'date_basis': None,
-    }
-    base.update(overrides)
-    return base
+    # parse_filters returns a sparse dict: only the filters that were given.
+    return dict(overrides)
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +131,6 @@ def test_agent_snapshot_survives_reassignment(user, user2, csm_queue, customer_o
 
     review, _ = upsert_review(user, conversation, Rating.POOR)
     assert review.agent_user_id == user2.id
-    assert review.agent_customer_user_id == original_agent.id
 
     # Reassign to somebody else entirely.
     from django.contrib.auth import get_user_model
@@ -177,13 +169,64 @@ def test_agent_is_null_when_nobody_handled_the_conversation(user, csm_queue, cus
     assert review.agent_name == ''
 
 
-def test_review_snapshots_queue_and_organisation(user, csm_queue, customer_organisation):
+def test_report_follows_a_conversation_moved_to_another_queue(
+    user, csm_queue, project, customer_organisation
+):
+    """Queue is read through the conversation, not snapshotted on the review."""
     _supervisor(user, customer_organisation)
+    second_queue = Queue.objects.create(
+        project=project, organisation=customer_organisation,
+        name='Escalations', tier='T2', display_order=1, is_active=True,
+    )
     conversation = _conversation(csm_queue)
+    upsert_review(user, conversation, Rating.GOOD)
 
-    review, _ = upsert_review(user, conversation, Rating.GOOD)
-    assert review.queue_id == csm_queue.id
-    assert review.organisation_id == customer_organisation.id
+    conversation.queue = second_queue
+    conversation.save(update_fields=['queue'])
+
+    assert build_quality_report(user, _filters(queue_ids=[csm_queue.id]))['totals']['reviews'] == 0
+    assert build_quality_report(user, _filters(queue_ids=[second_queue.id]))['totals']['reviews'] == 1
+
+
+# ---------------------------------------------------------------------------
+# filter parsing and facets
+# ---------------------------------------------------------------------------
+
+def test_parse_filters_returns_only_the_filters_given():
+    from django.http import QueryDict
+
+    assert parse_filters(QueryDict('')) == {}
+    assert parse_filters(QueryDict('agent=4&agent=9&unassigned=true&channel=email')) == {
+        'agent_user_ids': [4, 9],
+        'include_unassigned': True,
+        'channels': ['email'],
+    }
+
+
+def test_parse_filters_rejects_a_non_numeric_agent():
+    from django.http import QueryDict
+    from rest_framework.exceptions import ValidationError
+
+    with pytest.raises(ValidationError):
+        parse_filters(QueryDict('agent=unassigned'))
+
+
+def test_exclude_facet_skips_only_that_facets_filter(user, csm_queue, customer_organisation):
+    _supervisor(user, customer_organisation)
+    email = _conversation(csm_queue, channel='email', status='closed')
+    _conversation(csm_queue, channel='web', status='closed')
+    _conversation(csm_queue, channel='web', status='active')
+    filters = _filters(channels=['email'], statuses=['closed'])
+
+    assert set(filtered_conversations(user, filters)) == {email}
+    # The channel filter is dropped; the status filter still applies.
+    assert filtered_conversations(user, filters, exclude_facet='channel').count() == 2
+
+
+def test_exclude_facet_rejects_an_unknown_facet(user, customer_organisation):
+    _supervisor(user, customer_organisation)
+    with pytest.raises(ValueError):
+        filtered_conversations(user, {}, exclude_facet='colour')
 
 
 # ---------------------------------------------------------------------------
