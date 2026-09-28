@@ -201,6 +201,7 @@ python3 -c "import secrets; print(secrets.token_urlsafe(50))"
 - Update `.env` with valid local values before startup, especially database credentials and integration keys you need.
 - `SECRET_KEY` is required; the backend refuses to start without it. Generate one with the command above, keep it out of git (never commit or push `.env`), and do not reuse a value that was previously committed to this repository.
 - `ORGANIZATION_ACCESS_TOKEN_SECRET_KEY` and `ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY` are required under the same rules. The encryption key must be a Fernet key; `env.example` has the command for each.
+- The three keys are read from environment variables only (a `.env` in a parent directory is not used).
 
 Minimum local DB-related values:
 

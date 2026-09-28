@@ -3,13 +3,14 @@ Validation for secret settings read from the environment.
 
 Each secret validated here signs or protects credentials the platform issues:
 SECRET_KEY signs every JWT (SIMPLE_JWT['SIGNING_KEY']) and is shared with
-variations-studio-api and decision-service, which verify those tokens. Anyone
+variations-studio-api, which verifies those tokens. Anyone
 who knows such a secret can forge credentials, so a value that has ever been
 committed to this repository must never be accepted outside local development
 (MED-393). The organization access-token keys sign and encrypt the org-scoped
 token used by billing endpoints and tenant resolution (MED-394).
 """
 import hashlib
+import os
 import warnings
 
 from cryptography.fernet import Fernet
@@ -52,6 +53,17 @@ COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS = frozenset({
     # Former inline fallback in backend/settings.py, also the former env.example value
     '2d17c6fb1a2dda212fc2d82187a772d06d9964e7a55c3a2544e16130311c01f8',
 })
+
+
+def read_secret_env(name: str) -> str:
+    """
+    Read a secret from the process environment only.
+
+    python-decouple would also search parent directories for a .env file, so the
+    same code could find a key on one machine and not on another. Secrets come
+    from the environment (Docker env_file, CI, deployment) and nowhere else.
+    """
+    return os.environ.get(name, '')
 
 
 def _normalize(value: str) -> str:

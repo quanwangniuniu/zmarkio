@@ -3,19 +3,24 @@
 test_secret_settings.py covers the validators in isolation. These tests load
 the real settings module in a fresh interpreter with controlled environment
 variables, so they fail if settings.py stops calling a validator, reads the
-wrong variable, or regains a fallback (MED-393, MED-394).
+wrong variable, reads a key through python-decouple (which also searches parent
+directories for a .env file), or regains a fallback (MED-393, MED-394, PR #836).
 """
 
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 from cryptography.fernet import Fernet
 from django.conf import settings
 from django.test import SimpleTestCase
 
 LOAD_SETTINGS = "import django; django.setup()"
+SECRET_NAMES = (
+    "SECRET_KEY",
+    "ORGANIZATION_ACCESS_TOKEN_SECRET_KEY",
+    "ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY",
+)
 
 
 def _fresh_keys():
@@ -26,7 +31,7 @@ def _fresh_keys():
     }
 
 
-def _load_settings(debug, unset=(), **overrides):
+def _load_settings(debug, unset=(), code=LOAD_SETTINGS, **overrides):
     env = dict(os.environ)
     env.update(_fresh_keys())
     env.update(overrides)
@@ -35,7 +40,7 @@ def _load_settings(debug, unset=(), **overrides):
     env["DEBUG"] = "True" if debug else "False"
     env["DJANGO_SETTINGS_MODULE"] = "backend.settings"
     return subprocess.run(
-        [sys.executable, "-c", LOAD_SETTINGS],
+        [sys.executable, "-c", code],
         cwd=settings.BASE_DIR,
         env=env,
         capture_output=True,
@@ -61,15 +66,7 @@ class SecretSettingsBootTest(SimpleTestCase):
 
     def test_each_key_is_required(self):
         """An unset variable must not fall back to a default value."""
-        # python-decouple falls back to a .env or settings.ini found above the
-        # settings module. Inside the Docker container (local and CI) there is
-        # none; a native run next to the repository's .env would read it.
-        base = Path(settings.BASE_DIR)
-        for directory in (base, *base.parents):
-            if (directory / ".env").exists() or (directory / "settings.ini").exists():
-                self.skipTest(f"python-decouple would read {directory}")
-
-        for name in _fresh_keys():
+        for name in SECRET_NAMES:
             with self.subTest(name=name):
                 self.assertRefusesToBoot(
                     _load_settings(debug=True, unset=[name]), f"{name} is not set"
@@ -92,3 +89,18 @@ class SecretSettingsBootTest(SimpleTestCase):
             _load_settings(debug=True, ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY="not-a-fernet-key"),
             "is not a valid Fernet key",
         )
+
+    def test_keys_are_not_read_through_decouple(self):
+        """decouple may pick up a .env from a parent directory; secrets must bypass it."""
+        spy = (
+            "import decouple; seen = []; original = decouple.AutoConfig.__call__\n"
+            "def record(self, option, *args, **kwargs):\n"
+            "    seen.append(option)\n"
+            "    return original(self, option, *args, **kwargs)\n"
+            "decouple.AutoConfig.__call__ = record\n"
+            "import django; django.setup()\n"
+            "print(sorted(set(seen) & %r))\n"
+        ) % (set(SECRET_NAMES),)
+        result = _load_settings(debug=False, code=spy)
+        self.assertBoots(result)
+        self.assertEqual(result.stdout.strip().splitlines()[-1], "[]")

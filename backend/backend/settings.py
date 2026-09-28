@@ -21,6 +21,7 @@ from .secret_settings import (
     COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
     COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
     COMMITTED_SECRET_KEY_DIGESTS,
+    read_secret_env,
     validate_fernet_key_setting,
     validate_secret_setting,
 )
@@ -39,10 +40,11 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 
 # SECURITY WARNING: keep the secret key used in production secret!
 # Required, with no fallback: it signs every JWT and is shared with
-# variations-studio-api and decision-service. See backend/secret_settings.py.
+# variations-studio-api. Read from the environment only. See
+# backend/secret_settings.py.
 SECRET_KEY = validate_secret_setting(
     'SECRET_KEY',
-    config('SECRET_KEY', default=''),
+    read_secret_env('SECRET_KEY'),
     debug=DEBUG,
     committed_digests=COMMITTED_SECRET_KEY_DIGESTS,
 )
@@ -952,16 +954,16 @@ FREE_USER_MAX_COST_CENTS = 200    # safety cap for fair-use alert on Free tier
 
 # Organization Access Token Configuration
 # Required, with no fallback: they sign and encrypt the organization access
-# token. See backend/secret_settings.py.
+# token. Read from the environment only. See backend/secret_settings.py.
 ORGANIZATION_ACCESS_TOKEN_SECRET_KEY = validate_secret_setting(
     'ORGANIZATION_ACCESS_TOKEN_SECRET_KEY',
-    config('ORGANIZATION_ACCESS_TOKEN_SECRET_KEY', default=''),
+    read_secret_env('ORGANIZATION_ACCESS_TOKEN_SECRET_KEY'),
     debug=DEBUG,
     committed_digests=COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
 )
 ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY = validate_fernet_key_setting(
     'ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY',
-    config('ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY', default=''),
+    read_secret_env('ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY'),
     debug=DEBUG,
     committed_digests=COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
 )

@@ -10,7 +10,9 @@ Covers the acceptance criteria from MED-393 and MED-394:
 """
 
 import hashlib
+import os
 import warnings
+from unittest import mock
 
 from cryptography.fernet import Fernet
 from django.core.exceptions import ImproperlyConfigured
@@ -22,6 +24,7 @@ from backend.secret_settings import (
     COMMITTED_SECRET_KEY_DIGESTS,
     FERNET_GENERATE_HINT,
     TOKEN_GENERATE_HINT,
+    read_secret_env,
     validate_fernet_key_setting,
     validate_secret_setting,
 )
@@ -227,6 +230,18 @@ class FernetKeySettingTest(SimpleTestCase):
 
         self.assertEqual(result, key)
         self.assertEqual(caught, [])
+
+
+class EnvironmentReaderTest(SimpleTestCase):
+    """Secrets come from os.environ only, never from a .env file."""
+
+    def test_read_secret_env_reads_the_environment(self):
+        with mock.patch.dict(os.environ, {"SOME_SECRET": "value"}):
+            self.assertEqual(read_secret_env("SOME_SECRET"), "value")
+
+    def test_read_secret_env_is_empty_when_unset(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(read_secret_env("SOME_SECRET"), "")
 
 
 class KnownDigestListTest(SimpleTestCase):
