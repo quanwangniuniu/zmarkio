@@ -1356,7 +1356,7 @@ class WorkflowEngineTests(TestCase):
         }
         self.assertEqual(set(EXECUTOR_REGISTRY.keys()), expected)
 
-    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     def test_analyze_data_executor(self, mock_analysis):
         """AnalyzeDataExecutor calls _run_analysis and returns SSE events."""
         from .executors import AnalyzeDataExecutor
@@ -1378,7 +1378,7 @@ class WorkflowEngineTests(TestCase):
         self.assertEqual(result.sse_events[0]['type'], 'analysis')
         mock_analysis.assert_called_once()
 
-    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     def test_await_confirmation_pauses_workflow(self, mock_analysis):
         """Workflow pauses at await_confirmation step and updates run status."""
         mock_analysis.return_value = _test_analysis_data()
@@ -1403,7 +1403,7 @@ class WorkflowEngineTests(TestCase):
         self.assertIn('analysis', types)
         self.assertIn('confirmation_request', types)
 
-    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     def test_resume_workflow_continues_from_pause(self, mock_analysis):
         """Resume picks up from where workflow paused."""
         mock_analysis.return_value = _test_analysis_data()
@@ -1539,7 +1539,7 @@ class WorkflowEngineTests(TestCase):
         self.assertTrue(run.created_tasks)
         self.assertTrue(Task.objects.filter(project=self.project).exists())
 
-    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     def test_step_execution_records_created(self, mock_analysis):
         """Each executed step creates an AgentStepExecution record."""
         mock_analysis.return_value = _test_analysis_data()
@@ -1560,7 +1560,7 @@ class WorkflowEngineTests(TestCase):
         self.assertEqual(executions.count(), 2)
         self.assertEqual(executions.filter(status='completed').count(), 2)
 
-    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     def test_workflow_failure_handling(self, mock_analysis):
         """Failed step marks execution and run as failed."""
         mock_analysis.side_effect = RuntimeError("API unavailable")
@@ -2119,7 +2119,7 @@ class OrchestratorUserContextThreadingTests(TestCase):
         )
 
     @patch('agent.services.orchestrator.cache')
-    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     @patch('agent.services.orchestrator.file_parser.parse_file_to_json')
     @patch('agent.services.orchestrator.data_service._get_csv_dir')
     @patch('os.path.isfile')
@@ -2158,7 +2158,7 @@ class OrchestratorUserContextThreadingTests(TestCase):
         )
 
     @patch('agent.services.orchestrator.cache')
-    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     @patch('agent.services.orchestrator.file_parser.parse_file_to_json')
     @patch('agent.services.orchestrator.data_service._get_csv_dir')
     @patch('os.path.isfile')
@@ -2298,7 +2298,7 @@ class GeminiAnalysisPromptInjectionTests(TestCase):
 
 class RunAnalysisValidationRetryTests(TestCase):
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.orchestrator._call_gemini_analysis')
+    @patch('agent.services.analysis._call_gemini_analysis')
     def test_retries_on_validation_error_then_succeeds(self, mock_call, _mock_key):
         from agent.services import _run_analysis
 
@@ -2328,7 +2328,7 @@ class RunAnalysisValidationRetryTests(TestCase):
         self.assertEqual(result['recommended_decision_tree']['nodes'][0]['parent_refs'], [])
 
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.orchestrator._call_gemini_analysis')
+    @patch('agent.services.analysis._call_gemini_analysis')
     def test_raises_after_max_validation_retries(self, mock_call, _mock_key):
         from agent.generation_registry import GenerationValidationError
         from agent.services import _ANALYSIS_VALIDATION_MAX_ATTEMPTS, _run_analysis
@@ -2349,7 +2349,7 @@ class RunAnalysisValidationRetryTests(TestCase):
         self.assertEqual(mock_call.call_count, _ANALYSIS_VALIDATION_MAX_ATTEMPTS)
 
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.orchestrator._call_gemini_analysis')
+    @patch('agent.services.analysis._call_gemini_analysis')
     def test_retries_on_recommended_tasks_validation_error_then_succeeds(self, mock_call, _mock_key):
         from agent.services import _run_analysis
 
@@ -2487,7 +2487,7 @@ class AnalyzeDataExecutorUserContextTests(TestCase):
         )
 
     @patch('agent.executors.cache')
-    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     def test_executor_passes_user_context_to_run_analysis(self, mock_analysis, mock_cache):
         from agent.executors import AnalyzeDataExecutor
         from agent.models import AgentWorkflowDefinition, AgentWorkflowStep, AgentWorkflowRun
@@ -2515,7 +2515,7 @@ class AnalyzeDataExecutorUserContextTests(TestCase):
         self.assertEqual(kwargs.get('user_context'), 'Prioritize high-spend campaigns')
 
     @patch('agent.executors.cache')
-    @patch('agent.services.orchestrator._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     def test_executor_passes_none_when_context_empty(self, mock_analysis, mock_cache):
         from agent.executors import AnalyzeDataExecutor
         from agent.models import AgentWorkflowDefinition, AgentWorkflowStep, AgentWorkflowRun
@@ -2873,7 +2873,7 @@ class FileUploadAnalyzeSpreadsheetImportTests(APITestCase):
             workflow=wf, name='Analyze', step_type='analyze_data', order=1,
         )
 
-        with patch('agent.services.orchestrator._run_analysis', return_value={'anomalies': [], 'recommended_tasks': []}):
+        with patch('agent.services.analysis._run_analysis', return_value={'anomalies': [], 'recommended_tasks': []}):
             orch = AgentOrchestrator(user=self.user, project=self.project, session=self.session)
             list(orch.handle_message(
                 '',
