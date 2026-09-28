@@ -532,3 +532,65 @@ class ProjectWorkspaceDashboardView(APIView):
         }
         serializer = ProjectWorkspaceDashboardSerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+from .services import get_available_fields, get_rollup
+from spreadsheet.access import accessible_projects
+
+
+class RollupFieldsView(APIView):
+    """GET /api/dashboard/rollup/fields/ — return all available rollup fields."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return Response(get_available_fields())
+
+
+class CrossProjectRollupView(APIView):
+    """
+    GET /api/dashboard/rollup/
+        ?project_ids=1,2,3
+        &fields=task_total,campaign_active,...
+
+    Returns one entry per accessible project with the requested metrics.
+    project_ids that the user cannot access are silently filtered out.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Parse project_ids
+        raw_ids = request.query_params.get('project_ids', '')
+        try:
+            project_ids = [int(i) for i in raw_ids.split(',') if i.strip()]
+        except ValueError:
+            return Response(
+                {'detail': 'project_ids must be comma-separated integers.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not project_ids:
+            return Response(
+                {'detail': 'project_ids is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Permission: keep only projects the user can access
+        allowed_ids = list(
+            accessible_projects(request.user)
+            .filter(id__in=project_ids)
+            .values_list('id', flat=True)
+        )
+
+        # Parse fields
+        raw_fields = request.query_params.get('fields', '')
+        fields = [f.strip() for f in raw_fields.split(',') if f.strip()]
+
+        if not fields:
+            return Response(
+                {'detail': 'fields is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = get_rollup(allowed_ids, fields)
+        return Response(data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
