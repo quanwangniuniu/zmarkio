@@ -23,6 +23,8 @@ def _query_task_total(project_ids):
 
 def _query_task_completed_7d(project_ids):
     cutoff = timezone.now() - timedelta(days=7)
+    # NOTE: Task has no completed_at field; updated_at is used as a proxy.
+    # This means a task edited after completion will be recounted. Known limitation.
     return _batch_count(Task.objects.filter(
         project_id__in=project_ids,
         status__in=[Task.Status.APPROVED, Task.Status.LOCKED],
@@ -93,6 +95,7 @@ def _query_meeting_upcoming(project_ids):
     return _batch_count(Meeting.objects.filter(
         project_id__in=project_ids,
         is_archived=False,
+        is_deleted=False,
         scheduled_date__gte=today,
     ))
 
@@ -127,27 +130,37 @@ def get_available_fields() -> list[dict]:
     ]
 
 
-def get_rollup(project_ids: list[int], fields: list[str]) -> list[dict]:
+def get_rollup(project_ids: list[int], fields: list[str]) -> dict:
     """
     Query requested fields for all given project_ids in batch.
-    Returns one entry per project with only the requested fields.
+    Returns:
+        {
+            'results': [ {project_id, project_name, field_key: value, ...}, ... ],
+            'errors':  { field_key: error_message }  — only present when a field query fails
+        }
     """
     if not project_ids:
-        return []
+        return {'results': [], 'errors': {}}
 
     requested = [f for f in fields if f in FIELD_REGISTRY]
     if not requested:
-        return []
+        return {'results': [], 'errors': {}}
 
     projects = {
         p['id']: p['name']
         for p in Project.objects.filter(id__in=project_ids).values('id', 'name')
     }
 
-    # One batch query per field regardless of number of projects
+    # One batch query per field regardless of number of projects.
+    # If a single field query fails, record the error and continue with the rest.
     field_data: dict[str, dict[int, int]] = {}
+    errors: dict[str, str] = {}
     for field_key in requested:
-        field_data[field_key] = FIELD_REGISTRY[field_key]['fn'](project_ids)
+        try:
+            field_data[field_key] = FIELD_REGISTRY[field_key]['fn'](project_ids)
+        except Exception as e:
+            field_data[field_key] = {}
+            errors[field_key] = str(e)
 
     result = []
     for pid in project_ids:
@@ -161,4 +174,4 @@ def get_rollup(project_ids: list[int], fields: list[str]) -> list[dict]:
             entry[field_key] = field_data[field_key].get(pid, 0)
         result.append(entry)
 
-    return result
+    return {'results': result, 'errors': errors}

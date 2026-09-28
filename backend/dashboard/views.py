@@ -12,6 +12,8 @@ from decision.models import Decision
 from spreadsheet.models import Spreadsheet
 from core.slug_mixins import resolve_project_pk
 from .serializers import DashboardSummarySerializer, ProjectWorkspaceDashboardSerializer
+from .services import get_available_fields, get_rollup
+from spreadsheet.access import accessible_projects
 
 
 logger = logging.getLogger(__name__)
@@ -534,10 +536,6 @@ class ProjectWorkspaceDashboardView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-from .services import get_available_fields, get_rollup
-from spreadsheet.access import accessible_projects
-
-
 class RollupFieldsView(APIView):
     """GET /api/dashboard/rollup/fields/ — return all available rollup fields."""
     permission_classes = [IsAuthenticated]
@@ -556,6 +554,7 @@ class CrossProjectRollupView(APIView):
     project_ids that the user cannot access are silently filtered out.
     """
     permission_classes = [IsAuthenticated]
+    MAX_PROJECT_IDS = 20
 
     def get(self, request):
         # Parse project_ids
@@ -571,6 +570,12 @@ class CrossProjectRollupView(APIView):
         if not project_ids:
             return Response(
                 {'detail': 'project_ids is required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(project_ids) > self.MAX_PROJECT_IDS:
+            return Response(
+                {'detail': f'At most {self.MAX_PROJECT_IDS} project_ids are allowed per request.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -593,4 +598,3 @@ class CrossProjectRollupView(APIView):
 
         data = get_rollup(allowed_ids, fields)
         return Response(data)
-        return Response(serializer.data, status=status.HTTP_200_OK)
