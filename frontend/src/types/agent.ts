@@ -5,7 +5,6 @@ export interface AgentConfigStatus {
   anthropic: boolean;
   column_registry?: {
     ok: boolean;
-    code?: string;
     error?: string;
   };
 }

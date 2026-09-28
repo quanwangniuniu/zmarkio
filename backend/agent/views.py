@@ -1364,7 +1364,6 @@ class AgentConfigStatusView(EnglishResponseMixin, APIView):
             # Diagnose the current definitions, including changes since boot.
             result['column_registry'] = {
                 'ok': False,
-                'code': exc.code,
                 'error': str(exc),
             }
         return Response(result)

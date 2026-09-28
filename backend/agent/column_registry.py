@@ -410,8 +410,6 @@ def _normalise(text: str) -> str:
 class ColumnRegistryCollisionError(ValueError):
     """A schema key, canonical name or alias is already registered."""
 
-    code = 'COLUMN_REGISTRY_COLLISION'
-
 
 def _registry_test_mode() -> bool:
     return os.environ.get('AGENT_COLUMN_REGISTRY_TEST_MODE', '').strip().lower() in {

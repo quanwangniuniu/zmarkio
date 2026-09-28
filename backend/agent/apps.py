@@ -9,11 +9,7 @@ def check_column_registry(app_configs, **kwargs):
     try:
         validate_registry()
     except ColumnRegistryCollisionError as exc:
-        return [Error(
-            str(exc),
-            hint='Use unique schema keys and column names/aliases within each schema.',
-            id='agent.E001',
-        )]
+        return [Error(str(exc))]
     return []
 
 

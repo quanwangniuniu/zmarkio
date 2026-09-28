@@ -7,7 +7,8 @@ from types import ModuleType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from django.core.checks import run_checks
+from django.core.management import call_command
+from django.core.management.base import SystemCheckError
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from agent import column_registry as registry
@@ -131,15 +132,17 @@ def test_test_mode_alias_overwrite_is_checked_again_when_flag_is_removed(monkeyp
     monkeypatch.delenv('AGENT_COLUMN_REGISTRY_TEST_MODE')
     with pytest.raises(registry.ColumnRegistryCollisionError):
         registry.detect_columns(['Total Sales'])
-    assert check_column_registry(None)[0].id == 'agent.E001'
+    assert check_column_registry(None)[0].is_serious()
 
 
 def test_system_check_revalidates_current_definitions_and_recovers():
     columns = registry.SCHEMA_REGISTRY['test']['columns']
     columns['other'] = {'aliases': ['Total Sales']}
-    errors = [error for error in run_checks() if error.id == 'agent.E001']
+    errors = check_column_registry(None)
     assert len(errors) == 1
     assert all(name in errors[0].msg for name in ['test', 'revenue', 'other'])
+    with pytest.raises(SystemCheckError, match='Column registry name collision'):
+        call_command('check')
     with pytest.raises(registry.ColumnRegistryCollisionError):
         registry.detect_columns(['Total Sales'])
     del columns['other']
@@ -174,7 +177,6 @@ def test_admin_diagnostics_reports_current_collision_and_recovery(is_staff, is_o
         response = config_status(is_staff=is_staff)
         assert response.status_code == 200
         assert response.data['column_registry']['ok'] is False
-        assert response.data['column_registry']['code'] == 'COLUMN_REGISTRY_COLLISION'
         assert 'other' in response.data['column_registry']['error']
         del columns['other']
         assert config_status(is_staff=is_staff).data['column_registry'] == {'ok': True}
