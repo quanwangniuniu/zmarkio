@@ -1,41 +1,53 @@
-import type { CopyGenerator, CopyJson } from '@/src/ai/types';
 import { createCopyGenerator } from '@/src/ai';
-import { callGeminiJson, isGeminiQuotaError } from '@/src/ai/providers/gemini';
+import { callOllamaJson, getOllamaConfig, } from '@/src/ai/providers/ollama';
+import type { CopyGenerator, CopyJson, } from '@/src/ai/types';
 
-jest.mock('@/src/ai/providers/gemini', () => ({
-  callGeminiJson: jest.fn(),
-  isGeminiQuotaError: jest.fn(() => false),
-  MODEL_NAME: 'gemini-2.5-flash-lite',
+jest.mock('@/src/ai/providers/ollama', () => ({
+  callOllamaJson: jest.fn(),
+  getOllamaConfig: jest.fn(() => ({
+    baseUrl: 'http://ollama.test:11434',
+    model: 'test-model',
+    timeoutMs: 5000,
+  })),
 }));
 
-const geminiMock = callGeminiJson as jest.MockedFunction<typeof callGeminiJson>;
-const quotaMock = isGeminiQuotaError as jest.MockedFunction<
-  typeof isGeminiQuotaError
+const ollamaMock = callOllamaJson as jest.MockedFunction<
+  typeof callOllamaJson
 >;
 
-describe('CopyGenerator (Phase 2a)', () => {
+const configMock = getOllamaConfig as jest.MockedFunction<
+  typeof getOllamaConfig
+>;
+
+describe('CopyGenerator', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    quotaMock.mockReturnValue(false);
+    configMock.mockReturnValue({
+      baseUrl: 'http://ollama.test:11434',
+      model: 'test-model',
+      timeoutMs: 5000,
+    });
   });
 
-  it('createCopyGenerator delegates to the Gemini provider', async () => {
+  it('delegates to the Ollama provider', async () => {
     const copy: CopyJson = {
       hook: 'h',
       headline: 'headline',
       description: 'desc',
       cta: 'LEARN_MORE',
     };
-    geminiMock.mockResolvedValueOnce(copy);
+
+    ollamaMock.mockResolvedValueOnce(copy);
 
     const generator = createCopyGenerator();
     const result = await generator.generateCopy('system', 'user');
 
     expect(result).toEqual(copy);
-    expect(geminiMock).toHaveBeenCalledWith('system', 'user');
+    expect(generator.modelName).toBe('test-model');
+    expect(ollamaMock).toHaveBeenCalledWith('system', 'user');
   });
 
-  it('accepts an injected mock generator without touching Gemini', async () => {
+  it('accepts an injected mock generator without touching Ollama', async () => {
     const injected: CopyGenerator = {
       modelName: 'test-model',
       generateCopy: jest.fn(async () => ({
@@ -44,11 +56,12 @@ describe('CopyGenerator (Phase 2a)', () => {
         description: 'injected desc',
         cta: 'SHOP_NOW',
       })),
-      isQuotaError: () => false,
+      getErrorMessage: () => null,
     };
 
     const result = await injected.generateCopy('sys', 'usr');
+
     expect(result.hook).toBe('injected');
-    expect(geminiMock).not.toHaveBeenCalled();
+    expect(ollamaMock).not.toHaveBeenCalled();
   });
 });

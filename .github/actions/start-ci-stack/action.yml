@@ -1,0 +1,118 @@
+name: Start CI stack
+description: >
+  Write the CI .env file, start the docker compose stack from the preloaded
+  images, and wait for the database, Redis and ClamAV to be ready.
+
+inputs:
+  services:
+    description: Space-separated compose services to start. Empty starts the whole ci profile.
+    required: false
+    default: ""
+  extra-env:
+    description: Extra KEY=value lines appended to the CI .env file.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # Create a CI environment file with the necessary environment variables
+    # Django secret key is generated based on the current commit hash
+    # Database credentials use test defaults for CI environment
+    # Database host is set to db service in docker-compose.yml
+    # Debug is set to False
+    # Allowed hosts are set to localhost, 127.0.0.1, 0.0.0.0
+    # Celery broker URL and result backend are set to redis service in docker-compose.yml
+    - name: Create CI environment file
+      shell: bash
+      env:
+        EXTRA_ENV: ${{ inputs.extra-env }}
+      run: |
+        cat > .env << EOF
+        SECRET_KEY=test-secret-key-for-ci-${{ github.sha }}
+        POSTGRES_DB=mediajira_test_db
+        POSTGRES_USER=postgres
+        POSTGRES_PASSWORD=test_password
+        POSTGRES_PORT=5432
+        DB_HOST=db
+        API_BASE_URL=http://nginx
+        DEBUG=False
+        ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+        CELERY_BROKER_URL=redis://redis:6379/0
+        CELERY_RESULT_BACKEND=redis://redis:6379/0
+        CLAMAV_HOST=clamav
+        CLAMAV_PORT=3310
+        EOF
+        if [ -n "$EXTRA_ENV" ]; then
+          printf '%s\n' "$EXTRA_ENV" >> .env
+        fi
+
+    # --no-build: the images were loaded from the build_images job. Failing
+    # here beats silently rebuilding them in every job.
+    - name: Start services
+      shell: bash
+      run: |
+        docker compose --profile ci --env-file .env up -d --no-build ${{ inputs.services }}
+
+    - name: Wait for database, Redis and ClamAV
+      shell: bash
+      run: |
+        # wait for database to be ready with proper health check
+        echo "Waiting for database to be ready..."
+        timeout=180
+        counter=0
+        while [ $counter -lt $timeout ]; do
+          if docker compose --profile ci exec -T db pg_isready -U postgres > /dev/null 2>&1; then
+            echo "Database is ready!"
+            break
+          fi
+          echo "Database not ready yet, waiting... ($counter/$timeout)"
+          sleep 2
+          counter=$((counter + 2))
+        done
+
+        if [ $counter -eq $timeout ]; then
+          echo "Database failed to start within $timeout seconds"
+          docker compose --profile ci logs db
+          exit 1
+        fi
+
+        # wait for redis to be ready
+        echo "Waiting for Redis to be ready..."
+        redis_timeout=30
+        redis_counter=0
+        while [ $redis_counter -lt $redis_timeout ]; do
+          if docker compose --profile ci exec -T redis redis-cli ping > /dev/null 2>&1; then
+            echo "Redis is ready!"
+            break
+          fi
+          echo "Redis not ready yet, waiting... ($redis_counter/$redis_timeout)"
+          sleep 1
+          redis_counter=$((redis_counter + 1))
+        done
+
+        if [ $redis_counter -eq $redis_timeout ]; then
+          echo "Redis failed to start within $redis_timeout seconds"
+          docker compose --profile ci logs redis
+          exit 1
+        fi
+
+        # wait for clamav to be ready
+        echo "Waiting for ClamAV to be ready..."
+        clamav_timeout=60
+        clamav_counter=0
+        while [ $clamav_counter -lt $clamav_timeout ]; do
+          if docker compose --profile ci exec -T clamav clamdscan --version > /dev/null 2>&1; then
+            echo "ClamAV is ready!"
+            break
+          fi
+          echo "ClamAV not ready yet, waiting... ($clamav_counter/$clamav_timeout)"
+          sleep 2
+          clamav_counter=$((clamav_counter + 2))
+        done
+
+        if [ $clamav_counter -eq $clamav_timeout ]; then
+          echo "ClamAV failed to start within $clamav_timeout seconds"
+          docker compose --profile ci logs clamav
+          exit 1
+        fi
