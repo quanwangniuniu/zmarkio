@@ -15,6 +15,11 @@ from .analysis import (
     _run_analysis,
 )
 from .common import _coerce_json, _create_agent_status_message
+from .followup import (
+    _call_gemini_chat,
+    _normalize_llm_chat_output,
+    _serialize_project_members,
+)
 from .insights import (
     _normalize_spreadsheet_insights_result,
     _run_spreadsheet_insights,
@@ -26,12 +31,7 @@ from .miro import (
     _enqueue_miro_generation_for_workflow_run,
     _generate_miro_board_for_workflow_run,
 )
-from .orchestrator import (
-    AgentOrchestrator,
-    _call_gemini_chat,
-    _normalize_llm_chat_output,
-    _serialize_project_members,
-)
+from .orchestrator import AgentOrchestrator
 
 __all__ = [
     "MIRO_LEGACY_BG_QUEUED_MESSAGE",
