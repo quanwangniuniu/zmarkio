@@ -49,7 +49,10 @@ export default function SandboxConfigPanel({
   const toId = (value: string) => (value === NONE ? null : Number(value));
 
   return (
-    <div className="flex flex-col gap-4" aria-label="Sandbox scenario">
+    <div
+      className="grid grid-cols-1 items-start gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      aria-label="Sandbox scenario"
+    >
       <div>
         <label htmlFor="sb-group" className={LABEL_CLASS}>
           Experience group <span className="text-red-500">*</span>
@@ -108,14 +111,18 @@ export default function SandboxConfigPanel({
           className={BUILDER_CONTROL_CLASS}
         />
         <p className="mt-1 text-xs text-gray-500">
-          Leave empty for now. Used for the channel&apos;s operating hours.
+          Empty means now. Decides if the channel is open.
         </p>
       </div>
 
-      <button type="button" onClick={onReset} className={`self-start ${SECONDARY_BUTTON_CLASS}`}>
-        <RotateCcw className="h-4 w-4" aria-hidden />
-        Reset conversation
-      </button>
+      <div>
+        {/* Empty label keeps the button level with the fields beside it. */}
+        <span className="mb-1.5 hidden text-[12px] lg:block" aria-hidden>&nbsp;</span>
+        <button type="button" onClick={onReset} className={`whitespace-nowrap ${SECONDARY_BUTTON_CLASS}`}>
+          <RotateCcw className="h-4 w-4" aria-hidden />
+          Reset conversation
+        </button>
+      </div>
     </div>
   );
 }

@@ -81,8 +81,8 @@ export default function RoutingSandboxPage() {
       ) : options.experienceGroups.length === 0 ? (
         <p className="text-sm text-gray-500">Create an experience group first to run the sandbox.</p>
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_minmax(0,1fr)_400px]">
-          <aside>
+        <>
+          <section className="rounded-xl border border-gray-200 bg-gray-50/60 p-4">
             <SandboxConfigPanel
               config={config}
               experienceGroups={options.experienceGroups}
@@ -91,62 +91,65 @@ export default function RoutingSandboxPage() {
               onChange={setConfig}
               onReset={sandbox.reset}
             />
-          </aside>
+          </section>
 
-          <SandboxChatSimulator
-            messages={sandbox.messages}
-            disabled={config.experienceGroupId === null || sandbox.customerMessageCount >= 50}
-            disabledReason={
-              config.experienceGroupId === null
-                ? 'Select an experience group first'
-                : 'Message limit reached; reset the conversation'
-            }
-            onSend={sandbox.sendCustomerMessage}
-          />
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
 
-          <div className="flex min-w-0 flex-col gap-3">
-            <div className="flex gap-1 rounded-lg bg-gray-100 p-1" role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab === 'trace'}
-                onClick={() => setTab('trace')}
-                className={tabClass(tab === 'trace')}
-              >
-                <ListTree className="h-4 w-4" aria-hidden />
-                Routing trace
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab === 'templates'}
-                onClick={() => setTab('templates')}
-                className={tabClass(tab === 'templates')}
-              >
-                <MessageSquareText className="h-4 w-4" aria-hidden />
-                Templates
-              </button>
+            <SandboxChatSimulator
+              messages={sandbox.messages}
+              disabled={config.experienceGroupId === null || sandbox.customerMessageCount >= 50}
+              disabledReason={
+                config.experienceGroupId === null
+                  ? 'Select an experience group first'
+                  : 'Message limit reached; reset the conversation'
+              }
+              onSend={sandbox.sendCustomerMessage}
+            />
+
+            <div className="flex min-w-0 flex-col gap-3">
+              <div className="flex gap-1 rounded-lg bg-gray-100 p-1" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === 'trace'}
+                  onClick={() => setTab('trace')}
+                  className={tabClass(tab === 'trace')}
+                >
+                  <ListTree className="h-4 w-4" aria-hidden />
+                  Routing trace
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === 'templates'}
+                  onClick={() => setTab('templates')}
+                  className={tabClass(tab === 'templates')}
+                >
+                  <MessageSquareText className="h-4 w-4" aria-hidden />
+                  Templates
+                </button>
+              </div>
+
+              {tab === 'trace' ? (
+                <RoutingTracePanel
+                  traces={sandbox.traces}
+                  customerMessages={customerMessages}
+                  meta={sandbox.meta}
+                  evaluating={sandbox.evaluating}
+                  error={sandbox.error}
+                  lookups={lookups}
+                  onRerun={sandbox.rerun}
+                />
+              ) : (
+                <SandboxTemplateBrowser
+                  organisations={options.organisations}
+                  suggestedOrganisationId={suggestedOrganisationId}
+                  onInsert={sandbox.insertTemplate}
+                />
+              )}
             </div>
-
-            {tab === 'trace' ? (
-              <RoutingTracePanel
-                traces={sandbox.traces}
-                customerMessages={customerMessages}
-                meta={sandbox.meta}
-                evaluating={sandbox.evaluating}
-                error={sandbox.error}
-                lookups={lookups}
-                onRerun={sandbox.rerun}
-              />
-            ) : (
-              <SandboxTemplateBrowser
-                organisations={options.organisations}
-                suggestedOrganisationId={suggestedOrganisationId}
-                onInsert={sandbox.insertTemplate}
-              />
-            )}
           </div>
-        </div>
+        </>
       )}
     </CsmSettingsPageRoot>
   );
