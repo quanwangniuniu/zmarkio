@@ -29,7 +29,7 @@ from .executors import (
     get_executor,
 )
 from core.services.gemini_client import GeminiRetriesExhausted
-from .services import _ANALYSIS_SYSTEM_PROMPT
+from .services.analysis_prompts import _ANALYSIS_SYSTEM_PROMPT
 
 
 class _StepStub:

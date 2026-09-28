@@ -199,7 +199,8 @@ class CallLLMExecutor(BaseStepExecutor):
     #Anthropic API call has default retry logic, so the retry policy is simple to avoid double retrying.
     @retry_policy(max_retries=1, retry_delay=0, on_exhausted='fail')
     def execute(self, input_data):
-        from .services.analysis import _ANALYSIS_SYSTEM_PROMPT, _get_llm_client
+        from .services.analysis import _get_llm_client
+        from .services.analysis_prompts import _ANALYSIS_SYSTEM_PROMPT
 
         spreadsheet_data = input_data.get('spreadsheet_data', input_data)
         try:

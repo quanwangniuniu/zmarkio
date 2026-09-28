@@ -14,12 +14,9 @@ from .models import (
     AgentWorkflowDefinition, AgentWorkflowStep, AgentStepExecution,
     AgentWorkflowTemplate,
 )
-from .services import (
-    AgentOrchestrator,
-    _forward_to_users,
-    _preprocess_spreadsheet,
-    _resolve_analysis_columns,
-)
+from .services import AgentOrchestrator
+from .services.analysis import _preprocess_spreadsheet, _resolve_analysis_columns
+from .services.messaging import _forward_to_users
 
 
 def _test_anomaly(**overrides):
@@ -823,26 +820,26 @@ class AnomalyIdAssignmentTests(TestCase):
     """_assign_anomaly_ids: stable ids + zero-anomaly auto-confirm."""
 
     def test_assigns_sequential_ids(self):
-        from agent.services import _assign_anomaly_ids
+        from agent.services.analysis import _assign_anomaly_ids
         analysis = {"anomalies": [{"metric": "ROAS"}, {"metric": "CPA"}]}
         result = _assign_anomaly_ids(analysis)
         self.assertEqual(result["anomalies"][0]["id"], "anom_0")
         self.assertEqual(result["anomalies"][1]["id"], "anom_1")
 
     def test_idempotent_existing_ids_untouched(self):
-        from agent.services import _assign_anomaly_ids
+        from agent.services.analysis import _assign_anomaly_ids
         analysis = {"anomalies": [{"id": "keep_me", "metric": "ROAS"}]}
         result = _assign_anomaly_ids(analysis)
         self.assertEqual(result["anomalies"][0]["id"], "keep_me")
 
     def test_zero_anomalies_auto_confirmed(self):
-        from agent.services import _assign_anomaly_ids
+        from agent.services.analysis import _assign_anomaly_ids
         analysis = {"anomalies": [], "recommended_tasks": [{"summary": "x"}]}
         result = _assign_anomaly_ids(analysis)
         self.assertTrue(result["anomalies_confirmed"])
 
     def test_nonempty_anomalies_not_auto_confirmed(self):
-        from agent.services import _assign_anomaly_ids
+        from agent.services.analysis import _assign_anomaly_ids
         analysis = {"anomalies": [{"metric": "ROAS"}]}
         result = _assign_anomaly_ids(analysis)
         self.assertNotIn("anomalies_confirmed", result)
@@ -1139,7 +1136,7 @@ class CalendarAgentTests(TestCase):
         self.assertIn('done', types)
         self.assertTrue(mock_call_gemini.called)
 
-    @patch('agent.services.orchestrator.requests.post')
+    @patch('requests.post')
     def test_handle_message_without_calendar_context_skips_calendar(self, mock_post):
         """handle_message without calendar_context must NOT call the calendar Dify endpoint."""
         chunks = list(self.orchestrator.handle_message('Hello'))
@@ -2228,7 +2225,7 @@ class GeminiAnalysisPromptInjectionTests(TestCase):
 
     @patch('agent.llm_client._call_gemini')
     def test_no_context_prompt_unchanged(self, mock_gemini):
-        from agent.services import _call_gemini_analysis
+        from agent.services.analysis import _call_gemini_analysis
         mock_gemini.return_value = {'text': json.dumps({'anomalies': [], 'recommended_tasks': []}), 'usage': {'input': 10, 'output': 20}}
 
         _call_gemini_analysis(
@@ -2244,7 +2241,7 @@ class GeminiAnalysisPromptInjectionTests(TestCase):
 
     @patch('agent.llm_client._call_gemini')
     def test_context_appended_to_system_prompt(self, mock_gemini):
-        from agent.services import _call_gemini_analysis
+        from agent.services.analysis import _call_gemini_analysis
         mock_gemini.return_value = {'text': json.dumps({'anomalies': [], 'recommended_tasks': []}), 'usage': {'input': 10, 'output': 20}}
 
         _call_gemini_analysis(
@@ -2263,7 +2260,7 @@ class GeminiAnalysisPromptInjectionTests(TestCase):
 
     @patch('agent.llm_client._call_gemini')
     def test_empty_context_prompt_unchanged(self, mock_gemini):
-        from agent.services import _call_gemini_analysis
+        from agent.services.analysis import _call_gemini_analysis
         mock_gemini.return_value = {'text': json.dumps({'anomalies': [], 'recommended_tasks': []}), 'usage': {'input': 10, 'output': 20}}
 
         _call_gemini_analysis(
@@ -2279,7 +2276,7 @@ class GeminiAnalysisPromptInjectionTests(TestCase):
 
     @patch('core.services.gemini_client.call_gemini_json')
     def test_decision_tree_in_system_prompt_when_requested(self, mock_gemini):
-        from agent.services import _call_gemini_analysis
+        from agent.services.analysis import _call_gemini_analysis
 
         mock_gemini.return_value = {
             'recommended_decision_tree': {'nodes': []},
@@ -2300,7 +2297,7 @@ class RunAnalysisValidationRetryTests(TestCase):
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
     @patch('agent.services.analysis._call_gemini_analysis')
     def test_retries_on_validation_error_then_succeeds(self, mock_call, _mock_key):
-        from agent.services import _run_analysis
+        from agent.services.analysis import _run_analysis
 
         invalid = {
             'recommended_decision_tree': {
@@ -2331,7 +2328,7 @@ class RunAnalysisValidationRetryTests(TestCase):
     @patch('agent.services.analysis._call_gemini_analysis')
     def test_raises_after_max_validation_retries(self, mock_call, _mock_key):
         from agent.generation_registry import GenerationValidationError
-        from agent.services import _ANALYSIS_VALIDATION_MAX_ATTEMPTS, _run_analysis
+        from agent.services.analysis import _ANALYSIS_VALIDATION_MAX_ATTEMPTS, _run_analysis
 
         invalid = {
             'recommended_decision_tree': {
@@ -2351,7 +2348,7 @@ class RunAnalysisValidationRetryTests(TestCase):
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
     @patch('agent.services.analysis._call_gemini_analysis')
     def test_retries_on_recommended_tasks_validation_error_then_succeeds(self, mock_call, _mock_key):
-        from agent.services import _run_analysis
+        from agent.services.analysis import _run_analysis
 
         invalid = {
             'recommended_tasks': [
@@ -2382,7 +2379,7 @@ class SpreadsheetInsightsValidationRetryTests(TestCase):
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
     @patch('agent.services.insights._call_gemini_spreadsheet_insights')
     def test_retries_on_recommended_tasks_validation_then_succeeds(self, mock_call, _mock_key):
-        from agent.services import _run_spreadsheet_insights
+        from agent.services.insights import _run_spreadsheet_insights
 
         invalid = {
             'summary': 'Overview',
@@ -2417,7 +2414,8 @@ class SpreadsheetInsightsValidationRetryTests(TestCase):
     @patch('agent.services.insights._call_gemini_spreadsheet_insights')
     def test_raises_after_max_insights_validation_retries(self, mock_call, _mock_key):
         from agent.generation_registry import GenerationValidationError
-        from agent.services import _ANALYSIS_VALIDATION_MAX_ATTEMPTS, _run_spreadsheet_insights
+        from agent.services.analysis import _ANALYSIS_VALIDATION_MAX_ATTEMPTS
+        from agent.services.insights import _run_spreadsheet_insights
 
         invalid = {
             'summary': 'Overview',
@@ -2437,7 +2435,7 @@ class SpreadsheetInsightsValidationRetryTests(TestCase):
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
     @patch('agent.services.insights._call_gemini_spreadsheet_insights')
     def test_retries_on_out_of_bounds_anomaly_location_then_succeeds(self, mock_call, _mock_key):
-        from agent.services import _run_spreadsheet_insights
+        from agent.services.insights import _run_spreadsheet_insights
 
         spreadsheet_data = {
             'name': 'test',
@@ -2592,7 +2590,7 @@ class SpreadsheetInsightsTests(TestCase):
         self.assertEqual(len(all_data['sheets']), 2)
 
     def test_normalize_spreadsheet_insights_result(self):
-        from agent.services import _normalize_spreadsheet_insights_result
+        from agent.services.insights import _normalize_spreadsheet_insights_result
 
         raw = {
             'summary': 'Two columns of sales data.',
@@ -2623,7 +2621,7 @@ class SpreadsheetInsightsTests(TestCase):
         self.assertEqual(len(result['recommended_tasks']), 1)
 
     def test_normalize_rejects_blank_or_non_string_summary(self):
-        from agent.services import _normalize_spreadsheet_insights_result
+        from agent.services.insights import _normalize_spreadsheet_insights_result
 
         for bad_summary in ('', '   \n\t', None):
             with self.assertRaises(ValueError):
@@ -2634,7 +2632,7 @@ class SpreadsheetInsightsTests(TestCase):
             _normalize_spreadsheet_insights_result('not a dict')
 
     def test_normalize_rejects_non_integer_or_negative_location(self):
-        from agent.services import _normalize_spreadsheet_insights_result
+        from agent.services.insights import _normalize_spreadsheet_insights_result
 
         base = {'summary': 'ok', 'anomalies': [{'title': 'A', 'locations': []}]}
 
@@ -2647,7 +2645,7 @@ class SpreadsheetInsightsTests(TestCase):
             _normalize_spreadsheet_insights_result(base)
 
     def test_normalize_rejects_out_of_bounds_location(self):
-        from agent.services import _normalize_spreadsheet_insights_result
+        from agent.services.insights import _normalize_spreadsheet_insights_result
 
         raw = {
             'summary': 'ok',
@@ -2666,7 +2664,7 @@ class SpreadsheetInsightsTests(TestCase):
             _normalize_spreadsheet_insights_result(raw, row_count=5, col_count=3)
 
     def test_normalize_skips_bounds_check_when_dimensions_unknown(self):
-        from agent.services import _normalize_spreadsheet_insights_result
+        from agent.services.insights import _normalize_spreadsheet_insights_result
 
         raw = {
             'summary': 'ok',
@@ -2676,7 +2674,7 @@ class SpreadsheetInsightsTests(TestCase):
         self.assertEqual(result['anomalies'][0]['locations'][0]['row'], 999)
 
     def test_spreadsheet_insights_sample_bounds(self):
-        from agent.services import _spreadsheet_insights_sample_bounds
+        from agent.services.insights import _spreadsheet_insights_sample_bounds
 
         data = {
             'sheets': [

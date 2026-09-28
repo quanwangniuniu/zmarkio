@@ -443,7 +443,7 @@ class TestPresenceRecipientCacheInvalidation:
         invalidate.assert_called_once_with(chat)
 
     def test_agent_private_chat_create_invalidates_presence_cache(self, capture_on_commit_callbacks):
-        from agent.services import _get_or_create_bot_private_chat
+        from agent.services.messaging import _get_or_create_bot_private_chat
         bot = User.objects.create_user(username=f'agent-bot-{self.user_a.id}', email=f'agent-bot-{self.user_a.id}@example.com', password='x')
         cache.set(OnlineStatusService._presence_recipients_key(bot.id), [self.user_b.id])
         cache.set(OnlineStatusService._presence_recipients_key(self.user_a.id), [self.user_b.id])
@@ -455,7 +455,7 @@ class TestPresenceRecipientCacheInvalidation:
         assert cache.get(OnlineStatusService._presence_recipients_key(self.user_a.id)) is None
 
     def test_agent_private_chat_reactivation_invalidates_presence_cache(self, capture_on_commit_callbacks):
-        from agent.services import _get_or_create_bot_private_chat
+        from agent.services.messaging import _get_or_create_bot_private_chat
         bot = User.objects.create_user(username=f'inactive-agent-bot-{self.user_a.id}', email=f'inactive-agent-bot-{self.user_a.id}@example.com', password='x')
         chat = Chat.objects.create(project=self.project, type=ChatType.PRIVATE)
         ChatParticipant.objects.create(chat=chat, user=bot, is_active=False)
