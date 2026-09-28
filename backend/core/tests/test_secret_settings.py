@@ -6,6 +6,8 @@ Covers MED-393 and MED-394 and the PR #836 review:
   explicitly allowed (DEBUG and ALLOW_LEGACY_LOCAL_KEYS, decided in settings.py)
 - General weak-value rules: django-insecure- prefix, placeholder words, minimum
   length, minimum distinct characters, and the three keys being distinct
+- A value with surrounding whitespace or quotes is refused, so the checked value
+  is exactly the value every service uses
 - A Fernet key that Fernet cannot use is refused at boot (MED-394)
 - Secrets are read from the process environment only
 """
@@ -137,19 +139,29 @@ class CommittedSecretTest(SimpleTestCase):
                     validate(value)
 
 
-class ReturnedValueTest(SimpleTestCase):
-    """Checks see the value without surrounding whitespace and quotes; the value itself is returned unchanged."""
+class SurroundingNoiseTest(SimpleTestCase):
+    """The checked value must be exactly the value every service uses."""
+
+    def test_new_key_with_surrounding_whitespace_is_rejected(self):
+        key = fresh_key()
+        for value in (f" {key}", f"{key} ", f"{key}\n", f"\t{key}\t"):
+            with self.subTest(value=repr(value)):
+                with self.assertRaisesMessage(ImproperlyConfigured, "surrounding whitespace or quotes"):
+                    validate(value)
+
+    def test_new_key_in_quotes_is_rejected(self):
+        key = fresh_key()
+        for value in (f'"{key}"', f"'{key}'"):
+            with self.subTest(value=value):
+                with self.assertRaisesMessage(ImproperlyConfigured, "surrounding whitespace or quotes"):
+                    validate(value)
 
     def test_mismatched_quotes_are_part_of_the_key(self):
         """Only a matching pair is treated as quoting; anything else is part of the key."""
         value = f'"{fresh_key()}' + "'"
         self.assertEqual(validate(value), value)
 
-    def test_value_is_returned_unchanged(self):
-        value = f"  {fresh_key()}  "
-        self.assertEqual(validate(value), value)
-
-    def test_clean_key_is_returned_without_warning(self):
+    def test_clean_key_is_returned_unchanged(self):
         key = fresh_key()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
@@ -255,6 +267,11 @@ class FernetKeySettingTest(SimpleTestCase):
         """A key made with the SECRET_KEY command is the most likely mix-up."""
         with self.assertRaisesMessage(ImproperlyConfigured, "is not a valid Fernet key"):
             validate_fernet_key_setting("ENCRYPTION_KEY", fresh_key(), allow_committed=False)
+
+    def test_padded_fernet_key_is_rejected(self):
+        key = Fernet.generate_key().decode()
+        with self.assertRaisesMessage(ImproperlyConfigured, "surrounding whitespace or quotes"):
+            validate_fernet_key_setting("ENCRYPTION_KEY", f"{key}\n", allow_committed=False)
 
     def test_padded_committed_fernet_key_is_still_recognised(self):
         with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):

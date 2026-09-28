@@ -15,6 +15,8 @@ Order of checks for each key (the first failing check stops the boot):
    keys are explicitly allowed for local development (see ALLOW_LEGACY_ENV).
    An allowed legacy value only warns and skips the remaining checks.
 3. General rules for weak values (Rules 1-4 below) -> rejected.
+4. Surrounding whitespace or quotes -> rejected, so the value that was checked
+   is exactly the value every service uses.
 
 After all keys are read, validate_distinct_secrets() rejects any two keys that
 share a value (Rule 5).
@@ -180,9 +182,11 @@ def validate_secret_setting(
     committed value boot with a warning. *signing_key* enables rules 2-4, which
     do not apply to the Fernet encryption key.
 
-    The checks look at the value with surrounding whitespace and one pair of
+    Checks 1-3 look at the value with surrounding whitespace and one pair of
     matching quotes removed, so a padded or quoted legacy value is still
-    recognised. The value itself is returned unchanged.
+    recognised as one. Check 4 then rejects any such padding on a new value,
+    because other services read the environment value unmodified: the value
+    returned here is exactly the key they use.
     """
     candidate = _normalize(value)
     if not candidate:
@@ -201,6 +205,13 @@ def validate_secret_setting(
         return value
 
     _check_weak_value(name, candidate, signing_key=signing_key, hint=hint)
+
+    if candidate != value:
+        raise ImproperlyConfigured(
+            f'{name} has surrounding whitespace or quotes. Remove them from the '
+            'environment value: other services read it unmodified, so it must '
+            'be exactly the key.'
+        )
     return value
 
 

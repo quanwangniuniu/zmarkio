@@ -86,6 +86,12 @@ class SecretSettingsBootTest(SimpleTestCase):
             _load_settings(debug=False, SECRET_KEY="   "), "SECRET_KEY is not set"
         )
 
+    def test_key_with_trailing_newline_is_rejected(self):
+        self.assertRefusesToBoot(
+            _load_settings(debug=False, SECRET_KEY=secrets.token_urlsafe(50) + "\n"),
+            "surrounding whitespace or quotes",
+        )
+
     def test_short_key_is_rejected(self):
         self.assertRefusesToBoot(
             _load_settings(debug=False, SECRET_KEY="short-but-unique-key"), "too short"
