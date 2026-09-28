@@ -604,7 +604,7 @@ class OrchestratorTests(TestCase):
         self.assertEqual(workflow_run.status, 'completed')
 
 
-    @patch('agent.services.orchestrator._call_gemini_chat')
+    @patch('agent.services.legacy._call_gemini_chat')
     def test_follow_up_completed_marks_run_and_passes_project_members(self, mock_call_gemini_chat):
         teammate = CustomUser.objects.create_user(
             email='alice@test.com',
@@ -657,7 +657,7 @@ class OrchestratorTests(TestCase):
         self.assertIn('alice', usernames)
         self.assertNotIn('agent-bot', usernames)
 
-    @patch('agent.services.orchestrator._call_gemini_chat')
+    @patch('agent.services.legacy._call_gemini_chat')
     def test_follow_up_needs_clarification_keeps_run_open(self, mock_call_gemini_chat):
         workflow_run = AgentWorkflowRun.objects.create(
             session=self.session,
@@ -731,7 +731,7 @@ class OrchestratorTests(TestCase):
         self.assertFalse(workflow_run.chat_follow_up_started)
         self.assertFalse(workflow_run.chat_followed_up)
 
-    @patch('agent.services.orchestrator._call_gemini_chat')
+    @patch('agent.services.legacy._call_gemini_chat')
     def test_follow_up_requires_explicit_start(self, mock_call_gemini_chat):
         AgentWorkflowRun.objects.create(
             session=self.session,
