@@ -426,7 +426,7 @@ class CustomAPICommitTests(SimpleTestCase):
 
 
 class ForwardCommitTests(SimpleTestCase):
-    @patch('agent.services.orchestrator._forward_to_users')
+    @patch('agent.services.messaging._forward_to_users')
     def test_destination_filters_recipients_and_reports_successes_and_failures(self, mock_forward):
         mock_forward.return_value = [
             {'username': 'alex', 'status': 'sent'},

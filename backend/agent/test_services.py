@@ -14,7 +14,7 @@ from .models import AgentSession
 
 
 class AgentStatusMessageTests(SimpleTestCase):
-    @patch("agent.services.orchestrator.AgentMessage.objects.create")
+    @patch("agent.services.common.AgentMessage.objects.create")
     def test_non_model_session_is_ignored(self, mock_create):
         result = services._create_agent_status_message(
             SimpleNamespace(id="stub-session"),
@@ -25,7 +25,7 @@ class AgentStatusMessageTests(SimpleTestCase):
         self.assertIsNone(result)
         mock_create.assert_not_called()
 
-    @patch("agent.services.orchestrator.AgentMessage.objects.create")
+    @patch("agent.services.common.AgentMessage.objects.create")
     def test_model_session_creates_assistant_message_with_metadata(self, mock_create):
         session = AgentSession(id="11111111-1111-1111-1111-111111111111")
         created_message = object()
