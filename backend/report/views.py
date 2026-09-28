@@ -1,3 +1,4 @@
+from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -15,6 +16,7 @@ from report.services import (
     ShareLinkExpired,
     ShareLinkNotFound,
     create_share_link,
+    get_current_share_link,
     resolve_public_share_link,
     revoke_share_link,
 )
@@ -421,14 +423,25 @@ def _kpi_payload_for_project(project_id):
 @method_decorator(csrf_exempt, name="dispatch")
 class ReportShareLinkView(APIView):
     """
+    GET    /api/report/kpis/share/?project=<slug|id>
     POST   /api/report/kpis/share/
     DELETE /api/report/kpis/share/?project=<slug|id>
 
-    POST reuses a live link, or releases an expired one and issues a new token.
-    DELETE revokes the current unrevoked link immediately.
+    GET returns the current unrevoked link, or ``{"link": null}``. It does not
+    create one. POST reuses a live link, or releases an expired one and issues
+    a new token. DELETE revokes the current unrevoked link immediately.
     """
 
     permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        project = self._project_from_query(request)
+        link = get_current_share_link(project=project)
+        if link is None:
+            return Response({"link": None})
+        payload = ReportShareLinkSerializer(link).data
+        payload["days_left"] = max(0, (link.expires_at - timezone.now()).days)
+        return Response({"link": payload})
 
     def post(self, request):
         serializer = ReportShareLinkCreateSerializer(
@@ -448,15 +461,18 @@ class ReportShareLinkView(APIView):
         )
 
     def delete(self, request):
-        raw = request.query_params.get("project")
-        if not raw:
-            raise DRFValidationError({"project": "Project is required."})
-        project = _resolve_member_project(request.user, raw)
+        project = self._project_from_query(request)
         try:
             revoke_share_link(project=project)
         except ShareLinkNotFound:
             raise NotFound("Share link not found.")
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _project_from_query(self, request):
+        raw = request.query_params.get("project")
+        if not raw:
+            raise DRFValidationError({"project": "Project is required."})
+        return _resolve_member_project(request.user, raw)
 
 
 class PublicReportShareLinkView(APIView):

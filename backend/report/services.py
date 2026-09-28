@@ -72,6 +72,19 @@ def _create_share_link_locked(project, created_by, days: int) -> tuple[ReportSha
     return link, True
 
 
+def get_current_share_link(*, project) -> ReportShareLink | None:
+    """The project's unrevoked link, including one that has already expired.
+
+    Does not create or release a row. ``None`` means there is nothing to copy
+    or revoke.
+    """
+    return (
+        ReportShareLink.objects.filter(project=project, revoked_at__isnull=True)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+
+
 def revoke_share_link(*, project) -> ReportShareLink:
     """Stamp the project's current unrevoked link. Missing link raises."""
     with transaction.atomic():

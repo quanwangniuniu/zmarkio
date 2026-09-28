@@ -51,6 +51,47 @@ def _create(client, project, days=7):
 
 
 @pytest.mark.django_db
+def test_get_current_link_is_empty_and_does_not_create(share_client):
+    response = share_client["client"].get(
+        f"{CREATE_URL}?project={share_client['project'].slug}"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data == {"link": None}
+    assert ReportShareLink.objects.filter(project=share_client["project"]).count() == 0
+
+
+@pytest.mark.django_db
+def test_get_current_link_returns_the_unrevoked_link(share_client):
+    created = _create(share_client["client"], share_client["project"])
+    response = share_client["client"].get(
+        f"{CREATE_URL}?project={share_client['project'].slug}"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["link"]["token"] == created.data["token"]
+    assert response.data["link"]["days_left"] >= 6
+
+
+@pytest.mark.django_db
+def test_get_current_link_keeps_an_expired_unrevoked_row(share_client):
+    created = _create(share_client["client"], share_client["project"])
+    link = ReportShareLink.objects.get(token=created.data["token"])
+    link.expires_at = timezone.now() - timedelta(hours=1)
+    link.save(update_fields=["expires_at", "updated_at"])
+
+    response = share_client["client"].get(
+        f"{CREATE_URL}?project={share_client['project'].slug}"
+    )
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.data["link"]["token"] == link.token
+    assert response.data["link"]["days_left"] == 0
+    link.refresh_from_db()
+    assert link.revoked_at is None
+
+
+@pytest.mark.django_db
 def test_create_issues_a_new_link(share_client):
     response = _create(share_client["client"], share_client["project"])
 
