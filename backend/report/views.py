@@ -25,6 +25,7 @@ from report.serializers import (
     CustomKPICreateSerializer,
     CustomKPIPreviewSerializer,
     CustomKPISerializer,
+    PublicCustomKPISerializer,
     CustomKPIUpdateSerializer,
     ReportShareLinkCreateSerializer,
     ReportShareLinkSerializer,
@@ -412,7 +413,7 @@ def _kpi_payload_for_project(project_id):
     start_date, end_date = kpi_registry.default_date_range()
     snapshot = kpi_registry.resolve_metric_values(project_id, start_date, end_date)
     kpis = CustomKPI.objects.filter(project_id=project_id)
-    return CustomKPISerializer(
+    return PublicCustomKPISerializer(
         kpis, many=True, context={"metric_snapshot": snapshot}
     ).data
 

@@ -144,6 +144,13 @@ def test_public_read_returns_only_the_linked_projects_kpis(share_client):
 
     assert response.status_code == status.HTTP_200_OK
     assert [kpi["name"] for kpi in response.data["kpis"]] == ["Blended ROAS"]
+    assert set(response.data["kpis"][0]) == {
+        "name",
+        "formula",
+        "display_format",
+        "value",
+        "error",
+    }
 
 
 @pytest.mark.django_db

@@ -365,7 +365,34 @@ def _validate_kpi_formula(value: str) -> str:
     return value.strip()
 
 
-class CustomKPISerializer(serializers.ModelSerializer):
+class _KPIValueMixin:
+    """Computed value and error for one KPI. The view supplies `metric_snapshot`."""
+
+    def _evaluation(self, obj: CustomKPI):
+        snapshot = self.context.get("metric_snapshot")
+        if snapshot is None:
+            return None
+        cache = self.context.setdefault("_evaluation_cache", {})
+        if obj.pk not in cache:
+            from report.kpi_registry import evaluate_snapshot
+
+            cache[obj.pk] = evaluate_snapshot(obj.formula, snapshot)
+        return cache[obj.pk]
+
+    def get_value(self, obj: CustomKPI):
+        evaluation = self._evaluation(obj)
+        if evaluation is None or not evaluation.ok:
+            return None
+        return str(evaluation.value)
+
+    def get_error(self, obj: CustomKPI):
+        evaluation = self._evaluation(obj)
+        if evaluation is None or evaluation.ok:
+            return None
+        return {"code": evaluation.error_code, "message": evaluation.error_message}
+
+
+class CustomKPISerializer(_KPIValueMixin, serializers.ModelSerializer):
     """Read serializer. Values are computed only when the view supplies
     `metric_snapshot` in context, so a list costs one warehouse query, not one
     per KPI."""
@@ -392,28 +419,21 @@ class CustomKPISerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def _evaluation(self, obj: CustomKPI):
-        snapshot = self.context.get("metric_snapshot")
-        if snapshot is None:
-            return None
-        cache = self.context.setdefault("_evaluation_cache", {})
-        if obj.pk not in cache:
-            from report.kpi_registry import evaluate_snapshot
 
-            cache[obj.pk] = evaluate_snapshot(obj.formula, snapshot)
-        return cache[obj.pk]
+class PublicCustomKPISerializer(_KPIValueMixin, serializers.ModelSerializer):
+    """KPI fields a share-link client may see.
 
-    def get_value(self, obj: CustomKPI):
-        evaluation = self._evaluation(obj)
-        if evaluation is None or not evaluation.ok:
-            return None
-        return str(evaluation.value)
+    Value and error use the same evaluation as `CustomKPISerializer`. Ids, the
+    project, description, and timestamps stay on the authenticated serializer.
+    """
 
-    def get_error(self, obj: CustomKPI):
-        evaluation = self._evaluation(obj)
-        if evaluation is None or evaluation.ok:
-            return None
-        return {"code": evaluation.error_code, "message": evaluation.error_message}
+    value = serializers.SerializerMethodField(read_only=True)
+    error = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CustomKPI
+        fields = ["name", "formula", "display_format", "value", "error"]
+        read_only_fields = fields
 
 
 class CustomKPICreateSerializer(serializers.ModelSerializer):
