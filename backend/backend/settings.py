@@ -24,6 +24,7 @@ from .secret_settings import (
     COMMITTED_SECRET_KEY_DIGESTS,
     read_bool_env,
     read_secret_env,
+    validate_distinct_secrets,
     validate_fernet_key_setting,
     validate_secret_setting,
 )
@@ -973,6 +974,12 @@ ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY = validate_fernet_key_setting(
     read_secret_env('ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY'),
     allow_committed=ALLOW_LEGACY_LOCAL_KEYS,
     committed_digests=COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
+)
+# Rule 5: one leaked key must not unlock the others.
+validate_distinct_secrets(
+    SECRET_KEY=SECRET_KEY,
+    ORGANIZATION_ACCESS_TOKEN_SECRET_KEY=ORGANIZATION_ACCESS_TOKEN_SECRET_KEY,
+    ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY=ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY,
 )
 
 # Field-level encryption keys for OAuth tokens and API secrets stored in the DB.

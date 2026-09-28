@@ -8,6 +8,7 @@ directories for a .env file), or regains a fallback (MED-393, MED-394, PR #836).
 """
 
 import os
+import secrets
 import subprocess
 import sys
 
@@ -25,8 +26,8 @@ SECRET_NAMES = (
 
 def _fresh_keys():
     return {
-        "SECRET_KEY": "boot-test-secret-key",
-        "ORGANIZATION_ACCESS_TOKEN_SECRET_KEY": "boot-test-org-token-key",
+        "SECRET_KEY": secrets.token_urlsafe(50),
+        "ORGANIZATION_ACCESS_TOKEN_SECRET_KEY": secrets.token_urlsafe(50),
         "ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY": Fernet.generate_key().decode(),
     }
 
@@ -74,7 +75,7 @@ class SecretSettingsBootTest(SimpleTestCase):
                 )
 
     def test_each_key_must_be_non_empty(self):
-        for name in _fresh_keys():
+        for name in SECRET_NAMES:
             with self.subTest(name=name):
                 self.assertRefusesToBoot(
                     _load_settings(debug=True, **{name: ""}), f"{name} is not set"
@@ -85,26 +86,23 @@ class SecretSettingsBootTest(SimpleTestCase):
             _load_settings(debug=False, SECRET_KEY="   "), "SECRET_KEY is not set"
         )
 
+    def test_short_key_is_rejected(self):
+        self.assertRefusesToBoot(
+            _load_settings(debug=False, SECRET_KEY="short-but-unique-key"), "too short"
+        )
+
     def test_malformed_encryption_key_is_rejected(self):
         self.assertRefusesToBoot(
             _load_settings(debug=True, ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY="not-a-fernet-key"),
             "is not a valid Fernet key",
         )
 
-    def test_keys_are_not_read_through_decouple(self):
-        """decouple may pick up a .env from a parent directory; secrets must bypass it."""
-        spy = (
-            "import decouple; seen = []; original = decouple.AutoConfig.__call__\n"
-            "def record(self, option, *args, **kwargs):\n"
-            "    seen.append(option)\n"
-            "    return original(self, option, *args, **kwargs)\n"
-            "decouple.AutoConfig.__call__ = record\n"
-            "import django; django.setup()\n"
-            "print(sorted(set(seen) & %r))\n"
-        ) % ({*SECRET_NAMES, "ALLOW_LEGACY_LOCAL_KEYS"},)
-        result = _load_settings(debug=False, code=spy)
-        self.assertBoots(result)
-        self.assertEqual(result.stdout.strip().splitlines()[-1], "[]")
+    def test_shared_key_value_is_rejected(self):
+        shared = secrets.token_urlsafe(50)
+        self.assertRefusesToBoot(
+            _load_settings(debug=True, SECRET_KEY=shared, ORGANIZATION_ACCESS_TOKEN_SECRET_KEY=shared),
+            "have the same value",
+        )
 
     def test_legacy_switch_needs_both_debug_and_the_flag(self):
         """ALLOW_LEGACY_LOCAL_KEYS is honoured only together with DEBUG=True."""
@@ -122,3 +120,18 @@ class SecretSettingsBootTest(SimpleTestCase):
                 result = _load_settings(debug=debug, code=code, **overrides)
                 self.assertBoots(result)
                 self.assertEqual(result.stdout.strip().splitlines()[-1], expected)
+
+    def test_keys_are_not_read_through_decouple(self):
+        """decouple may pick up a .env from a parent directory; secrets must bypass it."""
+        spy = (
+            "import decouple; seen = []; original = decouple.AutoConfig.__call__\n"
+            "def record(self, option, *args, **kwargs):\n"
+            "    seen.append(option)\n"
+            "    return original(self, option, *args, **kwargs)\n"
+            "decouple.AutoConfig.__call__ = record\n"
+            "import django; django.setup()\n"
+            "print(sorted(set(seen) & %r))\n"
+        ) % ({*SECRET_NAMES, "ALLOW_LEGACY_LOCAL_KEYS"},)
+        result = _load_settings(debug=False, code=spy)
+        self.assertBoots(result)
+        self.assertEqual(result.stdout.strip().splitlines()[-1], "[]")

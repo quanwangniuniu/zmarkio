@@ -1,17 +1,19 @@
 """Tests for backend.secret_settings — secret validation at settings load.
 
-Covers the acceptance criteria from MED-393 and MED-394:
-- A missing or empty secret stops the boot regardless of DEBUG
+Covers MED-393 and MED-394 and the PR #836 review:
+- A missing or empty secret stops the boot
 - A value committed to the repository is refused unless legacy keys are
   explicitly allowed (DEBUG and ALLOW_LEGACY_LOCAL_KEYS, decided in settings.py)
-- An allowed legacy value only warns (local Docker development)
-- Any other value is accepted unchanged
+- General weak-value rules: django-insecure- prefix, placeholder words, minimum
+  length, minimum distinct characters, and the three keys being distinct
 - A Fernet key that Fernet cannot use is refused at boot (MED-394)
-- Surrounding whitespace or quotes do not bypass either check
+- Secrets are read from the process environment only
 """
 
 import hashlib
 import os
+import secrets
+import string
 import warnings
 from unittest import mock
 
@@ -24,14 +26,19 @@ from backend.secret_settings import (
     COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
     COMMITTED_SECRET_KEY_DIGESTS,
     FERNET_GENERATE_HINT,
+    MIN_DISTINCT_CHARACTERS,
+    MIN_SIGNING_KEY_LENGTH,
+    PLACEHOLDER_WORDS,
     TOKEN_GENERATE_HINT,
     read_bool_env,
     read_secret_env,
+    validate_distinct_secrets,
     validate_fernet_key_setting,
     validate_secret_setting,
 )
 
-# Stands in for a committed value, so the tests never contain a real one.
+# Stands in for a committed value, so the tests never contain a real one. It is
+# deliberately short: an allowed legacy value must not be held to the new rules.
 COMMITTED_VALUE = "value-that-was-committed-to-the-repo"
 COMMITTED_DIGESTS = frozenset({hashlib.sha256(COMMITTED_VALUE.encode()).hexdigest()})
 # A well-formed Fernet key standing in for a committed one.
@@ -39,44 +46,80 @@ COMMITTED_FERNET_KEY = Fernet.generate_key().decode()
 COMMITTED_FERNET_DIGESTS = frozenset({hashlib.sha256(COMMITTED_FERNET_KEY.encode()).hexdigest()})
 
 
+def fresh_key() -> str:
+    """A key made the way TOKEN_GENERATE_HINT tells people to make one."""
+    return secrets.token_urlsafe(50)
+
+
+def validate(value, *, allow_committed=False, digests=COMMITTED_DIGESTS, name="SECRET_KEY"):
+    return validate_secret_setting(
+        name, value, allow_committed=allow_committed, committed_digests=digests
+    )
+
+
 class MissingSecretTest(SimpleTestCase):
     def test_empty_raises_when_legacy_not_allowed(self):
         with self.assertRaisesMessage(ImproperlyConfigured, "SECRET_KEY is not set"):
-            validate_secret_setting("SECRET_KEY", "", allow_committed=False)
+            validate("")
 
     def test_empty_raises_when_legacy_allowed(self):
         with self.assertRaisesMessage(ImproperlyConfigured, "SECRET_KEY is not set"):
-            validate_secret_setting("SECRET_KEY", "", allow_committed=True)
+            validate("", allow_committed=True)
 
     def test_error_names_the_setting(self):
         with self.assertRaisesMessage(ImproperlyConfigured, "SOME_OTHER_KEY is not set"):
-            validate_secret_setting("SOME_OTHER_KEY", "", allow_committed=False)
+            validate("", name="SOME_OTHER_KEY")
 
     def test_error_explains_how_to_generate_a_key(self):
         with self.assertRaisesMessage(ImproperlyConfigured, "secrets.token_urlsafe"):
-            validate_secret_setting("SECRET_KEY", "", allow_committed=False)
+            validate("")
 
     def test_error_uses_a_custom_hint(self):
         with self.assertRaisesMessage(ImproperlyConfigured, "custom generation hint"):
-            validate_secret_setting("SECRET_KEY", "", allow_committed=False, hint="custom generation hint")
-
-
-class NormalizedSecretTest(SimpleTestCase):
-    """Surrounding whitespace and quotes must not bypass either check."""
+            validate_secret_setting(
+                "SECRET_KEY", "", allow_committed=False, hint="custom generation hint"
+            )
 
     def test_whitespace_only_counts_as_not_set(self):
         for value in ("   ", "\t", "\n", " \t\n "):
             with self.subTest(value=value):
                 with self.assertRaisesMessage(ImproperlyConfigured, "SECRET_KEY is not set"):
-                    validate_secret_setting("SECRET_KEY", value, allow_committed=False)
+                    validate(value)
 
     def test_empty_quotes_count_as_not_set(self):
         for value in ('""', "''", '" "'):
             with self.subTest(value=value):
                 with self.assertRaisesMessage(ImproperlyConfigured, "SECRET_KEY is not set"):
-                    validate_secret_setting("SECRET_KEY", value, allow_committed=False)
+                    validate(value)
 
-    def test_padded_committed_value_is_still_rejected(self):
+
+class CommittedSecretTest(SimpleTestCase):
+    def test_committed_value_raises_when_legacy_not_allowed(self):
+        with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):
+            validate(COMMITTED_VALUE)
+
+    def test_refusal_mentions_the_local_only_switch(self):
+        with self.assertRaisesMessage(ImproperlyConfigured, "ALLOW_LEGACY_LOCAL_KEYS=true"):
+            validate(COMMITTED_VALUE)
+
+    def test_committed_value_warns_when_legacy_allowed(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = validate(COMMITTED_VALUE, allow_committed=True)
+
+        self.assertEqual(result, COMMITTED_VALUE)
+        self.assertEqual(len(caught), 1)
+        self.assertIs(caught[0].category, RuntimeWarning)
+        self.assertIn("SECRET_KEY is a value that has been committed", str(caught[0].message))
+
+    def test_allowed_legacy_value_skips_the_weak_value_rules(self):
+        """COMMITTED_VALUE is shorter than the minimum; the switch must still let it boot."""
+        self.assertLess(len(COMMITTED_VALUE), MIN_SIGNING_KEY_LENGTH)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            self.assertEqual(validate(COMMITTED_VALUE, allow_committed=True), COMMITTED_VALUE)
+
+    def test_padded_committed_value_is_still_recognised(self):
         for value in (
             f" {COMMITTED_VALUE}",
             f"{COMMITTED_VALUE} ",
@@ -85,80 +128,86 @@ class NormalizedSecretTest(SimpleTestCase):
         ):
             with self.subTest(value=value):
                 with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):
-                    validate_secret_setting(
-                        "SECRET_KEY", value, allow_committed=False, committed_digests=COMMITTED_DIGESTS
-                    )
+                    validate(value)
 
-    def test_quoted_committed_value_is_still_rejected(self):
+    def test_quoted_committed_value_is_still_recognised(self):
         for value in (f'"{COMMITTED_VALUE}"', f"'{COMMITTED_VALUE}'", f' "{COMMITTED_VALUE}" '):
             with self.subTest(value=value):
                 with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):
-                    validate_secret_setting(
-                        "SECRET_KEY", value, allow_committed=False, committed_digests=COMMITTED_DIGESTS
-                    )
+                    validate(value)
 
-    def test_mismatched_quotes_are_not_stripped(self):
+
+class ReturnedValueTest(SimpleTestCase):
+    """Checks see the value without surrounding whitespace and quotes; the value itself is returned unchanged."""
+
+    def test_mismatched_quotes_are_part_of_the_key(self):
         """Only a matching pair is treated as quoting; anything else is part of the key."""
-        value = f'"{COMMITTED_VALUE}' + "'"
-        result = validate_secret_setting(
-            "SECRET_KEY", value, allow_committed=False, committed_digests=COMMITTED_DIGESTS
-        )
-        self.assertEqual(result, value)
+        value = f'"{fresh_key()}' + "'"
+        self.assertEqual(validate(value), value)
 
     def test_value_is_returned_unchanged(self):
-        value = "  a-unique-key-with-padding  "
-        result = validate_secret_setting("SECRET_KEY", value, allow_committed=False)
-        self.assertEqual(result, value)
+        value = f"  {fresh_key()}  "
+        self.assertEqual(validate(value), value)
 
-    def test_padded_committed_fernet_key_is_still_rejected(self):
-        with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):
-            validate_fernet_key_setting(
-                "ENCRYPTION_KEY",
-                f"{COMMITTED_FERNET_KEY} ",
-                allow_committed=False,
-                committed_digests=COMMITTED_FERNET_DIGESTS,
-            )
-
-
-class CommittedSecretTest(SimpleTestCase):
-    def test_refusal_mentions_the_local_only_switch(self):
-        with self.assertRaisesMessage(ImproperlyConfigured, "ALLOW_LEGACY_LOCAL_KEYS=true"):
-            validate_secret_setting(
-                "SECRET_KEY", COMMITTED_VALUE, allow_committed=False, committed_digests=COMMITTED_DIGESTS
-            )
-
-    def test_committed_value_raises_when_legacy_not_allowed(self):
-        with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):
-            validate_secret_setting(
-                "SECRET_KEY", COMMITTED_VALUE, allow_committed=False, committed_digests=COMMITTED_DIGESTS
-            )
-
-    def test_committed_value_warns_when_legacy_allowed(self):
+    def test_clean_key_is_returned_without_warning(self):
+        key = fresh_key()
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
-            result = validate_secret_setting(
-                "SECRET_KEY", COMMITTED_VALUE, allow_committed=True, committed_digests=COMMITTED_DIGESTS
-            )
-
-        self.assertEqual(result, COMMITTED_VALUE)
-        self.assertEqual(len(caught), 1)
-        self.assertIs(caught[0].category, RuntimeWarning)
-        self.assertIn("SECRET_KEY is a value that has been committed", str(caught[0].message))
-
-
-class ValidSecretTest(SimpleTestCase):
-    def test_unique_value_is_returned_without_warning(self):
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            result = validate_secret_setting(
-                "SECRET_KEY",
-                "a-unique-key-for-this-environment",
-                allow_committed=False,
-                committed_digests=COMMITTED_DIGESTS,
-            )
-
-        self.assertEqual(result, "a-unique-key-for-this-environment")
+            self.assertEqual(validate(key), key)
         self.assertEqual(caught, [])
+
+
+class WeakValueRulesTest(SimpleTestCase):
+    def test_rule1_django_insecure_prefix_is_rejected(self):
+        value = "django-insecure-" + fresh_key()
+        with self.assertRaisesMessage(ImproperlyConfigured, "Django development key"):
+            validate(value)
+
+    def test_rule1_prefix_is_case_insensitive(self):
+        value = "DJANGO-INSECURE-" + fresh_key()
+        with self.assertRaisesMessage(ImproperlyConfigured, "Django development key"):
+            validate(value)
+
+    def test_rule2_placeholder_words_are_rejected(self):
+        for word in PLACEHOLDER_WORDS:
+            with self.subTest(word=word):
+                value = fresh_key() + word.upper()
+                with self.assertRaisesMessage(ImproperlyConfigured, "looks like a placeholder"):
+                    validate(value)
+
+    def test_rule3_too_short_is_rejected(self):
+        value = (string.ascii_letters + string.digits)[: MIN_SIGNING_KEY_LENGTH - 1]
+        with self.assertRaisesMessage(ImproperlyConfigured, "too short"):
+            validate(value)
+
+    def test_rule3_minimum_length_is_accepted(self):
+        value = (string.ascii_letters + string.digits)[:MIN_SIGNING_KEY_LENGTH]
+        self.assertEqual(validate(value), value)
+
+    def test_rule4_repeated_characters_are_rejected(self):
+        for value in ("a" * 60, "abc" * 20, "0123456789"[: MIN_DISTINCT_CHARACTERS - 1] * 10):
+            with self.subTest(value=value[:12]):
+                with self.assertRaisesMessage(ImproperlyConfigured, "too few distinct characters"):
+                    validate(value)
+
+    def test_generated_keys_pass_every_rule(self):
+        for _ in range(20):
+            key = fresh_key()
+            self.assertEqual(validate(key), key)
+
+    def test_signing_key_rules_do_not_apply_to_fernet_keys(self):
+        """A valid Fernet key is 44 characters, below the signing-key minimum."""
+        key = Fernet.generate_key().decode()
+        self.assertLess(len(key), MIN_SIGNING_KEY_LENGTH)
+        self.assertEqual(validate_fernet_key_setting("ENCRYPTION_KEY", key, allow_committed=False), key)
+
+    def test_rule5_distinct_keys_are_accepted(self):
+        validate_distinct_secrets(A=fresh_key(), B=fresh_key(), C=Fernet.generate_key().decode())
+
+    def test_rule5_shared_value_is_rejected(self):
+        shared = fresh_key()
+        with self.assertRaisesMessage(ImproperlyConfigured, "A and C have the same value"):
+            validate_distinct_secrets(A=shared, B=fresh_key(), C=shared)
 
 
 class WarningLocationTest(SimpleTestCase):
@@ -194,7 +243,7 @@ class FernetKeySettingTest(SimpleTestCase):
         with self.assertRaisesMessage(ImproperlyConfigured, "urlsafe_b64encode"):
             validate_fernet_key_setting("ENCRYPTION_KEY", "", allow_committed=True)
 
-    def test_malformed_key_raises_when_legacy_allowed(self):
+    def test_malformed_key_raises_even_when_legacy_allowed(self):
         with self.assertRaisesMessage(ImproperlyConfigured, "is not a valid Fernet key"):
             validate_fernet_key_setting("ENCRYPTION_KEY", "not-a-fernet-key", allow_committed=True)
 
@@ -205,7 +254,16 @@ class FernetKeySettingTest(SimpleTestCase):
     def test_token_style_key_is_rejected(self):
         """A key made with the SECRET_KEY command is the most likely mix-up."""
         with self.assertRaisesMessage(ImproperlyConfigured, "is not a valid Fernet key"):
-            validate_fernet_key_setting("ENCRYPTION_KEY", "a" * 67, allow_committed=False)
+            validate_fernet_key_setting("ENCRYPTION_KEY", fresh_key(), allow_committed=False)
+
+    def test_padded_committed_fernet_key_is_still_recognised(self):
+        with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):
+            validate_fernet_key_setting(
+                "ENCRYPTION_KEY",
+                f"{COMMITTED_FERNET_KEY} ",
+                allow_committed=False,
+                committed_digests=COMMITTED_FERNET_DIGESTS,
+            )
 
     def test_committed_key_raises_when_legacy_not_allowed(self):
         with self.assertRaisesMessage(ImproperlyConfigured, "committed to this repository"):
@@ -266,6 +324,7 @@ class EnvironmentReaderTest(SimpleTestCase):
 
 class KnownDigestListTest(SimpleTestCase):
     def test_all_entries_are_sha256_hex_digests(self):
+        """Guards against a real key being pasted into the list."""
         for digests in (
             COMMITTED_SECRET_KEY_DIGESTS,
             COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
