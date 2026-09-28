@@ -4,7 +4,8 @@ from django.db import transaction
 from core.models import Project, ProjectMember
 from core.slug_mixins import resolve_pk_for
 from report.kpi_registry import KPIFormulaError, validate_formula
-from report.models import CustomKPI, ReportTask, ReportTaskKeyAction
+from report.models import CustomKPI, ReportShareLink, ReportTask, ReportTaskKeyAction
+from report.services import SHARE_LINK_DAYS
 from task.models import Task
 
 
@@ -504,6 +505,34 @@ class CustomKPIPreviewSerializer(serializers.Serializer):
                 {"start_date": "start_date must be on or before end_date."}
             )
         return attrs
+
+
+class ReportShareLinkCreateSerializer(serializers.Serializer):
+    """Input for issuing or reusing a project's Custom KPI share link."""
+
+    project = serializers.CharField()
+    days = serializers.IntegerField()
+
+    def validate_project(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not getattr(user, "is_authenticated", False):
+            raise serializers.ValidationError("Authentication required.")
+        return _resolve_member_project(user, value)
+
+    def validate_days(self, value):
+        if value not in SHARE_LINK_DAYS:
+            raise serializers.ValidationError("days must be 7, 14, or 30.")
+        return value
+
+
+class ReportShareLinkSerializer(serializers.ModelSerializer):
+    project = serializers.SlugRelatedField(slug_field="slug", read_only=True)
+
+    class Meta:
+        model = ReportShareLink
+        fields = ["id", "token", "expires_at", "project"]
+        read_only_fields = fields
 
 
 class ReportTaskCreateUpdateSerializer(ReportTaskSerializer):
