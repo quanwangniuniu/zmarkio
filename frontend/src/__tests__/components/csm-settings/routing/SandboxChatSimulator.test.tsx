@@ -44,4 +44,16 @@ describe('SandboxChatSimulator', () => {
     );
     expect(screen.getByRole('button', { name: /send test message/i })).toBeDisabled();
   });
+
+  it('shows a character counter only when a message gets close to the limit', () => {
+    render(<SandboxChatSimulator messages={[]} disabled={false} onSend={jest.fn()} />);
+    const box = screen.getByLabelText('Customer message');
+    expect(box).toHaveAttribute('maxLength', '5000');
+
+    fireEvent.change(box, { target: { value: 'short' } });
+    expect(screen.queryByTestId('message-counter')).not.toBeInTheDocument();
+
+    fireEvent.change(box, { target: { value: 'x'.repeat(4200) } });
+    expect(screen.getByTestId('message-counter')).toHaveTextContent('4200 / 5000');
+  });
 });

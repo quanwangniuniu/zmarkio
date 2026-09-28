@@ -42,7 +42,12 @@ export default function TraceTurnCard({ trace, turn, message, previous, expanded
           : <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-gray-400" aria-hidden />}
         <div className="min-w-0 flex-1">
           <p className="text-[11px] font-medium uppercase tracking-wider text-gray-400">Message {turn}</p>
-          <p className="truncate text-xs text-gray-600">“{message}”</p>
+          <p
+            className={`whitespace-pre-wrap break-words text-xs text-gray-600 ${expanded ? '' : 'line-clamp-2'}`}
+            data-testid="trace-message"
+          >
+            “{message}”
+          </p>
           <p className="mt-1 flex flex-wrap items-center gap-1 text-sm text-gray-900">
             <ArrowRight className="h-3.5 w-3.5 text-gray-400" aria-hidden />
             <span className="font-semibold" data-testid="trace-outcome">{outcome.queue_name ?? 'Unqueued'}</span>

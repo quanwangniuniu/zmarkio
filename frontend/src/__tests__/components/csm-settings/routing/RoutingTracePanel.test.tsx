@@ -95,4 +95,35 @@ describe('RoutingTracePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: /re-run/i }));
     expect(onRerun).toHaveBeenCalled();
   });
+
+  it('keeps long messages readable without flooding the trace', () => {
+    const longText = `I was charged twice. ${'Some more context about my order. '.repeat(10)}`;
+    const base = makeTrace();
+    const trace = makeTrace({
+      steps: [{
+        ...base.steps[0],
+        conditions: [{ ...base.steps[0].conditions[0], actual: longText, detail: 'Matched: charged' }],
+      }],
+    });
+    renderPanel({ traces: [trace, trace], customerMessages: [longText, longText] });
+    const turns = screen.getAllByTestId('trace-turn');
+
+    // The expanded (newest) turn shows the whole message; a collapsed one clamps it.
+    expect(within(turns[0]).getByTestId('trace-message')).not.toHaveClass('line-clamp-2');
+    expect(within(turns[1]).getByTestId('trace-message')).toHaveClass('line-clamp-2');
+
+    // A long actual value collapses, but the match detail stays visible.
+    expect(within(turns[0]).getByText('Matched: charged')).toBeInTheDocument();
+    const actual = within(turns[0]).getByTestId('condition-actual');
+    expect(actual).toHaveClass('line-clamp-2');
+    fireEvent.click(within(turns[0]).getByRole('button', { name: 'Show more' }));
+    expect(actual).not.toHaveClass('line-clamp-2');
+    expect(within(turns[0]).getByRole('button', { name: 'Show less' })).toBeInTheDocument();
+  });
+
+  it('leaves short actual values on one line', () => {
+    renderPanel({ traces: [makeTrace()], customerMessages: ['I want a refund'] });
+    expect(screen.queryByTestId('condition-actual')).not.toBeInTheDocument();
+    expect(screen.getByText(/Actual: I want a refund · Matched: refund/)).toBeInTheDocument();
+  });
 });

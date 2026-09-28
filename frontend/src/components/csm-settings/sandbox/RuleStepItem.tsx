@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import type { RuleStep, RuleStepStatus } from '@/types/routingRule';
 import { formatConditionValue, type SummaryLookups } from '../routing/conditionSummary';
@@ -29,6 +30,38 @@ function formatActual(field: string, actual: string | number | null, lookups: Su
 
 // `number` is the step's place in evaluation order, like the rules list shows.
 // step.position is the stored sort key and can have gaps after a delete.
+const LONG_ACTUAL = 160; // characters; longer values collapse to two lines
+
+// "Any customer message" joins the whole conversation, so the actual value can
+// be long. Keep the match detail on its own line and collapse the text.
+function ActualValue({ text, detail }: { text: string; detail: string }) {
+  const [open, setOpen] = useState(false);
+  if (text.length <= LONG_ACTUAL) {
+    return (
+      <p className="break-words text-gray-500">
+        Actual: {text}
+        {detail && <> · {detail}</>}
+      </p>
+    );
+  }
+  return (
+    <>
+      {detail && <p className="text-gray-500">{detail}</p>}
+      <p className={`whitespace-pre-wrap break-words text-gray-500 ${open ? '' : 'line-clamp-2'}`} data-testid="condition-actual">
+        Actual: {text}
+      </p>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="text-[11px] font-medium text-sky-700 hover:underline"
+      >
+        {open ? 'Show less' : 'Show more'}
+      </button>
+    </>
+  );
+}
+
 export default function RuleStepItem(
   { number, step, lookups }: { number: number; step: RuleStep; lookups: SummaryLookups },
 ) {
@@ -60,10 +93,7 @@ export default function RuleStepItem(
                   {fieldLabel(lookups, c.field)} {operatorLabel(lookups, c.field, c.operator)}{' '}
                   {formatConditionValue(c.field, c.expected, lookups)}
                 </p>
-                <p className="break-words text-gray-500">
-                  Actual: {formatActual(c.field, c.actual, lookups)}
-                  {c.detail && <> · {c.detail}</>}
-                </p>
+                <ActualValue text={formatActual(c.field, c.actual, lookups)} detail={c.detail} />
               </div>
             </li>
           ))}
