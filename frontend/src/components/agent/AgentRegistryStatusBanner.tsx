@@ -24,19 +24,19 @@ export function AgentRegistryStatusBanner() {
       if (pending) return;
       pending = true;
       AgentAPI.getConfigStatus()
-      .then((status) => {
-        if (!active) return;
-        setUnavailable(false);
-        setError(
-          status.column_registry?.ok === false
-            ? status.column_registry.error || 'Column registry is unavailable.'
-            : null
-        );
-      })
-      .catch(() => {
-        if (active) setUnavailable(true);
-      })
-      .finally(() => { pending = false; });
+        .then((status) => {
+          if (!active) return;
+          setUnavailable(false);
+          setError(
+            status.column_registry?.ok === false
+              ? status.column_registry.error || 'Column registry is unavailable.'
+              : null
+          );
+        })
+        .catch(() => {
+          if (active) setUnavailable(true);
+        })
+        .finally(() => { pending = false; });
     };
     refresh();
     const interval = window.setInterval(refresh, 30000);

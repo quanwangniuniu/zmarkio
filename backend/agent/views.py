@@ -1339,7 +1339,7 @@ class GenerationOutputsCatalogView(EnglishResponseMixin, APIView):
 
 
 class AgentConfigStatusView(EnglishResponseMixin, APIView):
-    """GET /api/agent/config/status/ — check which API keys are configured."""
+    """GET /api/agent/config/status/ — configured API keys and admin registry diagnostics."""
     permission_classes = [IsAuthenticated]
 
     # Mapping of response key -> (settings attr, env var fallback)
@@ -1361,8 +1361,7 @@ class AgentConfigStatusView(EnglishResponseMixin, APIView):
             validate_registry()
             result['column_registry'] = {'ok': True}
         except ColumnRegistryCollisionError as exc:
-            # Keep the status endpoint available for admin diagnostics when a
-            # plugin was hot-reloaded after Django boot.
+            # Diagnose the current definitions, including changes since boot.
             result['column_registry'] = {
                 'ok': False,
                 'code': exc.code,
