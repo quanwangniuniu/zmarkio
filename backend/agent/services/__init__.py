@@ -15,6 +15,11 @@ from .analysis import (
     _run_analysis,
 )
 from .common import _coerce_json, _create_agent_status_message
+from .insights import (
+    _normalize_spreadsheet_insights_result,
+    _run_spreadsheet_insights,
+    _spreadsheet_insights_sample_bounds,
+)
 from .messaging import _forward_to_users, _get_or_create_bot_private_chat
 from .miro import (
     MIRO_LEGACY_BG_QUEUED_MESSAGE,
@@ -25,10 +30,7 @@ from .orchestrator import (
     AgentOrchestrator,
     _call_gemini_chat,
     _normalize_llm_chat_output,
-    _normalize_spreadsheet_insights_result,
-    _run_spreadsheet_insights,
     _serialize_project_members,
-    _spreadsheet_insights_sample_bounds,
 )
 
 __all__ = [

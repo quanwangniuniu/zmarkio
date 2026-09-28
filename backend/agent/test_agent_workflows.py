@@ -2380,7 +2380,7 @@ class RunAnalysisValidationRetryTests(TestCase):
 
 class SpreadsheetInsightsValidationRetryTests(TestCase):
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.orchestrator._call_gemini_spreadsheet_insights')
+    @patch('agent.services.insights._call_gemini_spreadsheet_insights')
     def test_retries_on_recommended_tasks_validation_then_succeeds(self, mock_call, _mock_key):
         from agent.services import _run_spreadsheet_insights
 
@@ -2414,7 +2414,7 @@ class SpreadsheetInsightsValidationRetryTests(TestCase):
         self.assertEqual(result['recommended_tasks'][0]['priority'], 'HIGH')
 
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.orchestrator._call_gemini_spreadsheet_insights')
+    @patch('agent.services.insights._call_gemini_spreadsheet_insights')
     def test_raises_after_max_insights_validation_retries(self, mock_call, _mock_key):
         from agent.generation_registry import GenerationValidationError
         from agent.services import _ANALYSIS_VALIDATION_MAX_ATTEMPTS, _run_spreadsheet_insights
@@ -2435,7 +2435,7 @@ class SpreadsheetInsightsValidationRetryTests(TestCase):
         self.assertEqual(mock_call.call_count, _ANALYSIS_VALIDATION_MAX_ATTEMPTS)
 
     @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.orchestrator._call_gemini_spreadsheet_insights')
+    @patch('agent.services.insights._call_gemini_spreadsheet_insights')
     def test_retries_on_out_of_bounds_anomaly_location_then_succeeds(self, mock_call, _mock_key):
         from agent.services import _run_spreadsheet_insights
 
@@ -2689,7 +2689,7 @@ class SpreadsheetInsightsTests(TestCase):
         self.assertEqual(cols, 4)  # A, B, C, D deduped
         self.assertEqual(_spreadsheet_insights_sample_bounds({'sheets': []}), (0, 0))
 
-    @patch('agent.services.orchestrator._run_spreadsheet_insights')
+    @patch('agent.services.insights._run_spreadsheet_insights')
     def test_analyze_spreadsheet_insights_yields_summary_and_anomalies(self, mock_insights):
         spreadsheet, sheet1, _sheet2 = self._create_spreadsheet_with_sheets()
         mock_insights.return_value = {
