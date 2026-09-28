@@ -7,6 +7,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import CsmConversationAPI, { QuickReplyTemplateAPI } from '@/lib/api/csmConversationApi';
 import { useCsmConversationStore } from '@/lib/csmConversationStore';
 import type { QuickReplyTemplate } from '@/types/csmConversation';
+import { plainTextToParagraphs } from './plainTextToParagraphs';
 import { AlertCircle, FileImage, Tag, Search, X, Bold, Italic, List, ListOrdered, LayoutTemplate, ImagePlus } from 'lucide-react';
 
 type ComposerFormat = 'bold' | 'italic' | 'bulletList' | 'orderedList';
@@ -231,6 +232,8 @@ export function ConversationComposer({
   const addMessage = useCsmConversationStore((s) => s.addMessage);
   const setDraft = useCsmConversationStore((s) => s.setDraft);
   const clearDraft = useCsmConversationStore((s) => s.clearDraft);
+  const pendingInsert = useCsmConversationStore((s) => s.pendingComposerInsert);
+  const consumeComposerInsert = useCsmConversationStore((s) => s.consumeComposerInsert);
   const draftForConversation = useCsmConversationStore(
     (s) => s.draftsByConversation[conversationId]
   );
@@ -435,6 +438,20 @@ export function ConversationComposer({
     setShowTemplates(false);
     editor.commands.focus();
   }, [editor]);
+
+  // Text pushed from a sibling panel (e.g. a guidance entry's "Insert into
+  // reply"). Appended at the end so an in-progress reply is never overwritten.
+  // The request is consumed only after a successful insert; while the editor
+  // is being torn down it stays pending for the next mounted composer.
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    if (!pendingInsert || pendingInsert.conversationId !== conversationId) return;
+    editor.commands.focus('end');
+    const inserted = editor.commands.insertContent(plainTextToParagraphs(pendingInsert.text));
+    if (!inserted) return;
+    consumeComposerInsert(pendingInsert.nonce);
+    setHasReplyContent(editor.getText().trim().length > 0);
+  }, [editor, pendingInsert, conversationId, consumeComposerInsert]);
 
   return (
     <div
