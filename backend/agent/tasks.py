@@ -6,7 +6,7 @@ from django.contrib.auth import get_user_model
 from core.tenant_context import tenant_schema_context
 
 from .models import AgentMessage, AgentWorkflowRun
-from .services.orchestrator import _generate_miro_board_for_workflow_run
+from .services.miro import _generate_miro_board_for_workflow_run
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
