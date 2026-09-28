@@ -489,6 +489,66 @@ class CsmWorkType(TimeStampedModel):
         return self.name
 
 
+class GuidanceEntry(TimeStampedModel):
+    """Agent guidance shown in the conversation workspace (CSM-S03-02)."""
+
+    class GuidanceType(models.TextChoices):
+        HANDOFF = 'handoff', 'Handoff'
+        SUGGESTED_REPLY = 'suggested_reply', 'Suggested Reply'
+        ESCALATION_PROCEDURE = 'escalation_procedure', 'Escalation Procedure'
+        PROCESS_NOTE = 'process_note', 'Process Note'
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name='csm_guidance_entries',
+    )
+    guidance_type = models.CharField(max_length=32, choices=GuidanceType.choices)
+    trigger_description = models.TextField()
+    recommended_response = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='csm_guidance_entries',
+    )
+
+    class Meta:
+        ordering = ['-updated_at', '-id']
+
+    def __str__(self):
+        return f"{self.get_guidance_type_display()}: {self.trigger_description[:50]}"
+
+
+class GuidanceEntryExperienceGroup(models.Model):
+    """Links a guidance entry to an Experience Group with a per-group display order."""
+
+    entry = models.ForeignKey(
+        GuidanceEntry, on_delete=models.CASCADE, related_name='experience_group_links',
+    )
+    experience_group = models.ForeignKey(
+        'experience_group.ExperienceGroup', on_delete=models.CASCADE,
+        related_name='guidance_links',
+    )
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['entry', 'experience_group'],
+                name='csm_geg_unique_entry_eg',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['experience_group', 'display_order'],
+                name='csm_geg_eg_order_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f"Guidance {self.entry_id} → EG {self.experience_group_id} (#{self.display_order})"
+
+
 class TicketForm(SluggedResourceModelMixin, TimeStampedModel):
     # Slug-only URLs. Slug is derived from name.
     slug_source_field = 'name'
