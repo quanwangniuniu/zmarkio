@@ -21,8 +21,6 @@ export interface ConversationQualityReview {
   reviewed_at: string;
   agent_user: number | null;
   agent_name: string;
-  queue: number | null;
-  organisation: number | null;
   /** Present only on the annotate response: true when the review was created. */
   created?: boolean;
 }
@@ -48,8 +46,10 @@ export type QualityBucket = 'day' | 'week' | 'month';
 export interface QualityFilters {
   date_from?: string;
   date_to?: string;
-  /** Auth user ids, plus the sentinel 'unassigned'. */
-  agent: (number | 'unassigned')[];
+  /** Auth user ids. */
+  agent: number[];
+  /** Include conversations with no assigned agent, alongside any agent ids. */
+  unassigned?: boolean;
   queue: number[];
   channel: string[];
   customer: number[];

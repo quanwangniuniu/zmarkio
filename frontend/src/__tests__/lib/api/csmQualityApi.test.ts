@@ -1,4 +1,4 @@
-import CsmQualityAPI, { toQueryParams } from '@/lib/api/csmQualityApi';
+import CsmQualityAPI from '@/lib/api/csmQualityApi';
 import api, { LONG_REQUEST_TIMEOUT_MS } from '@/lib/api';
 
 jest.mock('@/lib/api', () => ({
@@ -11,34 +11,6 @@ const mockedApi = api as unknown as { get: jest.Mock; post: jest.Mock };
 
 beforeEach(() => {
   jest.clearAllMocks();
-});
-
-describe('toQueryParams', () => {
-  it('keeps arrays as arrays so axios serialises repeated keys', () => {
-    const params = toQueryParams({ agent: [1, 2, 'unassigned'], tag: ['vip'] });
-
-    expect(params.agent).toEqual([1, 2, 'unassigned']);
-    expect(params.tag).toEqual(['vip']);
-  });
-
-  it('drops empty arrays, blank strings and nullish values', () => {
-    const params = toQueryParams({
-      agent: [],
-      tag: [],
-      customer_search: '',
-      date_from: undefined,
-      date_to: '2026-03-31',
-    });
-
-    expect(params).toEqual({ date_to: '2026-03-31' });
-  });
-
-  it('merges extra params but still drops blanks', () => {
-    expect(toQueryParams({ queue: [7] }, { page: 2, page_size: undefined })).toEqual({
-      queue: [7],
-      page: 2,
-    });
-  });
 });
 
 describe('listConversations', () => {
@@ -107,6 +79,16 @@ describe('exportCsv', () => {
 });
 
 describe('getReport and getFilterOptions', () => {
+  it('sends the unassigned flag as its own param', async () => {
+    mockedApi.get.mockResolvedValue({ data: { totals: { reviews: 0 } }, headers: {} });
+
+    await CsmQualityAPI.getReport({ agent: [9], unassigned: true });
+
+    expect(mockedApi.get).toHaveBeenCalledWith('/api/csm/quality/report/', {
+      params: { agent: [9], unassigned: true },
+    });
+  });
+
   it('sends the filters to the report endpoint', async () => {
     mockedApi.get.mockResolvedValue({ data: { totals: { reviews: 0 } }, headers: {} });
 

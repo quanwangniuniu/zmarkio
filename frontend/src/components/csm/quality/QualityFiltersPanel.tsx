@@ -18,6 +18,8 @@ interface QualityFiltersPanelProps {
 const CONTROL =
   'h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-[#3CCED7] focus:outline-none focus:ring-1 focus:ring-[#3CCED7]';
 
+// The dropdown's own value for the Unassigned option. It never leaves this
+// component: selecting it sets the separate `unassigned` filter.
 const UNASSIGNED = 'unassigned';
 
 export function QualityFiltersPanel({
@@ -91,10 +93,11 @@ export function QualityFiltersPanel({
           label="Agent"
           searchable
           options={agentOptions}
-          selected={filters.agent.map(String)}
+          selected={[...(filters.unassigned ? [UNASSIGNED] : []), ...filters.agent.map(String)]}
           onChange={(next) =>
             onChange({
-              agent: next.map((value) => (value === UNASSIGNED ? UNASSIGNED : Number(value))),
+              agent: next.filter((value) => value !== UNASSIGNED).map(Number),
+              unassigned: next.includes(UNASSIGNED) || undefined,
             })
           }
         />

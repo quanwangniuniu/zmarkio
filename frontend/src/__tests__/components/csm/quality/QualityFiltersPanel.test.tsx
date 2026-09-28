@@ -63,17 +63,27 @@ describe('QualityFiltersPanel — AC2 all six filters', () => {
     expect(onChange).toHaveBeenCalledWith({ date_to: '2026-03-31' });
   });
 
-  it('emits a numeric agent id, and the unassigned sentinel', () => {
+  it('emits numeric agent ids, and Unassigned as its own flag', () => {
     const { onChange } = renderPanel();
 
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
     const list = screen.getByRole('listbox', { name: 'Agent' });
 
     fireEvent.click(within(list).getByLabelText(/Ada L\./));
-    expect(onChange).toHaveBeenCalledWith({ agent: [9] });
+    expect(onChange).toHaveBeenCalledWith({ agent: [9], unassigned: undefined });
 
     fireEvent.click(within(list).getByLabelText(/Unassigned/));
-    expect(onChange).toHaveBeenCalledWith({ agent: ['unassigned'] });
+    expect(onChange).toHaveBeenCalledWith({ agent: [], unassigned: true });
+  });
+
+  it('shows Unassigned as selected when the flag is set', () => {
+    renderPanel({ filters: { ...EMPTY_QUALITY_FILTERS, agent: [9], unassigned: true } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
+    const list = screen.getByRole('listbox', { name: 'Agent' });
+
+    expect(within(list).getByLabelText(/Unassigned/)).toBeChecked();
+    expect(within(list).getByLabelText(/Ada L\./)).toBeChecked();
   });
 
   it('emits queue ids and marks archived queues', () => {

@@ -2,11 +2,12 @@ import { useCallback, useMemo } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import {
-  EMPTY_QUALITY_FILTERS,
-  QualityBucket,
-  QualityDateBasis,
-  QualityFilters,
-} from '@/types/csmQuality';
+  QUALITY_ARRAY_KEYS,
+  QUALITY_FILTER_KEYS,
+  readQualityFilters,
+  writeQualityFilters,
+} from '@/lib/csmQualityParams';
+import { QualityFilters } from '@/types/csmQuality';
 
 export type QualityTab = 'conversations' | 'report';
 
@@ -21,14 +22,9 @@ export interface QualityFilterState {
   activeFilterCount: number;
 }
 
-const ARRAY_KEYS = ['agent', 'queue', 'channel', 'customer', 'tag', 'status'] as const;
-
-const SCALAR_KEYS = ['date_from', 'date_to', 'customer_search', 'date_basis', 'bucket'] as const;
-
 /** Strip every filter, and the page offset they were paging through. */
 function dropFilters(params: URLSearchParams): void {
-  Object.keys(EMPTY_QUALITY_FILTERS).forEach((key) => params.delete(key));
-  SCALAR_KEYS.forEach((key) => params.delete(key));
+  QUALITY_FILTER_KEYS.forEach((key) => params.delete(key));
   params.delete('page');
 }
 
@@ -45,32 +41,7 @@ export function useQualityFilterParams(): QualityFilterState {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const filters: QualityFilters = useMemo(() => {
-    const numbers = (key: string): number[] =>
-      searchParams.getAll(key).map(Number).filter(Number.isFinite);
-    const strings = (key: string): string[] => searchParams.getAll(key).filter(Boolean);
-
-    // 'unassigned' is a sentinel alongside numeric agent ids.
-    const agent = searchParams.getAll('agent').flatMap<number | 'unassigned'>((raw) => {
-      if (raw === 'unassigned') return ['unassigned'];
-      const parsed = Number(raw);
-      return Number.isFinite(parsed) ? [parsed] : [];
-    });
-
-    return {
-      date_from: searchParams.get('date_from') || undefined,
-      date_to: searchParams.get('date_to') || undefined,
-      agent,
-      queue: numbers('queue'),
-      channel: strings('channel'),
-      customer: numbers('customer'),
-      customer_search: searchParams.get('customer_search') || undefined,
-      tag: strings('tag'),
-      status: strings('status'),
-      date_basis: (searchParams.get('date_basis') as QualityDateBasis) || undefined,
-      bucket: (searchParams.get('bucket') as QualityBucket) || undefined,
-    };
-  }, [searchParams]);
+  const filters: QualityFilters = useMemo(() => readQualityFilters(searchParams), [searchParams]);
 
   const tab: QualityTab = searchParams.get('tab') === 'report' ? 'report' : 'conversations';
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
@@ -80,7 +51,8 @@ export function useQualityFilterParams(): QualityFilterState {
     if (filters.date_from) count += 1;
     if (filters.date_to) count += 1;
     if (filters.customer_search) count += 1;
-    ARRAY_KEYS.forEach((key) => {
+    if (filters.unassigned) count += 1;
+    QUALITY_ARRAY_KEYS.forEach((key) => {
       const value = filters[key];
       if (Array.isArray(value) && value.length > 0) count += value.length;
     });
@@ -99,14 +71,7 @@ export function useQualityFilterParams(): QualityFilterState {
   const setFilters = useCallback(
     (next: Partial<QualityFilters>) => {
       push((params) => {
-        Object.entries(next).forEach(([key, value]) => {
-          params.delete(key);
-          if (Array.isArray(value)) {
-            value.forEach((entry) => params.append(key, String(entry)));
-          } else if (value !== undefined && value !== null && value !== '') {
-            params.set(key, String(value));
-          }
-        });
+        writeQualityFilters(params, next);
         // A changed filter invalidates the current page offset.
         params.delete('page');
       });

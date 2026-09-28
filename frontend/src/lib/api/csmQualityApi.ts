@@ -1,4 +1,5 @@
 import api, { LONG_REQUEST_TIMEOUT_MS } from '../api';
+import { toQueryParams } from '../csmQualityParams';
 import { filenameFromContentDisposition } from '../downloadBlob';
 import {
   ConversationQualityReview,
@@ -12,33 +13,6 @@ import {
 } from '@/types/csmQuality';
 
 const BASE = '/api/csm/quality';
-
-/**
- * Flatten filters into axios params.
- *
- * Arrays stay arrays: the shared axios instance is configured with
- * `paramsSerializer: { indexes: null }`, so they serialise as repeated keys
- * (`?agent=1&agent=2`), which is what the backend reads with `getlist`.
- * Empty arrays and blank strings are dropped so the URL stays readable.
- */
-export function toQueryParams(
-  filters: Partial<QualityFilters>,
-  extra: Record<string, unknown> = {},
-): Record<string, unknown> {
-  const params: Record<string, unknown> = {};
-  Object.entries(filters).forEach(([key, value]) => {
-    if (value === undefined || value === null || value === '') return;
-    if (Array.isArray(value)) {
-      if (value.length > 0) params[key] = value;
-      return;
-    }
-    params[key] = value;
-  });
-  Object.entries(extra).forEach(([key, value]) => {
-    if (value !== undefined && value !== null && value !== '') params[key] = value;
-  });
-  return params;
-}
 
 function unwrap<T>(data: unknown): T[] {
   return Array.isArray(data) ? data : ((data as { results?: T[] })?.results ?? []);

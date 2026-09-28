@@ -36,11 +36,12 @@ describe('useQualityFilterParams — reading the URL', () => {
     expect(result.current.filters.queue).toEqual([3]);
   });
 
-  it('keeps the unassigned sentinel alongside numeric agent ids', () => {
-    setUrl('agent=unassigned&agent=9');
+  it('reads unassigned as a flag beside the numeric agent ids', () => {
+    setUrl('unassigned=true&agent=9');
     const { result } = renderHook(() => useQualityFilterParams());
 
-    expect(result.current.filters.agent).toEqual(['unassigned', 9]);
+    expect(result.current.filters.agent).toEqual([9]);
+    expect(result.current.filters.unassigned).toBe(true);
   });
 
   it('defaults to the conversations tab and page 1', () => {
@@ -59,10 +60,10 @@ describe('useQualityFilterParams — reading the URL', () => {
   });
 
   it('counts each applied filter value', () => {
-    setUrl('date_from=2026-03-01&agent=9&agent=12&tag=vip');
+    setUrl('date_from=2026-03-01&agent=9&agent=12&unassigned=true&tag=vip');
     const { result } = renderHook(() => useQualityFilterParams());
 
-    expect(result.current.activeFilterCount).toBe(4);
+    expect(result.current.activeFilterCount).toBe(5);
   });
 });
 
@@ -70,9 +71,22 @@ describe('useQualityFilterParams — writing the URL', () => {
   it('writes an array as repeated keys', () => {
     const { result } = renderHook(() => useQualityFilterParams());
 
-    act(() => result.current.setFilters({ agent: [9, 'unassigned'] }));
+    act(() => result.current.setFilters({ agent: [9, 12] }));
 
-    expect(lastQuery().getAll('agent')).toEqual(['9', 'unassigned']);
+    expect(lastQuery().getAll('agent')).toEqual(['9', '12']);
+  });
+
+  it('writes unassigned as a flag and removes it when cleared', () => {
+    const { result } = renderHook(() => useQualityFilterParams());
+
+    act(() => result.current.setFilters({ agent: [9], unassigned: true }));
+    expect(lastQuery().get('unassigned')).toBe('true');
+
+    setUrl(lastQuery().toString());
+    const { result: next } = renderHook(() => useQualityFilterParams());
+    act(() => next.current.setFilters({ unassigned: undefined }));
+    expect(lastQuery().get('unassigned')).toBeNull();
+    expect(lastQuery().getAll('agent')).toEqual(['9']);
   });
 
   it('resets the page when a filter changes', () => {
@@ -103,7 +117,7 @@ describe('useQualityFilterParams — writing the URL', () => {
   });
 
   it('clears the filters when the tab changes', () => {
-    setUrl('tab=conversations&channel=email&agent=9&date_from=2026-03-01&bucket=day&page=3');
+    setUrl('tab=conversations&channel=email&agent=9&unassigned=true&date_from=2026-03-01&bucket=day&page=3');
     const { result } = renderHook(() => useQualityFilterParams());
 
     act(() => result.current.setTab('report'));
@@ -112,6 +126,7 @@ describe('useQualityFilterParams — writing the URL', () => {
     expect(query.get('tab')).toBe('report');
     expect(query.getAll('channel')).toEqual([]);
     expect(query.getAll('agent')).toEqual([]);
+    expect(query.get('unassigned')).toBeNull();
     expect(query.get('date_from')).toBeNull();
     expect(query.get('bucket')).toBeNull();
     expect(query.get('page')).toBeNull();
