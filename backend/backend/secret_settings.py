@@ -25,11 +25,21 @@ FERNET_GENERATE_HINT = (
     'python3 -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"'
 )
 
+# Explicit, local-only switch that lets a DEBUG environment keep booting with a
+# legacy committed key (it still warns). It is off unless set to a true value,
+# and settings.py only honours it when DEBUG is also on, so a shared or deployed
+# environment cannot be opened up by DEBUG alone or by this flag alone.
+ALLOW_LEGACY_ENV = 'ALLOW_LEGACY_LOCAL_KEYS'
+LEGACY_HINT = (
+    f'For local development only, you can set {ALLOW_LEGACY_ENV}=true together '
+    'with DEBUG=True to keep booting with a warning.'
+)
+
 # Why these lists exist: older versions of settings.py and env.example shipped
 # secret values in plain text, and those values were copied into real .env
 # files. Anyone who has read this repository knows them, so an environment still
-# using one can have tokens forged against it. Rejecting them at boot (DEBUG
-# off) makes such environments visible instead of silently staying exposed.
+# using one can have tokens forged against it. Rejecting them at boot makes
+# such environments visible instead of silently staying exposed.
 #
 # This is a one-off cleanup for those values, not a general secret scanner:
 # it cannot catch a key committed in the future. The template now leaves each
@@ -66,6 +76,11 @@ def read_secret_env(name: str) -> str:
     return os.environ.get(name, '')
 
 
+def read_bool_env(name: str) -> bool:
+    """Read a boolean flag from the process environment only (default False)."""
+    return os.environ.get(name, '').strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
 def _normalize(value: str) -> str:
     """Strip surrounding whitespace and one layer of matching quotes."""
     candidate = value.strip()
@@ -78,7 +93,7 @@ def validate_secret_setting(
     name: str,
     value: str,
     *,
-    debug: bool,
+    allow_committed: bool,
     committed_digests: frozenset[str] = frozenset(),
     hint: str = TOKEN_GENERATE_HINT,
     stacklevel: int = 2,
@@ -89,9 +104,10 @@ def validate_secret_setting(
     - Missing, empty or whitespace-only: always raises, so a misconfigured
       environment stops at boot instead of silently falling back to a public
       value.
-    - A value whose digest is in *committed_digests*: raises when DEBUG is off;
-      with DEBUG on (local Docker development) it only warns, so existing local
-      setups keep working.
+    - A value whose digest is in *committed_digests*: raises, unless
+      *allow_committed* is True (local development with DEBUG on and the explicit
+      ALLOW_LEGACY_LOCAL_KEYS switch, decided in settings.py); then it only warns,
+      so existing local setups can keep working while they move to new keys.
 
     Both checks look at the value with surrounding whitespace and quotes
     removed. docker compose strips these when it reads an env file, but other
@@ -107,11 +123,11 @@ def validate_secret_setting(
     if digest in committed_digests:
         message = (
             f'{name} is a value that has been committed to this repository '
-            'and must not be used outside local development. '
+            'and must not be used. '
             f'{hint}'
         )
-        if not debug:
-            raise ImproperlyConfigured(message)
+        if not allow_committed:
+            raise ImproperlyConfigured(f'{message} {LEGACY_HINT}')
         warnings.warn(message, RuntimeWarning, stacklevel=stacklevel)
 
     return value
@@ -121,7 +137,7 @@ def validate_fernet_key_setting(
     name: str,
     value: str,
     *,
-    debug: bool,
+    allow_committed: bool,
     committed_digests: frozenset[str] = frozenset(),
 ) -> str:
     """
@@ -135,7 +151,7 @@ def validate_fernet_key_setting(
     validate_secret_setting(
         name,
         value,
-        debug=debug,
+        allow_committed=allow_committed,
         committed_digests=committed_digests,
         hint=FERNET_GENERATE_HINT,
         stacklevel=3,  # point the warning at settings.py, not this wrapper

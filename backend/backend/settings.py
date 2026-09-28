@@ -18,9 +18,11 @@ from django.core.exceptions import ImproperlyConfigured
 from celery.schedules import crontab
 
 from .secret_settings import (
+    ALLOW_LEGACY_ENV,
     COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
     COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
     COMMITTED_SECRET_KEY_DIGESTS,
+    read_bool_env,
     read_secret_env,
     validate_fernet_key_setting,
     validate_secret_setting,
@@ -38,6 +40,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
+# Local-only escape hatch for keys that were committed to this repository: they
+# boot with a warning only when DEBUG is on AND ALLOW_LEGACY_LOCAL_KEYS is set.
+# Off by default. See backend/secret_settings.py.
+ALLOW_LEGACY_LOCAL_KEYS = DEBUG and read_bool_env(ALLOW_LEGACY_ENV)
+
 # SECURITY WARNING: keep the secret key used in production secret!
 # Required, with no fallback: it signs every JWT and is shared with
 # variations-studio-api. Read from the environment only. See
@@ -45,7 +52,7 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 SECRET_KEY = validate_secret_setting(
     'SECRET_KEY',
     read_secret_env('SECRET_KEY'),
-    debug=DEBUG,
+    allow_committed=ALLOW_LEGACY_LOCAL_KEYS,
     committed_digests=COMMITTED_SECRET_KEY_DIGESTS,
 )
 
@@ -958,13 +965,13 @@ FREE_USER_MAX_COST_CENTS = 200    # safety cap for fair-use alert on Free tier
 ORGANIZATION_ACCESS_TOKEN_SECRET_KEY = validate_secret_setting(
     'ORGANIZATION_ACCESS_TOKEN_SECRET_KEY',
     read_secret_env('ORGANIZATION_ACCESS_TOKEN_SECRET_KEY'),
-    debug=DEBUG,
+    allow_committed=ALLOW_LEGACY_LOCAL_KEYS,
     committed_digests=COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
 )
 ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY = validate_fernet_key_setting(
     'ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY',
     read_secret_env('ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY'),
-    debug=DEBUG,
+    allow_committed=ALLOW_LEGACY_LOCAL_KEYS,
     committed_digests=COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
 )
 
