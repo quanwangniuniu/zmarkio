@@ -46,4 +46,14 @@ urlpatterns = [
         views.CustomKPIDetailView.as_view(),
         name="custom-kpi-detail",
     ),
+    path(
+        "kpis/share/",
+        views.ReportShareLinkView.as_view(),
+        name="report-share-link",
+    ),
+    path(
+        "share/<str:token>/",
+        views.PublicReportShareLinkView.as_view(),
+        name="public-report-share-link",
+    ),
 ]
