@@ -276,3 +276,80 @@ class CallLLMQuotaEnforcementTests(_LLMBase):
         self.assertEqual(cm.exception.code, 'SINGLE_CALL_TOO_LARGE')
         # Most critical assertion: reserve was never called
         mock_reserve.assert_not_called()
+
+
+# ── LLM_BACKEND=ollama routing ────────────────────────────────────────────────
+
+@override_settings(**_SETTINGS, LLM_BACKEND='ollama', OLLAMA_MODEL='qwen3:4b')
+class CallLLMOllamaBackendTests(_LLMBase):
+
+    @patch('agent.llm_client._call_gemini')
+    @patch('agent.llm_client.call_ollama')
+    def test_gemini_provider_is_served_by_ollama(self, mock_ollama, mock_gemini):
+        """provider='gemini' → Ollama; logged as provider='ollama' with OLLAMA_MODEL."""
+        from agent.llm_client import call_llm
+
+        mock_ollama.return_value = {'text': '{"ok": true}', 'usage': {'input': 40, 'output': 60}}
+        result = call_llm(
+            agent_session=self.session,
+            provider='gemini',
+            model='gemini-2.5-flash-lite',
+            system_prompt='sys',
+            user_prompt='usr',
+            max_output_tokens=256,
+            temperature=0.2,
+            response_mime_type='application/json',
+        )
+
+        self.assertEqual(result['text'], '{"ok": true}')
+        mock_gemini.assert_not_called()
+        kwargs = mock_ollama.call_args.kwargs
+        self.assertEqual(kwargs['model'], 'qwen3:4b')
+        self.assertTrue(kwargs['json_mode'])
+        self.assertEqual(kwargs['max_output_tokens'], 256)
+        self.assertEqual(kwargs['temperature'], 0.2)
+
+        log = LLMCallLog.objects.get(organization=self.org)
+        self.assertTrue(log.success)
+        self.assertEqual(log.provider, 'ollama')
+        self.assertEqual(log.model_name, 'qwen3:4b')
+        self.assertEqual(log.input_tokens, 40)
+        self.assertEqual(log.output_tokens, 60)
+        # Unlisted model → multiplier 1.0, price 0
+        self.assertEqual(log.normalized_tokens, 100)
+        self.assertEqual(log.total_cost_cents, 0)
+        self.assertEqual(self._usage().tokens_reserved, 0)
+
+    @patch('agent.llm_client.call_ollama')
+    def test_missing_ollama_usage_falls_back_to_estimate(self, mock_ollama):
+        """Ollama omits prompt_eval_count on cached prompts — never log 0 tokens."""
+        from agent.llm_client import call_llm
+
+        mock_ollama.return_value = {'text': 'answer text', 'usage': {'input': 0, 'output': 0}}
+        call_llm(
+            agent_session=self.session,
+            provider='gemini',
+            model='gemini-2.5-flash-lite',
+            system_prompt='system prompt',
+            user_prompt='user prompt',
+        )
+
+        log = LLMCallLog.objects.get(organization=self.org)
+        self.assertGreater(log.input_tokens, 0)
+        self.assertGreater(log.output_tokens, 0)
+
+    @patch('agent.llm_client._call_anthropic')
+    @patch('agent.llm_client.call_ollama')
+    def test_anthropic_provider_is_unaffected(self, mock_ollama, mock_anthropic):
+        from agent.llm_client import call_llm
+
+        mock_anthropic.return_value = {'text': 'r', 'usage': {'input': 5, 'output': 5}}
+        call_llm(
+            agent_session=self.session,
+            provider='anthropic',
+            model='claude-sonnet-4-20250514',
+            system_prompt='s',
+            user_prompt='u',
+        )
+        mock_ollama.assert_not_called()
+        self.assertEqual(LLMCallLog.objects.get(organization=self.org).provider, 'anthropic')

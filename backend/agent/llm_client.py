@@ -12,6 +12,7 @@ from typing import Any
 from django.conf import settings
 
 from core.services.log_redaction import redact_string
+from core.services.ollama_client import call_ollama, get_ollama_model, is_ollama_backend
 from stripe_meta.exceptions import QuotaError
 from stripe_meta.models import LLMCallLog
 from stripe_meta.services import (
@@ -49,6 +50,10 @@ def call_llm(
     On failure: release reservation, write failure log row, re-raise.
     All arithmetic is integer-only.
     """
+    # LLM_BACKEND=ollama: serve Gemini calls locally; bill/log under the Ollama model.
+    if provider == 'gemini' and is_ollama_backend():
+        provider, model = 'ollama', get_ollama_model()
+
     org = resolve_charging_org(agent_session)
     multiplier = settings.MODEL_TOKEN_MULTIPLIER.get(model, 1.0)
 
@@ -82,6 +87,9 @@ def call_llm(
                                      max_output_tokens, temperature)
         elif provider == 'gemini':
             result = _call_gemini(model, system_prompt, user_prompt,
+                                  max_output_tokens, temperature, response_mime_type)
+        elif provider == 'ollama':
+            result = _call_ollama(model, system_prompt, user_prompt,
                                   max_output_tokens, temperature, response_mime_type)
         else:
             raise ValueError(f'Unknown LLM provider: {provider!r}')
@@ -238,3 +246,32 @@ def _call_gemini(
         'text': "".join(text_parts).strip(),
         'usage': {'input': input_tokens, 'output': output_tokens},
     }
+
+
+def _call_ollama(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_output_tokens: int,
+    temperature: float,
+    response_mime_type: str | None,
+) -> dict:
+    """
+    Local Ollama backend (LLM_BACKEND=ollama). Ollama omits prompt_eval_count
+    when the prompt is cached, so missing counts fall back to estimates —
+    never record 0 tokens.
+    """
+    result = call_ollama(
+        system_prompt,
+        user_prompt,
+        model=model,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+        json_mode=response_mime_type == 'application/json',
+    )
+    usage = result['usage']
+    if not usage['input']:
+        usage['input'] = estimate_input_tokens(system_prompt + user_prompt, model)
+    if not usage['output']:
+        usage['output'] = max(1, estimate_input_tokens(result['text'], model))
+    return result

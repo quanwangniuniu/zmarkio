@@ -33,6 +33,10 @@ class QuickStartConfig:
 
     @property
     def is_llm_configured(self) -> bool:
+        from core.services.ollama_client import is_ollama_backend
+
+        if is_ollama_backend():
+            return True
         return bool(self.gemini_api_key and self.gemini_api_key.strip())
 
     def require_llm_configured(self) -> None:

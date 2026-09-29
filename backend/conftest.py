@@ -15,6 +15,10 @@ if not settings.configured:
 # times. No test depends on the hashing algorithm, so use a fast one (MED-447).
 settings.PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 
+# A developer's .env may set LLM_BACKEND=ollama for local runs; tests assume the
+# Gemini default and opt into Ollama explicitly via override_settings.
+settings.LLM_BACKEND = 'gemini'
+
 
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):

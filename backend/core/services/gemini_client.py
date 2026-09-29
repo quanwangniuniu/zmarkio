@@ -14,6 +14,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 from core.services.log_redaction import redact_string
+from core.services.ollama_client import OLLAMA_KEY_SENTINEL, call_ollama, is_ollama_backend
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,8 @@ def _circuit_record(success: bool) -> None:
 
 
 def _get_api_key() -> str:
+    if is_ollama_backend():
+        return OLLAMA_KEY_SENTINEL
     return (
         getattr(settings, "GEMINI_API_KEY", "")
         or os.environ.get("GEMINI_API_KEY", "")
@@ -97,12 +100,13 @@ def _gemini_request_with_retry(
     body: dict,
     timeout: int | None = None,
     stream: bool = False,
+    deadline_seconds: int | None = None,
 ) -> requests.Response:
     """POST to a Gemini endpoint with bounded retries on transient failures.
 
     Retries HTTP 429 / 5xx and connection/read errors with exponential backoff,
     capped by both an attempt count and a wall-clock deadline
-    (``GEMINI_TOTAL_DEADLINE_SECONDS``). A cache-backed circuit breaker
+    (``deadline_seconds``, default ``GEMINI_TOTAL_DEADLINE_SECONDS``). A cache-backed circuit breaker
     short-circuits when Gemini has been failing.
 
     On exhaustion: pure 429s -> :class:`GeminiRetriesExhausted`; anything else
@@ -114,7 +118,7 @@ def _gemini_request_with_retry(
 
     base_timeout = _resolve_timeout(timeout)
     deadline = time.monotonic() + int(
-        getattr(settings, "GEMINI_TOTAL_DEADLINE_SECONDS", 150)
+        deadline_seconds or getattr(settings, "GEMINI_TOTAL_DEADLINE_SECONDS", 150)
     )
     last_exc: Exception | None = None
     saw_non_429 = False
@@ -185,7 +189,16 @@ def call_gemini(
     """Call Gemini via streamGenerateContent and return the full text response.
 
     ``timeout`` defaults to ``settings.GEMINI_TIMEOUT_SECONDS`` when unset.
+    With ``LLM_BACKEND=ollama`` the call is served by Ollama instead.
     """
+    if is_ollama_backend():
+        return call_ollama(
+            system_prompt,
+            user_prompt,
+            temperature=temperature,
+            json_mode=response_mime_type == "application/json",
+        )["text"]
+
     api_key = _get_api_key()
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY is not configured")

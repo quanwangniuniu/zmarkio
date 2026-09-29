@@ -422,6 +422,15 @@ GEMINI_CB_THRESHOLD = config('GEMINI_CB_THRESHOLD', default=5, cast=int)
 GEMINI_CB_WINDOW_SECONDS = config('GEMINI_CB_WINDOW_SECONDS', default=60, cast=int)
 GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, cast=int)
 
+# LLM backend switch: 'gemini' (default) or 'ollama'. With 'ollama', every Gemini
+# call (core.services.gemini_client + agent.llm_client provider='gemini') is served
+# by OLLAMA_MODEL on a local Ollama server (core.services.ollama_client).
+LLM_BACKEND = config('LLM_BACKEND', default='gemini')
+OLLAMA_BASE_URL = config('OLLAMA_BASE_URL', default='http://host.docker.internal:11434')
+OLLAMA_MODEL = config('OLLAMA_MODEL', default='qwen3:4b')
+OLLAMA_TIMEOUT_SECONDS = config('OLLAMA_TIMEOUT_SECONDS', default=300, cast=int)
+OLLAMA_TOTAL_DEADLINE_SECONDS = config('OLLAMA_TOTAL_DEADLINE_SECONDS', default=600, cast=int)
+
 # Dify LLM Platform integration (kept for reference / backward compat)
 DIFY_API_URL = config('DIFY_API_URL', default='')
 DIFY_API_KEY = config('DIFY_API_KEY', default='')

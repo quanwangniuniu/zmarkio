@@ -1351,6 +1351,9 @@ class AgentConfigStatusView(EnglishResponseMixin, APIView):
         for key, (settings_attr, env_var) in self.KEY_MAP.items():
             val = getattr(django_settings, settings_attr, None) or os.environ.get(env_var, '')
             result[key] = bool(val and val.strip())
+        # LLM_BACKEND=ollama serves the Gemini features without a key.
+        from core.services.ollama_client import is_ollama_backend
+        result['gemini'] = result['gemini'] or is_ollama_backend()
         return Response(result)
 
 
