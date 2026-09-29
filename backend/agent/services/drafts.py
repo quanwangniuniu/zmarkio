@@ -1,14 +1,13 @@
 """Read-only Q&A over a user's draft content."""
 import logging
 
+from django.conf import settings
+
 logger = logging.getLogger(__name__)
 
 
 class DraftMixin:
     """Draft Q&A entry point for AgentOrchestrator."""
-
-    # Cap on the draft text inlined into the LLM context (chars).
-    _DRAFT_PAYLOAD_MAX_CHARS = 12000
 
     def answer_draft_question(self, message, draft_context):
         """Answer a question using a draft's real content (AGENT-7, read-only).
@@ -80,8 +79,10 @@ class DraftMixin:
             if text:
                 parts.append(text)
         draft_text = "\n\n".join(parts)
-        if len(draft_text) > self._DRAFT_PAYLOAD_MAX_CHARS:
-            draft_text = draft_text[:self._DRAFT_PAYLOAD_MAX_CHARS].rstrip() + "\n\n[... draft truncated for length ...]"
+        # Cap on the draft text inlined into the LLM context (settings.AGENT_DRAFT_PAYLOAD_MAX_CHARS).
+        max_chars = settings.AGENT_DRAFT_PAYLOAD_MAX_CHARS
+        if len(draft_text) > max_chars:
+            draft_text = draft_text[:max_chars].rstrip() + "\n\n[... draft truncated for length ...]"
 
         system_prompt = (
             "You are a helpful writing assistant embedded in a Notion-style draft editor. "

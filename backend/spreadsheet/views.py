@@ -1481,7 +1481,7 @@ def _audit_nl_generation(request, sheet, event_type, *, instruction, cols, rows)
             'rows_sent': rows,
             'instruction_chars': len(instruction),
             'provider': 'gemini',
-            'model': 'gemini-2.5-flash-lite',
+            'model': settings.AGENT_LLM_MODEL,
         },
         request=request,
     )

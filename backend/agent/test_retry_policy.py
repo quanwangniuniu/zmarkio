@@ -2,6 +2,7 @@ import anthropic
 import httpx
 import requests
 from unittest.mock import MagicMock, call, patch
+from agent.testing import IterAnalysisMock
 from agent.executors import AnalyzeDataExecutor, CallLLMExecutor, DetectColumnsExecutor, GenerateCriteriaExecutor
 from django.test import TestCase
 
@@ -52,7 +53,7 @@ class _OrchestratorStub:
 
 class LLMRetryPolicyTests(TestCase):
     @patch('agent.executors.time.sleep')
-    @patch('agent.services.analysis._run_analysis')
+    @patch('agent.services.analysis._iter_analysis', new_callable=IterAnalysisMock)
     def test_call_llm_retries_out_success(self, mock_run_analysis, mock_sleep):
         step = _StepStub('analyze_data')
         orchestrator = _OrchestratorStub()
@@ -66,7 +67,7 @@ class LLMRetryPolicyTests(TestCase):
 
 
     @patch('agent.executors.time.sleep')
-    @patch('agent.services.analysis._run_analysis')
+    @patch('agent.services.analysis._iter_analysis', new_callable=IterAnalysisMock)
     def test_call_llm_retries_respects_per_step_config_override(self, mock_run_analysis, mock_sleep):
         """
         step.config overrides the decorator's default max_retries.
@@ -90,7 +91,7 @@ class LLMRetryPolicyTests(TestCase):
 
 
     @patch('agent.executors.time.sleep')
-    @patch('agent.services.analysis._run_analysis')
+    @patch('agent.services.analysis._iter_analysis', new_callable=IterAnalysisMock)
     def test_call_llm_retries_out_failure_failed_step(self, mock_run_analysis, mock_sleep):
         step = _StepStub('analyze_data')
         orchestrator = _OrchestratorStub()

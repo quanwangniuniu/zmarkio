@@ -3,6 +3,7 @@
 import json
 from types import SimpleNamespace
 from unittest.mock import patch
+from agent.testing import IterAnalysisMock
 
 from django.test import SimpleTestCase
 
@@ -571,7 +572,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         self.assertEqual(result.error, "No spreadsheet_data in input")
 
     @patch("agent.executors.cache.get", return_value={"timezone": "Australia/Adelaide"})
-    @patch("agent.services.analysis._run_analysis")
+    @patch("agent.services.analysis._iter_analysis", new_callable=IterAnalysisMock)
     def test_success_saves_analysis_and_builds_summary(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -634,7 +635,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         mock_cache_get.assert_called_once_with("agent:context:run-123")
 
     @patch("agent.executors.cache.get", return_value=None)
-    @patch("agent.services.analysis._run_analysis", return_value={})
+    @patch("agent.services.analysis._iter_analysis", new_callable=IterAnalysisMock, return_value={})
     def test_analysis_without_recommendations_uses_plain_summary(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -650,7 +651,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         mock_cache_get.assert_called_once()
 
     @patch("agent.executors.cache.get", return_value=None)
-    @patch("agent.services.analysis._run_analysis", return_value={})
+    @patch("agent.services.analysis._iter_analysis", new_callable=IterAnalysisMock, return_value={})
     def test_saved_success_criteria_are_used_when_input_omits_them(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -669,7 +670,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         mock_cache_get.assert_called_once()
 
     @patch("agent.executors.cache.get", return_value=None)
-    @patch("agent.services.analysis._run_analysis")
+    @patch("agent.services.analysis._iter_analysis", new_callable=IterAnalysisMock)
     def test_invalid_generation_outputs_returns_failure(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -690,7 +691,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         mock_cache_get.assert_called_once()
 
     @patch("agent.executors.cache.get", return_value=None)
-    @patch("agent.services.analysis._run_analysis")
+    @patch("agent.services.analysis._iter_analysis", new_callable=IterAnalysisMock)
     def test_gemini_retry_exhaustion_returns_failure(
         self, mock_run_analysis, mock_cache_get
     ):
@@ -706,7 +707,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         mock_cache_get.assert_called_once()
 
     @patch("agent.executors.cache.get", return_value=None)
-    @patch("agent.services.analysis._run_analysis")
+    @patch("agent.services.analysis._iter_analysis", new_callable=IterAnalysisMock)
     def test_unexpected_analysis_error_returns_failure(
         self, mock_run_analysis, mock_cache_get
     ):

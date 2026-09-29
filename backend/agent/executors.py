@@ -4,13 +4,15 @@ Step executors — strategy pattern for workflow step types.
 Each step_type maps to an Executor subclass that encapsulates
 the logic for that particular action.
 """
+import inspect
 import json
 import logging
 import os
+from django.conf import settings
 from django.core.cache import cache
 import time
 import anthropic
-from .agent_utils import json_input
+from .agent_utils import drain_generator, json_input
 from .llm_client import call_llm as _call_llm_unified
 from core.services.gemini_client import GeminiRetriesExhausted
 
@@ -39,31 +41,53 @@ def retry_policy(max_retries=3,  retry_delay= 5,on_exhausted='fail'):
 
     """
     def decorator(func):
-        def wrapper(*args, **kwargs):
-
+        def effective_config(executor):
             #The retry properties are overriden by per-step configuration if that exists.
-            effective_max_retries = args[0].config.get('max_retries', max_retries)
-            effective_retry_delay = args[0].config.get('retry_delay', retry_delay)
-            effective_on_exhausted = args[0].config.get('on_exhausted', on_exhausted)
+            return (
+                executor.config.get('max_retries', max_retries),
+                executor.config.get('retry_delay', retry_delay),
+                executor.config.get('on_exhausted', on_exhausted),
+            )
 
-            for attempt in range(effective_max_retries):
+        def on_failure(e, attempt, effective_max_retries, effective_retry_delay, effective_on_exhausted):
+            """Return a final StepResult when retries are exhausted, else back off and return None."""
+            if attempt == effective_max_retries -1:
+                if effective_on_exhausted == 'fail':
+                    return StepResult(success=False, error=str(e), skipped=False)
+                else:
+                    return StepResult(success=False, error=str(e), skipped=True)
+            logger.warning(
+                "LLM call failed: %s. Retry %s/%s in %ss.",
+                e,
+                attempt + 1,
+                effective_max_retries - 1,
+                effective_retry_delay,
+            )
+            time.sleep(effective_retry_delay)
+            return None
+
+        if inspect.isgeneratorfunction(func):
+            # Generator executors (iter_execute) stream SSE events while retrying.
+            def gen_wrapper(*args, **kwargs):
+                config = effective_config(args[0])
+                for attempt in range(config[0]):
+                    try:
+                        return (yield from func(*args, **kwargs))
+                    except (anthropic.APITimeoutError, RuntimeError) as e:
+                        final = on_failure(e, attempt, *config)
+                        if final is not None:
+                            return final
+            return gen_wrapper
+
+        def wrapper(*args, **kwargs):
+            config = effective_config(args[0])
+            for attempt in range(config[0]):
                 try:
                     return func(*args, **kwargs)
                 except (anthropic.APITimeoutError, RuntimeError) as e:
-                    if attempt == effective_max_retries -1:
-                        if effective_on_exhausted == 'fail':
-                            return StepResult(success=False, error=str(e), skipped=False)
-                        else:
-                            return StepResult(success=False, error=str(e), skipped=True)
-                    else:
-                        logger.warning(
-                            "LLM call failed: %s. Retry %s/%s in %ss.",
-                            e,
-                            attempt + 1,
-                            effective_max_retries - 1,
-                            effective_retry_delay,
-                        )
-                        time.sleep(effective_retry_delay)
+                    final = on_failure(e, attempt, *config)
+                    if final is not None:
+                        return final
         return wrapper
     return decorator
 
@@ -99,13 +123,25 @@ class BaseStepExecutor:
     def execute(self, input_data: dict) -> StepResult:
         raise NotImplementedError
 
+    def iter_execute(self, input_data: dict):
+        """Generator form of execute() used by the workflow engine.
+
+        Yields SSE events while the step runs and returns the StepResult.
+        Override to stream progress; the default just runs execute().
+        """
+        return self.execute(input_data)
+        yield  # makes this a generator
+
 
 class AnalyzeDataExecutor(BaseStepExecutor):
-    """Runs the Dify->Claude analysis fallback chain via _run_analysis()."""
+    """Runs the Gemini->Claude analysis fallback chain via _iter_analysis()."""
+
+    def execute(self, input_data):
+        return drain_generator(self.iter_execute(input_data))
 
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='fail')
-    def execute(self, input_data):
-        from .services.analysis import _run_analysis
+    def iter_execute(self, input_data):
+        from .services.analysis import _iter_analysis
 
         spreadsheet_data = input_data.get('spreadsheet_data')
         if not spreadsheet_data:
@@ -127,7 +163,7 @@ class AnalyzeDataExecutor(BaseStepExecutor):
             generation_outputs = input_data.get('generation_outputs')
             requested = frozenset(normalize_generation_outputs(generation_outputs))
 
-            analysis = _run_analysis(
+            analysis = yield from _iter_analysis(
                 spreadsheet_data,
                 user_id=user_id,
                 success_criteria=success_criteria,
@@ -210,7 +246,7 @@ class CallLLMExecutor(BaseStepExecutor):
 
             result = _call_llm_unified(
                 provider="anthropic",
-                model="claude-sonnet-5",
+                model=settings.AGENT_ANTHROPIC_FALLBACK_MODEL,
                 user_prompt=json_input(spreadsheet_data),
                 system_prompt=_ANALYSIS_SYSTEM_PROMPT,
                 agent_session=self.orchestrator.session,
@@ -967,7 +1003,7 @@ class GenerateCriteriaExecutor(BaseStepExecutor):
             _criteria_result = _call_llm_unified(
                 agent_session=self.orchestrator.session,
                 provider='gemini',
-                model='gemini-2.5-flash-lite',
+                model=settings.AGENT_LLM_MODEL,
                 system_prompt=_CRITERIA_SYSTEM_PROMPT,
                 user_prompt=(
                     f"Column names:\n{json.dumps(column_names)}\n\n"

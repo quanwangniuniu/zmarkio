@@ -353,3 +353,24 @@ class CallLLMOllamaBackendTests(_LLMBase):
         )
         mock_ollama.assert_not_called()
         self.assertEqual(LLMCallLog.objects.get(organization=self.org).provider, 'anthropic')
+
+    @patch('agent.llm_client.call_ollama')
+    def test_ollama_failure_log_names_the_gemini_redirect(self, mock_ollama):
+        """A failed redirected call must not read as a Gemini failure."""
+        from agent.llm_client import call_llm
+
+        mock_ollama.side_effect = RuntimeError('connection refused')
+        with self.assertRaises(RuntimeError):
+            call_llm(
+                agent_session=self.session,
+                provider='gemini',
+                model='gemini-2.5-flash-lite',
+                system_prompt='s',
+                user_prompt='u',
+            )
+
+        log = LLMCallLog.objects.get(organization=self.org)
+        self.assertFalse(log.success)
+        self.assertEqual(log.provider, 'ollama')
+        self.assertIn('redirected from gemini:gemini-2.5-flash-lite', log.error_message)
+        self.assertIn('connection refused', log.error_message)

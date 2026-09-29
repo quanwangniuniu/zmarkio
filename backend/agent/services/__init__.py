@@ -1,92 +1,73 @@
 """Agent services, split by domain modules (MED-301).
 
-This package replaces the former ``agent/services.py``. The imports below are a
-thin re-export shim so every name that was importable from ``agent.services``
-still is. New code should import from the defining submodule instead.
+This package replaces the former ``agent/services.py``. Its only public name is
+``AgentOrchestrator``. The private helpers that used to live in the old module
+(``_run_analysis``, ``_coerce_json``, ...) are still reachable from here, but
+each access emits a ``DeprecationWarning``: import them from the defining
+submodule instead (e.g. ``from agent.services.analysis import _run_analysis``).
 
 Patch helpers on the submodule that looks them up (e.g.
 ``agent.services.analysis._run_analysis``), never on this package: a patch here
 replaces only the re-exported alias and does not reach the real call sites.
 ``agent/tests/test_services_package.py`` enforces this.
 """
-from .analysis import (
-    _ANALYSIS_VALIDATION_MAX_ATTEMPTS,
-    _assign_anomaly_ids,
-    _build_criteria_text,
-    _call_gemini_analysis,
-    _call_llm,
-    _coerce_llm_analysis_for_requested,
-    _get_llm_client,
-    _preprocess_spreadsheet,
-    _resolve_analysis_columns,
-    _run_analysis,
-    _truncation_notice,
-)
-from .analysis_prompts import (
-    _ANALYSIS_SYSTEM_PROMPT,
-    _CONTEXT_BLOCK_TEMPLATE,
-    _CRITERIA_WITH_BLOCK,
-    _NO_CRITERIA_BLOCK,
-)
-from .calendar import _call_gemini_calendar_from_analysis
-from .common import _coerce_json, _create_agent_status_message
-from .followup import (
-    _FOLLOWUP_SYSTEM_PROMPT,
-    _call_gemini_chat,
-    _normalize_llm_chat_output,
-    _serialize_project_members,
-)
-from .insights import (
-    _SPREADSHEET_INSIGHTS_SAMPLE_ROWS,
-    _SPREADSHEET_INSIGHTS_SYSTEM_PROMPT,
-    _call_gemini_spreadsheet_insights,
-    _normalize_spreadsheet_insights_result,
-    _preprocess_spreadsheet_insights,
-    _run_spreadsheet_insights,
-    _spreadsheet_insights_sample_bounds,
-)
-from .messaging import _forward_to_users, _get_or_create_bot_private_chat
-from .miro import (
-    MIRO_LEGACY_BG_QUEUED_MESSAGE,
-    _enqueue_miro_generation_for_workflow_run,
-    _generate_miro_board_for_workflow_run,
-)
+import importlib
+import warnings
+
 from .orchestrator import AgentOrchestrator
 
-__all__ = [
-    "AgentOrchestrator",
-    "MIRO_LEGACY_BG_QUEUED_MESSAGE",
-    "_ANALYSIS_SYSTEM_PROMPT",
-    "_ANALYSIS_VALIDATION_MAX_ATTEMPTS",
-    "_CONTEXT_BLOCK_TEMPLATE",
-    "_CRITERIA_WITH_BLOCK",
-    "_FOLLOWUP_SYSTEM_PROMPT",
-    "_NO_CRITERIA_BLOCK",
-    "_SPREADSHEET_INSIGHTS_SAMPLE_ROWS",
-    "_SPREADSHEET_INSIGHTS_SYSTEM_PROMPT",
-    "_assign_anomaly_ids",
-    "_build_criteria_text",
-    "_call_gemini_analysis",
-    "_call_gemini_calendar_from_analysis",
-    "_call_gemini_chat",
-    "_call_gemini_spreadsheet_insights",
-    "_call_llm",
-    "_coerce_json",
-    "_coerce_llm_analysis_for_requested",
-    "_create_agent_status_message",
-    "_enqueue_miro_generation_for_workflow_run",
-    "_forward_to_users",
-    "_generate_miro_board_for_workflow_run",
-    "_get_llm_client",
-    "_get_or_create_bot_private_chat",
-    "_normalize_llm_chat_output",
-    "_normalize_spreadsheet_insights_result",
-    "_preprocess_spreadsheet",
-    "_preprocess_spreadsheet_insights",
-    "_resolve_analysis_columns",
-    "_run_analysis",
-    "_run_spreadsheet_insights",
-    "_serialize_project_members",
-    "_spreadsheet_insights_sample_bounds",
-    "_truncation_notice",
-]
+__all__ = ["AgentOrchestrator"]
+
+# Legacy name -> defining submodule. Resolved lazily by ``__getattr__`` below.
+_DEPRECATED_REEXPORTS = {
+    "_ANALYSIS_VALIDATION_MAX_ATTEMPTS": "analysis",
+    "_assign_anomaly_ids": "analysis",
+    "_build_criteria_text": "analysis",
+    "_call_gemini_analysis": "analysis",
+    "_coerce_llm_analysis_for_requested": "analysis",
+    "_get_llm_client": "analysis",
+    "_preprocess_spreadsheet": "analysis",
+    "_resolve_analysis_columns": "analysis",
+    "_run_analysis": "analysis",
+    "_truncation_notice": "analysis",
+    "_ANALYSIS_SYSTEM_PROMPT": "analysis_prompts",
+    "_CONTEXT_BLOCK_TEMPLATE": "analysis_prompts",
+    "_CRITERIA_WITH_BLOCK": "analysis_prompts",
+    "_NO_CRITERIA_BLOCK": "analysis_prompts",
+    "_call_gemini_calendar_from_analysis": "calendar",
+    "_coerce_json": "common",
+    "_create_agent_status_message": "common",
+    "_FOLLOWUP_SYSTEM_PROMPT": "followup",
+    "_call_gemini_chat": "followup",
+    "_normalize_llm_chat_output": "followup",
+    "_serialize_project_members": "followup",
+    "_SPREADSHEET_INSIGHTS_SAMPLE_ROWS": "insights",
+    "_SPREADSHEET_INSIGHTS_SYSTEM_PROMPT": "insights",
+    "_call_gemini_spreadsheet_insights": "insights",
+    "_normalize_spreadsheet_insights_result": "insights",
+    "_preprocess_spreadsheet_insights": "insights",
+    "_run_spreadsheet_insights": "insights",
+    "_spreadsheet_insights_sample_bounds": "insights",
+    "_forward_to_users": "messaging",
+    "_get_or_create_bot_private_chat": "messaging",
+    "MIRO_LEGACY_BG_QUEUED_MESSAGE": "miro",
+    "_enqueue_miro_generation_for_workflow_run": "miro",
+    "_generate_miro_board_for_workflow_run": "miro",
+}
+
+
+def __getattr__(name):
+    submodule = _DEPRECATED_REEXPORTS.get(name)
+    if submodule is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    warnings.warn(
+        f"Importing {name!r} from 'agent.services' is deprecated; "
+        f"import it from 'agent.services.{submodule}' instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return getattr(importlib.import_module(f".{submodule}", __name__), name)
+
+
+def __dir__():
+    return sorted(set(globals()) | set(_DEPRECATED_REEXPORTS))

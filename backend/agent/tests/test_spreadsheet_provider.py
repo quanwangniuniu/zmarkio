@@ -7,6 +7,7 @@ import inspect
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
+from agent.testing import IterAnalysisMock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -286,7 +287,7 @@ class OrchestratorThroughProviderTests(TestCase):
         orch = AgentOrchestrator(self.user, self.project, self.session)
         return list(orch.analyze_spreadsheet(self.spreadsheet.id))
 
-    @patch("agent.services.analysis._run_analysis")
+    @patch("agent.services.analysis._iter_analysis", new_callable=IterAnalysisMock)
     def test_analyze_spreadsheet_end_to_end(self, mock_run):
         from agent.models import AgentWorkflowRun
 
@@ -299,7 +300,7 @@ class OrchestratorThroughProviderTests(TestCase):
         run = AgentWorkflowRun.objects.get(session=self.session)
         self.assertEqual(run.spreadsheet_id, self.spreadsheet.id)
 
-    @patch("agent.services.analysis._run_analysis")
+    @patch("agent.services.analysis._iter_analysis", new_callable=IterAnalysisMock)
     def test_analyze_spreadsheet_denied_for_non_member(self, mock_run):
         outsider = _make_user("nope@t.com")
         from agent.models import AgentSession
@@ -312,7 +313,7 @@ class OrchestratorThroughProviderTests(TestCase):
         mock_run.assert_not_called()
 
     @override_settings(AGENT_SPREADSHEET_AI_ENABLED=False)
-    @patch("agent.services.analysis._run_analysis")
+    @patch("agent.services.analysis._iter_analysis", new_callable=IterAnalysisMock)
     def test_analyze_spreadsheet_blocked_when_flag_off(self, mock_run):
         chunks = self._run()
         err = [c for c in chunks if c["type"] == "error"]

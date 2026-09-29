@@ -751,7 +751,7 @@ class FileUploadAnalyzeView(EnglishResponseMixin, APIView):
                     'column_count': result.get('column_count'),
                     'original_filename': result.get('original_filename'),
                     'provider': 'gemini',
-                    'model': 'gemini-2.5-flash-lite',
+                    'model': django_settings.AGENT_LLM_MODEL,
                 },
                 request=request,
             )

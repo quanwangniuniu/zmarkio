@@ -3,6 +3,7 @@ import json
 import logging
 import os
 
+from django.conf import settings
 from spreadsheet.providers import (
     SpreadsheetAccessError,
     AiAnalysisDisabled,
@@ -10,7 +11,7 @@ from spreadsheet.providers import (
 from ..models import AgentWorkflowRun, ImportedCSVFile
 from .. import data_service
 from core.services import file_parser
-from ..agent_utils import json_input
+from ..agent_utils import drain_generator, json_input
 from ..llm_client import call_llm as _call_llm_unified
 from .analysis_prompts import (
     _ANALYSIS_SYSTEM_PROMPT,
@@ -49,37 +50,6 @@ def _truncation_notice(spreadsheet_data):
         )
         return f"{base} — narrow the sheet or a range for a full pass."
     return "Analyzed a subset of the columns — some wide columns were left out."
-
-
-def _call_llm(client, spreadsheet_data):
-    """Deprecated by the unified LLM caller"""
-    raise NotImplementedError("Use the `call_llm()` from llm_client module.")
-    """Call Claude API to analyze spreadsheet data."""
-    system_prompt = (
-        "You are a media buying analyst AI. Analyze spreadsheet data and identify "
-        "anomalies in campaign performance metrics like ROAS, CPA, CTR, conversion "
-        "rate, ad spend, etc.\n\n"
-        "Return your analysis as JSON with this structure:\n"
-        '{"anomalies": [{"metric": "...", "movement": "...", "scope_type": "...", '
-        '"scope_value": "...", "delta_value": ..., "delta_unit": "...", '
-        '"period": "...", "description": "..."}], '
-        '"recommended_tasks": [{"type": "optimization|alert|asset|execution", '
-        '"summary": "...", "priority": "HIGH|MEDIUM|LOW"}]}\n\n'
-        "Only return valid JSON, no markdown code fences."
-    )
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        system=system_prompt,
-        messages=[
-            {
-                "role": "user",
-                "content": f"Analyze this spreadsheet data:\n{json.dumps(spreadsheet_data, default=str)}",
-            }
-        ],
-    )
-    text = response.content[0].text
-    return json.loads(text)
 
 
 def _build_criteria_text(success_criteria) -> tuple[str, list]:
@@ -261,7 +231,7 @@ def _call_gemini_analysis(
     result = _call_llm_unified(
         agent_session=agent_session,
         provider='gemini',
-        model='gemini-2.5-flash-lite',
+        model=settings.AGENT_LLM_MODEL,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         temperature=0.3,
@@ -325,7 +295,32 @@ def _run_analysis(
     user_context=None,
     agent_session=None,
 ):
+    """Synchronous form of _iter_analysis(); retry progress events are dropped."""
+    return drain_generator(_iter_analysis(
+        spreadsheet_data,
+        user_id=user_id,
+        success_criteria=success_criteria,
+        column_mapping=column_mapping,
+        generation_outputs=generation_outputs,
+        user_context=user_context,
+        agent_session=agent_session,
+    ))
+
+
+def _iter_analysis(
+    spreadsheet_data,
+    user_id=None,
+    success_criteria=None,
+    column_mapping=None,
+    generation_outputs=None,
+    user_context=None,
+    agent_session=None,
+):
     """Run analysis using Gemini, with Claude as fallback.
+
+    Generator: yields a ``text`` SSE event before each validation retry so the
+    user sees progress live, and returns the analysis dict. Consume it with
+    ``analysis = yield from _iter_analysis(...)``.
 
     Raises RuntimeError if no provider is configured or all providers fail.
     Raises GenerationValidationError if the model JSON does not match the contract.
@@ -366,10 +361,21 @@ def _run_analysis(
                     _ANALYSIS_VALIDATION_MAX_ATTEMPTS,
                     exc,
                 )
+                yield {
+                    "type": "text",
+                    "content": (
+                        "Analysis output failed validation; retrying "
+                        f"({attempt + 1}/{_ANALYSIS_VALIDATION_MAX_ATTEMPTS})..."
+                    ),
+                }
             except QuotaError:
                 raise
             except Exception as e:
-                logger.error(f"Gemini analysis failed, falling back to Claude: {e}")
+                logger.error(
+                    "Gemini analysis failed (backend=%s), falling back to Anthropic: %s",
+                    settings.LLM_BACKEND,
+                    e,
+                )
                 break
 
     # 2. Try Claude API (fallback)
@@ -378,7 +384,7 @@ def _run_analysis(
         try:
             result = _call_llm_unified(
                 provider="anthropic",
-                model="claude-sonnet-5",
+                model=settings.AGENT_ANTHROPIC_FALLBACK_MODEL,
                 user_prompt=json_input(spreadsheet_data),
                 system_prompt=_ANALYSIS_SYSTEM_PROMPT,
                 agent_session=agent_session,
@@ -390,7 +396,7 @@ def _run_analysis(
         except GenerationValidationError:
             raise
         except Exception as e:
-            logger.error(f"LLM call failed: {e}")
+            logger.error("Anthropic fallback analysis failed: %s", e)
 
     # 3. No LLM available
     raise RuntimeError(
@@ -423,7 +429,7 @@ class AnalysisMixin:
                 ),
                 'truncated': bool(spreadsheet_data.get('truncated')),
                 'provider': 'gemini',
-                'model': 'gemini-2.5-flash-lite',
+                'model': settings.AGENT_LLM_MODEL,
             },
         )
 
@@ -458,7 +464,7 @@ class AnalysisMixin:
         )
 
         try:
-            analysis = _run_analysis(
+            analysis = yield from _iter_analysis(
                 spreadsheet_data,
                 user_id=self.user.id,
                 agent_session=self.session,
@@ -519,7 +525,7 @@ class AnalysisMixin:
             yield {"type": "text", "content": _notice}
 
         try:
-            analysis = _run_analysis(
+            analysis = yield from _iter_analysis(
                 spreadsheet_data,
                 user_id=self.user.id,
                 agent_session=self.session,
@@ -588,7 +594,7 @@ class AnalysisMixin:
         }
 
         try:
-            analysis = _run_analysis(
+            analysis = yield from _iter_analysis(
                 spreadsheet_data,
                 user_id=self.user.id,
                 agent_session=self.session,

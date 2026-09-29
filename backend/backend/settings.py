@@ -431,6 +431,16 @@ OLLAMA_MODEL = config('OLLAMA_MODEL', default='qwen3:4b')
 OLLAMA_TIMEOUT_SECONDS = config('OLLAMA_TIMEOUT_SECONDS', default=300, cast=int)
 OLLAMA_TOTAL_DEADLINE_SECONDS = config('OLLAMA_TOTAL_DEADLINE_SECONDS', default=600, cast=int)
 
+# Agent LLM models. AGENT_LLM_MODEL is the primary (Gemini) model for every agent
+# call; AGENT_ANTHROPIC_FALLBACK_MODEL is used only when Gemini is unavailable or
+# fails and ANTHROPIC_API_KEY is set. Keep both in MODEL_TOKEN_MULTIPLIER and
+# LLM_PRICE_TABLE below, or billing falls back to multiplier 1.0 and zero cost.
+AGENT_LLM_MODEL = config('AGENT_LLM_MODEL', default='gemini-2.5-flash-lite')
+AGENT_ANTHROPIC_FALLBACK_MODEL = config('AGENT_ANTHROPIC_FALLBACK_MODEL', default='claude-sonnet-5')
+# Max characters of draft text inlined into the draft Q&A prompt; longer drafts
+# are truncated with a marker (agent.services.drafts).
+AGENT_DRAFT_PAYLOAD_MAX_CHARS = config('AGENT_DRAFT_PAYLOAD_MAX_CHARS', default=12000, cast=int)
+
 # Dify LLM Platform integration (kept for reference / backward compat)
 DIFY_API_URL = config('DIFY_API_URL', default='')
 DIFY_API_KEY = config('DIFY_API_KEY', default='')

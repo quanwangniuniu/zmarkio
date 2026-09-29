@@ -51,8 +51,15 @@ def call_llm(
     All arithmetic is integer-only.
     """
     # LLM_BACKEND=ollama: serve Gemini calls locally; bill/log under the Ollama model.
+    # Log the swap so a failure is never mistaken for a Gemini error.
+    redirected_from = None
     if provider == 'gemini' and is_ollama_backend():
+        redirected_from = f'{provider}:{model}'
         provider, model = 'ollama', get_ollama_model()
+        logger.info(
+            "call_llm: LLM_BACKEND=ollama, routing %s to ollama:%s purpose=%s",
+            redirected_from, model, call_purpose,
+        )
 
     org = resolve_charging_org(agent_session)
     multiplier = settings.MODEL_TOKEN_MULTIPLIER.get(model, 1.0)
@@ -127,6 +134,13 @@ def call_llm(
 
     except Exception as exc:
         release_quota(org, estimated_total, year_month=reserved_ym)
+        error_message = redact_string(str(exc))
+        if redirected_from:
+            error_message = f'[redirected from {redirected_from}] {error_message}'
+        logger.error(
+            "call_llm failed provider=%s model=%s redirected_from=%s purpose=%s: %s",
+            provider, model, redirected_from, call_purpose, error_message,
+        )
         LLMCallLog.objects.create(
             organization=org,
             agent_session=agent_session,
@@ -141,7 +155,7 @@ def call_llm(
             output_cost_cents=0,
             total_cost_cents=0,
             success=False,
-            error_message=redact_string(str(exc))[:500],
+            error_message=error_message[:500],
         )
         raise
 

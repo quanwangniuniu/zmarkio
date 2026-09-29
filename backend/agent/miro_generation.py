@@ -515,7 +515,7 @@ def call_gemini_miro_generator(
     result = _call_llm_unified(
         agent_session=agent_session,
         provider='gemini',
-        model='gemini-2.5-flash-lite',
+        model=settings.AGENT_LLM_MODEL,
         system_prompt=_MIRO_SYSTEM_PROMPT,
         user_prompt=(
             f"board_generation_context:\n{context_json}\n\n"

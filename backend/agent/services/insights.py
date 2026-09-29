@@ -2,6 +2,7 @@
 import json
 import logging
 
+from django.conf import settings
 from spreadsheet.providers import (
     SpreadsheetAccessError,
     AiAnalysisDisabled,
@@ -264,7 +265,7 @@ def _call_gemini_spreadsheet_insights(
     result = _call_llm_unified(
         agent_session=agent_session,
         provider='gemini',
-        model='gemini-2.5-flash-lite',
+        model=settings.AGENT_LLM_MODEL,
         system_prompt=_SPREADSHEET_INSIGHTS_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         temperature=0.3,

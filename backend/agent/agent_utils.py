@@ -1,4 +1,4 @@
-"""Agent utility helpers — JSON serialization used across agent modules."""
+"""Agent utility helpers used across agent modules."""
 import json
 
 
@@ -17,3 +17,12 @@ def serialize_agent_messages(messages) -> str:
 def json_input(value) -> str:
     """Serialize a value to JSON string, tolerating non-JSON-native values."""
     return json.dumps(value, default=str)
+
+
+def drain_generator(gen):
+    """Run a generator to completion, discarding what it yields; return its return value."""
+    while True:
+        try:
+            next(gen)
+        except StopIteration as stop:
+            return stop.value

@@ -199,7 +199,7 @@ class WorkflowEngineMixin:
 
             executor = get_executor(step, workflow_run, self)
             executor.step_execution = execution
-            result = executor.execute(current_data)
+            result = yield from executor.iter_execute(current_data)
 
             if result.success:
                 if getattr(result, 'pause_external_approval', False):

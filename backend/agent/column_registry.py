@@ -22,6 +22,7 @@ import logging
 import os
 import re
 
+from django.conf import settings
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -589,7 +590,7 @@ def _try_llm_fallback(headers: list, sample_rows: list = None, agent_session=Non
         result = _call_llm_unified(
             agent_session=agent_session,
             provider='gemini',
-            model='gemini-2.5-flash-lite',
+            model=settings.AGENT_LLM_MODEL,
             system_prompt=_COLUMN_DETECTION_SYSTEM_PROMPT,
             user_prompt=(
                 f"Column headers: {', '.join(headers)}\n"

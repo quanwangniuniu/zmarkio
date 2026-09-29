@@ -24,6 +24,17 @@ class AgentOrchestrator(
     MiroMixin,
     LegacyMixin,
 ):
+    """Composes the domain mixins; the only place they are combined.
+
+    Rules for mixin modules (enforced by ``ServicesMixinLayeringTests`` in
+    ``agent/tests/test_services_package.py``):
+    - never import this module, another ``*Mixin`` class, or the package shim;
+    - shared helpers may be imported across submodules only while the import
+      graph stays acyclic (prefer moving them into ``common``);
+    - method names must be unique across mixins, so the MRO never silently
+      picks one implementation over another.
+    """
+
     def __init__(self, user, project, session):
         self.user = user
         self.project = project

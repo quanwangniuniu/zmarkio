@@ -2,6 +2,7 @@
 import json
 import logging
 
+from django.conf import settings
 from django.utils import timezone as django_timezone
 
 from .analysis import _preprocess_spreadsheet
@@ -45,7 +46,7 @@ def _call_gemini_calendar_from_analysis(
         result = _call_llm_unified(
             agent_session=agent_session,
             provider='gemini',
-            model='gemini-2.5-flash-lite',
+            model=settings.AGENT_LLM_MODEL,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.3,

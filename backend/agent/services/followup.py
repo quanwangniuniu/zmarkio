@@ -2,6 +2,7 @@
 import json
 import logging
 
+from django.conf import settings
 from ..agent_utils import json_input
 from .common import _coerce_json
 
@@ -169,7 +170,7 @@ def _call_gemini_chat(
             result = _call_llm_unified(
                 agent_session=agent_session,
                 provider='gemini',
-                model='gemini-2.5-flash-lite',
+                model=settings.AGENT_LLM_MODEL,
                 system_prompt=_FOLLOWUP_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 temperature=0.5,
