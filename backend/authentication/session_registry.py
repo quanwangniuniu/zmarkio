@@ -41,7 +41,30 @@ end
 return evicted
 """
 
+REVOKE_ALL_LUA = """
+local jtis = redis.call('ZRANGE', KEYS[1], 0, -1)
+for _, jti in ipairs(jtis) do
+    redis.call('SET', ARGV[1] .. jti, 1, 'EX', tonumber(ARGV[3]))
+    redis.call('DEL', ARGV[2] .. jti)
+end
+redis.call('DEL', KEYS[1])
+return #jtis
+"""
+
 class SessionRegistry:
+
+    @staticmethod
+    def revoke_all_sessions(user_id) -> int:
+        """Atomically invalidate all access sessions and remove their metadata."""
+        redis = cast(Redis, get_redis_connection("default"))
+        return int(redis.eval(
+            REVOKE_ALL_LUA,
+            1,
+            REGISTER_KEY.format(user_id=user_id),
+            "session:blacklist:",
+            "session:meta:",
+            TOKEN_TTL,
+        ))
 
     @staticmethod
     def register_session(user_id, jti, meta: dict, cap: int) -> list[str]:

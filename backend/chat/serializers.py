@@ -96,6 +96,9 @@ class UserSimpleSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'username', 'email', 'first_name', 'last_name', 'avatar']
 
     def get_is_online(self, obj):
+        from core.services.erasure import is_erased_user
+        if is_erased_user(obj):
+            return False
         # Callers that serialize many users at once can pass a precomputed set
         # under `online_user_ids` to avoid one Redis round trip per user. The
         # per-user lookup stays the default so existing callers are unaffected.
@@ -104,6 +107,16 @@ class UserSimpleSerializer(serializers.ModelSerializer):
             return obj.id in online_user_ids
         from .services import OnlineStatusService
         return OnlineStatusService.is_online(obj.id)
+
+    def to_representation(self, instance):
+        from core.services.erasure import is_erased_user
+
+        if is_erased_user(instance):
+            return {
+                'id': instance.pk, 'username': 'Deleted user', 'email': '',
+                'first_name': '', 'last_name': '', 'avatar': None, 'is_online': False,
+            }
+        return super().to_representation(instance)
 
 
 class ChatParticipantSerializer(serializers.ModelSerializer):
@@ -1086,6 +1099,9 @@ class SavedMessageSerializer(serializers.ModelSerializer):
             if request and request.user:
                 other = chat.participants.exclude(user=request.user).select_related('user').first()
                 if other and other.user:
+                    from core.services.erasure import is_erased_user
+                    if is_erased_user(other.user):
+                        return 'Deleted user'
                     return other.user.username or other.user.email
             return 'Direct message'
         return chat.name or 'Unnamed channel'
@@ -1744,6 +1760,9 @@ class MessageSearchResultSerializer(serializers.ModelSerializer):
             else:
                 other = chat.participants.exclude(user=request.user).select_related('user').first()
             if other:
+                from core.services.erasure import is_erased_user
+                if is_erased_user(other.user):
+                    return 'Deleted user'
                 return other.user.username or other.user.email or 'Direct Message'
         return 'Direct Message'
 

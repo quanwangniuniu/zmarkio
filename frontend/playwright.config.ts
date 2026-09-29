@@ -71,7 +71,11 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs],
+      testIgnore: [
+        /e2e[\\/]auth[\\/]/,
+        /e2e[\\/]profile[\\/]erasure-request\.spec\.ts$/,
+        ...budgetRealE2eSpecs,
+      ],
     },
     {
       name: 'firefox',
@@ -80,7 +84,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs],
+      testIgnore: [/e2e[\\/]auth[\\/]/, /e2e[\\/]profile[\\/]erasure-request\.spec\.ts$/, ...budgetRealE2eSpecs],
     },
     {
       name: 'webkit',
@@ -89,7 +93,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs],
+      testIgnore: [/e2e[\\/]auth[\\/]/, /e2e[\\/]profile[\\/]erasure-request\.spec\.ts$/, ...budgetRealE2eSpecs],
     },
     // Ads fixtures provision their own real accounts; no shared login dependency.
     ...(['chromium', 'firefox', 'webkit'] as const).map((browserName) => ({
@@ -142,6 +146,11 @@ export default defineConfig({
         /e2e[\\/]messages[\\/]messages-ordering-jitter\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-participant-removal\.spec\.ts$/,
       ],
+    },
+    {
+      name: 'profile-mock',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /e2e[\\/]profile[\\/]erasure-request\.spec\.ts$/,
     },
     {
       /* Load/perf specs: need the running Docker stack (and the load fixture

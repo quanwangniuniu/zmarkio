@@ -33,7 +33,7 @@ export const test = base.extend<{}, { account: Account }>({
       });
       cleanup.push(async () => {
         const response = await api.delete('/auth/me/delete/', { data: { confirm: 'DELETE MY ACCOUNT' } });
-        expect(response.status(), 'Anonymize the test account').toBe(200);
+        expect(response.status(), 'Queue test account erasure').toBe(202);
       });
 
       const createdOrg = await api.post('/api/core/organizations/create/', { data: { name: `Ads E2E ${id}` } });

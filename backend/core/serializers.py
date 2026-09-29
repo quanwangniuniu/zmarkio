@@ -49,8 +49,19 @@ class UserSummarySerializer(serializers.ModelSerializer):
         fields = ['id', 'username', 'email', 'name']
 
     def get_name(self, obj):
+        from core.services.erasure import is_erased_user
+        if is_erased_user(obj):
+            return 'Deleted user'
         full_name = obj.get_full_name().strip()
         return full_name or obj.username or obj.email
+
+    def to_representation(self, instance):
+        from core.services.erasure import is_erased_user
+
+        data = super().to_representation(instance)
+        if is_erased_user(instance):
+            data.update(username='Deleted user', email='', name='Deleted user')
+        return data
 
 
 class OrganizationSummarySerializer(serializers.ModelSerializer):

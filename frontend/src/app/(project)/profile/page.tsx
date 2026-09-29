@@ -23,7 +23,7 @@ import useAuth from '@/hooks/useAuth';
 import { useAuthStore } from '@/lib/authStore';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { authAPI, readPersistedAuthState } from '@/lib/api';
+import { authAPI } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { OrganizationAPI, OrgListItem } from '@/lib/api/organizationApi';
 
@@ -207,8 +207,9 @@ function AboutRow({ icon: Icon, label, placeholder, value, saving, onSave }: Abo
 // ── Main content ─────────────────────────────────────────────────────────────
 
 function ProfileContent() {
-  const { user, loading, logout } = useAuth();
+  const { user, loading } = useAuth();
   const setUser = useAuthStore((s) => s.setUser);
+  const clearAuth = useAuthStore((s) => s.clearAuth);
   const router = useRouter();
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
   const [saving, setSaving] = useState(false);
@@ -346,11 +347,9 @@ function ProfileContent() {
     if (deleteConfirmText !== 'DELETE MY ACCOUNT') return;
     setIsDeleting(true);
     try {
-      // Note: the persisted field is `refreshToken`, not `refresh` (fixed pre-existing typo)
-      const refreshToken = readPersistedAuthState()?.state?.refreshToken ?? '';
-      await authAPI.deleteAccount(refreshToken);
-      toast.success('Your account has been deleted.');
-      await logout();
+      await authAPI.deleteAccount();
+      clearAuth();
+      toast.success('Account erasure request submitted. Your access has been disabled.');
       router.replace('/login');
     } catch (e) {
       const axiosError = e as { response?: { data?: { error?: string; detail?: string } } };
@@ -822,7 +821,7 @@ function ProfileContent() {
                       Danger Zone
                     </h3>
                     <p className="text-xs text-gray-500 mb-3">
-                      Permanently remove your account and personal data. Projects and tasks you created will be kept.
+                      Request account erasure. Your access will end immediately; profile cleanup continues in the background.
                     </p>
                     <button
                       type="button"
@@ -879,17 +878,15 @@ function ProfileContent() {
               <h2 className="text-xl font-bold text-gray-900">Delete Your Account</h2>
             </div>
             <p className="text-sm text-gray-600 mb-2">
-              This action is <span className="font-semibold text-red-600">irreversible</span>. The following data will be permanently removed:
+              This request is <span className="font-semibold text-red-600">irreversible</span>. Your account will be disabled immediately, and profile cleanup will continue in the background.
             </p>
             <ul className="text-sm text-gray-600 list-disc list-inside mb-4 space-y-1">
-              <li>Your profile and login credentials</li>
-              <li>Team and project memberships</li>
-              <li>Role assignments and permissions</li>
-              <li>Notification settings and integrations</li>
+              <li>Your profile and avatar will be removed or anonymized.</li>
+              <li>All current sessions will be revoked.</li>
+              <li>Collaborative work will remain; supported views will show your account as Deleted user.</li>
+              <li>Audit, approval, consent and billing records are retained for legal and operational requirements.</li>
             </ul>
-            <p className="text-sm text-gray-600 mb-4">
-              Projects and tasks you created will <span className="font-semibold">remain</span> so your team can continue working on them.
-            </p>
+            <p className="text-sm text-gray-600 mb-4">Backup copies follow the separate backup-retention process.</p>
             <p className="text-sm font-medium text-gray-700 mb-2">
               Type <span className="font-mono bg-gray-100 px-1 rounded">DELETE MY ACCOUNT</span> to confirm:
             </p>
@@ -913,7 +910,7 @@ function ProfileContent() {
                 disabled={deleteConfirmText !== 'DELETE MY ACCOUNT' || isDeleting}
                 className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isDeleting ? 'Deleting...' : 'Permanently Delete'}
+                {isDeleting ? 'Submitting...' : 'Submit Erasure Request'}
               </button>
             </div>
           </div>
