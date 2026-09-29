@@ -16,11 +16,11 @@ SHARE_LINK_DAYS = (7, 14, 30)
 
 
 class ShareLinkNotFound(Exception):
-    """No row for this token, or the user revoked it before it expired."""
+    """No row for this token, or the user revoked it while it was still valid."""
 
 
 class ShareLinkExpired(Exception):
-    """``expires_at`` is in the past. Checked before revocation."""
+    """``expires_at`` is in the past and the user did not revoke it early."""
 
 
 def create_share_link(*, project, created_by, days: int) -> tuple[ReportShareLink, bool]:
@@ -104,9 +104,10 @@ def revoke_share_link(*, project) -> ReportShareLink:
 def resolve_public_share_link(token: str) -> ReportShareLink:
     """Load a link for anonymous read.
 
-    Expiry wins over revocation: a row released after it expired still raises
-    ``ShareLinkExpired``. A revoke that happened while the link was unexpired
-    raises ``ShareLinkNotFound``.
+    A user revoke stamps ``revoked_at`` before ``expires_at`` and stays a 404
+    after the expiry time passes. A row released only so a new link can be
+    created has ``revoked_at`` after ``expires_at`` and still raises
+    ``ShareLinkExpired``.
     """
     link = (
         ReportShareLink.objects.select_related("project")
@@ -115,9 +116,8 @@ def resolve_public_share_link(token: str) -> ReportShareLink:
     )
     if link is None:
         raise ShareLinkNotFound()
-    now = timezone.now()
-    if link.expires_at <= now:
-        raise ShareLinkExpired()
-    if link.revoked_at is not None:
+    if link.revoked_at is not None and link.revoked_at < link.expires_at:
         raise ShareLinkNotFound()
+    if link.expires_at <= timezone.now():
+        raise ShareLinkExpired()
     return link

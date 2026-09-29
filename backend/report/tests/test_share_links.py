@@ -166,6 +166,25 @@ def test_public_read_reports_404_when_revoked_before_expiry(share_client):
 
 
 @pytest.mark.django_db
+def test_public_read_stays_404_after_a_manual_revoke_expires(share_client):
+    created = _create(share_client["client"], share_client["project"])
+    deleted = share_client["client"].delete(
+        f"{CREATE_URL}?project={share_client['project'].slug}"
+    )
+    assert deleted.status_code == status.HTTP_204_NO_CONTENT
+
+    link = ReportShareLink.objects.get(token=created.data["token"])
+    link.revoked_at = timezone.now() - timedelta(days=2)
+    link.expires_at = timezone.now() - timedelta(days=1)
+    link.save(update_fields=["revoked_at", "expires_at", "updated_at"])
+
+    response = APIClient().get(public_url(link.token))
+
+    assert link.revoked_at < link.expires_at
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.django_db
 def test_public_read_returns_only_the_linked_projects_kpis(share_client):
     created = _create(share_client["client"], share_client["project"])
     CustomKPI.objects.create(

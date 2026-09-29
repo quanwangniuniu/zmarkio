@@ -479,8 +479,9 @@ class PublicReportShareLinkView(APIView):
     """
     GET /api/report/share/<token>/
 
-    Anonymous read of one project's Custom KPIs. Expiry is checked before
-    revocation, so a link released after it expired still returns 410.
+    Anonymous read of one project's Custom KPIs. A link revoked while it was
+    still valid returns 404 even after ``expires_at``. A link released only
+    after it expired still returns 410.
     """
 
     permission_classes = []
