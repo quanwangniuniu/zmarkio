@@ -5,7 +5,9 @@ from channels.testing import WebsocketCommunicator
 from channels.layers import channel_layers
 from asgiref.sync import async_to_sync
 from rest_framework_simplejwt.tokens import AccessToken
-from django.test import TransactionTestCase, override_settings
+from django.test import override_settings
+
+from core.test_utils import TenantSafeTransactionTestCase
 
 from channels.routing import URLRouter
 from asset.middleware import JWTAuthMiddleware
@@ -18,43 +20,6 @@ from django.contrib.auth import get_user_model
 
 User = get_user_model()
 TEST_CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
-
-
-class TenantAwareTransactionTestCase(TransactionTestCase):
-    """
-    TransactionTestCase subclass that handles multi-tenant FK constraints.
-
-    Django's default _fixture_teardown runs TRUNCATE without CASCADE, which
-    fails because tenant schemas (org_xxx) have cross-schema FKs pointing at
-    public tables (e.g. org_xxx.core_project → public.core_customuser).
-    Overriding with allow_cascade=True makes PostgreSQL cascade the TRUNCATE
-    to tenant schema tables automatically.
-
-    inhibit_post_migrate=False (Django's own default): after flushing,
-    post_migrate signals must run to repopulate django_content_type and
-    auth_permission.  Without this, TestCase tests that run after us on
-    the same xdist worker find auth_permission rows referencing deleted
-    ContentType IDs (ForeignKeyViolation in check_constraints) and
-    task_task.content_type_id references that no longer exist.
-
-    ContentType cache must be cleared after flush so subsequent tests
-    re-query the freshly repopulated django_content_type table.
-    """
-
-    def _fixture_teardown(self):
-        from django.core.management import call_command
-        from django.contrib.contenttypes.models import ContentType
-        for db_name in self._databases_names(include_mirrors=False):
-            call_command(
-                'flush',
-                verbosity=0,
-                interactive=False,
-                database=db_name,
-                reset_sequences=False,
-                allow_cascade=True,
-                inhibit_post_migrate=False,
-            )
-        ContentType.objects.clear_cache()
 
 
 def _build_ws_application():
@@ -84,7 +49,7 @@ def _reset_channel_layers():
 
 
 @override_settings(CHANNEL_LAYERS=TEST_CHANNEL_LAYERS)
-class TestWebSocketConnection(TenantAwareTransactionTestCase):
+class TestWebSocketConnection(TenantSafeTransactionTestCase):
     """Test WebSocket connection functionality"""
 
     def setUp(self):
@@ -226,7 +191,7 @@ class TestWebSocketConnection(TenantAwareTransactionTestCase):
 
 
 @override_settings(CHANNEL_LAYERS=TEST_CHANNEL_LAYERS)
-class TestWebSocketMessageHandling(TenantAwareTransactionTestCase):
+class TestWebSocketMessageHandling(TenantSafeTransactionTestCase):
     """Test WebSocket message handling functionality"""
 
     def setUp(self):
@@ -374,7 +339,7 @@ class TestWebSocketMessageHandling(TenantAwareTransactionTestCase):
 
 
 @override_settings(CHANNEL_LAYERS=TEST_CHANNEL_LAYERS)
-class TestWebSocketEventBroadcasting(TenantAwareTransactionTestCase):
+class TestWebSocketEventBroadcasting(TenantSafeTransactionTestCase):
     """Test WebSocket event broadcasting functionality"""
 
     def setUp(self):
@@ -680,7 +645,7 @@ class TestWebSocketEventBroadcasting(TenantAwareTransactionTestCase):
 
 
 @override_settings(CHANNEL_LAYERS=TEST_CHANNEL_LAYERS)
-class TestWebSocketMultipleUsers(TenantAwareTransactionTestCase):
+class TestWebSocketMultipleUsers(TenantSafeTransactionTestCase):
     """Test WebSocket functionality with multiple users"""
 
     def setUp(self):

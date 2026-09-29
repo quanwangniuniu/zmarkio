@@ -26,47 +26,6 @@ from task.models import Task
 from access_control.models import Role, UserRole, RolePermission
 from budget_approval.models import BudgetPool, BudgetRequest, BudgetEscalationRule, BudgetRequestStatus
 
-# ---------------------------------------------------------------------------
-# Patch TransactionTestCase._fixture_teardown so that the `flush` management
-# command always uses allow_cascade=True.
-#
-# Why:  Organization.save() provisions a real PostgreSQL tenant schema
-#       (org_<slug>) whose tables hold cross-schema FKs that point at public
-#       tables (e.g. org_xxx.core_role → public.core_organization).  Django's
-#       default _fixture_teardown calls `flush` with allow_cascade=False,
-#       which makes PostgreSQL raise FeatureNotSupported when it tries to
-#       TRUNCATE public tables that are still referenced by tenant-schema rows.
-#
-#       Subclasses that already override _fixture_teardown (TenantAwareTransactionTestCase
-#       in asset/tests and retrospective/tests) are unaffected because Python's
-#       MRO means their override takes precedence over this base-class patch.
-#
-#       @pytest.mark.django_db(transaction=True) tests (such as
-#       TestConcurrentSubmissions) use a TransactionTestCase internally and
-#       therefore benefit from this patch automatically.
-# ---------------------------------------------------------------------------
-from django.test import TransactionTestCase as _TTC
-from django.core.management import call_command as _call_command
-
-
-def _patched_fixture_teardown(self):
-    from django.contrib.contenttypes.models import ContentType
-    for db_name in self._databases_names(include_mirrors=False):
-        _call_command(
-            'flush',
-            verbosity=0,
-            interactive=False,
-            database=db_name,
-            reset_sequences=False,
-            allow_cascade=True,
-            inhibit_post_migrate=False,
-        )
-    ContentType.objects.clear_cache()
-
-
-_TTC._fixture_teardown = _patched_fixture_teardown
-# ---------------------------------------------------------------------------
-
 User = get_user_model()
 
 

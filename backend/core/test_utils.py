@@ -7,6 +7,18 @@ models that live in tenant schemas rather than the public schema.
 from django.test import TestCase, TransactionTestCase
 from django.db import connection
 from core.models import Organization
+from core.test_runner import cascade_fixture_teardown
+
+
+class TenantSafeTransactionTestCase(TransactionTestCase):
+    """
+    TransactionTestCase whose teardown flushes with CASCADE.
+
+    Use it for any TransactionTestCase that creates an Organization: the
+    tenant schema's FKs into public tables make Django's default flush fail.
+    """
+
+    _fixture_teardown = cascade_fixture_teardown
 
 
 def grant_ai_consent(user, spreadsheet):
@@ -101,47 +113,3 @@ class TenantTestCase(TestCase):
 
         return user
 
-
-class TenantTransactionTestCase(TransactionTestCase):
-    """
-    TransactionTestCase that runs in a tenant schema context.
-
-    Similar to TenantTestCase but uses TransactionTestCase as the base,
-    which is needed for tests that require transaction control or test
-    database flushing.
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-
-        # Create a test organization for this test class
-        cls.test_org = Organization.objects.create(
-            name=f"Test Org for {cls.__name__}",
-            slug=f"test-org-{cls.__name__.lower()}",
-        )
-        cls.test_schema = f"org_{cls.test_org.slug.replace('-', '_')}"
-
-    @classmethod
-    def tearDownClass(cls):
-        # Restore to public schema
-        with connection.cursor() as cursor:
-            cursor.execute("SET search_path TO public;")
-
-        # Delete test organization
-        if hasattr(cls, 'test_org'):
-            cls.test_org.delete()
-
-        super().tearDownClass()
-
-    def setUp(self):
-        super().setUp()
-
-        # Mirror the TenantSchemaMiddleware: tenant schema first, public as fallback.
-        with connection.cursor() as cursor:
-            cursor.execute(f"SET search_path TO {self.test_schema}, public;")
-
-    def tearDown(self):
-        # Don't explicitly restore schema here - Django's transaction rollback
-        # will reset the connection state. Just call parent tearDown.
-        super().tearDown()

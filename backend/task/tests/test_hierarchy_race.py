@@ -9,9 +9,8 @@ import unittest
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.core.management import call_command
 from django.db import connection, connections
-from django.test import TransactionTestCase
+from core.test_utils import TenantSafeTransactionTestCase
 
 from core.models import Organization, Project
 from task.models import Task, TaskHierarchy
@@ -24,20 +23,8 @@ User = get_user_model()
     connection.vendor == 'postgresql',
     'select_for_update row locking requires PostgreSQL (no-op on SQLite).',
 )
-class TaskHierarchyRaceTest(TransactionTestCase):
+class TaskHierarchyRaceTest(TenantSafeTransactionTestCase):
     """Concurrent opposite add-subtask calls must not create a 2-node cycle."""
-
-    def _fixture_teardown(self):
-        for db_name in self._databases_names(include_mirrors=False):
-            call_command(
-                'flush',
-                verbosity=0,
-                interactive=False,
-                database=db_name,
-                reset_sequences=False,
-                allow_cascade=True,
-                inhibit_post_migrate=self.available_apps is not None,
-            )
 
     def setUp(self):
         self.user = User.objects.create_user(

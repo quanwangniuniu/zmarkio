@@ -1,11 +1,11 @@
 import threading
 
-from django.core.management import call_command
-from django.db import connection
 from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.test import APIClient
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
+
+from core.test_utils import TenantSafeTransactionTestCase
 
 from core.models import Organization, Project, ProjectMember, CustomUser
 from meetings.models import (
@@ -373,33 +373,12 @@ class TestArchivedMeetingImmutability(TestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
 
 
-class TestConcurrentTransitions(TransactionTestCase):
+class TestConcurrentTransitions(TenantSafeTransactionTestCase):
     """
     Verifies that select_for_update in execute_transition serializes
     concurrent calls: exactly one succeeds, the other gets a clean error.
     Uses TransactionTestCase so each thread can commit its own transaction.
     """
-
-    def _fixture_teardown(self):
-        # Django 4.2's TransactionTestCase._fixture_teardown() hardcodes
-        #   allow_cascade = (self.available_apps is not None)
-        # which evaluates to False here, so flush runs WITHOUT CASCADE.
-        # Tenant-schema tables (e.g. task_task) have FK constraints that point
-        # to public-schema tables (e.g. django_content_type), which makes a
-        # bare TRUNCATE fail with FeatureNotSupported.
-        # Fix: reset search_path to public first, then flush with CASCADE.
-        with connection.cursor() as cursor:
-            cursor.execute('SET search_path TO public')
-        for db_name in self._databases_names(include_mirrors=False):
-            call_command(
-                'flush',
-                verbosity=0,
-                interactive=False,
-                database=db_name,
-                reset_sequences=False,
-                allow_cascade=True,
-                inhibit_post_migrate=True,
-            )
 
     def setUp(self):
         self.organization = Organization.objects.create(name="Org", slug="org-conc")

@@ -19,6 +19,14 @@ settings.PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 # Gemini default and opt into Ollama explicitly via override_settings.
 settings.LLM_BACKEND = 'gemini'
 
+# Give every TransactionTestCase (and transactional_db test) the tenant-safe
+# CASCADE teardown, not only subclasses of TenantSafeTransactionTestCase.
+from django.test import TransactionTestCase  # noqa: E402
+
+from core.test_runner import cascade_fixture_teardown  # noqa: E402
+
+TransactionTestCase._fixture_teardown = cascade_fixture_teardown
+
 
 @pytest.hookimpl(trylast=True)
 def pytest_collection_modifyitems(config, items):

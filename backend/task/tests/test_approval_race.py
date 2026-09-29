@@ -14,14 +14,13 @@ import threading
 import unittest
 
 from django.contrib.auth import get_user_model
-from django.core.management import call_command
 from django.db import connection, connections
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
-from rest_framework.test import APITransactionTestCase
 
 from core.models import Organization, Project
+from core.test_utils import TenantSafeTransactionTestCase
 from task.models import Task, ApprovalRecord
 
 User = get_user_model()
@@ -31,26 +30,8 @@ User = get_user_model()
     connection.vendor == 'postgresql',
     'select_for_update row locking requires PostgreSQL (no-op on SQLite).',
 )
-class ApprovalRaceTest(APITransactionTestCase):
+class ApprovalRaceTest(TenantSafeTransactionTestCase):
     """Two concurrent approval decisions on one task must serialize."""
-
-    def _fixture_teardown(self):
-        # Creating an Organization provisions a tenant schema whose tables
-        # (e.g. task_task) carry FKs into public-schema tables like
-        # django_content_type. Django's default TransactionTestCase flush
-        # runs a plain TRUNCATE (allow_cascade=False) and fails with
-        # "cannot truncate a table referenced in a foreign key constraint" on
-        # the second test in the class, leaking rows and causing spurious
-        # IntegrityErrors on the next test's setUp. Force CASCADE so cleanup
-        # actually succeeds. This is a local workaround for this test class
-        # only — see core/test_runner.py's CascadeTruncateTestRunner for the
-        # (currently unwired) project-wide fix.
-        for db_name in self._databases_names(include_mirrors=False):
-            call_command(
-                'flush', verbosity=0, interactive=False, database=db_name,
-                reset_sequences=False, allow_cascade=True,
-                inhibit_post_migrate=self.available_apps is not None,
-            )
 
     def setUp(self):
         self.owner = User.objects.create_user(

@@ -7,16 +7,16 @@ from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection, connections
-from django.test import TransactionTestCase
 from rest_framework.test import APIClient
 
 from calendars.models import BookingLink, Calendar, Event
 from calendars.test_public_booking import WEEKDAY_WINDOWS, in_org, next_weekday_at
 from core.models import Organization
+from core.test_utils import TenantSafeTransactionTestCase
 from core.services.tenant import slug_to_schema_name
 
 
-class ConcurrentBookingTests(TransactionTestCase):
+class ConcurrentBookingTests(TenantSafeTransactionTestCase):
     def setUp(self):
         cache.clear()
         self.org = Organization.objects.create(name="Concurrent Booking", slug="booking-race")

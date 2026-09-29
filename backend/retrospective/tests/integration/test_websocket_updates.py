@@ -6,7 +6,9 @@ import asyncio
 import pytest
 from datetime import datetime, timedelta
 from decimal import Decimal
-from django.test import TransactionTestCase, override_settings
+from django.test import override_settings
+
+from core.test_utils import TenantSafeTransactionTestCase
 from django.contrib.auth import get_user_model
 from channels.testing import WebsocketCommunicator
 from channels.db import database_sync_to_async
@@ -27,7 +29,7 @@ User = get_user_model()
     }
 )
 @pytest.mark.timeout(600)
-class WebSocketRetrospectiveUpdatesTest(TransactionTestCase):
+class WebSocketRetrospectiveUpdatesTest(TenantSafeTransactionTestCase):
     """Test WebSocket updates (group and timing) for retrospective workflow"""
 
     def setUp(self):
@@ -63,41 +65,6 @@ class WebSocketRetrospectiveUpdatesTest(TransactionTestCase):
             organization=self.organization
         )
 
-    def _fixture_teardown(self):
-        """Override teardown to fix three issues:
-
-        1. CASCADE on TRUNCATE: Django's default flush uses allow_cascade=False,
-           which causes a NotSupportedError on PostgreSQL when core_project
-           (or any other table) holds a FK pointing at core_customuser.
-           We pass allow_cascade=True WITHOUT reset_sequences so sequences are
-           NOT restarted (RESTART IDENTITY would reset PKs to 1 and conflict
-           with seed rows inserted by other tests in the same worker).
-
-        2. inhibit_post_migrate=False (Django's own default): after flushing,
-           post_migrate signals must run to repopulate django_content_type and
-           auth_permission.  Without this, TestCase tests that run after us on
-           the same xdist worker find auth_permission rows referencing deleted
-           ContentType IDs, causing ForeignKeyViolation in check_constraints().
-           The approve_report custom permission is also gone, causing those tests
-           to fail in the test body itself.
-
-        3. ContentType cache: after flushing, Django's in-memory ContentType
-           cache still holds stale IDs.  Clearing it forces subsequent tests to
-           re-query the freshly repopulated django_content_type table.
-        """
-        from django.core.management import call_command
-        from django.contrib.contenttypes.models import ContentType
-        call_command(
-            'flush',
-            verbosity=0,
-            interactive=False,
-            database=self._databases_names(include_mirrors=False)[0],
-            reset_sequences=False,
-            allow_cascade=True,
-            inhibit_post_migrate=False,
-        )
-        ContentType.objects.clear_cache()
-    
     @database_sync_to_async
     def create_retrospective(self, **kwargs):
         """Create a retrospective asynchronously"""
