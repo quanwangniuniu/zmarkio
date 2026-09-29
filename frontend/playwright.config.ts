@@ -19,6 +19,12 @@ const budgetRealE2eSpecs = [
   /e2e[\\/]budget[\\/]budget-admin-override-real\.spec\.ts$/,
 ];
 
+const mockOnlyE2eSpecs = [
+  /e2e[\\/]budget[\\/]budget-admin-override\.spec\.ts$/,
+  /e2e[\\/]meta-ads[\\/]meta-ads-preview-account-switch\.spec\.ts$/,
+  /e2e[\\/]profile[\\/]erasure-request\.spec\.ts$/,
+];
+
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
@@ -71,11 +77,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: [
-        /e2e[\\/]auth[\\/]/,
-        /e2e[\\/]profile[\\/]erasure-request\.spec\.ts$/,
-        ...budgetRealE2eSpecs,
-      ],
+      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
     },
     {
       name: 'firefox',
@@ -84,7 +86,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: [/e2e[\\/]auth[\\/]/, /e2e[\\/]profile[\\/]erasure-request\.spec\.ts$/, ...budgetRealE2eSpecs],
+      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
     },
     {
       name: 'webkit',
@@ -93,7 +95,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: [/e2e[\\/]auth[\\/]/, /e2e[\\/]profile[\\/]erasure-request\.spec\.ts$/, ...budgetRealE2eSpecs],
+      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
     },
     // Ads fixtures provision their own real accounts; no shared login dependency.
     ...(['chromium', 'firefox', 'webkit'] as const).map((browserName) => ({
@@ -172,6 +174,18 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
       },
       testMatch: /e2e[\\/]budget[\\/]budget-admin-override\.spec\.ts$/,
+    },
+    {
+      /* Fully mocked Meta Ads preview account-switch; no real Meta. */
+      name: 'meta-ads-mock',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Demo: PLAYWRIGHT_SLOW_MO=800 npx playwright test --project=meta-ads-mock --headed
+        launchOptions: process.env.PLAYWRIGHT_SLOW_MO
+          ? { slowMo: Number(process.env.PLAYWRIGHT_SLOW_MO) || 0 }
+          : undefined,
+      },
+      testMatch: /e2e[\\/]meta-ads[\\/]meta-ads-preview-account-switch\.spec\.ts$/,
     },
     {
       /* Real-backend budget flows: multi-user login via issue_budget_e2e_fixtures. */

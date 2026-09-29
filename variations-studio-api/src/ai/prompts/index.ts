@@ -116,10 +116,3 @@ export function buildUserPrompt(template: CopyJson, instruction: string): string
     + 'Return JSON: {"hook": "...", "headline": "...", "description": "...", "cta": "..."}'
   );
 }
-
-export function lockCta(raw: string): string {
-  const value = raw.trim().toUpperCase().replace(/\s+/g, '_');
-  if (CTA_ENUM.has(raw.trim())) return raw.trim();
-  if (CTA_ENUM.has(value)) return value;
-  return 'SHOP_NOW';
-}

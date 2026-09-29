@@ -301,7 +301,7 @@ export function buildTasksListDrawerUrl(projectSlug: string, taskSlug: string): 
   return `/projects/${encodeURIComponent(projectSlug)}/tasks/${encodeURIComponent(taskSlug)}`;
 }
 
-export type DraftTaskFixture = { id: number; slug: string };
+export type DraftTaskFixture = { id: number; slug: string; summary: string };
 
 function taskPathKey(task: Pick<DraftTaskFixture, 'id' | 'slug'> | number | string): string {
   if (typeof task === 'number') {
@@ -346,7 +346,12 @@ export async function createDraftTaskViaApi(
   if (!body?.id || !body?.slug) {
     throw new Error('Task fixture response did not include id and slug');
   }
-  return { id: body.id as number, slug: body.slug as string };
+  // Prefer the stored summary so assertions match what the UI renders.
+  return {
+    id: body.id as number,
+    slug: body.slug as string,
+    summary: (body.summary as string) ?? summary,
+  };
 }
 
 export async function linkSubtaskViaApi(

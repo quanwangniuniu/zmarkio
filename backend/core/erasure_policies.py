@@ -158,6 +158,7 @@ ERASURE_POLICIES = {
         _model("csm.CustomerUser", delete=("user",)),
         _model("csm.CsmNotification", delete=("recipient",), anonymize=("sender",)),
         _model("csm.Ticket", anonymize=("assigned_to",)),
+        _model("csm.GuidanceEntry", anonymize=("created_by",)),
         _model("csm.QuickReplyTemplate", anonymize=("created_by",)),
         _model("csm.QuickReplyTemplateHistory", anonymize=("edited_by",)),
         _model("csm.TicketForm", anonymize=("created_by",)),
@@ -259,6 +260,9 @@ ERASURE_POLICIES = {
     "retrospective": (
         _model("retrospective.RetrospectiveTask", anonymize=("reviewed_by", "created_by")),
         _model("retrospective.Insight", anonymize=("created_by",)),
+    ),
+    "report": (
+        _model("report.CustomKPI", anonymize=("created_by",)),
     ),
     "spreadsheet": (
         _model("spreadsheet.SheetStructureOperation", anonymize=("created_by",)),

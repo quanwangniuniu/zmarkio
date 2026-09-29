@@ -391,6 +391,10 @@ test('hard refresh keeps active project and deep link without empty switcher fla
 	  return target.__med257Probe ?? null;
     });
 
+    if (!probe) {
+      throw new Error('The MED-257 probe was not installed on the page.');
+    }
+
     expect(
       probe.sawEmptyState,
       `Switcher showed an empty state. Observed: ${JSON.stringify(

@@ -22,14 +22,27 @@ test('confirms account erasure and submits one asynchronous request', async ({ p
         organizationAccessToken: null,
         user: mockUser,
         isAuthenticated: true,
+        userTeams: [],
+        selectedTeamId: null,
+        loading: false,
+        initialized: true,
+        hasHydrated: true,
       },
       version: 0,
     }));
-    localStorage.setItem('project-storage', JSON.stringify({
-      state: { activeProject: { id: 101, name: 'Project', organization: { name: 'Outlook' } } },
+    localStorage.setItem('project-storage-v1', JSON.stringify({
+      state: {
+        activeProject: { id: 101, name: 'Project', organization: { name: 'Outlook' } },
+        activeProjectIds: [101],
+        inactiveProjectIds: [],
+        completedProjectIds: [],
+      },
       version: 0,
     }));
   }, user);
+  await page.route('**/auth/token/refresh/', route => route.fulfill({
+    status: 200, contentType: 'application/json', body: JSON.stringify({ access: 'refreshed-test-token' }),
+  }));
   await page.route('**/auth/me/', route => route.fulfill({
     status: 200, contentType: 'application/json', body: JSON.stringify(user),
   }));
