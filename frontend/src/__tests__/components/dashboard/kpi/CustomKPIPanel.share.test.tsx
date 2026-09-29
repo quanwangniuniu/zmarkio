@@ -75,6 +75,6 @@ test('shows copy and revoke for an unexpired link', async () => {
   fireEvent.click(screen.getByTestId('share-kpi-button'));
 
   expect(await screen.findByTestId('share-kpi-days-left')).toHaveTextContent('Expires in 3 days.');
-  expect(screen.queryByTestId('create-share-link')).not.toBeInTheDocument();
+  expect(screen.getByTestId('create-share-link')).toBeDisabled();
   expect(screen.getByTestId('revoke-share-link')).toBeInTheDocument();
 });
