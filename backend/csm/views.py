@@ -8,12 +8,13 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Q, Case, When, IntegerField, Value
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django_filters.rest_framework import DjangoFilterBackend
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
 from core.admin_permissions import IsCsmAccessAllowed
-from core.permissions import IsProjectMember
+from core.permissions import IsProjectMember, IsProjectOwner
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from core.slug_mixins import SlugLookupViewSetMixin
 
@@ -21,7 +22,7 @@ from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, Ticket, CsmNotification,
     Conversation, ConversationMessage, QuickReplyTemplate, QuickReplyTemplateHistory,
     TemplateTag,
-    TicketForm, TicketFormAssignment, SupportProject, CsmWorkType,
+    TicketForm, TicketFormAssignment, SupportProject, CsmWorkType, GuidanceEntry,
     SupportChannel, SLAPolicy, SLAPriorityTarget, BusinessHoursCalendar,
 )
 from .serializers import (
@@ -41,6 +42,9 @@ from .serializers import (
     SupportProjectSerializer,
     CsmWorkTypeSerializer,
     WorkTypeReorderSerializer,
+    GuidanceEntrySerializer,
+    GuidanceReorderSerializer,
+    WorkspaceGuidanceEntrySerializer,
     SLAPolicySerializer,
     BusinessHoursCalendarSerializer,
     SupportChannelListSerializer,
@@ -75,6 +79,16 @@ from .services.work_types import (
     update_work_type,
     deactivate_work_type,
     reorder_work_types,
+)
+from .services.guidance import (
+    GuidanceConflict,
+    guidance_queryset,
+    list_guidance,
+    create_guidance,
+    update_guidance,
+    delete_guidance,
+    reorder_guidance,
+    get_guidance_for_conversation,
 )
 from .services.support_channels import (
     list_channels_for_project,
@@ -438,6 +452,36 @@ class ConversationViewSet(viewsets.ModelViewSet):
         if org_id:
             qs = qs.filter(organisation_id=org_id)
         return Response(QueueSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=['get'])
+    def guidance(self, request, pk=None):
+        """
+        GET /conversations/{id}/guidance/
+        Guidance entries for the conversation's matched Experience Group (the
+        customer's EG), in configured display order. get_object enforces
+        queue-based visibility, so agents need no project membership.
+        """
+        conversation = self.get_object()
+        group, entries = get_guidance_for_conversation(conversation)
+        return Response({
+            'experience_group': (
+                {'id': group.id, 'name': group.name} if group is not None else None
+            ),
+            'entries': WorkspaceGuidanceEntrySerializer(
+                [
+                    {
+                        'id': entry.id,
+                        'guidance_type': entry.guidance_type,
+                        'guidance_type_display': entry.get_guidance_type_display(),
+                        'trigger_description': entry.trigger_description,
+                        'recommended_response': entry.recommended_response,
+                        'display_order': display_order,
+                    }
+                    for entry, display_order in entries
+                ],
+                many=True,
+            ).data,
+        })
 
     @action(detail=True, methods=['get'])
     def assignable_agents(self, request, pk=None):
@@ -1322,6 +1366,154 @@ class CsmWorkTypeViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
         except DjangoValidationError as exc:
             _raise_drf_validation(exc)
         return Response(CsmWorkTypeSerializer(rows, many=True).data)
+
+
+class GuidanceEntryViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
+    """
+    Guidance entry configuration (CSM-S03-02).
+
+    List/create/reorder/capabilities require ?project={id}. Any project member
+    can read; writes are limited to the project owner or an org admin.
+    ``?experience_group={id}`` on list returns that group's entries in display order;
+    ``?unassigned=true`` returns entries whose groups were all deleted.
+
+    Edits are optimistically versioned: PATCH may send ``expected_updated_at``,
+    DELETE may pass it as a query param, and reorder may send ``expected_ids``.
+    A stale value returns 409 instead of silently overwriting another admin.
+    """
+    serializer_class = GuidanceEntrySerializer
+    permission_classes = [IsAuthenticated, IsProjectMember]
+    http_method_names = ['get', 'post', 'patch', 'put', 'delete', 'head', 'options']
+
+    def get_permissions(self):
+        permissions = super().get_permissions()
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            # Object-level check for update/destroy; create/reorder call
+            # _require_manage explicitly because they have no object.
+            permissions.append(IsProjectOwner())
+        return permissions
+
+    def get_queryset(self):
+        return self.filter_by_accessible_projects(guidance_queryset())
+
+    def _can_manage(self, project_id):
+        from core.models import Project
+        project = Project.objects.filter(pk=project_id).first()
+        return project is not None and IsProjectOwner().has_object_permission(
+            self.request, self, project,
+        )
+
+    def _require_manage(self, project_id):
+        if not self._can_manage(project_id):
+            raise PermissionDenied('Only the project owner or an org admin can manage guidance.')
+
+    @staticmethod
+    def _conflict(exc):
+        return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+
+    def list(self, request, *args, **kwargs):
+        project_id = self.get_required_project_id()
+        unassigned = request.query_params.get('unassigned', '').lower() in ('1', 'true')
+        raw_group = request.query_params.get('experience_group')
+        experience_group_id = None
+        if raw_group:
+            try:
+                experience_group_id = int(raw_group)
+            except (TypeError, ValueError):
+                raise ValidationError({'experience_group': 'Must be an integer id.'})
+        try:
+            rows = list_guidance(
+                project_id, experience_group_id=experience_group_id, unassigned=unassigned,
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        return Response(GuidanceEntrySerializer(rows, many=True).data)
+
+    def create(self, request, *args, **kwargs):
+        project_id = self.get_required_project_id()
+        self._require_manage(project_id)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            instance = create_guidance(
+                project_id,
+                user=request.user,
+                guidance_type=data['guidance_type'],
+                trigger_description=data['trigger_description'],
+                recommended_response=data['recommended_response'],
+                experience_group_ids=data['experience_group_ids'],
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        return Response(
+            GuidanceEntrySerializer(instance).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        # PUT stays in http_method_names for the reorder action only.
+        return Response(
+            {'detail': 'Use PATCH to update a guidance entry.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        fields = (
+            'guidance_type', 'trigger_description',
+            'recommended_response', 'experience_group_ids', 'expected_updated_at',
+        )
+        try:
+            instance = update_guidance(
+                instance, **{key: data[key] for key in fields if key in data},
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        except GuidanceConflict as exc:
+            return self._conflict(exc)
+        return Response(GuidanceEntrySerializer(instance).data)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        expected = None
+        raw_expected = request.query_params.get('expected_updated_at')
+        if raw_expected:
+            expected = parse_datetime(raw_expected)
+            if expected is None:
+                raise ValidationError({'expected_updated_at': 'Must be an ISO 8601 datetime.'})
+        try:
+            delete_guidance(instance, expected_updated_at=expected)
+        except GuidanceConflict as exc:
+            return self._conflict(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['put'], url_path='reorder')
+    def reorder(self, request):
+        project_id = self.get_required_project_id()
+        self._require_manage(project_id)
+        serializer = GuidanceReorderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            rows = reorder_guidance(
+                project_id,
+                serializer.validated_data['experience_group'],
+                serializer.validated_data['ids'],
+                expected_ids=serializer.validated_data.get('expected_ids'),
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        except GuidanceConflict as exc:
+            return self._conflict(exc)
+        return Response(GuidanceEntrySerializer(rows, many=True).data)
+
+    @action(detail=False, methods=['get'], url_path='capabilities')
+    def capabilities(self, request):
+        project_id = self.get_required_project_id()
+        return Response({'can_manage': self._can_manage(project_id)})
 
 
 class SupportChannelViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):

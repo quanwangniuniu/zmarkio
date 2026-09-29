@@ -30,7 +30,7 @@ describe('platform configuration in generation', () => {
     };
     const generateCopy = jest.fn<Promise<CopyJson>, [string, string]>()
       .mockResolvedValue({ ...baseCopy, hook: 'Hook for the slug', cta: 'join us' });
-    const generator: CopyGenerator = { modelName: 'test-model', generateCopy, isQuotaError: () => false };
+    const generator: CopyGenerator = { modelName: 'test-model', generateCopy, getErrorMessage: () => null };
 
     jest.mocked(getPlatformSpec).mockReturnValue(spec);
     jest.mocked(requireProjectForUser).mockResolvedValue({ ok: true, projectId: BigInt(12) });
