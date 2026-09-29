@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 
 export default function PublicKPISharePage({ params }: PublicKPISharePageProps) {
   return (
-    <main className="min-h-screen bg-[#f3f6f6]">
+    <main>
       <PublicKPIShareView token={params.token} />
     </main>
   );

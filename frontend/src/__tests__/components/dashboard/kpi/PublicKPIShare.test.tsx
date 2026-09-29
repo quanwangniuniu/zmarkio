@@ -40,9 +40,7 @@ test('renders read-only KPI cards from a public share', async () => {
 
   expect(await screen.findByTestId('public-kpi-tile-value')).toHaveTextContent('1.25');
   expect(screen.getByText('revenue / spend')).toBeInTheDocument();
-  expect(screen.getByTestId('public-kpi-tile-no-data')).toHaveTextContent(
-    'No data for this period.'
-  );
+  expect(screen.getByTestId('public-kpi-tile-no-data')).toHaveTextContent('No data');
   expect(screen.queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
   expect(getShare).toHaveBeenCalledWith('tok-1');
 });
