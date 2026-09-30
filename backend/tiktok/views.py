@@ -303,8 +303,12 @@ def upload_video_ad(request):
             if temp_path and os.path.exists(temp_path):
                 try:
                     os.unlink(temp_path)
-                except Exception:
-                    pass
+                except OSError:
+                    # Best-effort temp cleanup inside finally: an unlink error must not
+                    # replace the in-flight response or the mediainfo exception.
+                    logger.warning(
+                        "TikTok video upload: failed to remove temp file %s", temp_path, exc_info=True
+                    )
         
         # Validate duration (5-600 seconds)
         violations = []

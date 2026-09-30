@@ -38,11 +38,15 @@ extra DB round-trip on every request.  Org slugs change extremely rarely;
 the TTL is a safe trade-off.
 """
 
+import logging
+
 from django.core.cache import cache
 from django.db import connection
 from psycopg2 import sql
 
 from core.services.tenant import slug_to_schema_name
+
+logger = logging.getLogger(__name__)
 
 _CACHE_TTL = 300  # seconds (5 minutes)
 
@@ -70,32 +74,42 @@ class TenantSchemaMiddleware:
         try:
             return self.get_response(request)
         finally:
-            # CRITICAL: Django reuses DB connections across requests (connection
-            # pool).  Without this reset the next request on the same connection
-            # could inherit this tenant's search_path if the middleware exits
-            # early (e.g. a short-circuit 403 before _resolve_schema runs again).
+            # Defense in depth: reset search_path so nothing that runs later on
+            # this connection inherits this tenant's schema. In production
+            # CONN_MAX_AGE=0 makes Django close the connection on
+            # request_finished, and PgBouncer (session mode) runs DISCARD ALL
+            # before reusing the server connection. The reset matters for tests
+            # (one connection reused across tests) and for outer middleware that
+            # query the DB after this one returns.
             #
             # Guard against InFailedSqlTransaction: if a view raised a DB error
             # that aborted the current transaction, the SET will fail with
-            # InFailedSqlTransaction.  Catch and rollback so the connection is
-            # returned to the pool in a clean state.
+            # InFailedSqlTransaction. Catch and roll back instead of letting a
+            # cleanup error replace the view's response or exception.
             try:
                 with connection.cursor() as cursor:
                     cursor.execute('SET search_path TO public')
             except Exception:
-                # If we still can't reset the search_path, roll back the
-                # transaction to return the connection to a clean state.
+                logger.warning(
+                    "TenantSchemaMiddleware: failed to reset search_path to public "
+                    "after %s %s; rolling back",
+                    request.method, request.path, exc_info=True,
+                )
                 # Do NOT call connection.close() here: Django's test runner
                 # wraps every test in a transaction/savepoint using the same
                 # connection object, so closing it causes
                 # "InterfaceError: connection already closed" in the next test.
-                # In production, a failed rollback means the connection is
-                # truly broken; Django's pool will replace it on the next
-                # request when the health-check fails.
                 try:
                     connection.rollback()
                 except Exception:
-                    pass
+                    # Expected in tests: Django forbids rollback() inside the
+                    # TestCase atomic block. In production a failed rollback
+                    # means the connection is broken; with CONN_MAX_AGE=0 Django
+                    # closes it on request_finished and PgBouncer discards it.
+                    logger.debug(
+                        "TenantSchemaMiddleware: rollback after failed search_path reset also failed",
+                        exc_info=True,
+                    )
 
     # ------------------------------------------------------------------
     # Schema resolution

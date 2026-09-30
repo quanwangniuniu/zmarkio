@@ -233,7 +233,11 @@ def publish_notification_to_redis(user_id: int, notification) -> None:
             try:
                 r.close()
             except Exception:
-                pass
+                # Best-effort teardown of a short-lived client. This function must
+                # never raise: it runs from on_commit hooks and inside
+                # create_or_update_chat_notification's atomic block, and the publish
+                # outcome has already been logged above.
+                logger.debug("SSE: Redis client close failed", exc_info=True)
 
 
 # ── async SSE generator ───────────────────────────────────────────────────────
@@ -359,10 +363,18 @@ async def sse_event_generator(
     finally:
         if active_connection_counted:
             sse_active_connections.dec()
+        # Best-effort teardown: the stream is already over and any real error was
+        # logged above, so cleanup failures must not surface. r.aclose() sits in its
+        # own finally so it still runs (and closes the pubsub connection with the
+        # pool) if unsubscribe raises or is cancelled.
         try:
             if subscribed:
                 await pubsub.unsubscribe(channel)
-            await r.aclose()
         except Exception:
-            pass
+            logger.debug("SSE: unsubscribe failed for user_id=%s", user_id, exc_info=True)
+        finally:
+            try:
+                await r.aclose()
+            except Exception:
+                logger.debug("SSE: redis client close failed for user_id=%s", user_id, exc_info=True)
         logger.info("SSE: connection closed for user_id=%s", user_id)

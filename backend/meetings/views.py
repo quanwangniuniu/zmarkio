@@ -9,6 +9,7 @@ from datetime import datetime
 from django.utils.dateparse import parse_datetime
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
 from django.db.models import Q
@@ -428,9 +429,12 @@ class MeetingViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         if row:
             db_layout_config = row[6]
             if isinstance(db_layout_config, str):
+                # Raw cursors return jsonb as text (Django disables psycopg2's jsonb
+                # decoding) and Postgres always emits valid JSON, so this should not
+                # fail; if it ever does, the diff below treats the value as "no layout".
                 try:
                     db_layout_config = json.loads(db_layout_config)
-                except Exception:
+                except json.JSONDecodeError:
                     pass
             before = {
                 "title": row[0],
@@ -1038,8 +1042,16 @@ class ArtifactLinkViewSet(ArchivedMeetingGuardMixin, viewsets.ModelViewSet):
                 from spreadsheet.models import Spreadsheet  # noqa: PLC0415
                 s = Spreadsheet.objects.only("name").get(pk=artifact_id)
                 return s.name or f"Spreadsheet #{artifact_id}"
-        except Exception:
+        except ObjectDoesNotExist:
+            # ArtifactLink stores a loose (type, id) pair with no FK or existence
+            # check, so the target may not exist in this tenant schema or may have
+            # been hard-deleted; fall back to a generic label.
             pass
+        except Exception:
+            logger.warning(
+                "Failed to resolve title for %s artifact %s; using generic label",
+                artifact_type, artifact_id, exc_info=True,
+            )
         return f"{artifact_type.capitalize()} #{artifact_id}"
 
     def perform_create(self, serializer):

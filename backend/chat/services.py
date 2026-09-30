@@ -727,7 +727,11 @@ class OnlineStatusService:
         try:
             cache.touch(key, cls.ONLINE_TIMEOUT)
         except Exception:
-            pass
+            # Best effort: the key keeps its previous TTL, and set_online() rewrites
+            # the online key on every heartbeat anyway. A cache outage is already
+            # logged at ERROR by set_online()/connection_opened() on the same path,
+            # so stay at DEBUG to avoid one extra line per socket per heartbeat.
+            logger.debug("[OnlineStatus] Failed to touch cache key %s", key, exc_info=True)
 
     @classmethod
     def _redis(cls):
@@ -1050,7 +1054,14 @@ class ChatService:
         try:
             cache.set(cache_key, recipient_ids, timeout=OnlineStatusService.PRESENCE_RECIPIENTS_TIMEOUT)
         except Exception:
-            pass
+            # The cache is only an accelerator: recipient_ids was just read from the
+            # database and is returned either way; the next call simply recomputes it.
+            # Cache outages are already logged at ERROR by connection_opened() on the
+            # same connect path, so DEBUG avoids a duplicate line per connect.
+            logger.debug(
+                "[OnlineStatus] Failed to cache presence recipients for user %s",
+                user_id, exc_info=True,
+            )
         return recipient_ids
 
     @staticmethod
@@ -2113,7 +2124,14 @@ class MessageService:
             try:
                 source_field.close()
             except Exception:
-                pass
+                # Closing the read-only source handle is cleanup, not part of the copy.
+                # Raising from `finally` would replace an in-flight
+                # SourceAttachmentMissingError/AttachmentCopyError (changing the
+                # failure reason reported to the client) or fail a copy that succeeded.
+                logger.warning(
+                    "forward_messages_batch source_close_failed file=%s",
+                    getattr(source_field, 'name', ''), exc_info=True,
+                )
 
     @staticmethod
     def _clone_attachments_for_forward(
