@@ -6,6 +6,7 @@ from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError, NotFound
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework import status
 
@@ -488,10 +489,15 @@ class PublicReportShareLinkView(APIView):
     Token lookup stays on the shared tables. KPI values are aggregated under
     the project's org schema (``org_xxx, public``), same search_path Overview
     uses when the owner is logged in, so Campaign joins match.
+
+    Throttled by IP (``public_kpi_share_read``) — same pattern as public
+    booking reads — because each hit re-aggregates warehouse metrics.
     """
 
     permission_classes = []
     authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_kpi_share_read"
 
     def get(self, request, token):
         try:

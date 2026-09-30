@@ -2,6 +2,7 @@
 
 import os
 from datetime import timedelta
+from unittest.mock import patch
 
 import pytest
 
@@ -13,13 +14,16 @@ from django.conf import settings
 if not settings.configured:
     django.setup()
 
+from django.core.cache import cache
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework.throttling import ScopedRateThrottle
 
 from core.models import Organization, Project, ProjectMember
 from report.models import CustomKPI, ReportShareLink
+from report.views import PublicReportShareLinkView
 
 CREATE_URL = reverse("report:report-share-link")
 
@@ -242,3 +246,28 @@ def test_public_read_aggregates_under_the_projects_tenant_schema(share_client, m
 def test_missing_token_is_404():
     response = APIClient().get(public_url("missing-token"))
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_public_share_view_uses_scoped_ip_throttle():
+    assert PublicReportShareLinkView.throttle_classes == [ScopedRateThrottle]
+    assert PublicReportShareLinkView.throttle_scope == "public_kpi_share_read"
+
+
+@pytest.mark.django_db
+def test_public_read_is_rate_limited(share_client):
+    """Anonymous share GETs are capped by IP so warehouse aggregation cannot be flooded."""
+    created = _create(share_client["client"], share_client["project"])
+    url = public_url(created.data["token"])
+    anon = APIClient()
+    cache.clear()
+
+    with patch.object(
+        ScopedRateThrottle,
+        "THROTTLE_RATES",
+        {"public_kpi_share_read": "1/minute"},
+    ):
+        first = anon.get(url)
+        second = anon.get(url)
+
+    assert first.status_code == status.HTTP_200_OK
+    assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
