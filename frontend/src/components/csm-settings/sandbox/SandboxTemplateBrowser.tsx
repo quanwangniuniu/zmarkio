@@ -5,8 +5,8 @@ import { QuickReplyTemplateAPI } from '@/lib/api/csmConversationApi';
 import { TemplatePicker } from '@/components/csm/conversations/ConversationComposer';
 import PortalSelect from '@/components/ticket-form/portal/PortalSelect';
 import type { QuickReplyTemplate, TemplatePreviewTeam } from '@/types/csmConversation';
+import { FORM_LABEL_CLASS } from '@/components/csm-settings/constants';
 
-const LABEL_CLASS = 'mb-1.5 block text-[12px] font-medium uppercase tracking-wider text-gray-500';
 const NO_TEAM = 'none';
 
 interface Props {
@@ -54,7 +54,7 @@ export default function SandboxTemplateBrowser({ organisations, suggestedOrganis
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
-          <label htmlFor="sb-tmpl-org" className={LABEL_CLASS}>Organisation</label>
+          <label htmlFor="sb-tmpl-org" className={FORM_LABEL_CLASS}>Organisation</label>
           <PortalSelect
             id="sb-tmpl-org"
             value={String(effectiveOrgId)}
@@ -63,7 +63,7 @@ export default function SandboxTemplateBrowser({ organisations, suggestedOrganis
           />
         </div>
         <div>
-          <label htmlFor="sb-tmpl-team" className={LABEL_CLASS}>View as team</label>
+          <label htmlFor="sb-tmpl-team" className={FORM_LABEL_CLASS}>View as team</label>
           <PortalSelect
             id="sb-tmpl-team"
             value={String(viewAsTeam)}

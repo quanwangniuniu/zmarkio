@@ -11,11 +11,11 @@ export interface SummaryLookups {
   organisationNames: Map<number, string>;
 }
 
-function fieldLabel(vocabulary: RoutingVocabulary | null, field: string) {
+export function fieldLabel(vocabulary: RoutingVocabulary | null, field: string) {
   return vocabulary?.fields.find((f) => f.field === field)?.label ?? field;
 }
 
-function operatorLabel(vocabulary: RoutingVocabulary | null, field: string, operator: string) {
+export function operatorLabel(vocabulary: RoutingVocabulary | null, field: string, operator: string) {
   return (
     vocabulary?.fields
       .find((f) => f.field === field)

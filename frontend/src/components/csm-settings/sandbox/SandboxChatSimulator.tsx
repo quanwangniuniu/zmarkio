@@ -4,7 +4,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { FlaskConical, Send } from 'lucide-react';
 import { ConversationThread } from '@/components/csm/conversations/ConversationThread';
 import type { ConversationMessage } from '@/types/csmConversation';
-import { BUILDER_CONTROL_CLASS } from '../constants';
+import { BUILDER_CONTROL_CLASS } from '@/components/csm-settings/constants';
 
 const MAX_MESSAGE_LENGTH = 5000; // matches the evaluate serializer
 const COUNTER_FROM = 4000;

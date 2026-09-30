@@ -3,7 +3,7 @@ import { RoutingSandboxAPI } from '@/lib/api/routingRuleApi';
 import CsmConversationAPI from '@/lib/api/csmConversationApi';
 import { PREVIEW_AGENT_NAME, useRoutingSandbox } from '@/components/csm-settings/sandbox/useRoutingSandbox';
 import type { QuickReplyTemplate } from '@/types/csmConversation';
-import { makeTrace } from './__mocks__/routingFixtures';
+import { makeTrace } from '../__mocks__/routingFixtures';
 
 jest.mock('@/lib/api/routingRuleApi', () => ({
   RoutingSandboxAPI: { evaluate: jest.fn() },
@@ -53,7 +53,6 @@ describe('useRoutingSandbox', () => {
       support_channel: 9,
       customer_organisation: null,
       simulated_at: null,
-      evaluate_each_prefix: true,
     });
   });
 

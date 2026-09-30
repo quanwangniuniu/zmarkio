@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import CsmAPI from '@/lib/api/csmApi';
 import { ExperienceGroupAPI } from '@/lib/api/experienceGroupApi';
 import { OrganisationAPI } from '@/lib/api/organisationAPI';
@@ -10,8 +10,9 @@ import type { Queue } from '@/types/csm';
 import type { ExperienceGroupListItem } from '@/types/experienceGroup';
 import type { RoutingVocabulary } from '@/types/routingRule';
 import type { SupportChannelListItem } from '@/types/supportChannel';
+import type { SummaryLookups } from '@/components/csm-settings/routing/conditionSummary';
 
-export interface RoutingOptions {
+interface RoutingOptions {
   experienceGroups: ExperienceGroupListItem[];
   queues: Queue[];
   channels: SupportChannelListItem[];
@@ -32,7 +33,7 @@ const EMPTY: RoutingOptions = {
 };
 
 /** Lookup data shared by the routing rules page and the sandbox. */
-export function useRoutingOptions(projectId: number, enabled: boolean): RoutingOptions {
+export function useRoutingOptions(projectId: number, enabled: boolean) {
   const [state, setState] = useState<RoutingOptions>(EMPTY);
 
   useEffect(() => {
@@ -67,5 +68,13 @@ export function useRoutingOptions(projectId: number, enabled: boolean): RoutingO
     return () => { cancelled = true; };
   }, [projectId, enabled]);
 
-  return state;
+  // Id -> name maps for rendering conditions and traces.
+  const { vocabulary, channels, organisations } = state;
+  const lookups = useMemo<SummaryLookups>(() => ({
+    vocabulary,
+    channelNames: new Map(channels.map((c) => [c.id, c.display_name])),
+    organisationNames: new Map(organisations.map((o) => [o.id, o.name])),
+  }), [vocabulary, channels, organisations]);
+
+  return { ...state, lookups };
 }

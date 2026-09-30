@@ -85,7 +85,6 @@ export interface RoutingSandboxRequest {
   support_channel?: number | null;
   customer_organisation?: number | null;
   simulated_at?: string | null;
-  evaluate_each_prefix?: boolean;
 }
 
 export type RuleStepStatus =

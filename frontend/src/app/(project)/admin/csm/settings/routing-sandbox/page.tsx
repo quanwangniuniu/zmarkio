@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { AlertCircle, ListTree, MessageSquareText, Settings2 } from 'lucide-react';
 import CsmSettingsPageRoot, { CsmSettingsProjectGuard } from '@/components/csm-settings/CsmSettingsPageRoot';
@@ -31,16 +31,6 @@ export default function RoutingSandboxPage() {
       setConfig({ ...config, experienceGroupId: options.experienceGroups[0].id });
     }
   }, [config, options.experienceGroups, setConfig]);
-
-  const lookups = useMemo(() => ({
-    vocabulary: options.vocabulary,
-    channelNames: new Map(options.channels.map((c) => [c.id, c.display_name])),
-    organisationNames: new Map(options.organisations.map((o) => [o.id, o.name])),
-  }), [options.vocabulary, options.channels, options.organisations]);
-
-  const customerMessages = sandbox.messages
-    .filter((m) => m.sender_type === 'customer')
-    .map((m) => m.content);
 
   const latestQueueId = sandbox.traces[sandbox.traces.length - 1]?.outcome.queue_id ?? null;
   const suggestedOrganisationId =
@@ -97,7 +87,7 @@ export default function RoutingSandboxPage() {
 
             <SandboxChatSimulator
               messages={sandbox.messages}
-              disabled={config.experienceGroupId === null || sandbox.customerMessageCount >= 50}
+              disabled={config.experienceGroupId === null || sandbox.customerTexts.length >= 50}
               disabledReason={
                 config.experienceGroupId === null
                   ? 'Select an experience group first'
@@ -133,11 +123,11 @@ export default function RoutingSandboxPage() {
               {tab === 'trace' ? (
                 <RoutingTracePanel
                   traces={sandbox.traces}
-                  customerMessages={customerMessages}
+                  customerMessages={sandbox.customerTexts}
                   meta={sandbox.meta}
                   evaluating={sandbox.evaluating}
                   error={sandbox.error}
-                  lookups={lookups}
+                  lookups={options.lookups}
                   onRerun={sandbox.rerun}
                 />
               ) : (

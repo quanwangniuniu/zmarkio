@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { BUILDER_CONTROL_CLASS } from '../constants';
+import { BUILDER_CONTROL_CLASS } from '@/components/csm-settings/constants';
 
 interface Props {
   id?: string;

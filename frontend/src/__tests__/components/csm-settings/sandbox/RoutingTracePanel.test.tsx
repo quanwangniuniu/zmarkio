@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import RoutingTracePanel from '@/components/csm-settings/sandbox/RoutingTracePanel';
-import { FALLBACK_TRACE, VOCABULARY, makeTrace } from './__mocks__/routingFixtures';
+import { FALLBACK_TRACE, VOCABULARY, makeTrace } from '../__mocks__/routingFixtures';
 
 const lookups = {
   vocabulary: VOCABULARY,

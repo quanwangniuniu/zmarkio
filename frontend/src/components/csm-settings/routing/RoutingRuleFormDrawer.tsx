@@ -13,16 +13,16 @@ import type {
 } from '@/types/routingRule';
 import { parseFieldErrors } from '@/components/ticket-form/formErrors';
 import PortalSelect from '@/components/ticket-form/portal/PortalSelect';
-import CsmSettingsDrawerShell from '../CsmSettingsDrawerShell';
+import CsmSettingsDrawerShell from '@/components/csm-settings/CsmSettingsDrawerShell';
 import {
   BUILDER_CONTROL_CLASS,
   DRAWER_PRIMARY_BUTTON_CLASS,
+  FORM_LABEL_CLASS,
   SECONDARY_BUTTON_CLASS,
-} from '../constants';
+} from '@/components/csm-settings/constants';
 import ConditionRowEditor, { newCondition } from './ConditionRowEditor';
 import KeywordChipsInput from './KeywordChipsInput';
 
-const LABEL_CLASS = 'mb-1.5 block text-[12px] font-medium uppercase tracking-wider text-gray-500';
 const SECTION_CLASS = 'flex flex-col gap-3 -mx-6 border-b border-gray-200 px-6 pb-6 last:border-0';
 
 const MATCH_MODE_OPTIONS = [
@@ -168,7 +168,7 @@ export default function RoutingRuleFormDrawer({
 
           <section className={SECTION_CLASS}>
             <div>
-              <label htmlFor="rr-name" className={LABEL_CLASS}>
+              <label htmlFor="rr-name" className={FORM_LABEL_CLASS}>
                 Rule name <span className="text-red-500">*</span>
               </label>
               <input
@@ -193,7 +193,7 @@ export default function RoutingRuleFormDrawer({
           </section>
 
           <section className={SECTION_CLASS}>
-            <h3 className={LABEL_CLASS}>Conditions</h3>
+            <h3 className={FORM_LABEL_CLASS}>Conditions</h3>
             <PortalSelect
               id="rr-match-mode"
               value={matchMode}
@@ -235,9 +235,9 @@ export default function RoutingRuleFormDrawer({
           </section>
 
           <section className={SECTION_CLASS}>
-            <h3 className={LABEL_CLASS}>Action</h3>
+            <h3 className={FORM_LABEL_CLASS}>Action</h3>
             <div>
-              <label htmlFor="rr-queue" className={LABEL_CLASS}>
+              <label htmlFor="rr-queue" className={FORM_LABEL_CLASS}>
                 Route to queue <span className="text-red-500">*</span>
               </label>
               <PortalSelect
@@ -253,7 +253,7 @@ export default function RoutingRuleFormDrawer({
               )}
             </div>
             <div>
-              <label htmlFor="rr-tags" className={LABEL_CLASS}>Add tags (optional)</label>
+              <label htmlFor="rr-tags" className={FORM_LABEL_CLASS}>Add tags (optional)</label>
               <KeywordChipsInput
                 id="rr-tags"
                 values={addTags}

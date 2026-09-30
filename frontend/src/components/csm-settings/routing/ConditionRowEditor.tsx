@@ -12,10 +12,10 @@ import type {
   RoutingVocabulary,
 } from '@/types/routingRule';
 import { CHANNEL_TYPE_LABELS, type ChannelType } from '@/types/supportChannel';
-import { BUILDER_CONTROL_CLASS } from '../constants';
+import { BUILDER_CONTROL_CLASS } from '@/components/csm-settings/constants';
 import KeywordChipsInput from './KeywordChipsInput';
 
-export function defaultValueFor(kind: RoutingValueKind | undefined): RoutingConditionValue {
+function defaultValueFor(kind: RoutingValueKind | undefined): RoutingConditionValue {
   switch (kind) {
     case 'keywords':
     case 'channel_ids':

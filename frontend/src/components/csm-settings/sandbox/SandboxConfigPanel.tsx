@@ -5,10 +5,9 @@ import { RotateCcw } from 'lucide-react';
 import PortalSelect from '@/components/ticket-form/portal/PortalSelect';
 import type { ExperienceGroupListItem } from '@/types/experienceGroup';
 import { CHANNEL_TYPE_LABELS, type SupportChannelListItem } from '@/types/supportChannel';
-import { BUILDER_CONTROL_CLASS, SECONDARY_BUTTON_CLASS } from '../constants';
+import { BUILDER_CONTROL_CLASS, FORM_LABEL_CLASS, SECONDARY_BUTTON_CLASS } from '@/components/csm-settings/constants';
 import type { SandboxConfig } from './useRoutingSandbox';
 
-const LABEL_CLASS = 'mb-1.5 block text-[12px] font-medium uppercase tracking-wider text-gray-500';
 const NONE = '';
 
 interface Props {
@@ -54,7 +53,7 @@ export default function SandboxConfigPanel({
       aria-label="Sandbox scenario"
     >
       <div>
-        <label htmlFor="sb-group" className={LABEL_CLASS}>
+        <label htmlFor="sb-group" className={FORM_LABEL_CLASS}>
           Experience group <span className="text-red-500">*</span>
         </label>
         <PortalSelect
@@ -67,7 +66,7 @@ export default function SandboxConfigPanel({
       </div>
 
       <div>
-        <label htmlFor="sb-channel" className={LABEL_CLASS}>Channel</label>
+        <label htmlFor="sb-channel" className={FORM_LABEL_CLASS}>Channel</label>
         <PortalSelect
           id="sb-channel"
           value={config.supportChannelId === null ? NONE : String(config.supportChannelId)}
@@ -77,7 +76,7 @@ export default function SandboxConfigPanel({
       </div>
 
       <div>
-        <label htmlFor="sb-org" className={LABEL_CLASS}>Customer organisation</label>
+        <label htmlFor="sb-org" className={FORM_LABEL_CLASS}>Customer organisation</label>
         <PortalSelect
           id="sb-org"
           value={config.customerOrganisationId === null ? NONE : String(config.customerOrganisationId)}
@@ -90,7 +89,7 @@ export default function SandboxConfigPanel({
       </div>
 
       <div>
-        <label htmlFor="sb-subject" className={LABEL_CLASS}>Subject</label>
+        <label htmlFor="sb-subject" className={FORM_LABEL_CLASS}>Subject</label>
         <input
           id="sb-subject"
           value={config.subject}
@@ -102,7 +101,7 @@ export default function SandboxConfigPanel({
       </div>
 
       <div>
-        <label htmlFor="sb-time" className={LABEL_CLASS}>Simulated time</label>
+        <label htmlFor="sb-time" className={FORM_LABEL_CLASS}>Simulated time</label>
         <input
           id="sb-time"
           type="datetime-local"

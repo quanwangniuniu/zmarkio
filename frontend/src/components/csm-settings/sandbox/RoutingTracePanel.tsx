@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import type { RoutingSandboxResult, RoutingTrace } from '@/types/routingRule';
-import type { SummaryLookups } from '../routing/conditionSummary';
-import { SECONDARY_BUTTON_CLASS } from '../constants';
+import type { SummaryLookups } from '@/components/csm-settings/routing/conditionSummary';
+import { SECONDARY_BUTTON_CLASS } from '@/components/csm-settings/constants';
 import TraceTurnCard from './TraceTurnCard';
 
 interface Props {

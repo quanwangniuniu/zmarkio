@@ -4,7 +4,7 @@ import RoutingRuleFormDrawer from '@/components/csm-settings/routing/RoutingRule
 import { RoutingRuleAPI } from '@/lib/api/routingRuleApi';
 import type { Queue } from '@/types/csm';
 import type { RoutingRule } from '@/types/routingRule';
-import { VOCABULARY } from './__mocks__/routingFixtures';
+import { VOCABULARY } from '../__mocks__/routingFixtures';
 
 jest.mock('@/lib/api/routingRuleApi', () => ({
   RoutingRuleAPI: { create: jest.fn(), update: jest.fn() },

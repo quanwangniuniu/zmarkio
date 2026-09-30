@@ -1,13 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { AlertCircle, FlaskConical, Info, Plus } from 'lucide-react';
 import CsmSettingsPageRoot, { CsmSettingsProjectGuard } from '@/components/csm-settings/CsmSettingsPageRoot';
 import { useProjectIdFromUrl } from '@/components/csm-settings/useProjectIdFromUrl';
-import { SECONDARY_BUTTON_CLASS } from '@/components/csm-settings/constants';
+import { FORM_LABEL_CLASS, SECONDARY_BUTTON_CLASS } from '@/components/csm-settings/constants';
 import RoutingRuleFormDrawer from '@/components/csm-settings/routing/RoutingRuleFormDrawer';
 import RoutingRulesList from '@/components/csm-settings/routing/RoutingRulesList';
 import { useRoutingOptions } from '@/components/csm-settings/routing/useRoutingOptions';
@@ -41,12 +41,6 @@ export default function RoutingRulesSettingsPage() {
   const [editing, setEditing] = useState<RoutingRule | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RoutingRule | null>(null);
   const [deleting, setDeleting] = useState(false);
-
-  const lookups = useMemo(() => ({
-    vocabulary: options.vocabulary,
-    channelNames: new Map(options.channels.map((c) => [c.id, c.display_name])),
-    organisationNames: new Map(options.organisations.map((o) => [o.id, o.name])),
-  }), [options.vocabulary, options.channels, options.organisations]);
 
   const groupOptions = options.experienceGroups.map((g) => ({ value: String(g.id), label: g.name }));
 
@@ -118,7 +112,7 @@ export default function RoutingRulesSettingsPage() {
           </div>
 
           <div className="max-w-sm">
-            <label htmlFor="rr-group" className="mb-1.5 block text-[12px] font-medium uppercase tracking-wider text-gray-500">
+            <label htmlFor="rr-group" className={FORM_LABEL_CLASS}>
               Experience group
             </label>
             <PortalSelect
@@ -150,7 +144,7 @@ export default function RoutingRulesSettingsPage() {
           ) : (
             <RoutingRulesList
               rules={rules}
-              lookups={lookups}
+              lookups={options.lookups}
               onReorder={reorder}
               onEdit={openEdit}
               onToggle={toggle}

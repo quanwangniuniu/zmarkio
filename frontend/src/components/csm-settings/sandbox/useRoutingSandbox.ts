@@ -14,7 +14,7 @@ export interface SandboxConfig {
   simulatedAt: string;
 }
 
-export const EMPTY_CONFIG: SandboxConfig = {
+const EMPTY_CONFIG: SandboxConfig = {
   experienceGroupId: null,
   supportChannelId: null,
   customerOrganisationId: null,
@@ -69,7 +69,6 @@ export function useRoutingSandbox(projectId: number) {
         support_channel: cfg.supportChannelId,
         customer_organisation: cfg.customerOrganisationId,
         simulated_at: cfg.simulatedAt ? new Date(cfg.simulatedAt).toISOString() : null,
-        evaluate_each_prefix: true,
       });
       if (seq !== requestSeq.current) return;
       const { traces: nextTraces, ...rest } = result;
@@ -134,7 +133,7 @@ export function useRoutingSandbox(projectId: number) {
     meta,
     evaluating,
     error,
-    customerMessageCount: customerTexts.length,
+    customerTexts,
     sendCustomerMessage,
     insertTemplate,
     rerun,

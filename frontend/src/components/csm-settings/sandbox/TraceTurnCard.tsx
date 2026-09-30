@@ -2,7 +2,7 @@
 
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronRight } from 'lucide-react';
 import type { RoutingTrace } from '@/types/routingRule';
-import type { SummaryLookups } from '../routing/conditionSummary';
+import type { SummaryLookups } from '@/components/csm-settings/routing/conditionSummary';
 import RuleStepItem from './RuleStepItem';
 
 const FALLBACK_LABELS = {

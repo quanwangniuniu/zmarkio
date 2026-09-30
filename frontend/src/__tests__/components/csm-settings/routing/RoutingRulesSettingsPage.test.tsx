@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import RoutingRulesSettingsPage from '@/app/(project)/admin/csm/settings/routing-rules/page';
 import { useRoutingRules } from '@/components/csm-settings/routing/useRoutingRules';
-import { VOCABULARY } from './__mocks__/routingFixtures';
+import { VOCABULARY } from '../__mocks__/routingFixtures';
 
 const replace = jest.fn();
 let search = '';
@@ -31,6 +31,7 @@ jest.mock('@/components/csm-settings/routing/useRoutingOptions', () => ({
     queues: [],
     channels: [],
     organisations: [],
+    lookups: { vocabulary: VOCABULARY, channelNames: new Map(), organisationNames: new Map() },
   }),
 }));
 

@@ -3,7 +3,12 @@
 import { useState } from 'react';
 import { Check, X } from 'lucide-react';
 import type { RuleStep, RuleStepStatus } from '@/types/routingRule';
-import { formatConditionValue, type SummaryLookups } from '../routing/conditionSummary';
+import {
+  fieldLabel,
+  formatConditionValue,
+  operatorLabel,
+  type SummaryLookups,
+} from '@/components/csm-settings/routing/conditionSummary';
 
 const STATUS_STYLES: Record<RuleStepStatus, { label: string; className: string }> = {
   matched: { label: 'Matched', className: 'bg-green-100 text-green-800' },
@@ -13,23 +18,11 @@ const STATUS_STYLES: Record<RuleStepStatus, { label: string; className: string }
   not_reached: { label: 'Not reached', className: 'bg-white text-gray-400 ring-1 ring-gray-200' },
 };
 
-function fieldLabel(lookups: SummaryLookups, field: string) {
-  return lookups.vocabulary?.fields.find((f) => f.field === field)?.label ?? field;
-}
-
-function operatorLabel(lookups: SummaryLookups, field: string, operator: string) {
-  return lookups.vocabulary?.fields
-    .find((f) => f.field === field)?.operators
-    .find((o) => o.operator === operator)?.label ?? operator;
-}
-
 function formatActual(field: string, actual: string | number | null, lookups: SummaryLookups) {
   if (actual === null || actual === '') return '—';
   return formatConditionValue(field, typeof actual === 'number' ? [actual] : actual, lookups);
 }
 
-// `number` is the step's place in evaluation order, like the rules list shows.
-// step.position is the stored sort key and can have gaps after a delete.
 const LONG_ACTUAL = 160; // characters; longer values collapse to two lines
 
 // "Any customer message" joins the whole conversation, so the actual value can
@@ -62,6 +55,8 @@ function ActualValue({ text, detail }: { text: string; detail: string }) {
   );
 }
 
+// `number` is the step's place in evaluation order, like the rules list shows.
+// step.position is the stored sort key and can have gaps after a delete.
 export default function RuleStepItem(
   { number, step, lookups }: { number: number; step: RuleStep; lookups: SummaryLookups },
 ) {
@@ -90,7 +85,7 @@ export default function RuleStepItem(
               )}
               <div className="min-w-0">
                 <p className="text-gray-800">
-                  {fieldLabel(lookups, c.field)} {operatorLabel(lookups, c.field, c.operator)}{' '}
+                  {fieldLabel(lookups.vocabulary, c.field)} {operatorLabel(lookups.vocabulary, c.field, c.operator)}{' '}
                   {formatConditionValue(c.field, c.expected, lookups)}
                 </p>
                 <ActualValue text={formatActual(c.field, c.actual, lookups)} detail={c.detail} />
