@@ -18,7 +18,7 @@ const MESSAGE_BY_ERROR_CODE: Record<string, string> = {
     'We could not reach the AI service. Check your connection and try again.',
   llm_generation_failed: QUICK_START_PREVIEW_ERROR_FALLBACK,
   configuration_error:
-    'AI setup is not complete. Ask your administrator to configure the Gemini API key.',
+    'AI setup is not complete. Ask your administrator to configure the Ollama server.',
 };
 
 /** Patterns that indicate a technical message we should not show to users. */

@@ -83,7 +83,7 @@ export const PatternAPI = {
       response = await api.post<{ steps: Array<Record<string, any>>; error?: string }>(
         `/api/spreadsheet/sheets/${sheetId}/generate-pattern-steps/`,
         { instruction },
-        { timeout: LLM_TIMEOUT_MS }  // Gemini can take 15-30s; override the global 10s default
+        { timeout: LLM_TIMEOUT_MS }  // Local Ollama models are slow; backend budget is SPREADSHEET_NL_LLM_TIMEOUT_SECONDS
       );
     } catch (err) {
       if (isAiConsentRequired(err)) throw new AiConsentRequiredError(aiConsentSpreadsheetId(err));

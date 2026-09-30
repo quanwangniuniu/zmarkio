@@ -3,6 +3,7 @@ import json
 import logging
 
 from django.conf import settings
+from core.services.ollama_client import parse_json_text
 from ..agent_utils import json_input
 from .common import _coerce_json
 
@@ -137,7 +138,7 @@ Output rules:
 """
 
 
-def _call_gemini_chat(
+def _call_ollama_chat(
     chat_messages,
     user_id=None,
     analysis_result=None,
@@ -145,8 +146,8 @@ def _call_gemini_chat(
     current_username='',
     agent_session=None,
 ):
-    """Call Gemini for post-analysis follow-up. Replaces _call_dify_chat."""
-    from core.services.gemini_client import call_gemini_json
+    """Call Ollama for post-analysis follow-up. Replaces _call_dify_chat."""
+    from core.services.ollama_client import call_ollama_json
 
     user_prompt = (
         f"Chat history:\n  {chat_messages}\n\n"
@@ -158,18 +159,17 @@ def _call_gemini_chat(
 
     try:
         if agent_session is None:
-            parsed = call_gemini_json(
+            parsed = call_ollama_json(
                 system_prompt=_FOLLOWUP_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 temperature=0.5,
-                timeout=120,
             )
         else:
             from ..llm_client import call_llm as _call_llm_unified
 
             result = _call_llm_unified(
                 agent_session=agent_session,
-                provider='gemini',
+                provider='ollama',
                 model=settings.AGENT_LLM_MODEL,
                 system_prompt=_FOLLOWUP_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
@@ -178,16 +178,16 @@ def _call_gemini_chat(
                 response_mime_type='application/json',
                 call_purpose='follow_up_chat',
             )
-            parsed = json.loads(result['text'])
+            parsed = parse_json_text(result['text'])
     except Exception as e:
-        logger.error("Gemini chat call failed: %s", e)
-        raise RuntimeError(f"Gemini chat failed: {e}") from e
+        logger.error("Ollama chat call failed: %s", e)
+        raise RuntimeError(f"Ollama chat failed: {e}") from e
 
     normalized = _normalize_llm_chat_output(parsed)
     if normalized:
         return normalized
 
-    raise RuntimeError("Gemini chat returned unexpected output format")
+    raise RuntimeError("Ollama chat returned unexpected output format")
 
 
 class FollowUpMixin:

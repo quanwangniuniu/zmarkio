@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from django.conf import settings
+from core.services.ollama_client import parse_json_text
 
 from .agent_utils import json_input
 
@@ -55,7 +56,7 @@ def _parse_number(value: Any, default: float = 0.0) -> float:
 
 
 def _sanitize_snapshot_numbers(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Strip CSS units from all numeric fields in a Gemini-generated snapshot."""
+    """Strip CSS units from all numeric fields in an Ollama-generated snapshot."""
     numeric_item_fields = ("x", "y", "width", "height", "z_index")
     numeric_style_fields = ("fontSize", "strokeWidth", "borderRadius")
 
@@ -495,26 +496,25 @@ Create a practical draft board with concise labels and reasonable initial positi
 """
 
 
-def call_gemini_miro_generator(
+def call_ollama_miro_generator(
     context: dict[str, Any],
     *,
     user_id: str | int | None = None,
     agent_session=None,
 ) -> dict[str, Any]:
-    import json as _json
     from .llm_client import call_llm as _call_llm_unified
 
     context_json = json_input(context)
     rules_json = json_input(load_miro_snapshot_rules())
     logger.info(
-        "Calling Gemini Miro generator user_id=%s context_chars=%s rules_chars=%s",
+        "Calling Ollama Miro generator user_id=%s context_chars=%s rules_chars=%s",
         user_id,
         len(context_json),
         len(rules_json),
     )
     result = _call_llm_unified(
         agent_session=agent_session,
-        provider='gemini',
+        provider='ollama',
         model=settings.AGENT_LLM_MODEL,
         system_prompt=_MIRO_SYSTEM_PROMPT,
         user_prompt=(
@@ -527,7 +527,7 @@ def call_gemini_miro_generator(
         response_mime_type='application/json',
         call_purpose='miro_generation',
     )
-    outputs = _json.loads(result['text'])
+    outputs = parse_json_text(result['text'])
     snapshot = _extract_snapshot_candidate(outputs)
     snapshot = _sanitize_snapshot_numbers(snapshot)
     snapshot = normalize_miro_snapshot_layout(snapshot)

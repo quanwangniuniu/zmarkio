@@ -26,7 +26,6 @@ class TestQuickStartImports:
 
     def test_config_loads(self):
         config = get_quick_start_config()
-        assert config.llm_timeout_seconds >= 30
         assert config.prompts_dir.is_dir()
 
     def test_system_prompt_file_exists(self):

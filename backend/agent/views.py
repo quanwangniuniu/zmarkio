@@ -750,7 +750,7 @@ class FileUploadAnalyzeView(EnglishResponseMixin, APIView):
                     'row_count': result.get('row_count'),
                     'column_count': result.get('column_count'),
                     'original_filename': result.get('original_filename'),
-                    'provider': 'gemini',
+                    'provider': 'ollama',
                     'model': django_settings.AGENT_LLM_MODEL,
                 },
                 request=request,
@@ -1342,18 +1342,16 @@ class AgentConfigStatusView(EnglishResponseMixin, APIView):
 
     # Mapping of response key -> (settings attr, env var fallback)
     KEY_MAP = {
-        'gemini': ('GEMINI_API_KEY', 'GEMINI_API_KEY'),
         'anthropic': ('ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'),
     }
 
     def get(self, request):
-        result = {}
+        from core.services.ollama_client import is_llm_configured
+
+        result = {'ollama': is_llm_configured()}
         for key, (settings_attr, env_var) in self.KEY_MAP.items():
             val = getattr(django_settings, settings_attr, None) or os.environ.get(env_var, '')
             result[key] = bool(val and val.strip())
-        # LLM_BACKEND=ollama serves the Gemini features without a key.
-        from core.services.ollama_client import is_ollama_backend
-        result['gemini'] = result['gemini'] or is_ollama_backend()
         return Response(result)
 
 

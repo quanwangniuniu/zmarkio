@@ -15,10 +15,6 @@ if not settings.configured:
 # times. No test depends on the hashing algorithm, so use a fast one (MED-447).
 settings.PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 
-# A developer's .env may set LLM_BACKEND=ollama for local runs; tests assume the
-# Gemini default and opt into Ollama explicitly via override_settings.
-settings.LLM_BACKEND = 'gemini'
-
 # Give every TransactionTestCase (and transactional_db test) the tenant-safe
 # CASCADE teardown, not only subclasses of TenantSafeTransactionTestCase.
 from django.test import TransactionTestCase  # noqa: E402

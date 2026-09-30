@@ -47,7 +47,7 @@ class FairUseTestBase(TestCase):
     def _make_log(self, total_cost_cents, normalized_tokens, success=True):
         return LLMCallLog.objects.create(
             organization=self.org,
-            provider='gemini',
+            provider='ollama',
             model_name='gemini-2.0-flash',
             input_tokens=100,
             output_tokens=50,

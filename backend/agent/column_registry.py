@@ -5,7 +5,7 @@ Detection pipeline:
   1. DB-template match against DataSchemaTemplate records (instant, no LLM cost).
      Falls back to the hard-coded SCHEMA_REGISTRY if the DB is unavailable.
   2. Rule-based match against the hard-coded SCHEMA_REGISTRY (instant fallback).
-  3. LLM fallback (Dify / Gemini) for files that do not match any known schema.
+  3. LLM fallback (Ollama) for files that do not match any known schema.
      On success the result is optionally saved as a new learned DataSchemaTemplate.
   4. Keyword-based auto-categorisation for columns that remain 'unknown' after
      all detection paths, so results are never silently lost.
@@ -23,6 +23,7 @@ import os
 import re
 
 from django.conf import settings
+from core.services.ollama_client import parse_json_text
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -567,7 +568,7 @@ Rules:
 
 def _try_llm_fallback(headers: list, sample_rows: list = None, agent_session=None) -> ColumnDetectionResult:
     """
-    Use Gemini to identify unknown columns.
+    Use Ollama to identify unknown columns.
 
     Args:
         headers:       list of column header strings.
@@ -579,17 +580,17 @@ def _try_llm_fallback(headers: list, sample_rows: list = None, agent_session=Non
     """
     from stripe_meta.exceptions import QuotaError
     from agent.llm_client import call_llm as _call_llm_unified
-    from core.services.gemini_client import _get_api_key as _gemini_key
+    from core.services.ollama_client import is_llm_configured
 
-    if not _gemini_key():
-        logger.warning("GEMINI_API_KEY not set; skipping LLM column detection")
+    if not is_llm_configured():
+        logger.warning("Ollama not configured; skipping LLM column detection")
         return _unknown_result(headers)
 
     try:
         rows_to_send = (sample_rows or [])[:_LLM_SAMPLE_ROW_LIMIT]
         result = _call_llm_unified(
             agent_session=agent_session,
-            provider='gemini',
+            provider='ollama',
             model=settings.AGENT_LLM_MODEL,
             system_prompt=_COLUMN_DETECTION_SYSTEM_PROMPT,
             user_prompt=(
@@ -601,7 +602,7 @@ def _try_llm_fallback(headers: list, sample_rows: list = None, agent_session=Non
             response_mime_type='application/json',
             call_purpose='column_detection',
         )
-        parsed = json.loads(result['text'])
+        parsed = parse_json_text(result['text'])
         return _parse_llm_response(headers, parsed)
 
     except QuotaError:
@@ -678,7 +679,7 @@ def detect_columns(headers: list, sample_rows: list = None,
     Detection pipeline (stops at the first successful match):
       1. DB-template match against DataSchemaTemplate records.
       2. Rule-based match against the hard-coded SCHEMA_REGISTRY.
-      3. LLM fallback (Dify / Gemini) for unrecognised formats.
+      3. LLM fallback (Ollama) for unrecognised formats.
          On success with confidence >= 0.6 the result is saved as a learned
          DataSchemaTemplate so future uploads of the same format skip the LLM.
       4. Keyword-based auto-categorisation applied to any remaining 'unknown'

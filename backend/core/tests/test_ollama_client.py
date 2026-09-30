@@ -1,17 +1,15 @@
-"""core.services.ollama_client and the LLM_BACKEND=ollama routing in gemini_client."""
+"""core.services.ollama_client: /api/chat calls, text/JSON helpers, config gate."""
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
-from core.services import gemini_client as gc
 from core.services import ollama_client as oc
 
 _LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache",
                        "LOCATION": "ollama-test"}}
 _OLLAMA = dict(
     CACHES=_LOCMEM,
-    LLM_BACKEND="ollama",
     OLLAMA_BASE_URL="http://ollama.test:11434/",
     OLLAMA_MODEL="qwen3:4b",
     OLLAMA_TIMEOUT_SECONDS=300,
@@ -35,7 +33,7 @@ class CallOllamaTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
 
-    @patch("core.services.gemini_client.requests.post")
+    @patch("core.services.ollama_client.requests.post")
     def test_posts_chat_request_and_parses_usage(self, mock_post):
         mock_post.return_value = _chat_response("hello")
 
@@ -56,13 +54,13 @@ class CallOllamaTests(SimpleTestCase):
         self.assertNotIn("format", body)
         self.assertEqual(mock_post.call_args.kwargs["timeout"], 300)
 
-    @patch("core.services.gemini_client.requests.post")
+    @patch("core.services.ollama_client.requests.post")
     def test_json_mode_sets_format(self, mock_post):
         mock_post.return_value = _chat_response('{"a": 1}')
         oc.call_ollama("sys", "usr", json_mode=True)
         self.assertEqual(mock_post.call_args.kwargs["json"]["format"], "json")
 
-    @patch("core.services.gemini_client.requests.post")
+    @patch("core.services.ollama_client.requests.post")
     def test_strips_think_block_and_defaults_missing_usage_to_zero(self, mock_post):
         mock_post.return_value = _chat_response(
             "<think>reasoning</think>\nanswer", prompt_eval_count=None, eval_count=None
@@ -71,29 +69,34 @@ class CallOllamaTests(SimpleTestCase):
         self.assertEqual(result["text"], "answer")
         self.assertEqual(result["usage"], {"input": 0, "output": 0})
 
-    @patch("core.services.gemini_client.time.sleep")
-    @patch("core.services.gemini_client.requests.post")
-    def test_connection_failure_raises_gemini_unavailable(self, mock_post, _sleep):
+    @patch("core.services.ollama_client.time.sleep")
+    @patch("core.services.ollama_client.requests.post")
+    def test_connection_failure_raises_ollama_unavailable(self, mock_post, _sleep):
         import requests
         mock_post.side_effect = requests.exceptions.ConnectionError("refused")
-        with self.assertRaises(gc.GeminiUnavailable):
+        with self.assertRaises(oc.OllamaUnavailable):
             oc.call_ollama("sys", "usr")
 
 
 @override_settings(**_OLLAMA)
-class GeminiClientOllamaRoutingTests(SimpleTestCase):
+class OllamaHelperTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
 
-    def test_api_key_gate_passes_without_gemini_key(self):
-        with override_settings(GEMINI_API_KEY=""), patch.dict("os.environ", {}, clear=True):
-            self.assertEqual(gc._get_api_key(), oc.OLLAMA_KEY_SENTINEL)
+    def test_configured_when_base_url_set(self):
+        self.assertEqual(oc._get_api_key(), oc.OLLAMA_KEY_SENTINEL)
+        self.assertTrue(oc.is_llm_configured())
 
-    @patch("core.services.gemini_client.requests.post")
-    def test_call_gemini_routes_to_ollama(self, mock_post):
+    def test_not_configured_without_base_url(self):
+        with override_settings(OLLAMA_BASE_URL=""):
+            self.assertEqual(oc._get_api_key(), "")
+            self.assertFalse(oc.is_llm_configured())
+
+    @patch("core.services.ollama_client.requests.post")
+    def test_call_ollama_text_returns_plain_text(self, mock_post):
         mock_post.return_value = _chat_response("plain text")
 
-        text = gc.call_gemini("sys", "usr", temperature=0.5, timeout=10)
+        text = oc.call_ollama_text("sys", "usr", temperature=0.5, timeout=10)
 
         self.assertEqual(text, "plain text")
         self.assertEqual(mock_post.call_count, 1)
@@ -102,30 +105,29 @@ class GeminiClientOllamaRoutingTests(SimpleTestCase):
         self.assertNotIn("format", body)
         self.assertEqual(body["options"]["temperature"], 0.5)
 
-    @patch("core.services.gemini_client.requests.post")
-    def test_call_gemini_json_routes_to_ollama_in_json_mode(self, mock_post):
+    @patch("core.services.ollama_client.requests.post")
+    def test_call_ollama_json_uses_json_mode_and_strips_fences(self, mock_post):
         mock_post.return_value = _chat_response('```json\n{"ok": true}\n```')
 
-        self.assertEqual(gc.call_gemini_json("sys", "usr"), {"ok": True})
+        self.assertEqual(oc.call_ollama_json("sys", "usr"), {"ok": True})
         self.assertEqual(mock_post.call_args.kwargs["json"]["format"], "json")
 
+    @patch("core.services.ollama_client.requests.post")
+    def test_timeout_caps_per_request_timeout(self, mock_post):
+        mock_post.return_value = _chat_response('{"ok": true}')
 
-@override_settings(CACHES=_LOCMEM, LLM_BACKEND="gemini", GEMINI_API_KEY="k")
-class GeminiDefaultBackendTests(SimpleTestCase):
-    def setUp(self):
-        cache.clear()
+        oc.call_ollama_json("sys", "usr", timeout=45)
 
-    def test_default_backend_is_not_ollama(self):
-        self.assertFalse(oc.is_ollama_backend())
-        self.assertEqual(gc._get_api_key(), "k")
+        self.assertLessEqual(mock_post.call_args.kwargs["timeout"], 45)
 
-    @patch("core.services.gemini_client.requests.post")
-    def test_call_gemini_still_hits_gemini(self, mock_post):
-        resp = MagicMock()
-        resp.iter_content.return_value = [
-            b'[{"candidates":[{"content":{"parts":[{"text":"hi"}]}}]}]'
-        ]
-        mock_post.return_value = resp
+    @patch("core.services.ollama_client.time.sleep")
+    @patch("core.services.ollama_client.requests.post")
+    def test_json_retries_stop_when_budget_spent(self, mock_post, _sleep):
+        mock_post.return_value = _chat_response("not json")
 
-        self.assertEqual(gc.call_gemini("sys", "usr"), "hi")
-        self.assertIn("streamGenerateContent", mock_post.call_args.args[0])
+        with patch("core.services.ollama_client.time.monotonic",
+                   side_effect=[0, 0, 0, 0, 100, 100, 100]):
+            with self.assertRaises(RuntimeError):
+                oc.call_ollama_json("sys", "usr", timeout=10)
+
+        self.assertEqual(mock_post.call_count, 1)

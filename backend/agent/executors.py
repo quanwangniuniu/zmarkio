@@ -14,7 +14,7 @@ import time
 import anthropic
 from .agent_utils import drain_generator, json_input
 from .llm_client import call_llm as _call_llm_unified
-from core.services.gemini_client import GeminiRetriesExhausted
+from core.services.ollama_client import OllamaRetriesExhausted
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ class BaseStepExecutor:
 
 
 class AnalyzeDataExecutor(BaseStepExecutor):
-    """Runs the Gemini->Claude analysis fallback chain via _iter_analysis()."""
+    """Runs the Ollama->Claude analysis fallback chain via _iter_analysis()."""
 
     def execute(self, input_data):
         return drain_generator(self.iter_execute(input_data))
@@ -211,8 +211,8 @@ class AnalyzeDataExecutor(BaseStepExecutor):
         except GenerationValidationError as e:
             logger.warning("AnalyzeDataExecutor validation failed: %s", e)
             return StepResult(success=False, error=str(e))
-        except GeminiRetriesExhausted as e:
-            logger.warning("AnalyzeDataExecutor: Gemini 429 retries exhausted: %s", e)
+        except OllamaRetriesExhausted as e:
+            logger.warning("AnalyzeDataExecutor: Ollama 429 retries exhausted: %s", e)
             return StepResult(success=False, error=str(e))
         except Exception as e:
             logger.exception("AnalyzeDataExecutor failed")
@@ -230,29 +230,40 @@ class CallDifyExecutor(BaseStepExecutor):
 
 
 class CallLLMExecutor(BaseStepExecutor):
-    """Calls Claude directly, supports per-step config override."""
+    """Calls Ollama (Claude fallback when Ollama is not configured)."""
 
-    #Anthropic API call has default retry logic, so the retry policy is simple to avoid double retrying.
+    # Both clients retry transient errors internally, so the retry policy is simple to avoid double retrying.
     @retry_policy(max_retries=1, retry_delay=0, on_exhausted='fail')
     def execute(self, input_data):
+        from core.services.ollama_client import is_llm_configured, parse_json_text
         from .services.analysis import _get_llm_client
         from .services.analysis_prompts import _ANALYSIS_SYSTEM_PROMPT
 
         spreadsheet_data = input_data.get('spreadsheet_data', input_data)
         try:
-            client = _get_llm_client()
-            if not client:
+            if is_llm_configured():
+                provider_kwargs = {
+                    'provider': 'ollama',
+                    'model': settings.AGENT_LLM_MODEL,
+                    'response_mime_type': 'application/json',
+                }
+            elif _get_llm_client():
+                provider_kwargs = {
+                    'provider': 'anthropic',
+                    'model': settings.AGENT_ANTHROPIC_FALLBACK_MODEL,
+                }
+            else:
                 return StepResult(success=False, error='No LLM API key configured')
 
             result = _call_llm_unified(
-                provider="anthropic",
-                model=settings.AGENT_ANTHROPIC_FALLBACK_MODEL,
+                **provider_kwargs,
                 user_prompt=json_input(spreadsheet_data),
                 system_prompt=_ANALYSIS_SYSTEM_PROMPT,
                 agent_session=self.orchestrator.session,
+                call_purpose='data_analysis',
             )
             # The billed caller returns text and usage; downstream steps need the JSON object.
-            analysis = json.loads(result['text'])
+            analysis = parse_json_text(result['text'])
             if not isinstance(analysis, dict):
                 raise ValueError('Analysis response must be a JSON object')
 
@@ -412,13 +423,13 @@ class CreateTasksExecutor(BaseStepExecutor):
 
 
 class GenerateMiroSnapshotExecutor(BaseStepExecutor):
-    """Generate a validated Miro snapshot from workflow context via Gemini."""
+    """Generate a validated Miro snapshot from workflow context via Ollama."""
 
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='fail')
     def execute(self, input_data):
         from .miro_generation import (
             build_miro_generation_context_from_run,
-            call_gemini_miro_generator,
+            call_ollama_miro_generator,
         )
 
         try:
@@ -426,7 +437,7 @@ class GenerateMiroSnapshotExecutor(BaseStepExecutor):
                 session=self.orchestrator.session,
                 workflow_run=self.workflow_run,
             )
-            snapshot = call_gemini_miro_generator(
+            snapshot = call_ollama_miro_generator(
                 context,
                 user_id=str(self.orchestrator.user.id),
                 agent_session=self.orchestrator.session,
@@ -445,10 +456,10 @@ class GenerateMiroSnapshotExecutor(BaseStepExecutor):
                 }],
             )
         except RuntimeError as e:
-            logger.warning("Gemini API Timeout Error: %s", e)
+            logger.warning("Ollama API Timeout Error: %s", e)
             raise
-        except GeminiRetriesExhausted as e:
-            logger.warning("GenerateMiroSnapshotExecutor: Gemini 429 retries exhausted: %s", e)
+        except OllamaRetriesExhausted as e:
+            logger.warning("GenerateMiroSnapshotExecutor: Ollama 429 retries exhausted: %s", e)
             return StepResult(success=False, error=str(e))
         except Exception as e:
             logger.exception("GenerateMiroSnapshotExecutor failed")
@@ -621,7 +632,7 @@ class DetectColumnsExecutor(BaseStepExecutor):
     Also emits a column_mapping SSE event so the frontend can render a
     confirmation UI for the user to review or correct the mappings.
     """
-    #If the Gemini API call fails, we retry a few times before skipping the step. This is non-fatal because workflow can run without column detection.
+    #If the Ollama API call fails, we retry a few times before skipping the step. This is non-fatal because workflow can run without column detection.
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='skip')
     def execute(self, input_data):
         from .column_registry import detect_columns
@@ -662,10 +673,10 @@ class DetectColumnsExecutor(BaseStepExecutor):
                 }],
             )
         except RuntimeError as e:
-            logger.warning("Gemini API Timeout Error: %s", e)
+            logger.warning("Ollama API Timeout Error: %s", e)
             raise
-        except GeminiRetriesExhausted as e:
-            logger.warning("DetectColumnsExecutor: Gemini 429 retries exhausted: %s", e)
+        except OllamaRetriesExhausted as e:
+            logger.warning("DetectColumnsExecutor: Ollama 429 retries exhausted: %s", e)
             return StepResult(success=False, error=str(e), skipped=True)
         except Exception as e:
             logger.exception("DetectColumnsExecutor failed")
@@ -954,30 +965,30 @@ Rules:
 
 
 class GenerateCriteriaExecutor(BaseStepExecutor):
-    """Call Gemini to generate per-column success criteria.
+    """Call Ollama to generate per-column success criteria.
 
-    Sends the column names extracted from the uploaded file to Gemini and
+    Sends the column names extracted from the uploaded file to Ollama and
     receives a structured success_criteria JSON that tells the downstream
     analysis step what to look for and how to judge the data.
 
     The criteria are stored on workflow_run.success_criteria so they persist
     across step boundaries and are forwarded in output_data for the next step.
     """
-    #If the Gemini API call fails, we retry a few times before skipping the step. This is non-fatal because analysis can still run without criteria.
+    #If the Ollama API call fails, we retry a few times before skipping the step. This is non-fatal because analysis can still run without criteria.
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='skip')
     def execute(self, input_data):
         import json
-        from core.services.gemini_client import _get_api_key as _gemini_key
+        from core.services.ollama_client import is_llm_configured
         from .llm_client import call_llm as _call_llm_unified
 
-        if not _gemini_key():
-            logger.warning("GenerateCriteriaExecutor: GEMINI_API_KEY not set; skipping")
+        if not is_llm_configured():
+            logger.warning("GenerateCriteriaExecutor: Ollama not configured; skipping")
             return StepResult(
                 success=True,
                 output_data=input_data,
                 sse_events=[{
                     'type': 'text',
-                    'content': 'Success criteria generation skipped (no API key).',
+                    'content': 'Success criteria generation skipped (LLM not configured).',
                 }],
             )
 
@@ -1002,7 +1013,7 @@ class GenerateCriteriaExecutor(BaseStepExecutor):
         try:
             _criteria_result = _call_llm_unified(
                 agent_session=self.orchestrator.session,
-                provider='gemini',
+                provider='ollama',
                 model=settings.AGENT_LLM_MODEL,
                 system_prompt=_CRITERIA_SYSTEM_PROMPT,
                 user_prompt=(
@@ -1052,8 +1063,8 @@ class GenerateCriteriaExecutor(BaseStepExecutor):
         except RuntimeError as e:
             logger.warning("GenerateCriteriaExecutor: LLM API Timeout error: %s", e)
             raise
-        except GeminiRetriesExhausted as e:
-            logger.warning("GenerateCriteriaExecutor: Gemini 429 retries exhausted: %s", e)
+        except OllamaRetriesExhausted as e:
+            logger.warning("GenerateCriteriaExecutor: Ollama 429 retries exhausted: %s", e)
             return StepResult(success=False, error=str(e), skipped=True)
         except Exception as e:
             # Non-fatal: analysis can still run without criteria

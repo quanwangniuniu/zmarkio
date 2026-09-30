@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 
 from core.services.quick_start.exceptions import QuickStartLLMError, QuickStartValidationError
@@ -87,7 +89,7 @@ class TestQuickStartTwoStageLLMChain:
         assert blueprint['project']['name'] == 'Q1 Meta Launch'
         assert len(blueprint['tasks']) == 5
 
-    def test_gemini_failure_wrapped_on_plan_stage(self):
+    def test_ollama_failure_wrapped_on_plan_stage(self):
         def _fail(**kwargs):
             raise RuntimeError('upstream error')
 
@@ -97,6 +99,36 @@ class TestQuickStartTwoStageLLMChain:
                 prompt='US Meta Q2 campaign with $30k budget for six weeks',
                 selected_modules=DEFAULT_MODULES,
             )
+
+    def test_stages_share_one_timeout_budget(self):
+        timeouts = []
+
+        def _mock(**kwargs):
+            timeouts.append(kwargs['timeout'])
+            return SAMPLE_CAMPAIGN_PLAN if len(timeouts) == 1 else SAMPLE_LLM_PAYLOAD
+
+        chain = QuickStartLLMChain(call_json=_mock)
+        chain.generate_blueprint(
+            prompt='US Meta Q2 campaign with $30k budget for six weeks',
+            selected_modules=DEFAULT_MODULES,
+        )
+        assert len(timeouts) == 2
+        assert all(0 < t <= chain.config.llm_timeout_seconds for t in timeouts)
+
+    def test_rate_limit_exhaustion_maps_to_llm_error(self):
+        from core.services.ollama_client import OllamaRetriesExhausted
+
+        def _limited(**kwargs):
+            raise OllamaRetriesExhausted('Ollama rate limited (HTTP 429).')
+
+        chain = QuickStartLLMChain(call_json=_limited)
+        with patch('core.services.quick_start.llm.time.sleep'):
+            with pytest.raises(QuickStartLLMError) as exc_info:
+                chain.generate_blueprint(
+                    prompt='US Meta Q2 campaign with $30k budget for six weeks',
+                    selected_modules=DEFAULT_MODULES,
+                )
+        assert exc_info.value.error_code == 'rate_limited'
 
     def test_invalid_plan_rejected(self):
         def _bad_plan(**kwargs):

@@ -395,7 +395,8 @@ AGENT_CSV_DIR = config(
     default=os.path.join(BASE_DIR, 'agent_data')
 )
 
-# Gemini API (replaces Dify for all LLM workflow calls)
+# Gemini AI Studio key — used only by ad_copy_variation.aistudio_client. All
+# other LLM calls go through Ollama (core.services.ollama_client).
 GEMINI_API_KEY = config('GEMINI_API_KEY', default='')
 
 # AI-assisted spreadsheet analysis (agent <-> spreadsheet integration).
@@ -413,29 +414,28 @@ SPREADSHEET_AI_MAX_CELLS = config('SPREADSHEET_AI_MAX_CELLS', default=20000, cas
 SPREADSHEET_AI_MAX_CELL_CHARS = config(
     'SPREADSHEET_AI_MAX_CELL_CHARS', default=2000, cast=int
 )
-# Gemini HTTP guardrails (core.services.gemini_client).
-GEMINI_TIMEOUT_SECONDS = config('GEMINI_TIMEOUT_SECONDS', default=75, cast=int)
-GEMINI_TOTAL_DEADLINE_SECONDS = config(
-    'GEMINI_TOTAL_DEADLINE_SECONDS', default=150, cast=int
-)
-GEMINI_CB_THRESHOLD = config('GEMINI_CB_THRESHOLD', default=5, cast=int)
-GEMINI_CB_WINDOW_SECONDS = config('GEMINI_CB_WINDOW_SECONDS', default=60, cast=int)
-GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, cast=int)
-
-# LLM backend switch: 'gemini' (default) or 'ollama'. With 'ollama', every Gemini
-# call (core.services.gemini_client + agent.llm_client provider='gemini') is served
-# by OLLAMA_MODEL on a local Ollama server (core.services.ollama_client).
-LLM_BACKEND = config('LLM_BACKEND', default='gemini')
+# Ollama backend for every agent / Quick Start / spreadsheet NL LLM call
+# (core.services.ollama_client), plus its HTTP guardrails.
 OLLAMA_BASE_URL = config('OLLAMA_BASE_URL', default='http://host.docker.internal:11434')
 OLLAMA_MODEL = config('OLLAMA_MODEL', default='qwen3:4b')
 OLLAMA_TIMEOUT_SECONDS = config('OLLAMA_TIMEOUT_SECONDS', default=300, cast=int)
 OLLAMA_TOTAL_DEADLINE_SECONDS = config('OLLAMA_TOTAL_DEADLINE_SECONDS', default=600, cast=int)
+OLLAMA_CB_THRESHOLD = config('OLLAMA_CB_THRESHOLD', default=5, cast=int)
+OLLAMA_CB_WINDOW_SECONDS = config('OLLAMA_CB_WINDOW_SECONDS', default=60, cast=int)
+OLLAMA_CB_COOLDOWN_SECONDS = config('OLLAMA_CB_COOLDOWN_SECONDS', default=30, cast=int)
+# Total budgets for LLM calls made inside a web request. Keep each below the
+# matching frontend axios timeout (frontend/src/lib/api.ts, quickStartApi.ts) so
+# the backend returns a clean error before the browser gives up.
+QUICK_START_LLM_TIMEOUT_SECONDS = config('QUICK_START_LLM_TIMEOUT_SECONDS', default=240, cast=int)
+SPREADSHEET_NL_LLM_TIMEOUT_SECONDS = config(
+    'SPREADSHEET_NL_LLM_TIMEOUT_SECONDS', default=150, cast=int
+)
 
-# Agent LLM models. AGENT_LLM_MODEL is the primary (Gemini) model for every agent
-# call; AGENT_ANTHROPIC_FALLBACK_MODEL is used only when Gemini is unavailable or
+# Agent LLM models. AGENT_LLM_MODEL is the primary (Ollama) model for every agent
+# call; AGENT_ANTHROPIC_FALLBACK_MODEL is used only when Ollama is unavailable or
 # fails and ANTHROPIC_API_KEY is set. Keep both in MODEL_TOKEN_MULTIPLIER and
 # LLM_PRICE_TABLE below, or billing falls back to multiplier 1.0 and zero cost.
-AGENT_LLM_MODEL = config('AGENT_LLM_MODEL', default='gemini-2.5-flash-lite')
+AGENT_LLM_MODEL = config('AGENT_LLM_MODEL', default=OLLAMA_MODEL)
 AGENT_ANTHROPIC_FALLBACK_MODEL = config('AGENT_ANTHROPIC_FALLBACK_MODEL', default='claude-sonnet-5')
 # Max characters of draft text inlined into the draft Q&A prompt; longer drafts
 # are truncated with a marker (agent.services.drafts).
@@ -972,7 +972,7 @@ MODEL_TOKEN_MULTIPLIER = {
     'claude-sonnet-4-5': 1.0,
     'claude-haiku-4-5': 0.2,
     'claude-opus-4-6': 5.0,
-    'gemini-2.5-flash-lite': 0.15,
+    OLLAMA_MODEL: 0.15,
 }
 # Actual API cost table in cents per 1M tokens (for LLMCallLog cost_cents)
 LLM_PRICE_TABLE = {
@@ -980,8 +980,15 @@ LLM_PRICE_TABLE = {
     'claude-sonnet-4-5': {'input': 300, 'output': 1500},
     'claude-haiku-4-5': {'input': 80, 'output': 400},
     'claude-opus-4-6': {'input': 1500, 'output': 7500},
-    'gemini-2.5-flash-lite': {'input': 10, 'output': 40},
+    OLLAMA_MODEL: {'input': 0, 'output': 0},  # local model, no API cost
 }
+# Env-overridable agent models must stay billable (see AGENT_LLM_MODEL above).
+MODEL_TOKEN_MULTIPLIER.setdefault(AGENT_LLM_MODEL, MODEL_TOKEN_MULTIPLIER[OLLAMA_MODEL])
+LLM_PRICE_TABLE.setdefault(AGENT_LLM_MODEL, LLM_PRICE_TABLE[OLLAMA_MODEL])
+MODEL_TOKEN_MULTIPLIER.setdefault(AGENT_ANTHROPIC_FALLBACK_MODEL, 1.0)
+LLM_PRICE_TABLE.setdefault(
+    AGENT_ANTHROPIC_FALLBACK_MODEL, LLM_PRICE_TABLE['claude-sonnet-4-5']
+)
 FAIR_USE_THRESHOLD_RATIO = 0.30   # alert when user > 30% of org quota
 FREE_USER_MAX_COST_CENTS = 200    # safety cap for fair-use alert on Free tier
 

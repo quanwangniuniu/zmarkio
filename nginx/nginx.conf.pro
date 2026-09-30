@@ -115,6 +115,27 @@ http {
             return 301 /users/;
         }
 
+        # Long-running Ollama LLM endpoints. Regex location so it wins over the
+        # /api/core/ and /api/ prefix blocks. The read timeout sits above the
+        # backend budgets (QUICK_START_LLM_TIMEOUT_SECONDS=240,
+        # SPREADSHEET_NL_LLM_TIMEOUT_SECONDS=150) and the frontend axios
+        # timeouts (270s / 180s) so the backend's JSON error reaches the browser.
+        location ~ ^/api/(core/projects/quick-start/preview|spreadsheet/sheets/\d+/generate-(pattern-steps|pivot-config))/$ {
+            proxy_pass http://$backend_host$request_uri;
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header CF-Connecting-IP $http_cf_connecting_ip;
+            proxy_set_header CF-Ray $http_cf_ray;
+            proxy_set_header CF-Visitor $http_cf_visitor;
+            add_header Cache-Control "no-store, no-cache, must-revalidate";
+            proxy_connect_timeout 60s;
+            proxy_send_timeout 60s;
+            proxy_read_timeout 300s;
+            proxy_set_header Connection "";
+        }
         # Specific API endpoint routing rules (more specific routes first)
         # Core/Projects API endpoints
         location /api/core/ {

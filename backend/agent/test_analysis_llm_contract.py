@@ -57,8 +57,9 @@ class AnalysisLLMContractTests(TestCase):
         )
         return create_message
 
+    @patch("core.services.ollama_client._get_api_key", return_value="")
     @patch("anthropic.Anthropic")
-    def test_executor_serializes_prompt_and_returns_parsed_analysis(self, mock_anthropic):
+    def test_executor_serializes_prompt_and_returns_parsed_analysis(self, mock_anthropic, _mock_key):
         create_message = self._mock_response(mock_anthropic)
         spreadsheet_data = {"rows": [{"spend": Decimal("10.50")}]}
         executor = CallLLMExecutor(
@@ -80,7 +81,7 @@ class AnalysisLLMContractTests(TestCase):
         self.assertEqual(json.loads(prompt), {"rows": [{"spend": "10.50"}]})
         self.assertTrue(LLMCallLog.objects.get(agent_session=self.session).success)
 
-    @patch("core.services.gemini_client._get_api_key", return_value="")
+    @patch("core.services.ollama_client._get_api_key", return_value="")
     @patch("anthropic.Anthropic")
     def test_claude_fallback_parses_text_before_validating_tasks(self, mock_anthropic, _mock_key):
         create_message = self._mock_response(mock_anthropic)

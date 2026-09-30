@@ -4,6 +4,7 @@ import logging
 import os
 
 from django.conf import settings
+from core.services.ollama_client import parse_json_text
 from spreadsheet.providers import (
     SpreadsheetAccessError,
     AiAnalysisDisabled,
@@ -83,7 +84,7 @@ def _resolve_analysis_columns(key_cols, sheet_columns, column_mapping=None):
     """Map success_criteria key_columns onto normalized spreadsheet column keys.
 
     After normalize_data, row keys are canonical names (e.g. amount_spent) while
-    Gemini criteria often reference display headers (e.g. Amount Spent (USD)).
+    Ollama criteria often reference display headers (e.g. Amount Spent (USD)).
     """
     if not sheet_columns:
         return list(key_cols or [])
@@ -175,7 +176,7 @@ def _preprocess_spreadsheet(spreadsheet_data, success_criteria=None, column_mapp
 _ANALYSIS_VALIDATION_MAX_ATTEMPTS = 3
 
 
-def _call_gemini_analysis(
+def _call_ollama_analysis(
     spreadsheet_data,
     user_id=None,
     success_criteria=None,
@@ -185,8 +186,8 @@ def _call_gemini_analysis(
     validation_feedback=None,
     agent_session=None,
 ):
-    """Call Gemini to analyze spreadsheet data."""
-    from core.services.gemini_client import call_gemini_json
+    """Call Ollama to analyze spreadsheet data."""
+    from core.services.ollama_client import call_ollama_json
     from ..generation_registry import (
         build_analysis_prompt,
         normalize_generation_outputs,
@@ -216,13 +217,13 @@ def _call_gemini_analysis(
         )
 
     logger.info(
-        "Calling Gemini for spreadsheet analysis user_id=%s outputs=%s attempt=%s",
+        "Calling Ollama for spreadsheet analysis user_id=%s outputs=%s attempt=%s",
         user_id,
         sorted(requested),
         'retry' if validation_feedback else 'initial',
     )
     if agent_session is None:
-        return call_gemini_json(
+        return call_ollama_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.3,
@@ -230,7 +231,7 @@ def _call_gemini_analysis(
 
     result = _call_llm_unified(
         agent_session=agent_session,
-        provider='gemini',
+        provider='ollama',
         model=settings.AGENT_LLM_MODEL,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
@@ -239,7 +240,7 @@ def _call_gemini_analysis(
         response_mime_type='application/json',
         call_purpose='data_analysis',
     )
-    return json.loads(result['text'])
+    return parse_json_text(result['text'])
 
 
 def _assign_anomaly_ids(analysis):
@@ -316,7 +317,7 @@ def _iter_analysis(
     user_context=None,
     agent_session=None,
 ):
-    """Run analysis using Gemini, with Claude as fallback.
+    """Run analysis using Ollama, with Claude as fallback.
 
     Generator: yields a ``text`` SSE event before each validation retry so the
     user sees progress live, and returns the analysis dict. Consume it with
@@ -334,13 +335,13 @@ def _iter_analysis(
 
     requested = frozenset(normalize_generation_outputs(generation_outputs))
 
-    # 1. Try Gemini (primary)
-    from core.services.gemini_client import _get_api_key as _gemini_key
-    if _gemini_key():
+    # 1. Try Ollama (primary)
+    from core.services.ollama_client import is_llm_configured
+    if is_llm_configured():
         validation_feedback = None
         for attempt in range(1, _ANALYSIS_VALIDATION_MAX_ATTEMPTS + 1):
             try:
-                raw = _call_gemini_analysis(
+                raw = _call_ollama_analysis(
                     spreadsheet_data,
                     user_id,
                     success_criteria=success_criteria,
@@ -356,7 +357,7 @@ def _iter_analysis(
                     raise
                 validation_feedback = str(exc)
                 logger.warning(
-                    "Gemini analysis validation failed (attempt %s/%s): %s; retrying",
+                    "Ollama analysis validation failed (attempt %s/%s): %s; retrying",
                     attempt,
                     _ANALYSIS_VALIDATION_MAX_ATTEMPTS,
                     exc,
@@ -372,9 +373,7 @@ def _iter_analysis(
                 raise
             except Exception as e:
                 logger.error(
-                    "Gemini analysis failed (backend=%s), falling back to Anthropic: %s",
-                    settings.LLM_BACKEND,
-                    e,
+                    "Ollama analysis failed, falling back to Anthropic: %s", e,
                 )
                 break
 
@@ -389,7 +388,7 @@ def _iter_analysis(
                 system_prompt=_ANALYSIS_SYSTEM_PROMPT,
                 agent_session=agent_session,
             )
-            raw = json.loads(result['text'])
+            raw = parse_json_text(result['text'])
             return _assign_anomaly_ids(_coerce_llm_analysis_for_requested(raw, requested))
         except QuotaError:
             raise
@@ -428,7 +427,7 @@ class AnalysisMixin:
                     s.get('window', {}).get('cells_returned', 0) for s in sheets
                 ),
                 'truncated': bool(spreadsheet_data.get('truncated')),
-                'provider': 'gemini',
+                'provider': 'ollama',
                 'model': settings.AGENT_LLM_MODEL,
             },
         )

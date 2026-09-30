@@ -67,7 +67,7 @@ describe('QuickStartAPI', () => {
     expect(mockedPost).toHaveBeenCalledWith(
       '/api/core/projects/quick-start/preview/',
       expect.objectContaining({ step: 2 }),
-      { timeout: 120_000 }
+      { timeout: 270_000 }
     );
   });
 
@@ -114,10 +114,10 @@ describe('getQuickStartErrorDetail', () => {
         statusText: 'Bad Gateway',
         headers: {},
         config: {} as InternalAxiosRequestConfig,
-        data: { error: 'llm_generation_failed', detail: 'Gemini unavailable' },
+        data: { error: 'llm_generation_failed', detail: 'Ollama unavailable' },
       }
     );
 
-    expect(getQuickStartErrorDetail(error, 'Failed')).toBe('Gemini unavailable');
+    expect(getQuickStartErrorDetail(error, 'Failed')).toBe('Ollama unavailable');
   });
 });

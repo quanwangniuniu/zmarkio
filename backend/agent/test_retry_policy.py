@@ -142,16 +142,16 @@ class LLMRetryPolicyTests(TestCase):
         self.assertEqual(mock_call_llm.call_count, 1)
 
 
-    @patch('core.services.gemini_client.time.sleep')
-    @patch('core.services.gemini_client._get_api_key')
-    @patch('core.services.gemini_client.requests.post')
+    @patch('core.services.ollama_client.time.sleep')
+    @patch('core.services.ollama_client._get_api_key')
+    @patch('core.services.ollama_client.requests.post')
     @patch('agent.llm_client.call_llm')
-    def test_generate_criteria_gemini_429_exhausted_skips_without_extra_retries(
-        self, mock_call_llm, mock_post, mock_gemini_key, mock_sleep,
+    def test_generate_criteria_ollama_429_exhausted_skips_without_extra_retries(
+        self, mock_call_llm, mock_post, mock_ollama_key, mock_sleep,
     ):
-        from core.services.gemini_client import _gemini_request_with_retry
+        from core.services.ollama_client import _ollama_request_with_retry
 
-        mock_gemini_key.return_value = 'fake-key'
+        mock_ollama_key.return_value = 'fake-key'
 
         mock_response = MagicMock()
         mock_response.status_code = 429
@@ -162,7 +162,7 @@ class LLMRetryPolicyTests(TestCase):
 
         def call_llm_side_effect(*args, **kwargs):
             # Runs the real global retry/backoff loop against the mocked 429 response.
-            _gemini_request_with_retry('https://example.invalid', {})
+            _ollama_request_with_retry('https://example.invalid', {})
 
         mock_call_llm.side_effect = call_llm_side_effect
 

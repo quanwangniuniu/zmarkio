@@ -266,10 +266,10 @@ services:
     command: celery -A backend worker --loglevel=info --pool=threads --concurrency=4 -Q celery
 
   celery-chat-realtime:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
+    # Reuses the image built by celery-worker; building it here too makes
+    # parallel builds race on the same tag ("image already exists").
     image: marketing-simplified-celery-worker
+    pull_policy: never
     container_name: celery-chat-realtime-dev
     restart: always
     env_file:
@@ -291,10 +291,10 @@ services:
     command: celery -A backend worker --loglevel=info --pool=threads --concurrency=${CHAT_REALTIME_WORKER_CONCURRENCY:-4} -Q chat.realtime
 
   celery-chat-background:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
+    # Reuses the image built by celery-worker; building it here too makes
+    # parallel builds race on the same tag ("image already exists").
     image: marketing-simplified-celery-worker
+    pull_policy: never
     container_name: celery-chat-background-dev
     restart: always
     env_file:
@@ -318,10 +318,10 @@ services:
   # Link previews wait on third-party sites, so they get their own worker:
   # a slow host must never occupy a slot that message delivery needs.
   celery-chat-link-previews:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
+    # Reuses the image built by celery-worker; building it here too makes
+    # parallel builds race on the same tag ("image already exists").
     image: marketing-simplified-celery-worker
+    pull_policy: never
     container_name: celery-chat-link-previews-dev
     restart: always
     env_file:

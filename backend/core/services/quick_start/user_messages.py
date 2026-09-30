@@ -1,4 +1,4 @@
-"""User-facing Quick Start / Gemini error messages (no technical jargon)."""
+"""User-facing Quick Start / Ollama error messages (no technical jargon)."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ USER_MESSAGE_GENERIC = (
     'We could not generate a preview right now. Nothing is wrong with your description — please try again in a moment.'
 )
 USER_MESSAGE_CONFIGURATION = (
-    'AI setup is not complete. Ask your administrator to configure the Gemini API key.'
+    'AI setup is not complete. Ask your administrator to configure the Ollama server.'
 )
 
 
@@ -83,7 +83,7 @@ def user_message_for_validation_error(detail: str) -> tuple[str, str]:
 
 def user_message_for_runtime_error(exc: BaseException) -> tuple[str, str, int | None]:
     """
-    Map a Gemini RuntimeError (or similar) to (error_code, user_message, retry_after_seconds).
+    Map an Ollama RuntimeError (or similar) to (error_code, user_message, retry_after_seconds).
     """
     text = str(exc).lower()
 
@@ -100,7 +100,7 @@ def user_message_for_runtime_error(exc: BaseException) -> tuple[str, str, int | 
     if 'network' in text:
         return LLM_ERROR_NETWORK, USER_MESSAGE_NETWORK, None
 
-    if 'gemini_api_key' in text or 'not configured' in text:
+    if 'ollama_base_url' in text or 'not configured' in text:
         return LLM_ERROR_CONFIGURATION, USER_MESSAGE_CONFIGURATION, None
 
     return LLM_ERROR_GENERIC, USER_MESSAGE_GENERIC, None

@@ -1,7 +1,7 @@
 """Focused unit tests for the helper functions in the agent/services/ package.
 
 External systems are replaced at their boundaries.  In particular, these tests
-never make real Anthropic or Gemini requests.
+never make real Anthropic or Ollama requests.
 """
 import json
 from types import SimpleNamespace
@@ -176,16 +176,16 @@ class ChatOutputNormalizationTests(SimpleTestCase):
         self.assertIsNone(followup._normalize_llm_chat_output("   "))
 
 
-class GeminiChatBoundaryTests(SimpleTestCase):
-    @patch("core.services.gemini_client.call_gemini_json")
-    def test_call_gemini_chat_normalizes_mocked_response(self, mock_call_gemini):
-        mock_call_gemini.return_value = {
+class OllamaChatBoundaryTests(SimpleTestCase):
+    @patch("core.services.ollama_client.call_ollama_json")
+    def test_call_ollama_chat_normalizes_mocked_response(self, mock_call_ollama):
+        mock_call_ollama.return_value = {
             "status": "completed",
             "text": "Budget is stable.",
             "forwards": [],
         }
 
-        result = followup._call_gemini_chat(
+        result = followup._call_ollama_chat(
             "[user]: Summarize it",
             user_id="user-1",
             analysis_result={"anomalies": []},
@@ -197,12 +197,12 @@ class GeminiChatBoundaryTests(SimpleTestCase):
             result,
             {"status": "completed", "text": "Budget is stable.", "forwards": []},
         )
-        prompt = mock_call_gemini.call_args.kwargs["user_prompt"]
+        prompt = mock_call_ollama.call_args.kwargs["user_prompt"]
         self.assertIn("[user]: Summarize it", prompt)
         self.assertIn('"username": "alex"', prompt)
 
     @patch("agent.llm_client.call_llm")
-    def test_call_gemini_chat_uses_unified_client_for_agent_session(self, mock_call_llm):
+    def test_call_ollama_chat_uses_unified_client_for_agent_session(self, mock_call_llm):
         mock_call_llm.return_value = {
             "text": json.dumps(
                 {"status": "completed", "text": "Done", "forwards": []}
@@ -211,21 +211,21 @@ class GeminiChatBoundaryTests(SimpleTestCase):
         }
         session = object()
 
-        result = followup._call_gemini_chat("history", agent_session=session)
+        result = followup._call_ollama_chat("history", agent_session=session)
 
         self.assertEqual(result["text"], "Done")
         self.assertIs(mock_call_llm.call_args.kwargs["agent_session"], session)
         self.assertEqual(mock_call_llm.call_args.kwargs["call_purpose"], "follow_up_chat")
 
-    @patch("core.services.gemini_client.call_gemini_json", side_effect=RuntimeError("offline"))
-    def test_call_gemini_chat_converts_provider_failure_to_runtime_error(self, _mock_call):
-        with self.assertRaisesRegex(RuntimeError, "Gemini chat failed: offline"):
-            followup._call_gemini_chat("history")
+    @patch("core.services.ollama_client.call_ollama_json", side_effect=RuntimeError("offline"))
+    def test_call_ollama_chat_converts_provider_failure_to_runtime_error(self, _mock_call):
+        with self.assertRaisesRegex(RuntimeError, "Ollama chat failed: offline"):
+            followup._call_ollama_chat("history")
 
-    @patch("core.services.gemini_client.call_gemini_json", return_value={"text": ""})
-    def test_call_gemini_chat_rejects_unexpected_output(self, _mock_call):
+    @patch("core.services.ollama_client.call_ollama_json", return_value={"text": ""})
+    def test_call_ollama_chat_rejects_unexpected_output(self, _mock_call):
         with self.assertRaisesRegex(RuntimeError, "unexpected output format"):
-            followup._call_gemini_chat("history")
+            followup._call_ollama_chat("history")
 
 
 class ProjectMemberSerializationTests(SimpleTestCase):

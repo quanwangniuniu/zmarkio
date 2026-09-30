@@ -1,9 +1,8 @@
 """AI Studio Gemini client — used by ad_copy_variation only.
 
-Separate from core/services/gemini_client.py (which targets Vertex AI for the agent
-pipeline). This client targets generativelanguage.googleapis.com (AI Studio)
-because the GEMINI_API_KEY in the dev/prod environment is an AI Studio API key
-(AIzaSy... format), incompatible with the Vertex endpoint.
+The agent pipeline uses Ollama (core/services/ollama_client.py); this is the
+only remaining Gemini caller. It targets generativelanguage.googleapis.com
+(AI Studio) with the AI Studio GEMINI_API_KEY (AIzaSy... format).
 """
 
 import json

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from agent.testing import IterAnalysisMock
 
+from django.conf import settings
 from django.test import SimpleTestCase
 
 from .approval_gate import ExternalCommitResult
@@ -29,7 +30,7 @@ from .executors import (
     _infer_value_type,
     get_executor,
 )
-from core.services.gemini_client import GeminiRetriesExhausted
+from core.services.ollama_client import OllamaRetriesExhausted
 from .services.analysis_prompts import _ANALYSIS_SYSTEM_PROMPT
 
 
@@ -692,10 +693,10 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
 
     @patch("agent.executors.cache.get", return_value=None)
     @patch("agent.services.analysis._iter_analysis", new_callable=IterAnalysisMock)
-    def test_gemini_retry_exhaustion_returns_failure(
+    def test_ollama_retry_exhaustion_returns_failure(
         self, mock_run_analysis, mock_cache_get
     ):
-        mock_run_analysis.side_effect = GeminiRetriesExhausted("Gemini rate limited")
+        mock_run_analysis.side_effect = OllamaRetriesExhausted("Ollama rate limited")
         executor = AnalyzeDataExecutor(
             _StepStub(), _WorkflowRunStub(), _OrchestratorStub()
         )
@@ -703,7 +704,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         result = executor.execute({"spreadsheet_data": {"sheets": []}})
 
         self.assertFalse(result.success)
-        self.assertEqual(result.error, "Gemini rate limited")
+        self.assertEqual(result.error, "Ollama rate limited")
         mock_cache_get.assert_called_once()
 
     @patch("agent.executors.cache.get", return_value=None)
@@ -727,8 +728,9 @@ class CallLLMExecutorTests(SimpleTestCase):
     # Patch the imported name used by the executor, keeping billing and HTTP out.
     @patch("agent.executors._call_llm_unified", autospec=True)
     @patch("agent.services.analysis._get_llm_client", return_value=None)
+    @patch("core.services.ollama_client._get_api_key", return_value="")
     def test_missing_client_returns_configuration_failure(
-        self, mock_get_client, mock_call_llm
+        self, _mock_ollama_key, mock_get_client, mock_call_llm
     ):
         executor = CallLLMExecutor(
             _StepStub(), _WorkflowRunStub(), _OrchestratorStub()
@@ -764,11 +766,40 @@ class CallLLMExecutorTests(SimpleTestCase):
         self.assertIs(result.output_data["spreadsheet_data"], spreadsheet_data)
         self.assertEqual(result.sse_events[0]["content"], "LLM analysis completed.")
         mock_call_llm.assert_called_once_with(
-            provider="anthropic",
-            model="claude-sonnet-5",
+            provider="ollama",
+            model=settings.AGENT_LLM_MODEL,
+            response_mime_type="application/json",
             user_prompt=json.dumps(spreadsheet_data),
             system_prompt=_ANALYSIS_SYSTEM_PROMPT,
             agent_session=orchestrator.session,
+            call_purpose="data_analysis",
+        )
+
+    @patch("agent.executors._call_llm_unified", autospec=True)
+    @patch("agent.services.analysis._get_llm_client", return_value=object())
+    @patch("core.services.ollama_client._get_api_key", return_value="")
+    def test_falls_back_to_anthropic_when_ollama_not_configured(
+        self, _mock_ollama_key, _mock_get_client, mock_call_llm
+    ):
+        mock_call_llm.return_value = {
+            "text": '```json\n{"anomalies": []}\n```',
+            "usage": {"input": 10, "output": 2},
+        }
+        spreadsheet_data = {"rows": [{"spend": 10}]}
+        orchestrator = _OrchestratorStub()
+        executor = CallLLMExecutor(_StepStub(), _WorkflowRunStub(), orchestrator)
+
+        result = executor.execute({"spreadsheet_data": spreadsheet_data})
+
+        self.assertTrue(result.success, result.error)
+        self.assertEqual(result.output_data["analysis_result"], {"anomalies": []})
+        mock_call_llm.assert_called_once_with(
+            provider="anthropic",
+            model=settings.AGENT_ANTHROPIC_FALLBACK_MODEL,
+            user_prompt=json.dumps(spreadsheet_data),
+            system_prompt=_ANALYSIS_SYSTEM_PROMPT,
+            agent_session=orchestrator.session,
+            call_purpose="data_analysis",
         )
 
     @patch("agent.executors._call_llm_unified", autospec=True)
@@ -791,11 +822,13 @@ class CallLLMExecutorTests(SimpleTestCase):
         self.assertTrue(result.success)
         self.assertIs(result.output_data["spreadsheet_data"], input_data)
         mock_call_llm.assert_called_once_with(
-            provider="anthropic",
-            model="claude-sonnet-5",
+            provider="ollama",
+            model=settings.AGENT_LLM_MODEL,
+            response_mime_type="application/json",
             user_prompt=json.dumps(input_data),
             system_prompt=_ANALYSIS_SYSTEM_PROMPT,
             agent_session=orchestrator.session,
+            call_purpose="data_analysis",
         )
 
     @patch("agent.executors._call_llm_unified", autospec=True)
@@ -849,7 +882,6 @@ class CallLLMExecutorTests(SimpleTestCase):
 
         self.assertFalse(result.success)
         self.assertEqual(result.error, "Invalid LLM response")
-        mock_get_client.assert_called_once()
         mock_call_llm.assert_called_once()
 
 
@@ -1141,7 +1173,7 @@ class CreateTasksExecutorTests(SimpleTestCase):
 
 class GenerateCriteriaExecutorTests(SimpleTestCase):
     @patch("agent.llm_client.call_llm")
-    @patch("core.services.gemini_client._get_api_key", return_value="")
+    @patch("core.services.ollama_client._get_api_key", return_value="")
     def test_missing_api_key_skips_generation(self, mock_get_key, mock_call_llm):
         input_data = {"spreadsheet_data": {"sheets": []}}
         executor = GenerateCriteriaExecutor(
@@ -1152,12 +1184,12 @@ class GenerateCriteriaExecutorTests(SimpleTestCase):
 
         self.assertTrue(result.success)
         self.assertIs(result.output_data, input_data)
-        self.assertIn("skipped (no API key)", result.sse_events[0]["content"])
+        self.assertIn("skipped (LLM not configured)", result.sse_events[0]["content"])
         mock_get_key.assert_called_once_with()
         mock_call_llm.assert_not_called()
 
     @patch("agent.llm_client.call_llm")
-    @patch("core.services.gemini_client._get_api_key", return_value="test-key")
+    @patch("core.services.ollama_client._get_api_key", return_value="test-key")
     def test_missing_columns_skips_generation(self, mock_get_key, mock_call_llm):
         input_data = {"spreadsheet_data": {"sheets": [{"rows": []}]}}
         executor = GenerateCriteriaExecutor(
@@ -1173,7 +1205,7 @@ class GenerateCriteriaExecutorTests(SimpleTestCase):
         mock_call_llm.assert_not_called()
 
     @patch("agent.llm_client.call_llm")
-    @patch("core.services.gemini_client._get_api_key", return_value="test-key")
+    @patch("core.services.ollama_client._get_api_key", return_value="test-key")
     def test_success_deduplicates_columns_saves_criteria_and_builds_summary(
         self, mock_get_key, mock_call_llm
     ):
@@ -1213,18 +1245,18 @@ class GenerateCriteriaExecutorTests(SimpleTestCase):
 
         llm_arguments = mock_call_llm.call_args.kwargs
         self.assertIs(llm_arguments["agent_session"], orchestrator.session)
-        self.assertEqual(llm_arguments["provider"], "gemini")
-        self.assertEqual(llm_arguments["model"], "gemini-2.5-flash-lite")
+        self.assertEqual(llm_arguments["provider"], "ollama")
+        self.assertEqual(llm_arguments["model"], settings.AGENT_LLM_MODEL)
         self.assertIn('["Campaign", "Spend", "Clicks"]', llm_arguments["user_prompt"])
         self.assertEqual(llm_arguments["call_purpose"], "criteria_generation")
         mock_get_key.assert_called_once()
 
     @patch(
         "agent.llm_client.call_llm",
-        side_effect=GeminiRetriesExhausted("Gemini rate limited"),
+        side_effect=OllamaRetriesExhausted("Ollama rate limited"),
     )
-    @patch("core.services.gemini_client._get_api_key", return_value="test-key")
-    def test_gemini_retry_exhaustion_marks_step_skipped(
+    @patch("core.services.ollama_client._get_api_key", return_value="test-key")
+    def test_ollama_retry_exhaustion_marks_step_skipped(
         self, mock_get_key, mock_call_llm
     ):
         executor = GenerateCriteriaExecutor(
@@ -1237,15 +1269,15 @@ class GenerateCriteriaExecutorTests(SimpleTestCase):
 
         self.assertFalse(result.success)
         self.assertTrue(result.skipped)
-        self.assertEqual(result.error, "Gemini rate limited")
+        self.assertEqual(result.error, "Ollama rate limited")
         mock_get_key.assert_called_once()
         mock_call_llm.assert_called_once()
 
     @patch(
         "agent.llm_client.call_llm",
-        side_effect=RuntimeError("Gemini request timed out"),
+        side_effect=RuntimeError("Ollama request timed out"),
     )
-    @patch("core.services.gemini_client._get_api_key", return_value="test-key")
+    @patch("core.services.ollama_client._get_api_key", return_value="test-key")
     def test_runtime_error_is_handled_by_retry_policy(
         self, mock_get_key, mock_call_llm
     ):
@@ -1262,12 +1294,12 @@ class GenerateCriteriaExecutorTests(SimpleTestCase):
 
         self.assertFalse(result.success)
         self.assertTrue(result.skipped)
-        self.assertEqual(result.error, "Gemini request timed out")
+        self.assertEqual(result.error, "Ollama request timed out")
         mock_get_key.assert_called_once()
         mock_call_llm.assert_called_once()
 
     @patch("agent.llm_client.call_llm", return_value={"text": "not-json"})
-    @patch("core.services.gemini_client._get_api_key", return_value="test-key")
+    @patch("core.services.ollama_client._get_api_key", return_value="test-key")
     def test_invalid_llm_response_continues_without_criteria(
         self, mock_get_key, mock_call_llm
     ):
@@ -1369,9 +1401,9 @@ class DetectColumnsExecutorTests(SimpleTestCase):
 
     @patch(
         "agent.column_registry.detect_columns",
-        side_effect=GeminiRetriesExhausted("Gemini rate limited"),
+        side_effect=OllamaRetriesExhausted("Ollama rate limited"),
     )
-    def test_gemini_retry_exhaustion_marks_step_skipped(self, mock_detect_columns):
+    def test_ollama_retry_exhaustion_marks_step_skipped(self, mock_detect_columns):
         executor = DetectColumnsExecutor(
             _StepStub(), _WorkflowRunStub(), _OrchestratorStub()
         )
@@ -1380,7 +1412,7 @@ class DetectColumnsExecutorTests(SimpleTestCase):
 
         self.assertFalse(result.success)
         self.assertTrue(result.skipped)
-        self.assertEqual(result.error, "Gemini rate limited")
+        self.assertEqual(result.error, "Ollama rate limited")
         mock_detect_columns.assert_called_once()
 
     @patch(
@@ -1630,7 +1662,7 @@ class PersistMetadataTests(SimpleTestCase):
 
 
 class GenerateMiroSnapshotExecutorTests(SimpleTestCase):
-    @patch("agent.miro_generation.call_gemini_miro_generator")
+    @patch("agent.miro_generation.call_ollama_miro_generator")
     @patch("agent.miro_generation.build_miro_generation_context_from_run")
     def test_success_saves_snapshot_and_reports_item_count(
         self, mock_build_context, mock_generate_snapshot
@@ -1664,11 +1696,11 @@ class GenerateMiroSnapshotExecutorTests(SimpleTestCase):
         )
 
     @patch(
-        "agent.miro_generation.call_gemini_miro_generator",
-        side_effect=GeminiRetriesExhausted("Gemini rate limited"),
+        "agent.miro_generation.call_ollama_miro_generator",
+        side_effect=OllamaRetriesExhausted("Ollama rate limited"),
     )
     @patch("agent.miro_generation.build_miro_generation_context_from_run")
-    def test_gemini_retry_exhaustion_returns_failure(
+    def test_ollama_retry_exhaustion_returns_failure(
         self, mock_build_context, mock_generate_snapshot
     ):
         context = {"analysis": {"recommended_tasks": []}}
@@ -1682,7 +1714,7 @@ class GenerateMiroSnapshotExecutorTests(SimpleTestCase):
         result = executor.execute({})
 
         self.assertFalse(result.success)
-        self.assertEqual(result.error, "Gemini rate limited")
+        self.assertEqual(result.error, "Ollama rate limited")
         mock_build_context.assert_called_once_with(
             session=orchestrator.session,
             workflow_run=workflow_run,
@@ -1710,7 +1742,7 @@ class GenerateMiroSnapshotExecutorTests(SimpleTestCase):
 
     @patch(
         "agent.miro_generation.build_miro_generation_context_from_run",
-        side_effect=RuntimeError("Gemini request timed out"),
+        side_effect=RuntimeError("Ollama request timed out"),
     )
     def test_runtime_error_is_handled_by_retry_policy(self, mock_build_context):
         # The production decorator normally retries three times. One attempt is
@@ -1724,7 +1756,7 @@ class GenerateMiroSnapshotExecutorTests(SimpleTestCase):
 
         self.assertFalse(result.success)
         self.assertFalse(result.skipped)
-        self.assertEqual(result.error, "Gemini request timed out")
+        self.assertEqual(result.error, "Ollama request timed out")
         mock_build_context.assert_called_once()
 
 

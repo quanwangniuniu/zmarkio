@@ -3,6 +3,7 @@ import json
 import logging
 
 from django.conf import settings
+from core.services.ollama_client import parse_json_text
 from django.utils import timezone as django_timezone
 
 from .analysis import _preprocess_spreadsheet
@@ -10,7 +11,7 @@ from .analysis import _preprocess_spreadsheet
 logger = logging.getLogger(__name__)
 
 
-def _call_gemini_calendar_from_analysis(
+def _call_ollama_calendar_from_analysis(
     spreadsheet_data,
     analysis_result,
     user_id=None,
@@ -19,7 +20,7 @@ def _call_gemini_calendar_from_analysis(
     agent_session=None,
 ):
     """Suggest calendar events from spreadsheet + analysis context."""
-    from core.services.gemini_client import call_gemini_json
+    from core.services.ollama_client import call_ollama_json
     from ..generation_registry import (
         build_calendar_from_analysis_user_prompt,
         calendar_from_analysis_system_prompt,
@@ -34,18 +35,17 @@ def _call_gemini_calendar_from_analysis(
         column_summary, cleaned_data, analysis_result
     )
     if agent_session is None:
-        raw = call_gemini_json(
+        raw = call_ollama_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.3,
-            timeout=120,
         )
     else:
         from ..llm_client import call_llm as _call_llm_unified
 
         result = _call_llm_unified(
             agent_session=agent_session,
-            provider='gemini',
+            provider='ollama',
             model=settings.AGENT_LLM_MODEL,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -54,8 +54,8 @@ def _call_gemini_calendar_from_analysis(
             response_mime_type='application/json',
             call_purpose='calendar_suggestion',
         )
-        raw = json.loads(result['text'])
-    logger.info("Calling Gemini for calendar events user_id=%s", user_id)
+        raw = parse_json_text(result['text'])
+    logger.info("Calling Ollama for calendar events user_id=%s", user_id)
     return validate_calendar_events_response(raw)
 
 
@@ -237,10 +237,10 @@ class CalendarMixin:
         }
         calendar_data_str = json.dumps(calendar_payload, ensure_ascii=False)
 
-        # Call Gemini Calendar Assistant
-        from core.services.gemini_client import call_gemini, _get_api_key as _gemini_key
-        if not _gemini_key():
-            yield {"type": "error", "content": "Calendar AI is not configured. Please set GEMINI_API_KEY."}
+        # Call Ollama calendar assistant
+        from core.services.ollama_client import call_ollama_text, is_llm_configured
+        if not is_llm_configured():
+            yield {"type": "error", "content": "Calendar AI is not configured. Please set OLLAMA_BASE_URL."}
             return
 
         _calendar_system_prompt = (
@@ -269,7 +269,7 @@ class CalendarMixin:
         )
 
         try:
-            raw_answer = call_gemini(
+            raw_answer = call_ollama_text(
                 system_prompt=_calendar_system_prompt,
                 user_prompt=(
                     f"Calendar data:\n{calendar_data_str}\n\n"
@@ -277,10 +277,9 @@ class CalendarMixin:
                     f"Return JSON only."
                 ),
                 temperature=0.3,
-                timeout=90,
             )
         except Exception as e:
-            logger.error(f"Gemini calendar workflow error: {e}")
+            logger.error(f"Ollama calendar workflow error: {e}")
             yield {"type": "error", "content": "Failed to get AI response. Please try again."}
             return
 
@@ -372,7 +371,7 @@ class CalendarMixin:
             }
 
     def _emit_calendar_events_if_requested(self, workflow_run, input_data):
-        """After workflow steps, optionally call Gemini for calendar_events."""
+        """After workflow steps, optionally call Ollama for calendar_events."""
         from ..generation_registry import (
             GenerationValidationError,
             normalize_generation_outputs,
@@ -401,14 +400,14 @@ class CalendarMixin:
             return
 
         try:
-            from core.services.gemini_client import _get_api_key as _gemini_key
-            if not _gemini_key():
+            from core.services.ollama_client import is_llm_configured
+            if not is_llm_configured():
                 yield {
                     'type': 'error',
-                    'content': 'Calendar AI is not configured. Please set GEMINI_API_KEY.',
+                    'content': 'Calendar AI is not configured. Please set OLLAMA_BASE_URL.',
                 }
                 return
-            result = _call_gemini_calendar_from_analysis(
+            result = _call_ollama_calendar_from_analysis(
                 spreadsheet_data,
                 workflow_run.analysis_result or {},
                 user_id=str(self.user.id),

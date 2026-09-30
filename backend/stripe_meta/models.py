@@ -111,7 +111,7 @@ class LLMCallLog(models.Model):
     organization = models.ForeignKey('core.Organization', on_delete=models.CASCADE)
     agent_session = models.ForeignKey('agent.AgentSession', null=True, on_delete=models.SET_NULL)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL)
-    provider = models.CharField(max_length=20)    # 'anthropic' or 'gemini'
+    provider = models.CharField(max_length=20)    # 'anthropic' or 'ollama' ('gemini' on historical rows)
     model_name = models.CharField(max_length=80)
     call_purpose = models.CharField(
         max_length=30,

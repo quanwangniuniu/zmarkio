@@ -3,7 +3,7 @@ import logging
 
 from ..models import AgentMessage
 from ..agent_utils import serialize_agent_messages
-from .followup import _call_gemini_chat, _serialize_project_members
+from .followup import _call_ollama_chat, _serialize_project_members
 from .miro import MIRO_LEGACY_BG_QUEUED_MESSAGE
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ class LegacyMixin:
                         self.user.id,
                         len(project_members),
                     )
-                    result = _call_gemini_chat(
+                    result = _call_ollama_chat(
                         full_input,
                         user_id=self.user.id,
                         analysis_result=latest_run.analysis_result,

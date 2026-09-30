@@ -12,7 +12,7 @@ MIRO_LEGACY_BG_QUEUED_MESSAGE = (
 
 
 def _generate_miro_board_for_workflow_run(orchestrator, workflow_run, context_payload=None):
-    """Generate Miro snapshot (Gemini) and persist the board.
+    """Generate Miro snapshot (Ollama) and persist the board.
 
     Legacy ``generate_miro`` is an explicit user action — clicking Generate Miro
     counts as approval, so we never pause on a separate miro_board approval step.
@@ -20,7 +20,7 @@ def _generate_miro_board_for_workflow_run(orchestrator, workflow_run, context_pa
     from ..approval_gate import KIND_MIRO_BOARD
     from ..miro_generation import (
         build_miro_generation_context_from_run,
-        call_gemini_miro_generator,
+        call_ollama_miro_generator,
         deserialize_miro_generation_context,
         serialize_miro_generation_context,
     )
@@ -43,7 +43,7 @@ def _generate_miro_board_for_workflow_run(orchestrator, workflow_run, context_pa
                 workflow_run=workflow_run,
             )
             context = serialize_miro_generation_context(context)
-        snapshot = call_gemini_miro_generator(
+        snapshot = call_ollama_miro_generator(
             context,
             user_id=str(orchestrator.user.id),
             agent_session=orchestrator.session,

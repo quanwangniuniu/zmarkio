@@ -6,8 +6,8 @@ Covers:
   - Provider exception: release_quota fires, LLMCallLog(success=False), exception re-raised
   - SINGLE_CALL_TOO_LARGE: raises QuotaError BEFORE reserve_quota (mock_reserve.assert_not_called)
   - Model multiplier: sonnet(×1.0) vs haiku(×0.2) normalized_tokens ratio = 5
-  - Gemini usage parsing: input/output tokens correctly flow into LLMCallLog
-  - Gemini missing usageMetadata: _call_gemini falls back to estimate, never records 0
+  - Ollama usage parsing: input/output tokens correctly flow into LLMCallLog
+  - Ollama missing usage counts: falls back to estimate, never records 0
 """
 from unittest.mock import patch, MagicMock
 
@@ -32,7 +32,7 @@ _SETTINGS = {
     'LLM_PRICE_TABLE': {
         'claude-sonnet-4-20250514': {'input': 300, 'output': 1500},
         'claude-haiku-4-5': {'input': 80, 'output': 400},
-        # gemini not listed → prices default to {'input': 0, 'output': 0}
+        # qwen3:4b (Ollama) not listed → prices default to {'input': 0, 'output': 0}
     },
 }
 
@@ -186,60 +186,59 @@ class CallLLMSuccessTests(_LLMBase):
         self.assertEqual(haiku_log.normalized_tokens, 20)     # int((50+50) × 0.2)
         self.assertEqual(sonnet_log.normalized_tokens / haiku_log.normalized_tokens, 5.0)
 
-    @patch('agent.llm_client._call_gemini')
-    def test_gemini_usage_correctly_logged(self, mock_gemini):
+    @patch('agent.llm_client._call_ollama')
+    def test_ollama_usage_correctly_logged(self, mock_ollama):
         """
-        Mock _call_gemini returns explicit usage → LLMCallLog has those exact values.
+        Mock _call_ollama returns explicit usage → LLMCallLog has those exact values.
         Verifies the usage dict flows into the log (not estimated or 0).
         """
         from agent.llm_client import call_llm
 
-        mock_gemini.return_value = {
+        mock_ollama.return_value = {
             'text': '{"ok": true}',
             'usage': {'input': 80, 'output': 120},
         }
         call_llm(
             agent_session=self.session,
-            provider='gemini',
-            model='gemini-2.5-flash-lite',
+            provider='ollama',
+            model='qwen3:4b',
             system_prompt='sys',
             user_prompt='usr',
             max_output_tokens=256,
             response_mime_type='application/json',
         )
 
-        log = LLMCallLog.objects.get(organization=self.org, provider='gemini')
+        log = LLMCallLog.objects.get(organization=self.org, provider='ollama')
         self.assertTrue(log.success)
         self.assertEqual(log.input_tokens, 80)
         self.assertEqual(log.output_tokens, 120)
-        # gemini not in _SETTINGS MODEL_TOKEN_MULTIPLIER → default 1.0
+        # qwen3:4b not in _SETTINGS MODEL_TOKEN_MULTIPLIER → default 1.0
         self.assertEqual(log.normalized_tokens, int((80 + 120) * 1.0))
 
-    @patch('agent.llm_client._call_gemini')
-    def test_gemini_estimate_fallback_never_logs_zero(self, mock_gemini):
+    @patch('agent.llm_client._call_ollama')
+    def test_ollama_estimate_fallback_never_logs_zero(self, mock_ollama):
         """
-        When _call_gemini falls back to estimate (usageMetadata absent),
+        When _call_ollama falls back to estimate (usage counts absent),
         it must never return {input:0, output:0}.
-        The fallback in llm_client._call_gemini uses estimate_input_tokens + quota //4.
         Verify the propagated values are > 0.
         """
         from agent.llm_client import call_llm
 
-        # Simulate the fallback path inside _call_gemini returning non-zero estimate
-        mock_gemini.return_value = {
+        # Simulate the fallback path inside _call_ollama returning non-zero estimate
+        mock_ollama.return_value = {
             'text': 'answer',
             'usage': {'input': 15, 'output': 64},   # estimate fallback values
         }
         call_llm(
             agent_session=self.session,
-            provider='gemini',
-            model='gemini-2.5-flash-lite',
+            provider='ollama',
+            model='qwen3:4b',
             system_prompt='sys',
             user_prompt='usr',
             max_output_tokens=256,
         )
 
-        log = LLMCallLog.objects.get(organization=self.org, provider='gemini')
+        log = LLMCallLog.objects.get(organization=self.org, provider='ollama')
         self.assertGreater(log.input_tokens, 0)
         self.assertGreater(log.output_tokens, 0)
         self.assertGreater(log.normalized_tokens, 0)
@@ -278,22 +277,21 @@ class CallLLMQuotaEnforcementTests(_LLMBase):
         mock_reserve.assert_not_called()
 
 
-# ── LLM_BACKEND=ollama routing ────────────────────────────────────────────────
+# ── Ollama provider ────────────────────────────────────────────────
 
-@override_settings(**_SETTINGS, LLM_BACKEND='ollama', OLLAMA_MODEL='qwen3:4b')
+@override_settings(**_SETTINGS, OLLAMA_MODEL='qwen3:4b')
 class CallLLMOllamaBackendTests(_LLMBase):
 
-    @patch('agent.llm_client._call_gemini')
     @patch('agent.llm_client.call_ollama')
-    def test_gemini_provider_is_served_by_ollama(self, mock_ollama, mock_gemini):
-        """provider='gemini' → Ollama; logged as provider='ollama' with OLLAMA_MODEL."""
+    def test_ollama_provider_calls_ollama_and_logs_usage(self, mock_ollama):
+        """provider='ollama' → Ollama; logged as provider='ollama' with OLLAMA_MODEL."""
         from agent.llm_client import call_llm
 
         mock_ollama.return_value = {'text': '{"ok": true}', 'usage': {'input': 40, 'output': 60}}
         result = call_llm(
             agent_session=self.session,
-            provider='gemini',
-            model='gemini-2.5-flash-lite',
+            provider='ollama',
+            model='qwen3:4b',
             system_prompt='sys',
             user_prompt='usr',
             max_output_tokens=256,
@@ -302,7 +300,6 @@ class CallLLMOllamaBackendTests(_LLMBase):
         )
 
         self.assertEqual(result['text'], '{"ok": true}')
-        mock_gemini.assert_not_called()
         kwargs = mock_ollama.call_args.kwargs
         self.assertEqual(kwargs['model'], 'qwen3:4b')
         self.assertTrue(kwargs['json_mode'])
@@ -328,8 +325,8 @@ class CallLLMOllamaBackendTests(_LLMBase):
         mock_ollama.return_value = {'text': 'answer text', 'usage': {'input': 0, 'output': 0}}
         call_llm(
             agent_session=self.session,
-            provider='gemini',
-            model='gemini-2.5-flash-lite',
+            provider='ollama',
+            model='qwen3:4b',
             system_prompt='system prompt',
             user_prompt='user prompt',
         )
@@ -355,16 +352,15 @@ class CallLLMOllamaBackendTests(_LLMBase):
         self.assertEqual(LLMCallLog.objects.get(organization=self.org).provider, 'anthropic')
 
     @patch('agent.llm_client.call_ollama')
-    def test_ollama_failure_log_names_the_gemini_redirect(self, mock_ollama):
-        """A failed redirected call must not read as a Gemini failure."""
+    def test_ollama_failure_is_logged(self, mock_ollama):
         from agent.llm_client import call_llm
 
         mock_ollama.side_effect = RuntimeError('connection refused')
         with self.assertRaises(RuntimeError):
             call_llm(
                 agent_session=self.session,
-                provider='gemini',
-                model='gemini-2.5-flash-lite',
+                provider='ollama',
+                model='qwen3:4b',
                 system_prompt='s',
                 user_prompt='u',
             )
@@ -372,5 +368,4 @@ class CallLLMOllamaBackendTests(_LLMBase):
         log = LLMCallLog.objects.get(organization=self.org)
         self.assertFalse(log.success)
         self.assertEqual(log.provider, 'ollama')
-        self.assertIn('redirected from gemini:gemini-2.5-flash-lite', log.error_message)
         self.assertIn('connection refused', log.error_message)

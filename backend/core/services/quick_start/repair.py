@@ -1,5 +1,5 @@
 """
-Post-LLM repair pass for Gemini CampaignPlan / ProjectBlueprint payloads.
+Post-LLM repair pass for Ollama CampaignPlan / ProjectBlueprint payloads.
 
 Runs before strict validation so minor format drift does not fail preview generation.
 """
@@ -176,7 +176,7 @@ def _repair_date_only(value: Any) -> str | None:
 
 
 def repair_iso_datetime(value: Any, *, default_hour: int = 9) -> str | None:
-    """Normalize common Gemini datetime shapes to ISO-8601 with Z suffix."""
+    """Normalize common Ollama datetime shapes to ISO-8601 with Z suffix."""
     if value is None or value == '':
         return None
     text = str(value).strip()

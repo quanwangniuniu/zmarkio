@@ -1,4 +1,4 @@
-"""Tests for post-LLM Gemini output repair."""
+"""Tests for post-LLM Ollama output repair."""
 
 from __future__ import annotations
 

@@ -176,7 +176,7 @@ class RuleBasedDetectionTests(SimpleTestCase):
 # LLM fallback
 # ---------------------------------------------------------------------------
 
-_GEMINI_SETTINGS = dict(GEMINI_API_KEY='test-key')
+_OLLAMA_SETTINGS = dict(OLLAMA_BASE_URL='http://ollama.test:11434')
 
 
 class LLMFallbackTests(TestCase):
@@ -219,8 +219,8 @@ class LLMFallbackTests(TestCase):
         )
         self.session = AgentSession.objects.create(user=self.user, project=self.project)
 
-    def _make_gemini_response(self, columns_list, schema_name='Custom Report', confidence=0.8):
-        """Return the dict that _call_gemini would return for a successful call."""
+    def _make_ollama_response(self, columns_list, schema_name='Custom Report', confidence=0.8):
+        """Return the dict that _call_ollama would return for a successful call."""
         return {
             'text': json.dumps({
                 'schema_name': schema_name,
@@ -230,11 +230,11 @@ class LLMFallbackTests(TestCase):
             'usage': {'input': 10, 'output': 20},
         }
 
-    @override_settings(**_GEMINI_SETTINGS)
-    @patch('agent.llm_client._call_gemini')
+    @override_settings(**_OLLAMA_SETTINGS)
+    @patch('agent.llm_client._call_ollama')
     def test_llm_fallback_success(self, mock_run):
         headers = ['Revenue', 'Sessions', 'Bounce Rate']
-        mock_run.return_value = self._make_gemini_response([
+        mock_run.return_value = self._make_ollama_response([
             {'original': 'Revenue', 'canonical': 'revenue', 'category': 'financial', 'confidence': 0.95},
             {'original': 'Sessions', 'canonical': 'sessions', 'category': 'engagement', 'confidence': 0.9},
             {'original': 'Bounce Rate', 'canonical': 'bounce_rate', 'category': 'performance_ratio', 'confidence': 0.8},
@@ -250,25 +250,25 @@ class LLMFallbackTests(TestCase):
         self.assertEqual(result.column_confidences['Sessions'], 0.9)
         self.assertEqual(result.column_confidences['Bounce Rate'], 0.8)
 
-    @override_settings(**_GEMINI_SETTINGS)
-    @patch('agent.llm_client._call_gemini')
+    @override_settings(**_OLLAMA_SETTINGS)
+    @patch('agent.llm_client._call_ollama')
     def test_llm_fallback_includes_sample_rows_in_prompt(self, mock_run):
         headers = ['Revenue']
         sample_rows = [{'Revenue': 1000}, {'Revenue': 2000}]
-        mock_run.return_value = self._make_gemini_response([
+        mock_run.return_value = self._make_ollama_response([
             {'original': 'Revenue', 'canonical': 'revenue', 'category': 'financial', 'confidence': 0.9},
         ])
 
         detect_columns(headers, sample_rows=sample_rows, agent_session=self.session)
 
-        # _call_gemini is called positionally: (model, system_prompt, user_prompt, ...)
+        # _call_ollama is called positionally: (model, system_prompt, user_prompt, ...)
         user_prompt = mock_run.call_args[0][2]
-        # Sample rows must be serialised into the user prompt sent to Gemini
+        # Sample rows must be serialised into the user prompt sent to Ollama
         self.assertIn('1000', user_prompt)
 
-    @override_settings(**_GEMINI_SETTINGS)
+    @override_settings(**_OLLAMA_SETTINGS)
     @patch('agent.column_registry._try_db_template_match', return_value=None)
-    @patch('agent.llm_client._call_gemini')
+    @patch('agent.llm_client._call_ollama')
     def test_llm_fallback_strips_markdown_fences(self, mock_run, _mock_db):
         headers = ['xyzUnknownMetric999']
         mock_run.return_value = {
@@ -283,11 +283,11 @@ class LLMFallbackTests(TestCase):
         self.assertEqual(result.source, 'llm')
         self.assertEqual(result.mappings['xyzUnknownMetric999'], 'xyz_metric')
 
-    @override_settings(**_GEMINI_SETTINGS)
-    @patch('agent.llm_client._call_gemini')
+    @override_settings(**_OLLAMA_SETTINGS)
+    @patch('agent.llm_client._call_ollama')
     def test_llm_unknown_columns_labeled_unknown(self, mock_run):
         headers = ['WeirdCol1', 'WeirdCol2']
-        mock_run.return_value = self._make_gemini_response([
+        mock_run.return_value = self._make_ollama_response([
             {'original': 'WeirdCol1', 'canonical': 'unknown', 'category': 'unknown', 'confidence': 0.0},
             {'original': 'WeirdCol2', 'canonical': 'unknown', 'category': 'unknown', 'confidence': 0.0},
         ])
@@ -300,8 +300,8 @@ class LLMFallbackTests(TestCase):
         self.assertEqual(result.column_confidences['WeirdCol1'], 0.0)
         self.assertEqual(result.column_confidences['WeirdCol2'], 0.0)
 
-    @override_settings(**_GEMINI_SETTINGS)
-    @patch('agent.llm_client._call_gemini')
+    @override_settings(**_OLLAMA_SETTINGS)
+    @patch('agent.llm_client._call_ollama')
     def test_llm_exception_falls_back_to_all_unknown(self, mock_run):
         headers = ['ColA', 'ColB']
         mock_run.side_effect = Exception('network error')
@@ -311,10 +311,9 @@ class LLMFallbackTests(TestCase):
         self.assertEqual(result.confidence, 0.0)
         self.assertTrue(all(v == CAT_UNKNOWN for v in result.mappings.values()))
 
-    @patch.dict('os.environ', {'GEMINI_API_KEY': ''})
-    def test_llm_skipped_when_no_api_key(self):
+    def test_llm_skipped_when_ollama_not_configured(self):
         headers = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon']
-        with override_settings(GEMINI_API_KEY=''):
+        with override_settings(OLLAMA_BASE_URL=''):
             result = detect_columns(headers, agent_session=self.session)
         # Should return unknown result (no LLM, no rule match)
         self.assertIn(result.source, ('none', 'rule'))
@@ -505,7 +504,7 @@ class LearnedTemplateTests(SimpleTestCase):
 
 
 class LLMQuotaPropagationTests(SimpleTestCase):
-    @patch('core.services.gemini_client._get_api_key', return_value='test-key')
+    @patch('core.services.ollama_client._get_api_key', return_value='test-key')
     @patch('agent.llm_client.call_llm')
     def test_quota_error_is_not_converted_to_unknown_result(self, mock_call_llm, _mock_key):
         from stripe_meta.exceptions import QuotaError

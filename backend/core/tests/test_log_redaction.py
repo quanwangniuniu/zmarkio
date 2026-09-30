@@ -33,7 +33,7 @@ def test_redact_string_sk_pattern():
 
 
 def test_redact_string_preserves_safe_text():
-    text = "Calling Gemini model=gemini-2.5-flash-lite system_chars=120 user_chars=40"
+    text = "Calling Ollama model=qwen3:4b json=False system_chars=120 user_chars=40"
     assert redact_string(text) == text
 
 

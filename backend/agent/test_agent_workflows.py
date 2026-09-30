@@ -602,8 +602,8 @@ class OrchestratorTests(TestCase):
         self.assertEqual(workflow_run.status, 'completed')
 
 
-    @patch('agent.services.legacy._call_gemini_chat')
-    def test_follow_up_completed_marks_run_and_passes_project_members(self, mock_call_gemini_chat):
+    @patch('agent.services.legacy._call_ollama_chat')
+    def test_follow_up_completed_marks_run_and_passes_project_members(self, mock_call_ollama_chat):
         teammate = CustomUser.objects.create_user(
             email='alice@test.com',
             username='alice',
@@ -630,7 +630,7 @@ class OrchestratorTests(TestCase):
             role='assistant',
             content='Analysis complete.',
         )
-        mock_call_gemini_chat.return_value = {
+        mock_call_ollama_chat.return_value = {
             'status': 'completed',
             'text': 'Prepared a summary.',
             'forwards': [],
@@ -646,24 +646,24 @@ class OrchestratorTests(TestCase):
         workflow_run.refresh_from_db()
         self.assertTrue(workflow_run.chat_followed_up)
 
-        self.assertTrue(mock_call_gemini_chat.called)
-        project_members = mock_call_gemini_chat.call_args.kwargs['project_members']
-        current_username = mock_call_gemini_chat.call_args.kwargs['current_username']
+        self.assertTrue(mock_call_ollama_chat.called)
+        project_members = mock_call_ollama_chat.call_args.kwargs['project_members']
+        current_username = mock_call_ollama_chat.call_args.kwargs['current_username']
         usernames = {member['username'] for member in project_members}
         self.assertEqual(current_username, 'orchuser')
         self.assertIn('orchuser', usernames)
         self.assertIn('alice', usernames)
         self.assertNotIn('agent-bot', usernames)
 
-    @patch('agent.services.legacy._call_gemini_chat')
-    def test_follow_up_needs_clarification_keeps_run_open(self, mock_call_gemini_chat):
+    @patch('agent.services.legacy._call_ollama_chat')
+    def test_follow_up_needs_clarification_keeps_run_open(self, mock_call_ollama_chat):
         workflow_run = AgentWorkflowRun.objects.create(
             session=self.session,
             status='awaiting_confirmation',
             analysis_result=_test_analysis_data(),
             chat_follow_up_started=True,
         )
-        mock_call_gemini_chat.return_value = {
+        mock_call_ollama_chat.return_value = {
             'status': 'needs_clarification',
             'text': 'Please provide the exact username.',
             'forwards': [],
@@ -677,7 +677,7 @@ class OrchestratorTests(TestCase):
             chunks,
         )
         self.assertEqual(
-            mock_call_gemini_chat.call_args.kwargs['current_username'],
+            mock_call_ollama_chat.call_args.kwargs['current_username'],
             'orchuser',
         )
         workflow_run.refresh_from_db()
@@ -729,8 +729,8 @@ class OrchestratorTests(TestCase):
         self.assertFalse(workflow_run.chat_follow_up_started)
         self.assertFalse(workflow_run.chat_followed_up)
 
-    @patch('agent.services.legacy._call_gemini_chat')
-    def test_follow_up_requires_explicit_start(self, mock_call_gemini_chat):
+    @patch('agent.services.legacy._call_ollama_chat')
+    def test_follow_up_requires_explicit_start(self, mock_call_ollama_chat):
         AgentWorkflowRun.objects.create(
             session=self.session,
             status='awaiting_confirmation',
@@ -750,7 +750,7 @@ class OrchestratorTests(TestCase):
             },
             chunks,
         )
-        mock_call_gemini_chat.assert_not_called()
+        mock_call_ollama_chat.assert_not_called()
 
     def test_forward_to_users_does_not_match_first_name(self):
         teammate = CustomUser.objects.create_user(
@@ -1121,11 +1121,10 @@ class CalendarAgentTests(TestCase):
     # handle_message routing                                              #
     # ------------------------------------------------------------------ #
 
-    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    @patch('core.services.gemini_client.call_gemini')
-    def test_handle_message_routes_to_calendar_when_context_provided(self, mock_call_gemini):
-        """handle_message with calendar_context skips general chat and calls Gemini calendar."""
-        mock_call_gemini.return_value = '{"answer": "You have 1 event.", "create_events": []}'
+    @patch('core.services.ollama_client.call_ollama_text')
+    def test_handle_message_routes_to_calendar_when_context_provided(self, mock_call_ollama):
+        """handle_message with calendar_context skips general chat and calls Ollama calendar."""
+        mock_call_ollama.return_value = '{"answer": "You have 1 event.", "create_events": []}'
 
         calendar_context = {'type': 'calendar', 'calendarIds': [], 'currentView': 'week'}
         chunks = list(self.orchestrator.handle_message(
@@ -1135,9 +1134,9 @@ class CalendarAgentTests(TestCase):
         types = [c['type'] for c in chunks]
         self.assertIn('text', types)
         self.assertIn('done', types)
-        self.assertTrue(mock_call_gemini.called)
+        self.assertTrue(mock_call_ollama.called)
 
-    @patch('agent.services.calendar._call_gemini_calendar_from_analysis')
+    @patch('agent.services.calendar._call_ollama_calendar_from_analysis')
     @patch.object(AgentOrchestrator, 'answer_calendar_question')
     def test_handle_message_without_calendar_context_skips_calendar(
         self, mock_answer_calendar, mock_calendar_llm
@@ -1203,11 +1202,10 @@ class CalendarAgentTests(TestCase):
     # answer_calendar_question — Dify response handling                  #
     # ------------------------------------------------------------------ #
 
-    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    @patch('core.services.gemini_client.call_gemini')
-    def test_answer_calendar_question_yields_text_chunk(self, mock_call_gemini):
-        """A successful Gemini response yields a text chunk with the answer."""
-        mock_call_gemini.return_value = '{"answer": "You have 2 events this week.", "create_events": []}'
+    @patch('core.services.ollama_client.call_ollama_text')
+    def test_answer_calendar_question_yields_text_chunk(self, mock_call_ollama):
+        """A successful Ollama response yields a text chunk with the answer."""
+        mock_call_ollama.return_value = '{"answer": "You have 2 events this week.", "create_events": []}'
 
         self._make_calendar_and_event(days_offset=1)
         context = {'type': 'calendar', 'calendarIds': []}
@@ -1215,15 +1213,14 @@ class CalendarAgentTests(TestCase):
         text_chunks = [c for c in chunks if c['type'] == 'text' and 'events this week' in c.get('content', '')]
         self.assertTrue(len(text_chunks) > 0)
 
-    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    @patch('core.services.gemini_client.call_gemini')
-    def test_answer_calendar_question_creates_event_from_dify(self, mock_call_gemini):
-        """When Gemini returns create_events, the events are created in the DB."""
+    @patch('core.services.ollama_client.call_ollama_text')
+    def test_answer_calendar_question_creates_event_from_dify(self, mock_call_ollama):
+        """When Ollama returns create_events, the events are created in the DB."""
         from calendars.models import Calendar as CalendarModel, Event as EventModel
         CalendarModel.objects.create(
             organization=self.org, owner=self.user, name='My Calendar',
         )
-        mock_call_gemini.return_value = json.dumps({
+        mock_call_ollama.return_value = json.dumps({
             'answer': 'I have scheduled a meeting for you.',
             'create_events': [{
                 'title': 'AI Scheduled Meeting',
@@ -1239,20 +1236,18 @@ class CalendarAgentTests(TestCase):
         after_count = EventModel.objects.filter(organization=self.org).count()
         self.assertEqual(after_count, before_count + 1)
 
-    @patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'})
-    @patch('core.services.gemini_client.call_gemini')
-    def test_answer_calendar_question_dify_error_yields_error_chunk(self, mock_call_gemini):
-        """A Gemini error yields an error chunk without raising."""
-        mock_call_gemini.side_effect = Exception('Network timeout')
+    @patch('core.services.ollama_client.call_ollama_text')
+    def test_answer_calendar_question_dify_error_yields_error_chunk(self, mock_call_ollama):
+        """A Ollama error yields an error chunk without raising."""
+        mock_call_ollama.side_effect = Exception('Network timeout')
         context = {'type': 'calendar', 'calendarIds': []}
         chunks = list(self.orchestrator.answer_calendar_question('What is on my calendar?', context))
         error_chunks = [c for c in chunks if c['type'] == 'error']
         self.assertTrue(len(error_chunks) > 0)
 
-    @override_settings(GEMINI_API_KEY='')
-    @patch.dict('os.environ', {'GEMINI_API_KEY': ''}, clear=False)
-    def test_answer_calendar_question_no_api_key_yields_error(self):
-        """Missing GEMINI_API_KEY yields a configuration error chunk."""
+    @override_settings(OLLAMA_BASE_URL='')
+    def test_answer_calendar_question_ollama_not_configured_yields_error(self):
+        """Missing OLLAMA_BASE_URL yields a configuration error chunk."""
         context = {'type': 'calendar', 'calendarIds': []}
         chunks = list(self.orchestrator.answer_calendar_question('Any events?', context))
         error_chunks = [c for c in chunks if c['type'] == 'error']
@@ -2193,7 +2188,7 @@ class OrchestratorUserContextThreadingTests(TestCase):
         mock_cache.set.assert_not_called()
 
 
-class GeminiAnalysisPromptInjectionTests(TestCase):
+class OllamaAnalysisPromptInjectionTests(TestCase):
     def setUp(self):
         from django.utils import timezone
         from datetime import timedelta
@@ -2227,79 +2222,79 @@ class GeminiAnalysisPromptInjectionTests(TestCase):
         )
         self.session = AgentSession.objects.create(user=self.user, project=self.project)
 
-    @patch('agent.llm_client._call_gemini')
-    def test_no_context_prompt_unchanged(self, mock_gemini):
-        from agent.services.analysis import _call_gemini_analysis
-        mock_gemini.return_value = {'text': json.dumps({'anomalies': [], 'recommended_tasks': []}), 'usage': {'input': 10, 'output': 20}}
+    @patch('agent.llm_client._call_ollama')
+    def test_no_context_prompt_unchanged(self, mock_ollama):
+        from agent.services.analysis import _call_ollama_analysis
+        mock_ollama.return_value = {'text': json.dumps({'anomalies': [], 'recommended_tasks': []}), 'usage': {'input': 10, 'output': 20}}
 
-        _call_gemini_analysis(
+        _call_ollama_analysis(
             {'name': 'test', 'sheets': []},
             user_id='1',
             user_context=None,
             agent_session=self.session,
         )
 
-        call_args = mock_gemini.call_args[0]
+        call_args = mock_ollama.call_args[0]
         system_prompt = call_args[1]
         self.assertNotIn('User Context', system_prompt)
 
-    @patch('agent.llm_client._call_gemini')
-    def test_context_appended_to_system_prompt(self, mock_gemini):
-        from agent.services.analysis import _call_gemini_analysis
-        mock_gemini.return_value = {'text': json.dumps({'anomalies': [], 'recommended_tasks': []}), 'usage': {'input': 10, 'output': 20}}
+    @patch('agent.llm_client._call_ollama')
+    def test_context_appended_to_system_prompt(self, mock_ollama):
+        from agent.services.analysis import _call_ollama_analysis
+        mock_ollama.return_value = {'text': json.dumps({'anomalies': [], 'recommended_tasks': []}), 'usage': {'input': 10, 'output': 20}}
 
-        _call_gemini_analysis(
+        _call_ollama_analysis(
             {'name': 'test', 'sheets': []},
             user_id='1',
             user_context='Focus on ROAS for EU region',
             agent_session=self.session,
         )
 
-        call_args = mock_gemini.call_args[0]
+        call_args = mock_ollama.call_args[0]
         system_prompt = call_args[1]
         self.assertIn('User Context', system_prompt)
         self.assertIn('Focus on ROAS for EU region', system_prompt)
         self.assertIn('defer to their stated goals', system_prompt)
         self.assertIn('Still surface critical anomalies', system_prompt)
 
-    @patch('agent.llm_client._call_gemini')
-    def test_empty_context_prompt_unchanged(self, mock_gemini):
-        from agent.services.analysis import _call_gemini_analysis
-        mock_gemini.return_value = {'text': json.dumps({'anomalies': [], 'recommended_tasks': []}), 'usage': {'input': 10, 'output': 20}}
+    @patch('agent.llm_client._call_ollama')
+    def test_empty_context_prompt_unchanged(self, mock_ollama):
+        from agent.services.analysis import _call_ollama_analysis
+        mock_ollama.return_value = {'text': json.dumps({'anomalies': [], 'recommended_tasks': []}), 'usage': {'input': 10, 'output': 20}}
 
-        _call_gemini_analysis(
+        _call_ollama_analysis(
             {'name': 'test', 'sheets': []},
             user_id='1',
             user_context='',
             agent_session=self.session,
         )
 
-        call_args = mock_gemini.call_args[0]
+        call_args = mock_ollama.call_args[0]
         system_prompt = call_args[1]
         self.assertNotIn('User Context', system_prompt)
 
-    @patch('core.services.gemini_client.call_gemini_json')
-    def test_decision_tree_in_system_prompt_when_requested(self, mock_gemini):
-        from agent.services.analysis import _call_gemini_analysis
+    @patch('core.services.ollama_client.call_ollama_json')
+    def test_decision_tree_in_system_prompt_when_requested(self, mock_ollama):
+        from agent.services.analysis import _call_ollama_analysis
 
-        mock_gemini.return_value = {
+        mock_ollama.return_value = {
             'recommended_decision_tree': {'nodes': []},
         }
 
-        _call_gemini_analysis(
+        _call_ollama_analysis(
             {'name': 'test', 'sheets': []},
             user_id='1',
             generation_outputs=['recommended_decision_tree'],
         )
 
-        system_prompt = mock_gemini.call_args[1]['system_prompt']
+        system_prompt = mock_ollama.call_args[1]['system_prompt']
         self.assertIn('recommended_decision_tree', system_prompt)
         self.assertIn('parent_refs', system_prompt)
 
 
 class RunAnalysisValidationRetryTests(TestCase):
-    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.analysis._call_gemini_analysis')
+    @patch('core.services.ollama_client._get_api_key', return_value='fake-key')
+    @patch('agent.services.analysis._call_ollama_analysis')
     def test_retries_on_validation_error_then_succeeds(self, mock_call, _mock_key):
         from agent.services.analysis import _run_analysis
 
@@ -2328,8 +2323,8 @@ class RunAnalysisValidationRetryTests(TestCase):
         )
         self.assertEqual(result['recommended_decision_tree']['nodes'][0]['parent_refs'], [])
 
-    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.analysis._call_gemini_analysis')
+    @patch('core.services.ollama_client._get_api_key', return_value='fake-key')
+    @patch('agent.services.analysis._call_ollama_analysis')
     def test_raises_after_max_validation_retries(self, mock_call, _mock_key):
         from agent.generation_registry import GenerationValidationError
         from agent.services.analysis import _ANALYSIS_VALIDATION_MAX_ATTEMPTS, _run_analysis
@@ -2349,8 +2344,8 @@ class RunAnalysisValidationRetryTests(TestCase):
 
         self.assertEqual(mock_call.call_count, _ANALYSIS_VALIDATION_MAX_ATTEMPTS)
 
-    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.analysis._call_gemini_analysis')
+    @patch('core.services.ollama_client._get_api_key', return_value='fake-key')
+    @patch('agent.services.analysis._call_ollama_analysis')
     def test_retries_on_recommended_tasks_validation_error_then_succeeds(self, mock_call, _mock_key):
         from agent.services.analysis import _run_analysis
 
@@ -2378,8 +2373,8 @@ class RunAnalysisValidationRetryTests(TestCase):
         )
         self.assertEqual(result['recommended_tasks'][0]['type'], 'alert')
 
-    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.analysis._call_gemini_analysis')
+    @patch('core.services.ollama_client._get_api_key', return_value='fake-key')
+    @patch('agent.services.analysis._call_ollama_analysis')
     def test_iter_analysis_yields_retry_event_before_retrying(self, mock_call, _mock_key):
         from agent.services.analysis import _ANALYSIS_VALIDATION_MAX_ATTEMPTS, _iter_analysis
 
@@ -2398,8 +2393,8 @@ class RunAnalysisValidationRetryTests(TestCase):
             next(gen)
         self.assertEqual(stop.exception.value['recommended_tasks'][0]['type'], 'alert')
 
-    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.analysis._call_gemini_analysis')
+    @patch('core.services.ollama_client._get_api_key', return_value='fake-key')
+    @patch('agent.services.analysis._call_ollama_analysis')
     def test_analyze_data_step_streams_retry_event(self, mock_call, _mock_key):
         from agent.executors import AnalyzeDataExecutor
 
@@ -2425,8 +2420,8 @@ class RunAnalysisValidationRetryTests(TestCase):
 
 
 class SpreadsheetInsightsValidationRetryTests(TestCase):
-    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.insights._call_gemini_spreadsheet_insights')
+    @patch('core.services.ollama_client._get_api_key', return_value='fake-key')
+    @patch('agent.services.insights._call_ollama_spreadsheet_insights')
     def test_retries_on_recommended_tasks_validation_then_succeeds(self, mock_call, _mock_key):
         from agent.services.insights import _run_spreadsheet_insights
 
@@ -2459,8 +2454,8 @@ class SpreadsheetInsightsValidationRetryTests(TestCase):
         self.assertEqual(result['recommended_tasks'][0]['type'], 'alert')
         self.assertEqual(result['recommended_tasks'][0]['priority'], 'HIGH')
 
-    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.insights._call_gemini_spreadsheet_insights')
+    @patch('core.services.ollama_client._get_api_key', return_value='fake-key')
+    @patch('agent.services.insights._call_ollama_spreadsheet_insights')
     def test_raises_after_max_insights_validation_retries(self, mock_call, _mock_key):
         from agent.generation_registry import GenerationValidationError
         from agent.services.analysis import _ANALYSIS_VALIDATION_MAX_ATTEMPTS
@@ -2481,8 +2476,8 @@ class SpreadsheetInsightsValidationRetryTests(TestCase):
 
         self.assertEqual(mock_call.call_count, _ANALYSIS_VALIDATION_MAX_ATTEMPTS)
 
-    @patch('core.services.gemini_client._get_api_key', return_value='fake-key')
-    @patch('agent.services.insights._call_gemini_spreadsheet_insights')
+    @patch('core.services.ollama_client._get_api_key', return_value='fake-key')
+    @patch('agent.services.insights._call_ollama_spreadsheet_insights')
     def test_retries_on_out_of_bounds_anomaly_location_then_succeeds(self, mock_call, _mock_key):
         from agent.services.insights import _run_spreadsheet_insights
 

@@ -1,4 +1,4 @@
-"""Independent Gemini chain for Quick Start (no Agent workflow orchestration)."""
+"""Independent Ollama chain for Quick Start (no Agent workflow orchestration)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Mapping
 
-from core.services.gemini_client import call_gemini_json
+from core.services.ollama_client import OllamaRetriesExhausted, call_ollama_json
 
 from core.services.quick_start.blueprint import normalize_selected_modules
 from core.services.quick_start.brief import build_campaign_brief
@@ -23,18 +23,18 @@ from core.services.quick_start.prompt_builder import (
     build_blueprint_user_prompt,
     build_plan_user_prompt,
 )
-from core.services.quick_start.json_coercion import coerce_gemini_json_object
+from core.services.quick_start.json_coercion import coerce_ollama_json_object
 from core.services.quick_start.user_messages import user_message_for_runtime_error
 from core.services.quick_start.validation import validate_and_normalize_blueprint, validate_prompt_text
 
 logger = logging.getLogger(__name__)
 
-GeminiJsonCaller = Callable[..., dict[str, Any]]
+OllamaJsonCaller = Callable[..., dict[str, Any]]
 
 
 class QuickStartLLMChain:
     """
-    Generates a ProjectBlueprint via two Gemini calls:
+    Generates a ProjectBlueprint via two Ollama calls:
     1) CampaignPlan from user input
     2) ProjectBlueprint expanded from the plan
     """
@@ -43,11 +43,13 @@ class QuickStartLLMChain:
         self,
         config: QuickStartConfig | None = None,
         *,
-        call_json: GeminiJsonCaller | None = None,
+        call_json: OllamaJsonCaller | None = None,
     ) -> None:
         self.config = config or get_quick_start_config()
-        self._uses_live_gemini = call_json is None
-        self._call_json = call_json or call_gemini_json
+        self._uses_live_ollama = call_json is None
+        self._call_json = call_json or call_ollama_json
+        # Monotonic end of the shared plan + blueprint budget (see generate_blueprint).
+        self._budget_end: float | None = None
 
     def _read_prompt_file(self, filename: str) -> str:
         path = self.config.prompts_dir / filename
@@ -71,18 +73,24 @@ class QuickStartLLMChain:
             'not an array and no markdown fences.'
         )
         last_error: QuickStartLLMError | None = None
+        budget_end = self._budget_end or (
+            time.monotonic() + self.config.llm_timeout_seconds
+        )
 
         for attempt in range(2):
             prompt = user_prompt if attempt == 0 else user_prompt + retry_suffix
             try:
+                remaining = int(budget_end - time.monotonic())
+                if remaining <= 0:
+                    raise RuntimeError('Quick Start LLM deadline exceeded.')
                 raw = self._call_json(
                     system_prompt=system_prompt,
                     user_prompt=prompt,
                     temperature=temperature,
-                    timeout=self.config.llm_timeout_seconds,
+                    timeout=remaining,
                 )
-            except RuntimeError as exc:
-                logger.warning('Quick Start Gemini call failed (%s): %s', stage, exc)
+            except (RuntimeError, OllamaRetriesExhausted) as exc:
+                logger.warning('Quick Start Ollama call failed (%s): %s', stage, exc)
                 error_code, user_message, retry_after = user_message_for_runtime_error(exc)
                 if attempt == 0 and error_code in ('rate_limited', 'network_error'):
                     time.sleep(2.0 if error_code == 'rate_limited' else 1.5)
@@ -95,7 +103,7 @@ class QuickStartLLMChain:
                 ) from exc
 
             try:
-                return coerce_gemini_json_object(
+                return coerce_ollama_json_object(
                     raw,
                     stage=stage,
                     expect_plan=expect_plan,
@@ -191,8 +199,8 @@ class QuickStartLLMChain:
         selected_modules: Mapping[str, bool] | None = None,
         locale: str | None = None,
     ) -> dict[str, Any]:
-        """Call Gemini (plan then blueprint) and return a validated blueprint dict."""
-        if self._uses_live_gemini:
+        """Call Ollama (plan then blueprint) and return a validated blueprint dict."""
+        if self._uses_live_ollama:
             self.config.require_llm_configured()
         cleaned_prompt = validate_prompt_text(prompt)
         modules = normalize_selected_modules(selected_modules)
@@ -204,18 +212,24 @@ class QuickStartLLMChain:
             locale=locale,
         )
 
-        plan = self.generate_campaign_plan(brief=brief, selected_modules=modules)
-        logger.info(
-            'Quick Start stage-1 plan ready: project=%s tasks=%s',
-            plan.get('project', {}).get('name'),
-            len(plan.get('tasks_plan') or []),
-        )
+        # Both stages share one budget so the request finishes before the
+        # frontend's preview timeout.
+        self._budget_end = time.monotonic() + self.config.llm_timeout_seconds
+        try:
+            plan = self.generate_campaign_plan(brief=brief, selected_modules=modules)
+            logger.info(
+                'Quick Start stage-1 plan ready: project=%s tasks=%s',
+                plan.get('project', {}).get('name'),
+                len(plan.get('tasks_plan') or []),
+            )
 
-        blueprint = self.generate_blueprint_from_plan(
-            brief=brief,
-            plan=plan,
-            selected_modules=modules,
-        )
+            blueprint = self.generate_blueprint_from_plan(
+                brief=brief,
+                plan=plan,
+                selected_modules=modules,
+            )
+        finally:
+            self._budget_end = None
         logger.info(
             'Quick Start stage-2 blueprint ready: tasks=%s events=%s',
             len(blueprint.get('tasks') or []),
