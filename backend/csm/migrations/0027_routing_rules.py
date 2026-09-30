@@ -27,7 +27,6 @@ class Migration(migrations.Migration):
                 ('is_enabled', models.BooleanField(default=True)),
                 ('match_mode', models.CharField(choices=[('all', 'All conditions'), ('any', 'Any condition')], default='all', max_length=8)),
                 ('conditions', models.JSONField(blank=True, default=list)),
-                ('action_type', models.CharField(choices=[('route_to_queue', 'Route to queue')], default='route_to_queue', max_length=32)),
                 ('add_tags', models.JSONField(blank=True, default=list)),
                 ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='+', to=settings.AUTH_USER_MODEL)),
                 ('experience_group', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='routing_rules', to='experience_group.experiencegroup')),

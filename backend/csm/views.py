@@ -96,7 +96,6 @@ from .services.routing_rules import (
     list_rules,
     create_rule,
     update_rule,
-    delete_rule,
     reorder_rules,
 )
 from .services.routing_sandbox import run_sandbox
@@ -1397,10 +1396,6 @@ class RoutingRuleViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'put', 'delete', 'head', 'options']
     pagination_class = None
 
-    def _project(self):
-        from core.models import Project
-        return Project.objects.get(pk=self.get_required_project_id())
-
     def get_queryset(self):
         if self.action == 'list':
             project_id = self.get_required_project_id()
@@ -1412,13 +1407,12 @@ class RoutingRuleViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
         )
 
     def create(self, request, *args, **kwargs):
-        project = self._project()
         serializer = RoutingRuleWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
             rule = create_rule(
-                project,
+                self.get_required_project_id(),
                 user=request.user,
                 experience_group=data['experience_group'],
                 name=data['name'],
@@ -1432,7 +1426,7 @@ class RoutingRuleViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
             _raise_drf_validation(exc)
         return Response(RoutingRuleSerializer(rule).data, status=status.HTTP_201_CREATED)
 
-    def update(self, request, *args, **kwargs):
+    def partial_update(self, request, *args, **kwargs):
         rule = self.get_object()
         serializer = RoutingRuleWriteSerializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -1444,11 +1438,8 @@ class RoutingRuleViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
             _raise_drf_validation(exc)
         return Response(RoutingRuleSerializer(rule).data)
 
-    def partial_update(self, request, *args, **kwargs):
-        return self.update(request, *args, **kwargs)
-
     def destroy(self, request, *args, **kwargs):
-        delete_rule(self.get_object())
+        self.get_object().delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=['put'], url_path='reorder')
@@ -1483,21 +1474,18 @@ class RoutingSandboxViewSet(ProjectScopedViewSetMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=['post'], url_path='evaluate')
     def evaluate(self, request):
-        from core.models import Project
-        project = Project.objects.get(pk=self.get_required_project_id())
         serializer = RoutingSandboxRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
             result = run_sandbox(
-                project,
+                self.get_required_project_id(),
                 experience_group_id=data['experience_group'],
                 messages=data['messages'],
                 subject=data.get('subject', ''),
                 support_channel_id=data.get('support_channel'),
                 customer_organisation_id=data.get('customer_organisation'),
                 simulated_at=data.get('simulated_at'),
-                evaluate_each_prefix=data.get('evaluate_each_prefix', False),
             )
         except DjangoValidationError as exc:
             _raise_drf_validation(exc)

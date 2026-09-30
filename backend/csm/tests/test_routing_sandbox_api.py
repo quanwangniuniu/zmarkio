@@ -81,7 +81,8 @@ class TestTrace:
         assert res.data['warnings'] == []
         assert res.data['support_channel']['is_online'] is True
 
-        [trace] = res.data['traces']
+        assert len(res.data['traces']) == 2  # one per customer message
+        trace = res.data['traces'][-1]
         assert trace['message_count'] == 2
         step = trace['steps'][0]
         assert step['status'] == 'matched'
@@ -122,7 +123,7 @@ class TestTrace:
     ):
         res = _evaluate(
             csm_admin_client, project, experience_group, ['Hi', 'refund', 'thanks'],
-            support_channel=channel.id, evaluate_each_prefix=True,
+            support_channel=channel.id,
         )
         outcomes = [t['outcome']['decided_by'] for t in res.data['traces']]
         assert outcomes == ['fallback', 'rule', 'fallback']
@@ -225,7 +226,6 @@ class TestIsolation:
             res = _evaluate(
                 csm_admin_client, project, experience_group, ['Hi', 'refund please'],
                 support_channel=channel.id, customer_organisation=customer_organisation.id,
-                evaluate_each_prefix=True,
             )
 
         assert res.status_code == status.HTTP_200_OK, res.data

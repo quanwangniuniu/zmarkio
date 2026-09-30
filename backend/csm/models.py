@@ -859,9 +859,6 @@ class RoutingRule(TimeStampedModel):
         ALL = 'all', 'All conditions'
         ANY = 'any', 'Any condition'
 
-    class ActionType(models.TextChoices):
-        ROUTE_TO_QUEUE = 'route_to_queue', 'Route to queue'
-
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name='routing_rules',
     )
@@ -876,9 +873,6 @@ class RoutingRule(TimeStampedModel):
         max_length=8, choices=MatchMode.choices, default=MatchMode.ALL,
     )
     conditions = models.JSONField(default=list, blank=True)
-    action_type = models.CharField(
-        max_length=32, choices=ActionType.choices, default=ActionType.ROUTE_TO_QUEUE,
-    )
     target_queue = models.ForeignKey(
         Queue, on_delete=models.SET_NULL,
         null=True, blank=True,

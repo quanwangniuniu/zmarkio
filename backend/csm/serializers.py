@@ -770,7 +770,7 @@ class RoutingRuleSerializer(serializers.ModelSerializer):
         model = RoutingRule
         fields = [
             'id', 'experience_group', 'name', 'position', 'is_enabled',
-            'match_mode', 'conditions', 'action_type',
+            'match_mode', 'conditions',
             'target_queue', 'target_queue_name', 'target_queue_is_active',
             'add_tags', 'created_at', 'updated_at',
         ]
@@ -788,11 +788,9 @@ class RoutingRuleWriteSerializer(serializers.Serializer):
     conditions = serializers.ListField(
         child=serializers.DictField(), required=False, allow_empty=True,
     )
-    target_queue = serializers.PrimaryKeyRelatedField(
-        queryset=Queue.objects.all(), allow_null=True,
-    )
+    target_queue = serializers.PrimaryKeyRelatedField(queryset=Queue.objects.all())
     add_tags = serializers.ListField(
-        child=serializers.CharField(allow_blank=True), required=False, allow_empty=True,
+        child=serializers.CharField(), required=False, allow_empty=True,
     )
 
 
@@ -815,4 +813,3 @@ class RoutingSandboxRequestSerializer(serializers.Serializer):
         max_length=50,
     )
     simulated_at = serializers.DateTimeField(required=False, allow_null=True)
-    evaluate_each_prefix = serializers.BooleanField(required=False, default=False)

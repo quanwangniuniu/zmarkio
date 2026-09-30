@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Max
 
+from core.models import Project
 from csm.models import RoutingRule, SupportChannel
 from customer.models import CustomerOrganisation
 from experience_group.models import ExperienceGroup
@@ -124,25 +125,23 @@ def _project_channel_ids(project_id):
     return set(SupportChannel.objects.filter(project_id=project_id).values_list('id', flat=True))
 
 
-def _project_organisation_ids(project):
+def _project_organisation_ids(project_id):
+    organization_id = Project.objects.values_list('organization_id', flat=True).get(pk=project_id)
     return set(
         CustomerOrganisation.objects.filter(
-            organization_id=project.organization_id,
+            organization_id=organization_id,
         ).values_list('id', flat=True),
     )
 
 
-def validate_conditions(project, conditions):
+def validate_conditions(project_id, conditions):
     """
-    Validate and normalise a rule's condition list.
+    Validate and normalise a rule's condition list (a list of dicts; the
+    serializer checks that shape).
 
     Raises ValidationError keyed by 'conditions'; per-row messages are prefixed
     with the 1-based condition number so the rule builder can point at the row.
     """
-    if conditions is None:
-        return []
-    if not isinstance(conditions, list):
-        raise ValidationError({'conditions': 'Conditions must be a list.'})
     if len(conditions) > MAX_CONDITIONS:
         raise ValidationError({'conditions': f'At most {MAX_CONDITIONS} conditions are allowed.'})
 
@@ -151,9 +150,6 @@ def validate_conditions(project, conditions):
     cleaned = []
     errors = []
     for index, condition in enumerate(conditions):
-        if not isinstance(condition, dict):
-            errors.append(f'Condition {index + 1}: must be an object.')
-            continue
         field_name = condition.get('field')
         operator = condition.get('operator')
         if field_name not in VOCABULARY:
@@ -166,9 +162,9 @@ def validate_conditions(project, conditions):
             )
             continue
         if kind == VALUE_CHANNEL_IDS and channel_ids is None:
-            channel_ids = _project_channel_ids(project.id)
+            channel_ids = _project_channel_ids(project_id)
         if kind == VALUE_ORGANISATION_IDS and organisation_ids is None:
-            organisation_ids = _project_organisation_ids(project)
+            organisation_ids = _project_organisation_ids(project_id)
         try:
             value = _clean_value(
                 kind, condition.get('value'),
@@ -203,8 +199,6 @@ def _assert_unique_name(experience_group_id, name, exclude_id=None):
 
 
 def _validate_target_queue(project_id, queue):
-    if queue is None:
-        raise ValidationError({'target_queue': 'Choose a queue to route to.'})
     if queue.project_id != project_id or not queue.is_active:
         raise ValidationError({
             'target_queue': 'Queue must belong to this workspace and be active.',
@@ -253,19 +247,19 @@ def _next_position(experience_group_id):
 
 
 @transaction.atomic
-def create_rule(project, *, user, experience_group, name, target_queue,
+def create_rule(project_id, *, user, experience_group, name, target_queue,
                 conditions=None, match_mode=RoutingRule.MatchMode.ALL,
                 is_enabled=True, add_tags=None):
-    _validate_experience_group(project.id, experience_group)
+    _validate_experience_group(project_id, experience_group)
     name = _validate_name(name)
     _assert_unique_name(experience_group.id, name)
-    _validate_target_queue(project.id, target_queue)
-    conditions = validate_conditions(project, conditions)
+    _validate_target_queue(project_id, target_queue)
+    conditions = validate_conditions(project_id, conditions or [])
     add_tags = _validate_tags(add_tags)
 
     _lock_experience_group(experience_group)
     return RoutingRule.objects.create(
-        project=project,
+        project_id=project_id,
         experience_group=experience_group,
         name=name,
         position=_next_position(experience_group.id),
@@ -278,32 +272,25 @@ def create_rule(project, *, user, experience_group, name, target_queue,
     )
 
 
-_UNSET = object()
-
-
 @transaction.atomic
-def update_rule(rule, *, name=_UNSET, target_queue=_UNSET, conditions=_UNSET,
-                match_mode=_UNSET, is_enabled=_UNSET, add_tags=_UNSET):
-    if name is not _UNSET:
+def update_rule(rule, *, name=None, target_queue=None, conditions=None,
+                match_mode=None, is_enabled=None, add_tags=None):
+    if name is not None:
         name = _validate_name(name)
         _assert_unique_name(rule.experience_group_id, name, exclude_id=rule.pk)
         rule.name = name
-    if target_queue is not _UNSET:
+    if target_queue is not None:
         rule.target_queue = _validate_target_queue(rule.project_id, target_queue)
-    if conditions is not _UNSET:
-        rule.conditions = validate_conditions(rule.project, conditions)
-    if match_mode is not _UNSET:
+    if conditions is not None:
+        rule.conditions = validate_conditions(rule.project_id, conditions)
+    if match_mode is not None:
         rule.match_mode = match_mode
-    if is_enabled is not _UNSET:
+    if is_enabled is not None:
         rule.is_enabled = is_enabled
-    if add_tags is not _UNSET:
+    if add_tags is not None:
         rule.add_tags = _validate_tags(add_tags)
     rule.save()
     return rule
-
-
-def delete_rule(rule):
-    rule.delete()
 
 
 @transaction.atomic
