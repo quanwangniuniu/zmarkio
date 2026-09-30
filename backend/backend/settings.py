@@ -558,42 +558,6 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = config('TIME_ZONE', default='UTC')
 broker_connection_retry_on_startup = True
 
-# Without this, a task has unlimited time to finish. A hung outbound call
-# (most scheduled work syncs with ad platforms/calendars) then pins a worker
-# slot forever. This is a backstop, not a substitute for the call itself
-# having a shorter timeout — see meta_ads/meta_client.py,
-# google_calendar_integration/services.py, chat/services.py.
-CELERY_TASK_TIME_LIMIT = 900  # 15 min hard kill
-CELERY_TASK_SOFT_TIME_LIMIT = 600  # 10 min soft warning
-
-# Per-task overrides, tuned tighter than the global backstop above for the
-# latency-sensitive chat queues below — 15 minutes pinned would defeat the
-# point of routing them to their own low-latency queue in the first place
-# (see CELERY_TASK_ROUTES). Keyed by task name to match those routes 1:1.
-CELERY_TASK_ANNOTATIONS = {
-    # chat.realtime: in-process DB/Redis/WebSocket work only, no outbound
-    # network call — should complete in well under a second.
-    'chat.tasks.notify_new_message': {'soft_time_limit': 5, 'time_limit': 10},
-    'chat.tasks.notify_reaction_update': {'soft_time_limit': 5, 'time_limit': 10},
-    'chat.tasks.notify_pin_update': {'soft_time_limit': 5, 'time_limit': 10},
-    'chat.tasks.finalize_presence_offline': {'soft_time_limit': 5, 'time_limit': 10},
-    'chat.tasks.send_typing_indicator': {'soft_time_limit': 5, 'time_limit': 10},
-    'chat.tasks.update_message_status_task': {'soft_time_limit': 5, 'time_limit': 10},
-    # chat.notifications: fans a message out to recipients' notification state.
-    'chat.tasks.notify_message_recipients': {'soft_time_limit': 10, 'time_limit': 20},
-    # chat.delivery: the latency-sensitive queue CELERY_TASK_ROUTES exists to
-    # protect from exactly this kind of pileup.
-    'chat.tasks.deliver_message_task': {'soft_time_limit': 15, 'time_limit': 30},
-    'chat.tasks.send_scheduled_message': {'soft_time_limit': 15, 'time_limit': 30},
-    # chat.link_previews: waits on a third-party site by design — up to
-    # LINK_PREVIEW_MAX_REDIRECTS+1 requests at LINK_PREVIEW_TIMEOUT_SECONDS
-    # each (worst case ~20s of network time) plus parsing — so it gets more
-    # room than the other chat queues but still far less than the global
-    # backstop.
-    'chat.tasks.fetch_link_preview_task': {'soft_time_limit': 25, 'time_limit': 35},
-    'chat.tasks.prune_link_previews': {'soft_time_limit': 60, 'time_limit': 90},
-}
-
 # Keep latency-sensitive chat delivery isolated from notifications, offline
 # recovery, scheduled sends, integrations, reports, and other default tasks.
 # Dedicated workers for these queues are defined in the compose/deployment

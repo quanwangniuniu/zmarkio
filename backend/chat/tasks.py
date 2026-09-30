@@ -14,6 +14,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
+from core.celery_utils import enforce_timeout
 from core.tenant_context import tenant_schema_context
 from .models import ChatOutboxEvent, LinkPreview, Message, MessageStatus, ChatParticipant, ScheduledMessage, MessageAttachment
 from .metrics import (
@@ -250,6 +251,7 @@ def _publish_to_chat_group(channel_layer, chat_id, claimed_user_ids, event):
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
+@enforce_timeout(seconds=30)
 @tenant_schema_task
 def deliver_message_task(self, message_id: int, tenant_schema: str = 'public'):
     """
@@ -383,6 +385,7 @@ def finalize_presence_offline_now(user_id: int, offline_token: str) -> bool:
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=5)
+@enforce_timeout(seconds=10)
 @tenant_schema_task
 def finalize_presence_offline(
     self,
@@ -472,6 +475,7 @@ def cleanup_orphaned_attachments() -> int:
 
 
 @shared_task
+@enforce_timeout(seconds=10)
 @tenant_schema_task
 def send_typing_indicator(
     chat_id: int,
@@ -521,6 +525,7 @@ def send_typing_indicator(
 
 
 @shared_task(bind=True, max_retries=3)
+@enforce_timeout(seconds=10)
 @tenant_schema_task
 def update_message_status_task(
     self,
@@ -572,6 +577,7 @@ def update_message_status_task(
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=5)
+@enforce_timeout(seconds=10)
 @tenant_schema_task
 def notify_new_message(
     self,
@@ -678,6 +684,7 @@ def _notification_exists_for_message(*, recipient_id: int, event_type: str, mess
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
+@enforce_timeout(seconds=20)
 @tenant_schema_task
 def notify_message_recipients(
     self,
@@ -842,6 +849,7 @@ def notify_message_recipients(
 
 
 @shared_task
+@enforce_timeout(seconds=10)
 @tenant_schema_task
 def notify_pin_update(
     chat_id: int,
@@ -919,6 +927,7 @@ def notify_pin_update(
 
 
 @shared_task
+@enforce_timeout(seconds=10)
 @tenant_schema_task
 def notify_reaction_update(
     message_id: int,
@@ -1028,6 +1037,7 @@ def notify_reaction_update(
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
+@enforce_timeout(seconds=30)
 @tenant_schema_task
 def send_scheduled_message(
     self,
@@ -1127,6 +1137,7 @@ def send_scheduled_message(
 
 
 @shared_task
+@enforce_timeout(seconds=35)
 @tenant_schema_task
 def fetch_link_preview_task(message_id: int, url: str, tenant_schema: str = 'public'):
     """Fetch a URL's OpenGraph metadata and cache it (MED-279).
@@ -1305,6 +1316,7 @@ def _store_preview_outcome(
 
 
 @shared_task
+@enforce_timeout(seconds=35)
 @tenant_schema_task
 def prune_link_previews(tenant_schema: str = 'public') -> int:
     """Delete cache rows nobody has needed for a long time.

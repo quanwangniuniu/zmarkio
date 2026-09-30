@@ -2,6 +2,7 @@ import logging
 
 from celery import shared_task
 
+from core.celery_utils import enforce_timeout
 from .models import GoogleCalendarConnection
 from .services import import_events_for_connection
 
@@ -9,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, ignore_result=True)
+@enforce_timeout(seconds=90)
 def import_for_connection_task(self, connection_id: int):
     conn = GoogleCalendarConnection.objects.filter(id=connection_id, is_active=True).first()
     if not conn:
@@ -20,6 +22,7 @@ def import_for_connection_task(self, connection_id: int):
 
 
 @shared_task(bind=True, ignore_result=True)
+@enforce_timeout(seconds=300)
 def sync_all_google_calendar_imports(self):
     qs = GoogleCalendarConnection.objects.filter(is_active=True)
     for conn in qs.iterator():
@@ -30,6 +33,7 @@ def sync_all_google_calendar_imports(self):
 
 
 @shared_task(bind=True, ignore_result=True, max_retries=5)
+@enforce_timeout(seconds=60)
 def export_event_to_google_task(self, event_id: str, tenant_schema: str = 'public'):
     """
     Export one event to the owner's Google Calendar.

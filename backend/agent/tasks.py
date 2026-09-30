@@ -3,6 +3,7 @@ import logging
 import requests
 from celery import shared_task
 from django.contrib.auth import get_user_model
+from core.celery_utils import enforce_timeout
 from core.tenant_context import tenant_schema_context
 
 from .models import AgentMessage, AgentWorkflowRun
@@ -22,6 +23,7 @@ class _TaskOrchestrator:
 
 
 @shared_task
+@enforce_timeout(seconds=120)
 def generate_miro_board_for_workflow_run_task(workflow_run_id: str, context_payload: dict | None = None):
     try:
         workflow_run = AgentWorkflowRun.objects.select_related(
@@ -115,6 +117,7 @@ def generate_miro_board_for_workflow_run_task(workflow_run_id: str, context_payl
 
 
 @shared_task
+@enforce_timeout(seconds=120)
 def handle_chat_message_for_agent(message_id: int, tenant_schema: str = 'public'):
     with tenant_schema_context(tenant_schema):
         return _handle_chat_message_for_agent(message_id)
@@ -173,6 +176,7 @@ def _handle_chat_message_for_agent(message_id: int):
 # ============================================================================
 
 @shared_task(name="agent.tasks.check_polling_triggers")
+@enforce_timeout(seconds=90)
 def check_polling_triggers() -> int:
     """
     Check all polling triggers and execute workflows when conditions are met.
@@ -183,6 +187,7 @@ def check_polling_triggers() -> int:
 
 
 @shared_task(name="agent.tasks.check_scheduled_triggers")
+@enforce_timeout(seconds=90)
 def check_scheduled_triggers() -> int:
     """
     Check all scheduled triggers and execute workflows at scheduled times.
@@ -193,6 +198,7 @@ def check_scheduled_triggers() -> int:
 
 
 @shared_task(name="agent.tasks.cleanup_old_trigger_logs")
+@enforce_timeout(seconds=60)
 def cleanup_old_trigger_logs() -> int:
     """
     Delete trigger logs older than 30 days.
@@ -212,6 +218,7 @@ def cleanup_old_trigger_logs() -> int:
 
 
 @shared_task(name="agent.tasks.execute_workflow_async")
+@enforce_timeout(seconds=90)
 def execute_workflow_async(workflow_id: str, trigger_context: dict) -> str:
     """
     Execute a workflow asynchronously (for polling/scheduled triggers).

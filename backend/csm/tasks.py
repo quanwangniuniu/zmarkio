@@ -1,6 +1,7 @@
 from celery import shared_task
 from django.utils import timezone
 
+from core.celery_utils import enforce_timeout
 from csm.models import ConversationMessage, Ticket
 from csm.services.sla import notify_sla_breach
 from csm.services.status_machine import (
@@ -10,6 +11,7 @@ from csm.services.status_machine import (
 
 
 @shared_task
+@enforce_timeout(seconds=60)
 def auto_resolve_pending_tickets():
     """Move tickets stuck in Pending Customer Response past the configured cutoff
     to Resolved and send the configured notification to the customer.
@@ -37,6 +39,7 @@ def auto_resolve_pending_tickets():
 
 
 @shared_task
+@enforce_timeout(seconds=60)
 def notify_sla_breaches():
     """Alert on tickets that have breached their first-response or resolution SLA.
 
