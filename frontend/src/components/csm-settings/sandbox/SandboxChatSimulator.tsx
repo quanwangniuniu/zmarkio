@@ -43,7 +43,7 @@ export default function SandboxChatSimulator({ messages, disabled, disabledReaso
   };
 
   return (
-    <div className="flex h-full min-h-[420px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white">
+    <div className="flex h-[70vh] min-h-[420px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white">
       <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-800">
         <FlaskConical className="h-4 w-4 shrink-0" aria-hidden />
         Sandbox: nothing is sent or saved. Messages stay in this browser tab.
