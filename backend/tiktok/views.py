@@ -1,5 +1,6 @@
 import os
 import hashlib
+import logging
 import mimetypes
 import tempfile
 import subprocess
@@ -21,6 +22,8 @@ from django.db.models import Prefetch
 from PIL import Image, UnidentifiedImageError
 import uuid
 import secrets
+
+logger = logging.getLogger(__name__)
 
 # ----------------------
 # Centralized constants
@@ -672,7 +675,13 @@ def material_delete(request, id):
         try:
             default_storage.delete(creative.storage_path)
         except Exception:
-            pass
+            # FileSystemStorage.delete() already ignores missing files, so anything
+            # caught here is a real failure. The row is still deleted to honour the
+            # user's request; log the path so the orphaned file can be removed by hand.
+            logger.error(
+                "TikTok material %s: failed to delete stored file %s; file is now orphaned",
+                creative.id, creative.storage_path, exc_info=True,
+            )
 
     creative.delete()
     return Response({'success': True}, status=status.HTTP_200_OK)

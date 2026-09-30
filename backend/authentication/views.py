@@ -1295,7 +1295,12 @@ class DeleteAccountView(APIView):
                 try:
                     user.avatar.delete(save=False)
                 except Exception:
-                    pass
+                    # Storage is not transactional; do not abort account deletion,
+                    # but the leftover personal file needs manual cleanup.
+                    logger.warning(
+                        "Failed to delete avatar file for deleted user %s (name=%s)",
+                        user.id, user.avatar.name, exc_info=True,
+                    )
 
             # 7. Blacklist the refresh token supplied in the request (best-effort)
             refresh_token = request.data.get('refresh_token')

@@ -667,7 +667,11 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
                 )
                 calendar_ids = [row[0] for row in cursor.fetchall()]
         except Exception:
-            pass
+            logger.warning(
+                "perform_destroy: could not load calendars for project %s; "
+                "skipping Google Calendar cleanup in public",
+                project_id, exc_info=True,
+            )
 
         # Switch to public schema and delete cross-schema related records
         with connection.cursor() as cursor:

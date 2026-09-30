@@ -46,6 +46,7 @@ def scan_file_for_virus(self, file_id):
     except MetricFile.DoesNotExist:
         return False
     except Exception:
+        logger.exception("Virus scan failed for MetricFile %s", file_id)
         # On any error during scanning, mark error_scanning if we are scanning
         try:
             metric_file = MetricFile.objects.get(id=file_id)
@@ -53,7 +54,10 @@ def scan_file_for_virus(self, file_id):
                 metric_file.mark_error_scanning()
                 metric_file.save()
         except Exception:
-            pass
+            logger.exception(
+                "Failed to mark MetricFile %s as error_scanning; it may stay in SCANNING",
+                file_id,
+            )
         return False
 
 

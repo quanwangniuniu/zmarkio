@@ -9,6 +9,8 @@ from .approver_access import (
 from core.admin_utils import is_org_admin
 from utils.rbac_utils import has_rbac_permission, require_user_context, user_has_team
 
+logger = logging.getLogger(__name__)
+
 class BudgetRequestPermission(permissions.BasePermission):
     """Permissions to view and manage budget requests and their approval history"""
     
@@ -74,7 +76,11 @@ class BudgetRequestPermission(permissions.BasePermission):
             try:
                 organization = obj.budget_pool.project.organization
             except Exception:
-                pass
+                logger.warning(
+                    "BudgetRequestPermission: cannot resolve organization for budget_request_id=%s "
+                    "(user_id=%s); falling back to user.organization",
+                    obj.pk, request.user.id, exc_info=True,
+                )
 
         if organization is None:
             organization = getattr(request.user, 'organization', None)
@@ -173,7 +179,11 @@ class ApprovalPermission(permissions.BasePermission):
             try:
                 organization = obj.budget_pool.project.organization
             except Exception:
-                pass
+                logger.warning(
+                    "ApprovalPermission: cannot resolve organization for budget_request_id=%s "
+                    "(user_id=%s); falling back to user.organization",
+                    obj.pk, request.user.id, exc_info=True,
+                )
 
         if organization is None:
             organization = getattr(request.user, 'organization', None)

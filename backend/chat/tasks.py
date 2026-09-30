@@ -1120,7 +1120,13 @@ def send_scheduled_message(
                 sm.error_message = str(exc)
                 sm.save(update_fields=['status', 'error_message', 'updated_at'])
             except Exception:
-                pass
+                # Usually the same database outage that caused `exc`, or the row was
+                # cascade-deleted with its chat/sender. Nothing sweeps rows stuck in
+                # SENDING, so this must be visible.
+                logger.exception(
+                    "send_scheduled_message %s: failed to mark FAILED; row may be stuck in SENDING",
+                    scheduled_message_id,
+                )
         if isinstance(exc, ValueError):
             return
         raise self.retry(exc=exc)

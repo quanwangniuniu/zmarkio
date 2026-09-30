@@ -1,3 +1,5 @@
+import logging
+
 from django.http import JsonResponse
 from django.utils import timezone
 from django.db.models import Q
@@ -9,6 +11,8 @@ from access_control.models import RolePermission, UserRole, AdminOverrideAudit
 from typing import Optional, Callable, Any
 from functools import wraps
 from core.models import Team, TeamMember, TeamRole
+
+logger = logging.getLogger(__name__)
 
 class AuthorizationMiddleware:
     """
@@ -104,7 +108,11 @@ class AuthorizationMiddleware:
                     self._log_override(request, user, 'ORG_ADMIN', module_key, action_key)
                 return None
         except Exception:
-            pass
+            # Fail closed on the bypass only: fall through to the regular RBAC check below.
+            logger.warning(
+                "Org-admin bypass lookup failed for user_id=%s path=%s; falling back to RBAC",
+                getattr(user, "id", None), request.path, exc_info=True,
+            )
 
         if not has_permission_gate:
             return None
@@ -206,7 +214,13 @@ class AuthorizationMiddleware:
                 reason=request.META.get('HTTP_X_OVERRIDE_REASON', ''),
             )
         except Exception:
-            pass
+            # Best-effort by design (never block the request), but a lost audit
+            # row is security-relevant and must be visible to operators.
+            logger.exception(
+                "Failed to write AdminOverrideAudit user_id=%s type=%s module=%s action=%s method=%s path=%s",
+                getattr(user, "id", None), override_type, module_key, action_key,
+                request.method, request.path,
+            )
 
     # Authorization decorator for team endpoints
     
