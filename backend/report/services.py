@@ -110,7 +110,7 @@ def resolve_public_share_link(token: str) -> ReportShareLink:
     ``ShareLinkExpired``.
     """
     link = (
-        ReportShareLink.objects.select_related("project")
+        ReportShareLink.objects.select_related("project__organization")
         .filter(token=token)
         .first()
     )

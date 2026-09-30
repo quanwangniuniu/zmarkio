@@ -214,6 +214,31 @@ def test_public_read_returns_only_the_linked_projects_kpis(share_client):
 
 
 @pytest.mark.django_db
+def test_public_read_aggregates_under_the_projects_tenant_schema(share_client, mocker):
+    """Anonymous reads must use org_xxx, public — same Campaign path as Overview."""
+    from core.services.tenant import slug_to_schema_name
+    from core.tenant_context import tenant_schema_context
+
+    created = _create(share_client["client"], share_client["project"])
+    org_slug = share_client["project"].organization.slug
+    expected_schema = slug_to_schema_name(org_slug)
+    seen = []
+
+    real_context = tenant_schema_context
+
+    def tracking_context(schema_name):
+        seen.append(schema_name)
+        return real_context(schema_name)
+
+    mocker.patch("report.views.tenant_schema_context", side_effect=tracking_context)
+
+    response = APIClient().get(public_url(created.data["token"]))
+
+    assert response.status_code == status.HTTP_200_OK
+    assert seen == [expected_schema]
+
+
+@pytest.mark.django_db
 def test_missing_token_is_404():
     response = APIClient().get(public_url("missing-token"))
     assert response.status_code == status.HTTP_404_NOT_FOUND

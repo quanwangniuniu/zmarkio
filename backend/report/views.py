@@ -10,6 +10,8 @@ from rest_framework.views import APIView
 from rest_framework import status
 
 from core.models import ProjectMember
+from core.services.tenant import slug_to_schema_name
+from core.tenant_context import tenant_schema_context
 from report import kpi_registry
 from report.models import CustomKPI, ReportTask, ReportTaskKeyAction
 from report.services import (
@@ -482,6 +484,10 @@ class PublicReportShareLinkView(APIView):
     Anonymous read of one project's Custom KPIs. A link revoked while it was
     still valid returns 404 even after ``expires_at``. A link released only
     after it expired still returns 410.
+
+    Token lookup stays on the shared tables. KPI values are aggregated under
+    the project's org schema (``org_xxx, public``), same search_path Overview
+    uses when the owner is logged in, so Campaign joins match.
     """
 
     permission_classes = []
@@ -497,9 +503,21 @@ class PublicReportShareLinkView(APIView):
             )
         except ShareLinkNotFound:
             raise NotFound("Share link not found.")
+
+        project_id = link.project_id
+        expires_at = link.expires_at
+        organization = getattr(link.project, "organization", None)
+        org_slug = getattr(organization, "slug", None) if organization else None
+
+        if org_slug:
+            with tenant_schema_context(slug_to_schema_name(org_slug)):
+                kpis = _kpi_payload_for_project(project_id)
+        else:
+            kpis = _kpi_payload_for_project(project_id)
+
         return Response(
             {
-                "expires_at": link.expires_at,
-                "kpis": _kpi_payload_for_project(link.project_id),
+                "expires_at": expires_at,
+                "kpis": kpis,
             }
         )
