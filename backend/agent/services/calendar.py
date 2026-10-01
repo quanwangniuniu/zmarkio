@@ -147,55 +147,6 @@ class CalendarMixin:
 
         return list(qs[:30])
 
-    def _create_calendar_event(self, org_id, event_spec, user_tz=None):
-        """Create a single calendar event from a dict spec. Returns event id or None."""
-        try:
-            from calendars.models import Calendar as CalendarModel, Event as EventModel
-            from dateutil import parser as date_parser
-            import pytz
-
-            def _parse_dt(dt_str):
-                if not dt_str:
-                    return None
-                # Dify may echo back the timezone-name suffix we used for existing
-                # events (e.g. "2026-03-31T14:00:00 Australia/Melbourne").
-                # dateutil cannot parse IANA timezone names inline, so strip the
-                # suffix and let user_tz.localize() apply the correct timezone.
-                raw = str(dt_str).strip()
-                date_part = raw.split(" ")[0] if " " in raw else raw
-                dt = date_parser.parse(date_part)
-                if dt.tzinfo is None and user_tz:
-                    dt = user_tz.localize(dt)
-                elif dt.tzinfo is None:
-                    dt = pytz.utc.localize(dt)
-                return dt
-
-            # Prefer the user's primary calendar; fall back to any calendar they own
-            cal = (
-                CalendarModel.objects.filter(
-                    organization_id=org_id,
-                    owner=self.user,
-                    is_deleted=False,
-                ).order_by('-is_primary').first()
-            )
-            if not cal:
-                return None
-            tz_name = str(user_tz) if user_tz else "UTC"
-            new_event = EventModel.objects.create(
-                organization_id=org_id,
-                calendar=cal,
-                created_by=self.user,
-                title=event_spec.get("title", "New Event"),
-                description=event_spec.get("description", ""),
-                start_datetime=_parse_dt(event_spec.get("start_datetime")),
-                end_datetime=_parse_dt(event_spec.get("end_datetime")),
-                timezone=tz_name,
-            )
-            return str(new_event.id)
-        except Exception as e:
-            logger.error(f"Failed to create calendar event: {e}")
-            return None
-
     def answer_calendar_question(self, message, calendar_context):
         """Answer calendar-related questions using real event data via Dify AI."""
         yield {"type": "text", "content": "Looking up your calendar data..."}
