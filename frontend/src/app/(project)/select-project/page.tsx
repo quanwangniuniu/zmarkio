@@ -11,6 +11,7 @@ import CreateProjectChoiceModal from '@/components/select-project/CreateProjectC
 import QuickCreateProjectModal from '@/components/select-project/QuickCreateProjectModal';
 import ChatFAB from '@/components/global-chat/ChatFAB';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
+import CrossProjectRollupWidget from '@/components/dashboard/CrossProjectRollupWidget';
 import Modal from '@/components/ui/Modal';
 import { useProjects } from '@/hooks/useProjects';
 import { Id } from '@/types/common';
@@ -290,6 +291,12 @@ export default function SelectProjectPage() {
         {!loading && !error && filtered.length === 0 && (
           <div className="text-center py-16">
             <p className="text-sm text-gray-400">No projects match your search.</p>
+          </div>
+        )}
+
+        {projects.length > 0 && !error && (
+          <div className="mt-8">
+            <CrossProjectRollupWidget projects={projects} />
           </div>
         )}
       </div>
