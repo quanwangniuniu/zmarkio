@@ -1,21 +1,39 @@
+from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError as DRFValidationError, NotFound
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework import status
 
 from core.models import ProjectMember
+from core.services.tenant import slug_to_schema_name
+from core.tenant_context import tenant_schema_context
 from report import kpi_registry
 from report.models import CustomKPI, ReportTask, ReportTaskKeyAction
+from report.services import (
+    ShareLinkExpired,
+    ShareLinkNotFound,
+    create_share_link,
+    get_current_share_link,
+    resolve_public_share_link,
+    revoke_share_link,
+)
 from core.slug_mixins import resolve_pk_for, resolve_project_pk
 from task.models import Task
 from report.serializers import (
+    _resolve_member_project,
     CustomKPICreateSerializer,
     CustomKPIPreviewSerializer,
     CustomKPISerializer,
+    PublicCustomKPISerializer,
     CustomKPIUpdateSerializer,
+    ReportShareLinkCreateSerializer,
+    ReportShareLinkSerializer,
     ReportTaskSerializer,
     ReportCreateSerializer,
     ReportUpdateSerializer,
@@ -394,3 +412,118 @@ class KPIMetricCatalogView(APIView):
 
     def get(self, request):
         return Response({"metrics": kpi_registry.list_metrics()})
+
+
+def _kpi_payload_for_project(project_id):
+    start_date, end_date = kpi_registry.default_date_range()
+    snapshot = kpi_registry.resolve_metric_values(project_id, start_date, end_date)
+    kpis = CustomKPI.objects.filter(project_id=project_id)
+    return PublicCustomKPISerializer(
+        kpis, many=True, context={"metric_snapshot": snapshot}
+    ).data
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class ReportShareLinkView(APIView):
+    """
+    GET    /api/report/kpis/share/?project=<slug|id>
+    POST   /api/report/kpis/share/
+    DELETE /api/report/kpis/share/?project=<slug|id>
+
+    GET returns the current unrevoked link, or ``{"link": null}``. It does not
+    create one. POST reuses a live link, or releases an expired one and issues
+    a new token. DELETE revokes the current unrevoked link immediately.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        project = self._project_from_query(request)
+        link = get_current_share_link(project=project)
+        if link is None:
+            return Response({"link": None})
+        payload = ReportShareLinkSerializer(link).data
+        payload["days_left"] = max(0, (link.expires_at - timezone.now()).days)
+        return Response({"link": payload})
+
+    def post(self, request):
+        serializer = ReportShareLinkCreateSerializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        link, created = create_share_link(
+            project=serializer.validated_data["project"],
+            created_by=request.user,
+            days=serializer.validated_data["days"],
+        )
+        payload = ReportShareLinkSerializer(link).data
+        payload["reused"] = not created
+        return Response(
+            payload,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+    def delete(self, request):
+        project = self._project_from_query(request)
+        try:
+            revoke_share_link(project=project)
+        except ShareLinkNotFound:
+            raise NotFound("Share link not found.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _project_from_query(self, request):
+        raw = request.query_params.get("project")
+        if not raw:
+            raise DRFValidationError({"project": "Project is required."})
+        return _resolve_member_project(request.user, raw)
+
+
+class PublicReportShareLinkView(APIView):
+    """
+    GET /api/report/share/<token>/
+
+    Anonymous read of one project's Custom KPIs. A link revoked while it was
+    still valid returns 404 even after ``expires_at``. A link released only
+    after it expired still returns 410.
+
+    Token lookup stays on the shared tables. KPI values are aggregated under
+    the project's org schema (``org_xxx, public``), same search_path Overview
+    uses when the owner is logged in, so Campaign joins match.
+
+    Throttled by IP (``public_kpi_share_read``) — same pattern as public
+    booking reads — because each hit re-aggregates warehouse metrics.
+    """
+
+    permission_classes = []
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_kpi_share_read"
+
+    def get(self, request, token):
+        try:
+            link = resolve_public_share_link(token)
+        except ShareLinkExpired:
+            return Response(
+                {"detail": "Share link has expired.", "code": "LINK_EXPIRED"},
+                status=status.HTTP_410_GONE,
+            )
+        except ShareLinkNotFound:
+            raise NotFound("Share link not found.")
+
+        project_id = link.project_id
+        expires_at = link.expires_at
+        organization = getattr(link.project, "organization", None)
+        org_slug = getattr(organization, "slug", None) if organization else None
+
+        if org_slug:
+            with tenant_schema_context(slug_to_schema_name(org_slug)):
+                kpis = _kpi_payload_for_project(project_id)
+        else:
+            kpis = _kpi_payload_for_project(project_id)
+
+        return Response(
+            {
+                "expires_at": expires_at,
+                "kpis": kpis,
+            }
+        )
