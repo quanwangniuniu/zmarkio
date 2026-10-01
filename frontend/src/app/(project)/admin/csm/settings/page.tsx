@@ -1,7 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { FileText, FlaskConical, FolderKanban, GitBranch, ListOrdered, Radio, Tag } from 'lucide-react';
+import {
+  CalendarClock,
+  ClipboardList,
+  FileText,
+  FlaskConical,
+  FolderKanban,
+  GitBranch,
+  Lightbulb,
+  ListOrdered,
+  Radio,
+  Shield,
+  Tag,
+  Workflow,
+} from 'lucide-react';
 import CsmSettingsPageRoot, { CsmSettingsProjectGuard } from '@/components/csm-settings/CsmSettingsPageRoot';
 import CsmSettingsNavCard from '@/components/csm-settings/CsmSettingsNavCard';
 import { useProjectIdFromUrl } from '@/components/csm-settings/useProjectIdFromUrl';
@@ -59,6 +72,36 @@ export default function CsmSettingsHubPage() {
             icon={Tag}
             title="Customer Status Labels"
             description="Create, color, and reorder labels used to segment customers."
+          />
+          <CsmSettingsNavCard
+            href={buildUrl('/admin/csm/settings/assignments')}
+            icon={ClipboardList}
+            title="Assignments"
+            description="Route request forms to queues and agents per Experience Group."
+          />
+          <CsmSettingsNavCard
+            href={buildUrl('/admin/csm/settings/sla')}
+            icon={Shield}
+            title="SLA Policy"
+            description="First response and resolution targets per priority."
+          />
+          <CsmSettingsNavCard
+            href={buildUrl('/admin/csm/settings/business-hours')}
+            icon={CalendarClock}
+            title="Business Hours"
+            description="Operating calendars that SLA countdowns are measured against."
+          />
+          <CsmSettingsNavCard
+            href={buildUrl('/admin/csm/settings/ticket-statuses')}
+            icon={Workflow}
+            title="Ticket Statuses"
+            description="Statuses and the transitions allowed between them."
+          />
+          <CsmSettingsNavCard
+            href={buildUrl('/admin/csm/settings/guidance')}
+            icon={Lightbulb}
+            title="Agent Guidance"
+            description="Handoffs, suggested replies, and procedures shown to agents per Experience Group."
           />
           <CsmSettingsNavCard
             href={buildUrl('/admin/csm/settings/routing-rules')}
