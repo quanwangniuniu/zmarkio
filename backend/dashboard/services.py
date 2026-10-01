@@ -1,8 +1,8 @@
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef
 from django.utils import timezone
 from datetime import timedelta
 
-from task.models import Task
+from task.models import Task, TaskRelation
 from campaign.models import Campaign
 from decision.models import Decision
 from budget_approval.models import BudgetRequest, BudgetRequestStatus
@@ -107,18 +107,79 @@ def _query_spreadsheet_total(project_ids):
     ))
 
 
+def _query_task_done(project_ids):
+    return _batch_count(Task.objects.filter(
+        project_id__in=project_ids,
+        status__in=[Task.Status.APPROVED, Task.Status.LOCKED],
+    ))
+
+
+def _query_task_overdue(project_ids):
+    cutoff = timezone.localdate()
+    return _batch_count(Task.objects.filter(
+        project_id__in=project_ids,
+        due_date__lt=cutoff,
+    ).exclude(status__in=[Task.Status.APPROVED, Task.Status.LOCKED, Task.Status.CANCELLED]))
+
+
+def _query_task_blocked(project_ids):
+    blocked_subq = TaskRelation.objects.filter(
+        target_task=OuterRef('pk'),
+        relationship_type=TaskRelation.BLOCKS,
+    )
+    return _batch_count(
+        Task.objects.filter(project_id__in=project_ids)
+        .exclude(status__in=[Task.Status.APPROVED, Task.Status.LOCKED, Task.Status.CANCELLED])
+        .annotate(is_blocked=Exists(blocked_subq))
+        .filter(is_blocked=True)
+    )
+
+
+def _query_task_under_review(project_ids):
+    return _batch_count(Task.objects.filter(
+        project_id__in=project_ids,
+        status=Task.Status.UNDER_REVIEW,
+    ))
+
+
+def _query_task_rejected(project_ids):
+    return _batch_count(Task.objects.filter(
+        project_id__in=project_ids,
+        status=Task.Status.REJECTED,
+    ))
+
+
+def _query_decision_high_risk(project_ids):
+    return _batch_count(Decision.objects.filter(
+        project_id__in=project_ids,
+        is_deleted=False,
+        risk_level='HIGH',
+    ))
+
+
 FIELD_REGISTRY = {
+    # Tasks — primary metrics (used for summary cards)
     'task_total':             {'label': 'Total Tasks',             'group': 'Tasks',        'fn': _query_task_total},
-    'task_completed_7d':      {'label': 'Completed (last 7d)',     'group': 'Tasks',        'fn': _query_task_completed_7d},
+    'task_done':              {'label': 'Completed Tasks',         'group': 'Tasks',        'fn': _query_task_done},
+    'task_overdue':           {'label': 'Overdue Tasks',           'group': 'Tasks',        'fn': _query_task_overdue},
+    'task_blocked':           {'label': 'Blocked Tasks',           'group': 'Tasks',        'fn': _query_task_blocked},
+    # Tasks — detail metrics
+    'task_under_review':      {'label': 'Under Review',            'group': 'Tasks',        'fn': _query_task_under_review},
+    'task_rejected':          {'label': 'Rejected',                'group': 'Tasks',        'fn': _query_task_rejected},
+    'task_due_soon':          {'label': 'Due Soon (7d)',           'group': 'Tasks',        'fn': _query_task_due_soon},
     'task_created_7d':        {'label': 'Created (last 7d)',       'group': 'Tasks',        'fn': _query_task_created_7d},
-    'task_due_soon':          {'label': 'Due Soon',                'group': 'Tasks',        'fn': _query_task_due_soon},
+    'task_completed_7d':      {'label': 'Completed (last 7d)',     'group': 'Tasks',        'fn': _query_task_completed_7d},
+    # Decisions
+    'decision_total':         {'label': 'Active Decisions',        'group': 'Decisions',    'fn': _query_decision_total},
+    'decision_pending':       {'label': 'Awaiting Approval',       'group': 'Decisions',    'fn': _query_decision_pending},
+    'decision_high_risk':     {'label': 'High Risk',               'group': 'Decisions',    'fn': _query_decision_high_risk},
+    # Operations
+    'spreadsheet_total':      {'label': 'Active Spreadsheets',     'group': 'Operations',   'fn': _query_spreadsheet_total},
     'campaign_active':        {'label': 'Active Campaigns',        'group': 'Campaigns',    'fn': _query_campaign_active},
-    'campaign_total':         {'label': 'Total Campaigns',         'group': 'Campaigns',    'fn': _query_campaign_total},
-    'decision_pending':       {'label': 'Pending Decisions',       'group': 'Decisions',    'fn': _query_decision_pending},
-    'decision_total':         {'label': 'Total Decisions',         'group': 'Decisions',    'fn': _query_decision_total},
-    'budget_request_pending': {'label': 'Pending Budget Requests', 'group': 'Budget',       'fn': _query_budget_request_pending},
     'meeting_upcoming':       {'label': 'Upcoming Meetings',       'group': 'Meetings',     'fn': _query_meeting_upcoming},
-    'spreadsheet_total':      {'label': 'Total Spreadsheets',      'group': 'Spreadsheets', 'fn': _query_spreadsheet_total},
+    # Kept for API compatibility, not displayed by default
+    'campaign_total':         {'label': 'Total Campaigns',         'group': 'Campaigns',    'fn': _query_campaign_total},
+    'budget_request_pending': {'label': 'Pending Budget Requests', 'group': 'Budget',       'fn': _query_budget_request_pending},
 }
 
 

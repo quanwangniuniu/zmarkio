@@ -1,21 +1,207 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  EyeOff,
+  ChevronUp,
   Loader2,
   RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { DashboardAPI } from '@/lib/api/dashboardApi';
-import type { RollupField, RollupProjectResult } from '@/lib/api/dashboardApi';
+import type { RollupProjectResult } from '@/lib/api/dashboardApi';
 import type { ProjectData } from '@/lib/api/projectApi';
 
 const PAGE_SIZE = 5;
+
+// Fields always fetched (primary + detail)
+const ALL_FIELDS = [
+  'task_total', 'task_done', 'task_overdue', 'task_blocked',
+  'task_under_review', 'task_rejected', 'task_due_soon',
+  'task_created_7d', 'task_completed_7d',
+  'decision_total', 'decision_pending', 'decision_high_risk',
+  'spreadsheet_total', 'campaign_active', 'meeting_upcoming',
+];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function pct(numerator: number, denominator: number): number {
+  if (denominator === 0) return 0;
+  return Math.round((numerator / denominator) * 100);
+}
+
+function val(row: RollupProjectResult, key: string): number {
+  const v = row[key];
+  return typeof v === 'number' ? v : 0;
+}
+
+// ---------------------------------------------------------------------------
+// ProgressBar — mini inline bar
+// ---------------------------------------------------------------------------
+
+function ProgressBar({ value, color = '#3CCED7' }: { value: number; color?: string }) {
+  return (
+    <div className="h-[3px] w-full rounded-full bg-gray-100 mt-1.5 overflow-hidden">
+      <div
+        className="h-full rounded-full transition-all duration-500"
+        style={{ width: `${Math.min(value, 100)}%`, background: color }}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SummaryCell — one metric card in the main table row
+// ---------------------------------------------------------------------------
+
+function SummaryCell({
+  value,
+  sub,
+  valueColor = '#334155',
+  bar,
+  barColor,
+}: {
+  value: string | number;
+  sub?: string;
+  valueColor?: string;
+  bar?: number;
+  barColor?: string;
+}) {
+  return (
+    <td className="px-3 py-3 align-top min-w-[130px]">
+      <p className="text-[22px] font-bold leading-none" style={{ color: valueColor }}>
+        {value}
+      </p>
+      {bar !== undefined && <ProgressBar value={bar} color={barColor} />}
+      {sub && (
+        <p className="text-[11px] text-gray-400 mt-1 whitespace-nowrap">{sub}</p>
+      )}
+    </td>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DetailMetricRow — label + value row inside the detail panel
+// ---------------------------------------------------------------------------
+
+function DetailMetricRow({
+  label,
+  value,
+  valueColor = '#334155',
+}: {
+  label: string;
+  value: string | number;
+  valueColor?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between py-[7px] border-b border-gray-50 gap-2">
+      <span className="text-[12px] text-gray-500 truncate">{label}</span>
+      <span
+        className="text-[13px] font-semibold tabular-nums flex-shrink-0"
+        style={{ color: valueColor }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DetailPanel — 3-column module summary for one project row
+// ---------------------------------------------------------------------------
+
+function DetailPanel({ row }: { row: RollupProjectResult }) {
+  const taskTotal = val(row, 'task_total');
+  const taskDone = val(row, 'task_done');
+  const completionPct = pct(taskDone, taskTotal);
+  const completedLast7d = val(row, 'task_completed_7d');
+
+  return (
+    <tr>
+      <td colSpan={6} className="px-4 pb-4 pt-1">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-xl border border-gray-100 bg-gray-50/60 p-4">
+
+          {/* Decisions */}
+          <div className="rounded-lg border border-gray-100 bg-white p-3">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-md flex items-center justify-center bg-teal-50 flex-shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="12" y1="3" x2="12" y2="20" />
+                  <line x1="4" y1="6" x2="20" y2="6" />
+                  <line x1="4" y1="6" x2="4" y2="14" />
+                  <line x1="20" y1="6" x2="20" y2="14" />
+                  <path d="M1 14h6a3 3 0 0 1-6 0z" />
+                  <path d="M17 14h6a3 3 0 0 1-6 0z" />
+                  <line x1="9" y1="20" x2="15" y2="20" />
+                </svg>
+              </div>
+              <span className="text-[13px] font-semibold text-gray-800">Decisions</span>
+            </div>
+            <DetailMetricRow label="Active decisions" value={val(row, 'decision_total')} />
+            <DetailMetricRow
+              label="Awaiting approval"
+              value={val(row, 'decision_pending')}
+              valueColor={val(row, 'decision_pending') > 0 ? '#f59e0b' : '#334155'}
+            />
+            <DetailMetricRow
+              label="High risk"
+              value={val(row, 'decision_high_risk')}
+              valueColor={val(row, 'decision_high_risk') > 0 ? '#fb7185' : '#334155'}
+            />
+          </div>
+
+          {/* Tasks */}
+          <div className="rounded-lg border border-gray-100 bg-white p-3">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-md flex items-center justify-center bg-amber-50 flex-shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="9 11 12 14 22 4" />
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                </svg>
+              </div>
+              <span className="text-[13px] font-semibold text-gray-800">Tasks</span>
+            </div>
+            <DetailMetricRow label="Completion rate" value={`${completionPct}%`} valueColor={completionPct >= 50 ? '#34d399' : '#334155'} />
+            <DetailMetricRow label="Under review" value={val(row, 'task_under_review')} valueColor={val(row, 'task_under_review') > 0 ? '#3CCED7' : '#334155'} />
+            <DetailMetricRow label="Rejected" value={val(row, 'task_rejected')} valueColor={val(row, 'task_rejected') > 0 ? '#f59e0b' : '#334155'} />
+            <DetailMetricRow label="Blocked" value={val(row, 'task_blocked')} valueColor={val(row, 'task_blocked') > 0 ? '#fb7185' : '#334155'} />
+            <DetailMetricRow label="Due soon (7d)" value={val(row, 'task_due_soon')} valueColor={val(row, 'task_due_soon') > 0 ? '#f59e0b' : '#334155'} />
+            <DetailMetricRow label="Created last 7d" value={val(row, 'task_created_7d')} />
+            <DetailMetricRow
+              label="Completed last 7d"
+              value={completedLast7d}
+              valueColor={completedLast7d > 0 ? '#34d399' : '#334155'}
+            />
+          </div>
+
+          {/* Operations */}
+          <div className="rounded-lg border border-gray-100 bg-white p-3">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-6 h-6 rounded-md flex items-center justify-center bg-green-50 flex-shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="14" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                </svg>
+              </div>
+              <span className="text-[13px] font-semibold text-gray-800">Operations</span>
+            </div>
+            <DetailMetricRow label="Active spreadsheets" value={val(row, 'spreadsheet_total')} />
+            <DetailMetricRow label="Active campaigns" value={val(row, 'campaign_active')} />
+            <DetailMetricRow label="Upcoming meetings" value={val(row, 'meeting_upcoming')} />
+          </div>
+
+        </div>
+      </td>
+    </tr>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // MultiSelectDropdown — inline multi-select with checkbox list
@@ -120,120 +306,74 @@ interface CrossProjectRollupWidgetProps {
 }
 
 export default function CrossProjectRollupWidget({ projects }: CrossProjectRollupWidgetProps) {
-  const [fields, setFields] = useState<RollupField[]>([]);
   const [allData, setAllData] = useState<RollupProjectResult[]>([]);
-  const [fetchErrors, setFetchErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
 
-  // Client-side display filters (no re-fetch on change)
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
-  const [selectedFieldKeys, setSelectedFieldKeys] = useState<string[]>([]);
-  const [hiddenProjectIds, setHiddenProjectIds] = useState<Set<number>>(new Set());
   const [windowStart, setWindowStart] = useState(0);
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
   const hasFetched = useRef(false);
   const projectsRef = useRef(projects);
   useEffect(() => { projectsRef.current = projects; }, [projects]);
 
-  // Load available fields on mount
-  useEffect(() => {
-    DashboardAPI.getRollupFields()
-      .then((res) => setFields(res.data))
-      .catch(() => setError('Failed to load available fields.'));
-  }, []);
-
-  const doFetch = useCallback(async (projectIds: number[], fieldKeys: string[]) => {
-    if (projectIds.length === 0 || fieldKeys.length === 0) return;
+  const doFetch = useCallback(async (projectIds: number[]) => {
+    if (projectIds.length === 0) return;
     setLoading(true);
     try {
-      const data = await DashboardAPI.getRollup(projectIds, fieldKeys);
-      console.log('[RollupWidget] response:', data);
+      const data = await DashboardAPI.getRollup(projectIds, ALL_FIELDS);
       setAllData(data.results);
-      setFetchErrors(data.errors);
       setWindowStart(0);
-      setHiddenProjectIds(new Set());
-    } catch (err) {
-      console.error('[RollupWidget] fetch failed:', err);
-      // On complete failure: render project rows with — for every field
+    } catch {
       const fallback = projectsRef.current
         .filter((p) => projectIds.includes(Number(p.id)))
         .map((p) => ({ project_id: Number(p.id), project_name: p.name || '' }));
       setAllData(fallback);
-      setFetchErrors(Object.fromEntries(fieldKeys.map((k) => [k, 'failed'])));
       setWindowStart(0);
-      setHiddenProjectIds(new Set());
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Once both projects and fields are available, fetch once
   useEffect(() => {
-    console.log('[RollupWidget] hasFetched effect — projects:', projects.length, 'fields:', fields.length, 'hasFetched:', hasFetched.current);
     if (hasFetched.current) return;
-    if (projects.length === 0 || fields.length === 0) return;
-
-    const allProjectIds = projects.map((p) => Number(p.id));
-    const allFieldKeys = fields.map((f) => f.key);
-
-    console.log('[RollupWidget] dispatching fetch for projectIds:', allProjectIds);
-    setSelectedProjectIds(allProjectIds.map(String));
-    setSelectedFieldKeys(allFieldKeys);
+    if (projects.length === 0) return;
+    const allIds = projects.map((p) => Number(p.id));
+    setSelectedProjectIds(allIds.map(String));
     hasFetched.current = true;
+    doFetch(allIds);
+  }, [projects, doFetch]);
 
-    doFetch(allProjectIds, allFieldKeys);
-  }, [projects, fields, doFetch]);
-
-  // Derived: apply project + eye filters
   const selectedProjectIdSet = useMemo(
     () => new Set(selectedProjectIds.map(Number)),
     [selectedProjectIds]
   );
 
   const filteredData = useMemo(
-    () =>
-      allData.filter(
-        (row) =>
-          selectedProjectIdSet.has(row.project_id) &&
-          !hiddenProjectIds.has(row.project_id)
-      ),
-    [allData, selectedProjectIdSet, hiddenProjectIds]
+    () => allData.filter((row) => selectedProjectIdSet.has(row.project_id)),
+    [allData, selectedProjectIdSet]
   );
 
-  const visibleFields = useMemo(
-    () => fields.filter((f) => selectedFieldKeys.includes(f.key)),
-    [fields, selectedFieldKeys]
-  );
-
-  // Clamp windowStart to valid range after hide/filter operations
   const safeStart = Math.min(windowStart, Math.max(0, filteredData.length - PAGE_SIZE));
   const windowedData = filteredData.slice(safeStart, safeStart + PAGE_SIZE);
   const canPrev = safeStart > 0;
   const canNext = safeStart + PAGE_SIZE < filteredData.length;
 
-  const toggleHide = (projectId: number) => {
-    setHiddenProjectIds((prev) => {
+  const projectOptions = useMemo(
+    () => projects.map((p) => ({ key: String(p.id), label: p.name || `Project ${p.id}` })),
+    [projects]
+  );
+
+  const handleRefresh = () => doFetch(selectedProjectIds.map(Number));
+
+  const toggleExpand = (projectId: number) => {
+    setExpandedRows((prev) => {
       const next = new Set(prev);
       if (next.has(projectId)) next.delete(projectId);
       else next.add(projectId);
       return next;
     });
-  };
-
-  const projectOptions = useMemo(
-    () => projects.map((p) => ({ key: String(p.id), label: p.name || `Project ${p.id}` })),
-    [projects]
-  );
-  const fieldOptions = useMemo(
-    () => fields.map((f) => ({ key: f.key, label: f.label })),
-    [fields]
-  );
-
-  const handleRefresh = () => {
-    const ids = selectedProjectIds.map(Number);
-    const keys = selectedFieldKeys.length > 0 ? selectedFieldKeys : fields.map((f) => f.key);
-    doFetch(ids, keys);
   };
 
   if (projects.length === 0) return null;
@@ -249,25 +389,19 @@ export default function CrossProjectRollupWidget({ projects }: CrossProjectRollu
           <div>
             <h2 className="text-base font-semibold text-gray-900">Cross-project comparison</h2>
             <p className="text-[12px] text-gray-400 mt-0.5">
-              Compare metrics across all your projects at a glance.
+              Compare key metrics across all your projects at a glance.
             </p>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
             <MultiSelectDropdown
               label="Projects"
               options={projectOptions}
               value={selectedProjectIds}
               onChange={(vals) => {
                 setSelectedProjectIds(vals);
-                setHiddenProjectIds(new Set());
                 setWindowStart(0);
+                setExpandedRows(new Set());
               }}
-            />
-            <MultiSelectDropdown
-              label="Fields"
-              options={fieldOptions}
-              value={selectedFieldKeys}
-              onChange={setSelectedFieldKeys}
             />
             <button
               type="button"
@@ -276,14 +410,11 @@ export default function CrossProjectRollupWidget({ projects }: CrossProjectRollu
               title="Refresh data"
               className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white hover:border-gray-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              <RefreshCw
-                className={`w-3.5 h-3.5 text-gray-500 ${loading ? 'animate-spin' : ''}`}
-              />
+              <RefreshCw className={`w-3.5 h-3.5 text-gray-500 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
 
-        {/* Fields load error (widget unusable without field definitions) */}
         {error && (
           <div className="flex items-center gap-2 px-5 py-3 text-[13px] text-red-600 bg-red-50 border-b border-red-100">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -303,76 +434,107 @@ export default function CrossProjectRollupWidget({ projects }: CrossProjectRollu
           </div>
         ) : filteredData.length === 0 ? (
           <div className="py-14 text-center text-[13px] text-gray-400">
-            {hiddenProjectIds.size > 0 ? (
-              <>
-                All selected projects are hidden.{' '}
-                <button
-                  type="button"
-                  onClick={() => setHiddenProjectIds(new Set())}
-                  className="text-[#3CCED7] hover:underline"
-                >
-                  Show all
-                </button>
-              </>
-            ) : (
-              'No data available for the selected projects.'
-            )}
+            No data available for the selected projects.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-[13px]">
+            <table className="w-full">
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/50">
-                  <th className="w-8 px-3 py-2.5" />
-                  <th className="px-4 py-2.5 text-left font-medium text-gray-500 whitespace-nowrap">
+                  <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap">
                     Project
                   </th>
-                  {visibleFields.map((f) => (
-                    <th
-                      key={f.key}
-                      className="px-4 py-2.5 text-right font-medium text-gray-500 whitespace-nowrap"
-                    >
-                      {f.label}
-                    </th>
-                  ))}
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap">
+                    Overall Progress
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap">
+                    Task Completion Rate
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap">
+                    Overdue Tasks
+                  </th>
+                  <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400 whitespace-nowrap">
+                    Needs Attention
+                  </th>
+                  <th className="px-3 py-2.5" />
                 </tr>
               </thead>
               <tbody>
-                {windowedData.map((row, idx) => (
-                  <tr
-                    key={row.project_id}
-                    className={`transition-colors hover:bg-gray-50/60 ${
-                      idx < windowedData.length - 1 ? 'border-b border-gray-50' : ''
-                    }`}
-                  >
-                    <td className="px-3 py-3">
-                      <button
-                        type="button"
-                        onClick={() => toggleHide(row.project_id)}
-                        title="Hide this row"
-                        className="text-gray-300 hover:text-gray-500 transition-colors"
+                {windowedData.map((row, idx) => {
+                  const taskTotal = val(row, 'task_total');
+                  const taskDone = val(row, 'task_done');
+                  const taskOverdue = val(row, 'task_overdue');
+                  const taskBlocked = val(row, 'task_blocked');
+                  const completedLast7d = val(row, 'task_completed_7d');
+                  const completionPct = pct(taskDone, taskTotal);
+                  const needsAttention = taskOverdue + taskBlocked;
+                  const isExpanded = expandedRows.has(row.project_id);
+
+                  return (
+                    <Fragment key={row.project_id}>
+                      <tr
+                        className={`transition-colors hover:bg-gray-50/60 ${
+                          idx < windowedData.length - 1 && !isExpanded ? 'border-b border-gray-50' : ''
+                        }`}
                       >
-                        <EyeOff className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">
-                      {row.project_name}
-                    </td>
-                    {visibleFields.map((f) => (
-                      <td key={f.key} className="px-4 py-3 text-right tabular-nums">
-                        {f.key in fetchErrors ? (
-                          <span className="text-gray-300">—</span>
-                        ) : typeof row[f.key] === 'number' ? (
-                          <span className={row[f.key] === 0 ? 'text-gray-400' : 'text-gray-700'}>
-                            {(row[f.key] as number).toLocaleString()}
-                          </span>
-                        ) : (
-                          <span className="text-gray-300">—</span>
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                        {/* Project name */}
+                        <td className="px-4 py-3 align-top">
+                          <p className="text-[13px] font-semibold text-gray-900 whitespace-nowrap">
+                            {row.project_name}
+                          </p>
+                        </td>
+
+                        {/* Overall Progress */}
+                        <SummaryCell
+                          value={`${completionPct}%`}
+                          bar={completionPct}
+                          barColor="#34d399"
+                          sub={`${taskDone} / ${taskTotal} tasks done`}
+                        />
+
+                        {/* Task Completion Rate */}
+                        <SummaryCell
+                          value={`${completionPct}%`}
+                          valueColor={completionPct > 0 ? '#34d399' : '#334155'}
+                          bar={completionPct}
+                          barColor="#34d399"
+                          sub={`+${completedLast7d} completed last 7d`}
+                        />
+
+                        {/* Overdue Tasks */}
+                        <SummaryCell
+                          value={taskOverdue}
+                          valueColor={taskOverdue > 0 ? '#fb7185' : '#334155'}
+                          sub={`${pct(taskOverdue, taskTotal)}% of active tasks`}
+                        />
+
+                        {/* Needs Attention */}
+                        <SummaryCell
+                          value={needsAttention}
+                          valueColor={needsAttention > 0 ? '#f59e0b' : '#334155'}
+                          sub={`${val(row, 'decision_high_risk')} high-risk · ${taskOverdue} overdue · ${taskBlocked} blocked`}
+                        />
+
+                        {/* Details toggle */}
+                        <td className="px-3 py-3 align-top">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpand(row.project_id)}
+                            className="flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-[12px] font-medium text-gray-600 hover:border-gray-300 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                          >
+                            {isExpanded ? (
+                              <>Hide <ChevronUp className="w-3.5 h-3.5" /></>
+                            ) : (
+                              <>Details <ChevronDown className="w-3.5 h-3.5" /></>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+
+                      {isExpanded && <DetailPanel row={row} />}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -384,18 +546,6 @@ export default function CrossProjectRollupWidget({ projects }: CrossProjectRollu
             <span className="text-[12px] text-gray-400">
               Showing {safeStart + 1}–{Math.min(safeStart + PAGE_SIZE, filteredData.length)} of{' '}
               {filteredData.length} projects
-              {hiddenProjectIds.size > 0 && (
-                <>
-                  {' · '}
-                  <button
-                    type="button"
-                    onClick={() => setHiddenProjectIds(new Set())}
-                    className="text-[#3CCED7] hover:underline"
-                  >
-                    {hiddenProjectIds.size} hidden — show all
-                  </button>
-                </>
-              )}
             </span>
             <div className="flex items-center gap-1">
               <button
