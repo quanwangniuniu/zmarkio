@@ -20,14 +20,17 @@ it is freed immediately, so a hang can no longer pin a worker slot
 forever — it degrades to "wastes some CPU/memory in the background"
 instead of "the queue stops draining."
 
-The CELERY_TASK_TIME_LIMIT / CELERY_TASK_SOFT_TIME_LIMIT /
-CELERY_TASK_ANNOTATIONS settings in settings.py are left in place even
-though they're inert under threads — if a worker's pool is ever switched
-to prefork, they start enforcing for free.
+Under pytest, the wrapper below runs the function directly on the calling
+thread instead of handing it to a helper thread — see the
+PYTEST_CURRENT_TEST check in enforce_timeout. Tasks that look up data a
+test inserted inside its own (uncommitted) transaction would otherwise
+see an empty result, because a helper thread gets its own DB connection
+that can't see that transaction.
 """
 import concurrent.futures
 import functools
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,19 @@ def enforce_timeout(seconds):
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
+            # Under pytest, run synchronously on the calling thread. Celery's
+            # task.apply() executes tasks directly in the calling thread/connection
+            # (that's how Django TestCase's per-test transaction stays visible to
+            # the task body). Moving the real work into a helper thread — as we do
+            # in production — hands it a brand-new DB connection that can't see
+            # the test's uncommitted transaction, so DB lookups inside the task
+            # silently come back empty and the task exits early instead of
+            # exercising the code path the test actually wants to check. There's
+            # no real worker slot to protect in a test process anyway, so timeout
+            # protection is meaningless here — just call the function directly.
+            if os.environ.get('PYTEST_CURRENT_TEST'):
+                return func(*args, **kwargs)
+
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             future = executor.submit(func, *args, **kwargs)
             try:
