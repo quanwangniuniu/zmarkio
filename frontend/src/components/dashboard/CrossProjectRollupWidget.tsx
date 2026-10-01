@@ -303,9 +303,10 @@ function MultiSelectDropdown({ label, options, value, onChange }: MultiSelectPro
 
 interface CrossProjectRollupWidgetProps {
   projects: ProjectData[];
+  onSelectProject?: (id: number, name: string) => void;
 }
 
-export default function CrossProjectRollupWidget({ projects }: CrossProjectRollupWidgetProps) {
+export default function CrossProjectRollupWidget({ projects, onSelectProject }: CrossProjectRollupWidgetProps) {
   const [allData, setAllData] = useState<RollupProjectResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error] = useState<string | null>(null);
@@ -479,9 +480,19 @@ export default function CrossProjectRollupWidget({ projects }: CrossProjectRollu
                       >
                         {/* Project name */}
                         <td className="px-4 py-3 align-top">
-                          <p className="text-[13px] font-semibold text-gray-900 whitespace-nowrap">
-                            {row.project_name}
-                          </p>
+                          {onSelectProject ? (
+                            <button
+                              type="button"
+                              onClick={() => onSelectProject(row.project_id, row.project_name as string)}
+                              className="text-[13px] font-semibold text-[#3CCED7] hover:underline whitespace-nowrap text-left"
+                            >
+                              {row.project_name}
+                            </button>
+                          ) : (
+                            <p className="text-[13px] font-semibold text-gray-900 whitespace-nowrap">
+                              {row.project_name}
+                            </p>
+                          )}
                         </td>
 
                         {/* Overall Progress */}
