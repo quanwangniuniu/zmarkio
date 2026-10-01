@@ -20,7 +20,6 @@ export interface ConversationQualityReview {
   reviewer_name: string;
   reviewed_at: string;
   agent_user: number | null;
-  agent_name: string;
   /** Present only on the annotate response: true when the review was created. */
   created?: boolean;
 }
@@ -43,13 +42,14 @@ export type QualityDateBasis = 'review' | 'conversation';
 
 export type QualityBucket = 'day' | 'week' | 'month';
 
+/** Reserved agent id for conversations with no assigned agent. */
+export const UNASSIGNED_AGENT_ID = -1;
+
 export interface QualityFilters {
   date_from?: string;
   date_to?: string;
-  /** Auth user ids. */
+  /** Auth user ids, plus UNASSIGNED_AGENT_ID for conversations with nobody assigned. */
   agent: number[];
-  /** Include conversations with no assigned agent, alongside any agent ids. */
-  unassigned?: boolean;
   queue: number[];
   channel: string[];
   customer: number[];
@@ -84,6 +84,7 @@ export interface QualityFilterOptions {
     conversation_count: number;
     review_count: number;
   }[];
+  /** Includes an Unassigned row first, with user_id UNASSIGNED_AGENT_ID. */
   agents: {
     user_id: number;
     name: string;
@@ -91,9 +92,6 @@ export interface QualityFilterOptions {
     conversation_count: number;
     review_count: number;
   }[];
-  /** Conversations with no assigned agent, for the Unassigned option. */
-  unassigned_count: number;
-  unassigned_review_count: number;
   channels: { value: string; label: string; conversation_count: number; review_count: number }[];
   statuses: { value: string; label: string; conversation_count: number; review_count: number }[];
   tags: { value: string; conversation_count: number; review_count: number }[];

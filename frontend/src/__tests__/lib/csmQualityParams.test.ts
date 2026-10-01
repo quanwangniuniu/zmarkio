@@ -13,7 +13,6 @@ describe('toQueryParams', () => {
       agent: [],
       tag: [],
       customer_search: '',
-      unassigned: false,
       date_from: undefined,
       date_to: '2026-03-31',
     });
@@ -34,8 +33,7 @@ describe('writeQualityFilters and readQualityFilters', () => {
     const filters = {
       date_from: '2026-03-01',
       date_to: '2026-03-31',
-      agent: [9, 12],
-      unassigned: true,
+      agent: [9, 12, -1],
       queue: [3],
       channel: ['email', 'web'],
       customer: [5],
@@ -49,8 +47,7 @@ describe('writeQualityFilters and readQualityFilters', () => {
 
     writeQualityFilters(params, filters);
 
-    expect(params.getAll('agent')).toEqual(['9', '12']);
-    expect(params.get('unassigned')).toBe('true');
+    expect(params.getAll('agent')).toEqual(['9', '12', '-1']);
     expect(readQualityFilters(params)).toEqual(filters);
   });
 
@@ -66,6 +63,5 @@ describe('writeQualityFilters and readQualityFilters', () => {
     const filters = readQualityFilters(new URLSearchParams('agent=unassigned&agent=4'));
 
     expect(filters.agent).toEqual([4]);
-    expect(filters.unassigned).toBeUndefined();
   });
 });

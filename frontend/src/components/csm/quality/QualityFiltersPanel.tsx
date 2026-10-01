@@ -18,10 +18,6 @@ interface QualityFiltersPanelProps {
 const CONTROL =
   'h-8 w-full min-w-0 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-[#3CCED7] focus:outline-none focus:ring-1 focus:ring-[#3CCED7]';
 
-// The dropdown's own value for the Unassigned option. It never leaves this
-// component: selecting it sets the separate `unassigned` filter.
-const UNASSIGNED = 'unassigned';
-
 export function QualityFiltersPanel({
   filters,
   options,
@@ -40,21 +36,12 @@ export function QualityFiltersPanel({
 
   // Counts sit beside every option so a supervisor can see where the volume
   // is before picking one.
-  const agentOptions = [
-    {
-      value: UNASSIGNED,
-      label: 'Unassigned',
-      count:
-        countMode === 'reviews'
-          ? options?.unassigned_review_count
-          : options?.unassigned_count,
-    },
-    ...(options?.agents ?? []).map((agent) => ({
-      value: String(agent.user_id),
-      label: agent.name || agent.email,
-      count: tally(agent),
-    })),
-  ];
+  // Unassigned arrives as an ordinary agent row, with id UNASSIGNED_AGENT_ID.
+  const agentOptions = (options?.agents ?? []).map((agent) => ({
+    value: String(agent.user_id),
+    label: agent.name || agent.email,
+    count: tally(agent),
+  }));
 
   return (
     <section
@@ -93,13 +80,8 @@ export function QualityFiltersPanel({
           label="Agent"
           searchable
           options={agentOptions}
-          selected={[...(filters.unassigned ? [UNASSIGNED] : []), ...filters.agent.map(String)]}
-          onChange={(next) =>
-            onChange({
-              agent: next.filter((value) => value !== UNASSIGNED).map(Number),
-              unassigned: next.includes(UNASSIGNED) || undefined,
-            })
-          }
+          selected={filters.agent.map(String)}
+          onChange={(next) => onChange({ agent: next.map(Number) })}
         />
 
         <QualityMultiSelect

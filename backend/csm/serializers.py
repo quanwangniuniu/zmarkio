@@ -825,7 +825,7 @@ class ConversationQualityReviewSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'conversation', 'rating', 'rating_display', 'comment',
             'reviewer', 'reviewer_name', 'reviewed_at',
-            'agent_user', 'agent_name',
+            'agent_user',
         ]
         read_only_fields = fields
 

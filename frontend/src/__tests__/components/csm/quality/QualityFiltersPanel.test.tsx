@@ -3,7 +3,7 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import QualityFiltersPanel from '@/components/csm/quality/QualityFiltersPanel';
-import { EMPTY_QUALITY_FILTERS, QualityFilterOptions } from '@/types/csmQuality';
+import { EMPTY_QUALITY_FILTERS, QualityFilterOptions, UNASSIGNED_AGENT_ID } from '@/types/csmQuality';
 
 const options: QualityFilterOptions = {
   organisations: [{ id: 1, name: 'Acme' }],
@@ -12,10 +12,9 @@ const options: QualityFilterOptions = {
     { id: 4, name: 'Retired', organisation: 1, is_active: false, conversation_count: 2, review_count: 0 },
   ],
   agents: [
+    { user_id: UNASSIGNED_AGENT_ID, name: 'Unassigned', email: '', conversation_count: 3, review_count: 1 },
     { user_id: 9, name: 'Ada L.', email: 'ada@x.io', conversation_count: 5, review_count: 2 },
   ],
-  unassigned_count: 3,
-  unassigned_review_count: 1,
   channels: [
     { value: 'web', label: 'Web', conversation_count: 8, review_count: 3 },
     { value: 'email', label: 'Email', conversation_count: 6, review_count: 1 },
@@ -63,21 +62,21 @@ describe('QualityFiltersPanel — AC2 all six filters', () => {
     expect(onChange).toHaveBeenCalledWith({ date_to: '2026-03-31' });
   });
 
-  it('emits numeric agent ids, and Unassigned as its own flag', () => {
+  it('emits numeric agent ids, with Unassigned as the reserved id', () => {
     const { onChange } = renderPanel();
 
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
     const list = screen.getByRole('listbox', { name: 'Agent' });
 
     fireEvent.click(within(list).getByLabelText(/Ada L\./));
-    expect(onChange).toHaveBeenCalledWith({ agent: [9], unassigned: undefined });
+    expect(onChange).toHaveBeenCalledWith({ agent: [9] });
 
     fireEvent.click(within(list).getByLabelText(/Unassigned/));
-    expect(onChange).toHaveBeenCalledWith({ agent: [], unassigned: true });
+    expect(onChange).toHaveBeenCalledWith({ agent: [UNASSIGNED_AGENT_ID] });
   });
 
-  it('shows Unassigned as selected when the flag is set', () => {
-    renderPanel({ filters: { ...EMPTY_QUALITY_FILTERS, agent: [9], unassigned: true } });
+  it('shows Unassigned as selected when the reserved id is in the filter', () => {
+    renderPanel({ filters: { ...EMPTY_QUALITY_FILTERS, agent: [9, UNASSIGNED_AGENT_ID] } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }));
     const list = screen.getByRole('listbox', { name: 'Agent' });

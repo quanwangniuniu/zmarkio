@@ -133,7 +133,7 @@ class SupportChannelExperienceGroupAdmin(admin.ModelAdmin):
 
 @admin.register(ConversationQualityReview)
 class ConversationQualityReviewAdmin(admin.ModelAdmin):
-    list_display = ['conversation', 'rating', 'agent_name', 'reviewer_name', 'reviewed_at']
+    list_display = ['conversation', 'rating', 'agent_user', 'reviewer_name', 'reviewed_at']
     list_filter = ['rating']
-    search_fields = ['agent_name', 'reviewer_name', 'comment']
+    search_fields = ['agent_user__email', 'reviewer_name', 'comment']
     raw_id_fields = ['conversation', 'reviewer', 'agent_user']

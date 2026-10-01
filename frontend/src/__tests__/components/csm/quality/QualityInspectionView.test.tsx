@@ -44,8 +44,6 @@ const OPTIONS = {
   organisations: [],
   queues: [],
   agents: [],
-  unassigned_count: 0,
-  unassigned_review_count: 0,
   channels: [],
   statuses: [],
   tags: [],

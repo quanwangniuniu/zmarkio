@@ -20,6 +20,7 @@ from csm.models import (
     Queue,
     QueueAgent,
 )
+from csm.services.quality import UNASSIGNED_AGENT_ID
 
 pytestmark = pytest.mark.django_db
 
@@ -287,24 +288,24 @@ def test_filter_by_agent_matches_across_their_customer_user_rows(
     assert {row['id'] for row in _rows(response)} == {first.id, second.id}
 
 
-def test_filter_by_unassigned_flag(supervisor_client, user2, csm_queue, customer_organisation):
+def test_filter_by_the_unassigned_agent_id(supervisor_client, user2, csm_queue, customer_organisation):
     agent = _agent(user2, csm_queue, customer_organisation)
     _conversation(csm_queue, assigned_to=agent)
     orphan = _conversation(csm_queue, assigned_to=None)
 
-    response = supervisor_client.get(_list_url(), {'unassigned': 'true'})
+    response = supervisor_client.get(_list_url(), {'agent': UNASSIGNED_AGENT_ID})
 
     assert [row['id'] for row in _rows(response)] == [orphan.id]
 
 
-def test_unassigned_flag_combines_with_agent_ids(
+def test_unassigned_agent_id_combines_with_real_agent_ids(
     supervisor_client, user2, csm_queue, customer_organisation
 ):
     agent = _agent(user2, csm_queue, customer_organisation)
     handled = _conversation(csm_queue, assigned_to=agent)
     orphan = _conversation(csm_queue, assigned_to=None)
 
-    response = supervisor_client.get(_list_url(), {'agent': user2.id, 'unassigned': 'true'})
+    response = supervisor_client.get(_list_url(), {'agent': [user2.id, UNASSIGNED_AGENT_ID]})
 
     assert {row['id'] for row in _rows(response)} == {handled.id, orphan.id}
 
@@ -427,7 +428,8 @@ def test_filter_options_count_conversations_per_option(
 
     agent_row = next(a for a in data['agents'] if a['user_id'] == user2.id)
     assert agent_row['conversation_count'] == 2
-    assert data['unassigned_count'] == 1
+    unassigned = next(a for a in data['agents'] if a['user_id'] == UNASSIGNED_AGENT_ID)
+    assert unassigned['conversation_count'] == 1
 
     email = next(c for c in data['channels'] if c['value'] == 'email')
     assert email['conversation_count'] == 2
@@ -476,8 +478,19 @@ def test_filter_options_count_unassigned_annotations(supervisor_client, csm_queu
 
     data = supervisor_client.get(_options_url()).data
 
-    assert data['unassigned_count'] == 2
-    assert data['unassigned_review_count'] == 1
+    unassigned = next(a for a in data['agents'] if a['user_id'] == UNASSIGNED_AGENT_ID)
+    assert (unassigned['conversation_count'], unassigned['review_count']) == (2, 1)
+    assert 'unassigned_count' not in data
+
+
+def test_filter_options_list_unassigned_first(supervisor_client, user2, csm_queue, customer_organisation):
+    agent = _agent(user2, csm_queue, customer_organisation)
+    _conversation(csm_queue, assigned_to=agent)
+
+    data = supervisor_client.get(_options_url()).data
+
+    assert data['agents'][0]['user_id'] == UNASSIGNED_AGENT_ID
+    assert data['agents'][0]['name'] == 'Unassigned'
 
 
 def test_filter_options_tallies_respect_other_filters(
@@ -782,7 +795,8 @@ def test_agent_cannot_read_the_report(api_client, user2, csm_queue, customer_org
 # ---------------------------------------------------------------------------
 
 def _csv_rows(response):
-    return list(csv.reader(io.StringIO(response.content.decode('utf-8'))))
+    body = b''.join(response.streaming_content).decode('utf-8')
+    return list(csv.reader(io.StringIO(body)))
 
 
 def test_export_returns_the_report_as_csv(
@@ -812,6 +826,33 @@ def test_export_returns_the_report_as_csv(
 
     summary = next(row for row in rows if row[0] == 'summary')
     assert summary[3] == '2'
+
+
+def test_export_buckets_use_the_timezone_of_the_request(supervisor_client, csm_queue):
+    """The report is built while the body streams, after UserLocaleMiddleware
+    has deactivated the viewer's timezone; the buckets must still follow it."""
+    conversation = _conversation(csm_queue)
+    response = supervisor_client.post(
+        _review_url(conversation.id), {'rating': 'good'}, format='json')
+    review = ConversationQualityReview.objects.get(id=response.data['id'])
+    review.reviewed_at = MELBOURNE_LATE_UTC
+    review.save(update_fields=['reviewed_at'])
+
+    with timezone.override('Australia/Melbourne'):
+        response = supervisor_client.get(_export_url(), {
+            'date_from': '2026-09-17', 'date_to': '2026-09-17', 'bucket': 'day',
+        })
+    # Read outside the override, the way the server iterates the stream.
+    rows = _csv_rows(response)
+
+    assert [row[1] for row in rows if row[0] == 'day'] == ['2026-09-17']
+    assert next(row for row in rows if row[0] == 'summary')[3] == '1'
+
+
+def test_export_rejects_bad_filters_before_streaming(supervisor_client):
+    response = supervisor_client.get(_export_url(), {'date_from': 'yesterday'})
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 def test_export_matches_the_on_screen_report(supervisor_client, csm_queue):

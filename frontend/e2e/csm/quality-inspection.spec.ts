@@ -154,7 +154,6 @@ async function mockQualityApi(page: Page, state: MockState) {
       reviewer_name: 'Sup Ervisor',
       reviewed_at: '2026-03-04T12:00:00Z',
       agent_user: 41,
-      agent_name: 'Grace H.',
       created: true,
     };
     await route.fulfill({ status: 201, json: state.review });

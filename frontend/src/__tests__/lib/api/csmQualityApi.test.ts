@@ -79,13 +79,13 @@ describe('exportCsv', () => {
 });
 
 describe('getReport and getFilterOptions', () => {
-  it('sends the unassigned flag as its own param', async () => {
+  it('sends the unassigned agent id inside the agent list', async () => {
     mockedApi.get.mockResolvedValue({ data: { totals: { reviews: 0 } }, headers: {} });
 
-    await CsmQualityAPI.getReport({ agent: [9], unassigned: true });
+    await CsmQualityAPI.getReport({ agent: [9, -1] });
 
     expect(mockedApi.get).toHaveBeenCalledWith('/api/csm/quality/report/', {
-      params: { agent: [9], unassigned: true },
+      params: { agent: [9, -1] },
     });
   });
 

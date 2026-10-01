@@ -15,7 +15,6 @@ export const QUALITY_SCALAR_KEYS = [
   'date_from',
   'date_to',
   'customer_search',
-  'unassigned',
   'date_basis',
   'bucket',
 ] as const;
@@ -69,7 +68,6 @@ export function readQualityFilters(params: Pick<URLSearchParams, 'get' | 'getAll
     date_from: params.get('date_from') || undefined,
     date_to: params.get('date_to') || undefined,
     agent: numbers('agent'),
-    unassigned: params.get('unassigned') === 'true' || undefined,
     queue: numbers('queue'),
     channel: strings('channel'),
     customer: numbers('customer'),

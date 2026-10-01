@@ -398,13 +398,12 @@ class ConversationQualityReview(TimeStampedModel):
     # rating is revised, or a stale bucket keeps counting a rewritten rating.
     reviewed_at = models.DateTimeField(default=timezone.now)
 
-    # --- snapshots, resolved once at review time -------------------------
+    # Snapshot, resolved once at review time; the name is read live from it.
     agent_user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='csm_quality_reviews_received',
     )
-    agent_name = models.CharField(max_length=200, blank=True, default='')
 
     class Meta:
         ordering = ['-reviewed_at', '-id']

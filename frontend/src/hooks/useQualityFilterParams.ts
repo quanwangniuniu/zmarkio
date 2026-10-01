@@ -51,7 +51,6 @@ export function useQualityFilterParams(): QualityFilterState {
     if (filters.date_from) count += 1;
     if (filters.date_to) count += 1;
     if (filters.customer_search) count += 1;
-    if (filters.unassigned) count += 1;
     QUALITY_ARRAY_KEYS.forEach((key) => {
       const value = filters[key];
       if (Array.isArray(value) && value.length > 0) count += value.length;

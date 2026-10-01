@@ -27,6 +27,10 @@ User = get_user_model()
 BUCKETS = ('day', 'week', 'month')
 DATE_BASES = ('review', 'conversation')
 
+# Reserved agent id for "no agent assigned". Real user ids are positive, so it
+# can sit in the same ?agent= list and agent stays a plain list of ints.
+UNASSIGNED_AGENT_ID = -1
+
 # Cap on rows scanned when deriving the tag vocabulary. tags is a JSON list, so
 # there is no index to read distinct values from.
 TAG_VOCABULARY_SCAN_LIMIT = 5000
@@ -104,30 +108,94 @@ def parse_filters(query_params):
     if date_basis and date_basis not in DATE_BASES:
         raise ValidationError({'date_basis': f'Expected one of {", ".join(DATE_BASES)}.'})
 
-    parsed = {
-        'date_from': date_from,
-        'date_to': date_to,
-        'agent_user_ids': _int_list(many('agent'), 'agent'),
-        # Its own flag rather than a sentinel inside the agent id list, so
-        # agent stays a plain list of ints end to end.
-        'include_unassigned': (query_params.get('unassigned') or '').strip().lower() in ('1', 'true'),
-        'queue_ids': _int_list(many('queue'), 'queue'),
-        'channels': [c for c in many('channel') if c],
-        'customer_ids': _int_list(many('customer'), 'customer'),
-        'customer_search': (query_params.get('customer_search') or '').strip(),
-        'tags': [t.strip() for t in many('tag') if t.strip()],
-        'statuses': [s for s in many('status') if s],
-        'bucket': bucket,
-        'date_basis': date_basis,
-    }
-    return {key: value for key, value in parsed.items() if value}
+    filters = {}
+
+    def add(key, value):
+        if value:
+            filters[key] = value
+
+    add('date_from', date_from)
+    add('date_to', date_to)
+    # May include UNASSIGNED_AGENT_ID alongside real user ids.
+    add('agent_user_ids', _int_list(many('agent'), 'agent'))
+    add('queue_ids', _int_list(many('queue'), 'queue'))
+    add('channels', [c for c in many('channel') if c])
+    add('customer_ids', _int_list(many('customer'), 'customer'))
+    add('customer_search', (query_params.get('customer_search') or '').strip())
+    add('tags', [t.strip() for t in many('tag') if t.strip()])
+    add('statuses', [s for s in many('status') if s])
+    add('bucket', bucket)
+    add('date_basis', date_basis)
+    return filters
 
 
 # ---------------------------------------------------------------------------
 # conversation scope
 # ---------------------------------------------------------------------------
 
-FACETS = ('agent', 'queue', 'channel', 'customer', 'tag', 'status')
+def _filter_agent(qs, filters):
+    agent_ids = filters.get('agent_user_ids')
+    if not agent_ids:
+        return qs
+    # Matches on the auth user, never CustomerUser: one person may hold several
+    # CustomerUser rows (unique_together is user+queue), so a CustomerUser
+    # match would silently drop their other queues.
+    agent_q = Q(assigned_to__user_id__in=[i for i in agent_ids if i != UNASSIGNED_AGENT_ID])
+    if UNASSIGNED_AGENT_ID in agent_ids:
+        agent_q |= Q(assigned_to__isnull=True)
+    return qs.filter(agent_q)
+
+
+def _filter_queue(qs, filters):
+    if not filters.get('queue_ids'):
+        return qs
+    return qs.filter(queue_id__in=filters['queue_ids'])
+
+
+def _filter_channel(qs, filters):
+    if not filters.get('channels'):
+        return qs
+    return qs.filter(channel__in=filters['channels'])
+
+
+def _filter_customer(qs, filters):
+    # The customer dropdown and the customer search box are one facet.
+    if filters.get('customer_ids'):
+        qs = qs.filter(customer_id__in=filters['customer_ids'])
+    if filters.get('customer_search'):
+        term = filters['customer_search']
+        qs = qs.filter(Q(customer__full_name__icontains=term) | Q(customer__email__icontains=term))
+    return qs
+
+
+def _filter_tag(qs, filters):
+    if not filters.get('tags'):
+        return qs
+    # jsonb @> with the value wrapped in a list: an exact element match.
+    # Never use icontains here — on a JSONField it degrades to LIKE over the
+    # serialised JSON, so 'vip' would also match 'vip-escalation'.
+    tag_q = Q()
+    for tag in filters['tags']:
+        tag_q |= Q(tags__contains=[tag])
+    return qs.filter(tag_q)
+
+
+def _filter_status(qs, filters):
+    if not filters.get('statuses'):
+        return qs
+    return qs.filter(status__in=filters['statuses'])
+
+
+# One entry per filter dropdown. Each function returns *qs* unchanged when its
+# filter was not supplied, so adding a facet is adding an entry here.
+FACET_FILTERS = {
+    'agent': _filter_agent,
+    'queue': _filter_queue,
+    'channel': _filter_channel,
+    'customer': _filter_customer,
+    'tag': _filter_tag,
+    'status': _filter_status,
+}
 
 
 def filtered_conversations(user, filters, apply_date=True, exclude_facet=None):
@@ -142,11 +210,8 @@ def filtered_conversations(user, filters, apply_date=True, exclude_facet=None):
     channel look pointless to add. Every other filter still applies, which is
     what makes the number mean "pick this as well and you get N".
     """
-    if exclude_facet is not None and exclude_facet not in FACETS:
+    if exclude_facet is not None and exclude_facet not in FACET_FILTERS:
         raise ValueError(f'Unknown facet {exclude_facet!r}')
-
-    def applies(facet):
-        return facet != exclude_facet
 
     supervised_ids = supervised_queues_for(user).values_list('id', flat=True)
     qs = (
@@ -162,41 +227,9 @@ def filtered_conversations(user, filters, apply_date=True, exclude_facet=None):
         if end:
             qs = qs.filter(started_at__lte=end)
 
-    agent_ids = filters.get('agent_user_ids') or []
-    if applies('agent') and (agent_ids or filters.get('include_unassigned')):
-        agent_q = Q()
-        if agent_ids:
-            # Matches on the auth user, never CustomerUser: one person may hold
-            # several CustomerUser rows (unique_together is user+queue), so a
-            # CustomerUser match would silently drop their other queues.
-            agent_q |= Q(assigned_to__user_id__in=agent_ids)
-        if filters.get('include_unassigned'):
-            agent_q |= Q(assigned_to__isnull=True)
-        qs = qs.filter(agent_q)
-
-    if applies('queue') and filters.get('queue_ids'):
-        qs = qs.filter(queue_id__in=filters['queue_ids'])
-    if applies('channel') and filters.get('channels'):
-        qs = qs.filter(channel__in=filters['channels'])
-    if applies('customer') and filters.get('customer_ids'):
-        qs = qs.filter(customer_id__in=filters['customer_ids'])
-    if applies('customer') and filters.get('customer_search'):
-        term = filters['customer_search']
-        qs = qs.filter(
-            Q(customer__full_name__icontains=term) | Q(customer__email__icontains=term)
-        )
-    if applies('status') and filters.get('statuses'):
-        qs = qs.filter(status__in=filters['statuses'])
-
-    if applies('tag') and filters.get('tags'):
-        # jsonb @> with the value wrapped in a list: an exact element match.
-        # Never use icontains here — on a JSONField it degrades to LIKE over the
-        # serialised JSON, so 'vip' would also match 'vip-escalation'.
-        tag_q = Q()
-        for tag in filters['tags']:
-            tag_q |= Q(tags__contains=[tag])
-        qs = qs.filter(tag_q)
-
+    for facet, apply_filter in FACET_FILTERS.items():
+        if facet != exclude_facet:
+            qs = apply_filter(qs, filters)
     return qs
 
 
@@ -256,7 +289,6 @@ def upsert_review(user, conversation, rating, comment=''):
             'reviewer_name': _display_name(user),
             'reviewed_at': timezone.now(),
             'agent_user': agent_user,
-            'agent_name': _display_name(agent_user),
         },
     )
     return review, created
@@ -367,10 +399,8 @@ def build_quality_report(user, filters):
         for value, label in Rating.choices
     ]
 
-    # Group on agent_user_id alone. Including agent_name would split one agent
-    # into two rows whenever a snapshot name differs between reviews.
     agent_rows = list(base.values('agent_user_id').annotate(**counts).order_by('-total', 'agent_user_id'))
-    names = _agent_names(base, agent_rows)
+    names = _agent_names(agent_rows)
     by_agent = [
         {
             'agent_user_id': row['agent_user_id'],
@@ -427,16 +457,14 @@ def build_quality_report(user, filters):
     }
 
 
-def _agent_names(base, agent_rows):
-    """Map agent_user_id -> display name, falling back to the snapshot."""
+def _agent_names(agent_rows):
+    """Map agent_user_id -> the agent's current display name.
+
+    A deleted user leaves agent_user NULL, so those reviews group with the
+    unassigned ones.
+    """
     ids = [row['agent_user_id'] for row in agent_rows if row['agent_user_id']]
-    names = {u.id: _display_name(u) for u in User.objects.filter(id__in=ids)}
-    # A deleted user leaves agent_user NULL, but a renamed one still resolves;
-    # fall back to the stored snapshot so the row never renders blank.
-    for review in base.filter(agent_user_id__in=ids).values('agent_user_id', 'agent_name'):
-        if not names.get(review['agent_user_id']) and review['agent_name']:
-            names[review['agent_user_id']] = review['agent_name']
-    return names
+    return {u.id: _display_name(u) for u in User.objects.filter(id__in=ids)}
 
 
 def _echo(filters, basis, granularity):
@@ -446,7 +474,6 @@ def _echo(filters, basis, granularity):
         'date_basis': basis,
         'bucket': granularity,
         'agent': filters.get('agent_user_ids') or [],
-        'unassigned': bool(filters.get('include_unassigned')),
         'queue': filters.get('queue_ids') or [],
         'channel': filters.get('channels') or [],
         'customer': filters.get('customer_ids') or [],
@@ -530,8 +557,6 @@ def build_filter_options(user, filters=None):
     agent_convs, agent_reviews_qs = scoped('agent')
     agent_counts = _counts_by(agent_convs, 'assigned_to__user_id')
     agent_reviews = _counts_by(agent_reviews_qs, 'conversation__assigned_to__user_id')
-    unassigned_count = agent_counts.pop(None, 0)
-    unassigned_reviews = agent_reviews.pop(None, 0)
 
     customer_convs, customer_reviews_qs = scoped('customer')
     customer_reviews = _counts_by(customer_reviews_qs, 'conversation__customer_id')
@@ -560,6 +585,14 @@ def build_filter_options(user, filters=None):
             'review_count': agent_reviews.get(customer_user.user_id, 0),
         })
     agent_rows.sort(key=lambda row: (-row['conversation_count'], (row['name'] or '').lower()))
+    # Conversations with nobody assigned, selectable like any agent.
+    agent_rows.insert(0, {
+        'user_id': UNASSIGNED_AGENT_ID,
+        'name': 'Unassigned',
+        'email': '',
+        'conversation_count': agent_counts.get(None, 0),
+        'review_count': agent_reviews.get(None, 0),
+    })
 
     # GROUP BY rather than DISTINCT, so each customer appears once and carries
     # its tallies. .order_by() clears Conversation.Meta.ordering: left in place
@@ -597,8 +630,6 @@ def build_filter_options(user, filters=None):
             for q in queues
         ],
         'agents': agent_rows,
-        'unassigned_count': unassigned_count,
-        'unassigned_review_count': unassigned_reviews,
         'channels': [
             {'value': v, 'label': l,
              'conversation_count': channel_counts.get(v, 0),

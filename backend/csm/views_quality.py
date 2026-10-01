@@ -9,8 +9,8 @@ should not sit behind a supervisor permission.
 import csv
 import datetime as _dt
 
-from django.db.models import Count, Max, Prefetch
-from django.http import HttpResponse
+from django.db.models import Count, Max, Prefetch, TextChoices
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter
@@ -20,7 +20,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.admin_permissions import IsCsmSupervisor
-from csm.models import Conversation, ConversationQualityReview
+from core.tenant_streaming import TenantAwareStreamingResponse
+from csm.models import ConversationQualityReview
 from csm.serializers import (
     ConversationQualityReviewSerializer,
     ConversationQualityReviewWriteSerializer,
@@ -57,6 +58,13 @@ QUALITY_SUMMARY_CSV_HEADER = (
 _FORMULA_PREFIXES = ('=', '+', '-', '@', '\t', '\r')
 
 
+class QualityConversationOrdering(TextChoices):
+    """The fields the conversation list may be sorted by (?ordering=, with an
+    optional leading '-'). The one place to add a sortable field."""
+    STARTED_AT = 'started_at', 'Started'
+    ENDED_AT = 'ended_at', 'Ended'
+
+
 class QualityPagination(PageNumberPagination):
     page_size = 25
     page_size_query_param = 'page_size'
@@ -76,8 +84,8 @@ class QualityConversationViewSet(viewsets.ReadOnlyModelViewSet):
     # ordering backend applies. ordering_fields must stay explicit: left unset,
     # OrderingFilter accepts any serializer field.
     filter_backends = [OrderingFilter]
-    ordering_fields = ['started_at', 'ended_at']
-    ordering = ['-started_at']
+    ordering_fields = QualityConversationOrdering.values
+    ordering = [f'-{QualityConversationOrdering.STARTED_AT.value}']
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -209,29 +217,45 @@ def _summary_rows(report):
     return rows
 
 
-class QualityReportCsvView(APIView):
-    """CSV of the on-screen report.
+class _Echo:
+    """A write-only file: csv.writer returns each row as a string instead."""
 
-    A plain HttpResponse, not a streaming one: the file is the report's
-    aggregates (one summary row, one per agent, one per date bucket), so it is
-    small and fully built before the response exists. That also keeps every
-    query inside the request, where TenantSchemaMiddleware has set search_path.
+    def write(self, value):
+        return value
+
+
+class QualityReportCsvView(APIView):
+    """CSV of the on-screen report, streamed.
+
+    The report is built inside the stream, after the view has returned, so the
+    response is a TenantAwareStreamingResponse: it re-selects the tenant schema
+    that TenantSchemaMiddleware resets before a streaming body is iterated.
+    UserLocaleMiddleware likewise deactivates the viewer's timezone, so the
+    stream re-activates it or the date buckets would fall back to UTC. Filters
+    are parsed up front so a bad query string is still a 400.
     """
     permission_classes = [IsAuthenticated, IsCsmSupervisor]
 
     def get(self, request):
         filters = parse_filters(request.query_params)
-        report = build_quality_report(request.user, filters)
+        user = request.user
+        tz = timezone.get_current_timezone()
+        writer = csv.writer(_Echo())
 
-        echo = report['filters_echo']
+        def rows():
+            yield writer.writerow(QUALITY_SUMMARY_CSV_HEADER)
+            with timezone.override(tz):
+                report = build_quality_report(user, filters)
+            for row in _summary_rows(report):
+                yield writer.writerow([_csv_cell(cell) for cell in row])
+
         ts = _dt.datetime.now(_dt.timezone.utc).strftime('%Y%m%d-%H%M%S')
-        span = f"{echo.get('date_from') or 'all'}_{echo.get('date_to') or 'all'}"
+        span = '_'.join(
+            filters[key].isoformat() if filters.get(key) else 'all'
+            for key in ('date_from', 'date_to')
+        )
         filename = f'quality-inspection-{span}-{ts}.csv'
 
-        response = HttpResponse(content_type='text/csv; charset=utf-8')
+        response = TenantAwareStreamingResponse(rows(), content_type='text/csv; charset=utf-8')
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
-        writer = csv.writer(response)
-        writer.writerow(QUALITY_SUMMARY_CSV_HEADER)
-        for row in _summary_rows(report):
-            writer.writerow([_csv_cell(cell) for cell in row])
         return response

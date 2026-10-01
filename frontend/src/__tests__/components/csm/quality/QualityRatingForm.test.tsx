@@ -15,7 +15,6 @@ const existing: ConversationQualityReview = {
   reviewer_name: 'Grace Hopper',
   reviewed_at: '2026-03-04T10:30:00Z',
   agent_user: 9,
-  agent_name: 'Ada L.',
 };
 
 describe('QualityRatingForm — AC3 annotate with a rating and comment', () => {

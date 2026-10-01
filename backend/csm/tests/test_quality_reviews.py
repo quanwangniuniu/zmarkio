@@ -17,6 +17,7 @@ from csm.models import (
     Queue,
 )
 from csm.services.quality import (
+    FACET_FILTERS,
     build_quality_report,
     default_bucket,
     filtered_conversations,
@@ -166,7 +167,6 @@ def test_agent_is_null_when_nobody_handled_the_conversation(user, csm_queue, cus
 
     review, _ = upsert_review(user, conversation, Rating.GOOD)
     assert review.agent_user_id is None
-    assert review.agent_name == ''
 
 
 def test_report_follows_a_conversation_moved_to_another_queue(
@@ -196,9 +196,8 @@ def test_parse_filters_returns_only_the_filters_given():
     from django.http import QueryDict
 
     assert parse_filters(QueryDict('')) == {}
-    assert parse_filters(QueryDict('agent=4&agent=9&unassigned=true&channel=email')) == {
-        'agent_user_ids': [4, 9],
-        'include_unassigned': True,
+    assert parse_filters(QueryDict('agent=4&agent=-1&channel=email')) == {
+        'agent_user_ids': [4, -1],
         'channels': ['email'],
     }
 
@@ -221,6 +220,14 @@ def test_exclude_facet_skips_only_that_facets_filter(user, csm_queue, customer_o
     assert set(filtered_conversations(user, filters)) == {email}
     # The channel filter is dropped; the status filter still applies.
     assert filtered_conversations(user, filters, exclude_facet='channel').count() == 2
+
+
+def test_every_facet_is_a_no_op_without_its_filter(user, csm_queue, customer_organisation):
+    _supervisor(user, customer_organisation)
+    conversation = _conversation(csm_queue)
+
+    for apply_filter in FACET_FILTERS.values():
+        assert set(apply_filter(Conversation.objects.all(), {})) == {conversation}
 
 
 def test_exclude_facet_rejects_an_unknown_facet(user, customer_organisation):
