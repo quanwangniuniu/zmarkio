@@ -1,12 +1,6 @@
 import api from "../api";
 import { DashboardSummary } from "@/types/dashboard";
 
-export interface RollupField {
-  key: string;
-  label: string;
-  group: string;
-}
-
 export interface RollupProjectResult {
   project_id: number;
   project_name: string;
@@ -24,10 +18,6 @@ export const DashboardAPI = {
   // Get dashboard summary with optional project filter
   getSummary: (params?: { project_id?: number | string }) =>
     api.get<DashboardSummary>("/api/dashboard/summary/", { params }),
-
-  // Get all available rollup field definitions
-  getRollupFields: () =>
-    api.get<RollupField[]>("/api/dashboard/rollup/fields/"),
 
   // Fetch rollup data for given project IDs and fields.
   // Batches project_ids in groups of BATCH_SIZE and fires requests concurrently.

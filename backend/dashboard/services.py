@@ -5,7 +5,6 @@ from datetime import timedelta
 from task.models import Task, TaskRelation
 from campaign.models import Campaign
 from decision.models import Decision
-from budget_approval.models import BudgetRequest, BudgetRequestStatus
 from meetings.models import Meeting
 from spreadsheet.models import Spreadsheet
 from core.models import Project
@@ -57,10 +56,6 @@ def _query_campaign_active(project_ids):
     ).exclude(status__in=inactive))
 
 
-def _query_campaign_total(project_ids):
-    return _batch_count(Campaign.objects.filter(project_id__in=project_ids))
-
-
 def _query_decision_pending(project_ids):
     return _batch_count(Decision.objects.filter(
         project_id__in=project_ids,
@@ -74,20 +69,6 @@ def _query_decision_total(project_ids):
         project_id__in=project_ids,
         is_deleted=False,
     ))
-
-
-def _query_budget_request_pending(project_ids):
-    # BudgetRequest has no direct project_id; traverse budget_pool → project
-    rows = (
-        BudgetRequest.objects
-        .filter(
-            budget_pool__project_id__in=project_ids,
-            status__in=[BudgetRequestStatus.SUBMITTED, BudgetRequestStatus.UNDER_REVIEW],
-        )
-        .values('budget_pool__project_id')
-        .annotate(count=Count('id'))
-    )
-    return {row['budget_pool__project_id']: row['count'] for row in rows}
 
 
 def _query_meeting_upcoming(project_ids):
@@ -177,9 +158,6 @@ FIELD_REGISTRY = {
     'spreadsheet_total':      {'label': 'Active Spreadsheets',     'group': 'Operations',   'fn': _query_spreadsheet_total},
     'campaign_active':        {'label': 'Active Campaigns',        'group': 'Campaigns',    'fn': _query_campaign_active},
     'meeting_upcoming':       {'label': 'Upcoming Meetings',       'group': 'Meetings',     'fn': _query_meeting_upcoming},
-    # Kept for API compatibility, not displayed by default
-    'campaign_total':         {'label': 'Total Campaigns',         'group': 'Campaigns',    'fn': _query_campaign_total},
-    'budget_request_pending': {'label': 'Pending Budget Requests', 'group': 'Budget',       'fn': _query_budget_request_pending},
 }
 
 

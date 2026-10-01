@@ -9,7 +9,6 @@ from core.models import Project, Organization
 from task.models import Task, TaskRelation
 from campaign.models import Campaign
 from decision.models import Decision
-from budget_approval.models import AdChannel, BudgetRequest, BudgetRequestStatus, BudgetPool
 from meetings.models import Meeting, MeetingTypeDefinition
 from spreadsheet.models import Spreadsheet
 from dashboard import services
@@ -548,13 +547,9 @@ class RollupServicesTest(TestCase):
         self.meeting_type = MeetingTypeDefinition.objects.create(
             project=self.project, label="General"
         )
-        # Shared AdChannel (required non-null FK on BudgetPool)
-        self.ad_channel = AdChannel.objects.create(name="channel", project=self.project)
-
         # Wipe any stale rows left from previous --keepdb runs
         for model in (Task, Decision, Campaign, Meeting, Spreadsheet):
             model.objects.filter(project__in=[self.project, self.other]).delete()
-        BudgetPool.objects.filter(project__in=[self.project, self.other]).delete()
 
     # ── factories ─────────────────────────────────────────────────────────────
 
@@ -621,24 +616,6 @@ class RollupServicesTest(TestCase):
             project=project,
             type_definition=mtd,
             scheduled_date=(timezone.now() + timedelta(days=days_from_now)).date(),
-        )
-
-    def _budget_request(self, project=None, req_status=BudgetRequestStatus.SUBMITTED):
-        project = project or self.project
-        channel, _ = AdChannel.objects.get_or_create(name="channel", project=project)
-        pool = BudgetPool.objects.create(
-            name=f"pool-{self._uid()}",
-            project=project,
-            ad_channel=channel,
-            total_amount=1000,
-            currency="USD",
-        )
-        return BudgetRequest.objects.create(
-            budget_pool=pool,
-            requested_by=self.user,
-            ad_channel=channel,
-            amount=100,
-            status=req_status,
         )
 
     def _spreadsheet(self, project=None):
@@ -921,33 +898,6 @@ class RollupServicesTest(TestCase):
         self._campaign(self.other, status=Campaign.Status.PLANNING)
         row = services.get_rollup([self.project.pk], ['campaign_active'])['results'][0]
         self.assertEqual(row['campaign_active'], 0)
-
-    # ── campaign_total ────────────────────────────────────────────────────────
-
-    def test_campaign_total_counts_all_campaigns(self):
-        self._campaign(status=Campaign.Status.PLANNING)
-        self._campaign(status=Campaign.Status.COMPLETED)
-        row = services.get_rollup([self.project.pk], ['campaign_total'])['results'][0]
-        self.assertEqual(row['campaign_total'], 2)
-
-    def test_campaign_total_isolated_to_project(self):
-        self._campaign(self.other)
-        row = services.get_rollup([self.project.pk], ['campaign_total'])['results'][0]
-        self.assertEqual(row['campaign_total'], 0)
-
-    # ── budget_request_pending ────────────────────────────────────────────────
-
-    def test_budget_request_pending_counts_submitted_and_under_review(self):
-        self._budget_request(req_status=BudgetRequestStatus.SUBMITTED)
-        self._budget_request(req_status=BudgetRequestStatus.UNDER_REVIEW)
-        self._budget_request(req_status=BudgetRequestStatus.APPROVED)  # not pending
-        row = services.get_rollup([self.project.pk], ['budget_request_pending'])['results'][0]
-        self.assertEqual(row['budget_request_pending'], 2)
-
-    def test_budget_request_pending_isolated_to_project(self):
-        self._budget_request(self.other, req_status=BudgetRequestStatus.SUBMITTED)
-        row = services.get_rollup([self.project.pk], ['budget_request_pending'])['results'][0]
-        self.assertEqual(row['budget_request_pending'], 0)
 
     # ── meeting_upcoming ──────────────────────────────────────────────────────
 
