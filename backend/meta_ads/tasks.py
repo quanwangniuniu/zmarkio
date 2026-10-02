@@ -10,7 +10,6 @@ import logging
 from celery import shared_task
 from django.utils import timezone
 
-from core.celery_utils import enforce_timeout
 from facebook_integration.models import FacebookConnection, MetaAdAccount
 
 from .services import sync_ad_account
@@ -26,8 +25,7 @@ logger = logging.getLogger(__name__)
 LOCK_WINDOW_MINUTES = 10
 
 
-@shared_task
-@enforce_timeout(seconds=300)
+@shared_task(time_limit=300)
 def sync_all_meta_connections(kind: str = "hourly", days: int = 30) -> dict:
     """Iterate every active FacebookConnection and refresh each ad account."""
     summary = {"connections": 0, "ad_accounts": 0, "errors": 0}
@@ -50,15 +48,13 @@ def sync_all_meta_connections(kind: str = "hourly", days: int = 30) -> dict:
     return summary
 
 
-@shared_task
-@enforce_timeout(seconds=300)
+@shared_task(time_limit=300)
 def sync_recent_meta(days: int = 2) -> dict:
     """Lightweight 15-minute sync that only refreshes the trailing 2 days of insights."""
     return sync_all_meta_connections(kind="15min", days=days)
 
 
-@shared_task
-@enforce_timeout(seconds=60)
+@shared_task(time_limit=60)
 def sync_single_ad_account(ad_account_id: int, days: int = 30) -> dict:
     """Manual sync trigger used by the UI Refresh button."""
     try:
@@ -72,8 +68,7 @@ def sync_single_ad_account(ad_account_id: int, days: int = 30) -> dict:
     return {"status": run.status, "level_counts": run.level_counts, "error": run.error_message}
 
 
-@shared_task
-@enforce_timeout(seconds=60)
+@shared_task(time_limit=60)
 def sync_all_active_ad_accounts() -> dict:
     """Fan out a per-account sync to every active ad account.
 

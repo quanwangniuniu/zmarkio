@@ -4,15 +4,13 @@ from celery import shared_task
 from django.conf import settings
 from django.utils import timezone
 from django.db import transaction
-from core.celery_utils import enforce_timeout
 from utils.tasks import scan_file_for_virus_generic
 from .models import PublicPreview
 
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True)
-@enforce_timeout(seconds=30)
+@shared_task(bind=True, time_limit=30)
 def scan_tiktok_creative_for_virus(self, creative_id):
     """Scan TikTok creative file for viruses using generic scanner."""
     return scan_file_for_virus_generic.delay(
@@ -23,8 +21,7 @@ def scan_tiktok_creative_for_virus(self, creative_id):
     )
 
 
-@shared_task
-@enforce_timeout(seconds=60)
+@shared_task(time_limit=60)
 def cleanup_expired_previews():
     """
     Clean up expired preview records from the database
