@@ -13,6 +13,11 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from notion_editor.views import MediaUploadView
 
 
+def _swallowed_logs(caplog, logger, level):
+    """Records from `logger` at `level` that carry the swallowed exception (MED-401)."""
+    return [r for r in caplog.records if r.name == logger and r.levelno == level and r.exc_info]
+
+
 def test_temp_file_cleanup_failure_is_logged_and_error_response_kept(caplog):
     request = APIRequestFactory().post(
         "/api/notion/api/media/upload/",
@@ -27,7 +32,7 @@ def test_temp_file_cleanup_failure_is_logged_and_error_response_kept(caplog):
     ), caplog.at_level(logging.WARNING, logger="notion_editor.views"):
         response = MediaUploadView.as_view()(request)
 
-    leaked = [r for r in caplog.records if r.getMessage().startswith("Media upload: failed to remove temp file")]
+    leaked = _swallowed_logs(caplog, "notion_editor.views", logging.WARNING)
     for record in leaked:
         real_unlink(record.args[0])
 

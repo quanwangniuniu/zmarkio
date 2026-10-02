@@ -11,6 +11,12 @@ from django.test import RequestFactory
 
 from access_control.middleware.authorization import AuthorizationMiddleware
 
+
+def _swallowed_logs(caplog, logger, level):
+    """Records from `logger` at `level` that carry the swallowed exception (MED-401)."""
+    return [r for r in caplog.records if r.name == logger and r.levelno == level and r.exc_info]
+
+
 LOGGER = "access_control.middleware.authorization"
 
 
@@ -30,7 +36,7 @@ def test_org_admin_lookup_failure_is_logged_and_falls_back(caplog):
 
     assert result is None
     assert request.is_org_admin is False
-    assert "Org-admin bypass lookup failed for user_id=7" in caplog.text
+    assert _swallowed_logs(caplog, LOGGER, logging.WARNING)
 
 
 def test_admin_override_audit_write_failure_is_logged(caplog):
@@ -43,4 +49,4 @@ def test_admin_override_audit_write_failure_is_logged(caplog):
     ), caplog.at_level(logging.ERROR, logger=LOGGER):
         middleware._log_override(request, _user(), "SUPERUSER", "ASSET", "VIEW")
 
-    assert "Failed to write AdminOverrideAudit user_id=7 type=SUPERUSER" in caplog.text
+    assert _swallowed_logs(caplog, LOGGER, logging.ERROR)

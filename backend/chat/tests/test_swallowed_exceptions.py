@@ -15,13 +15,18 @@ from chat.services import ChatService, MessageService, OnlineStatusService
 from chat.tasks import send_scheduled_message
 
 
+def _swallowed_logs(caplog, logger, level):
+    """Records from `logger` at `level` that carry the swallowed exception (MED-401)."""
+    return [r for r in caplog.records if r.name == logger and r.levelno == level and r.exc_info]
+
+
 def test_touch_cache_key_failure_is_logged_at_debug(caplog):
     with patch("chat.services.cache.touch", side_effect=RedisConnectionError("down")), caplog.at_level(
         logging.DEBUG, logger="chat.services"
     ):
         OnlineStatusService._touch_cache_key("user_online:7")
 
-    assert "[OnlineStatus] Failed to touch cache key user_online:7" in caplog.text
+    assert _swallowed_logs(caplog, "chat.services", logging.DEBUG)
 
 
 def test_presence_recipients_cache_write_failure_still_returns_db_result(caplog):
@@ -36,7 +41,7 @@ def test_presence_recipients_cache_write_failure_still_returns_db_result(caplog)
         recipients = ChatService.get_presence_recipient_ids(7)
 
     assert recipients == [3, 4]
-    assert "[OnlineStatus] Failed to cache presence recipients for user 7" in caplog.text
+    assert _swallowed_logs(caplog, "chat.services", logging.DEBUG)
 
 
 def test_forward_source_close_failure_is_logged_and_copy_succeeds(caplog):
@@ -52,7 +57,7 @@ def test_forward_source_close_failure_is_logged_and_copy_succeeds(caplog):
         )
 
     target.save.assert_called_once()
-    assert "forward_messages_batch source_close_failed file=chat/attachments/report.pdf" in caplog.text
+    assert _swallowed_logs(caplog, "chat.services", logging.WARNING)
 
 
 def test_scheduled_message_failed_status_write_failure_is_logged(caplog):
@@ -69,4 +74,6 @@ def test_scheduled_message_failed_status_write_failure_is_logged(caplog):
     ), caplog.at_level(logging.ERROR, logger="chat.tasks"):
         send_scheduled_message(5)
 
-    assert "send_scheduled_message 5: failed to mark FAILED; row may be stuck in SENDING" in caplog.text
+    # The task already logged the original failure without a traceback; the new
+    # record is the one carrying the swallowed status-update error.
+    assert _swallowed_logs(caplog, "chat.tasks", logging.ERROR)

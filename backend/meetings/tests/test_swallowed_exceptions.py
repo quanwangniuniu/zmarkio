@@ -10,6 +10,12 @@ from django.db import OperationalError
 from decision.models import Decision
 from meetings.views import ArtifactLinkViewSet
 
+
+def _swallowed_logs(caplog, logger, level):
+    """Records from `logger` at `level` that carry the swallowed exception (MED-401)."""
+    return [r for r in caplog.records if r.name == logger and r.levelno == level and r.exc_info]
+
+
 LOGGER = "meetings.views"
 
 
@@ -28,4 +34,4 @@ def test_unexpected_lookup_failure_uses_generic_title_and_is_logged(caplog):
         title = ArtifactLinkViewSet._resolve_artifact_title("decision", 999)
 
     assert title == "Decision #999"
-    assert "Failed to resolve title for decision artifact 999; using generic label" in caplog.text
+    assert _swallowed_logs(caplog, LOGGER, logging.WARNING)

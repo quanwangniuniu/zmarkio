@@ -10,6 +10,12 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 
 from notifications.sse import publish_notification_to_redis, sse_event_generator
 
+
+def _swallowed_logs(caplog, logger, level):
+    """Records from `logger` at `level` that carry the swallowed exception (MED-401)."""
+    return [r for r in caplog.records if r.name == logger and r.levelno == level and r.exc_info]
+
+
 LOGGER = "notifications.sse"
 
 
@@ -25,7 +31,7 @@ def test_publish_client_close_failure_is_logged_at_debug(caplog):
         publish_notification_to_redis(7, MagicMock(pk="n-1"))
 
     client.publish.assert_called_once()
-    assert "SSE: Redis client close failed" in caplog.text
+    assert _swallowed_logs(caplog, LOGGER, logging.DEBUG)
 
 
 def test_stream_teardown_closes_client_even_if_unsubscribe_fails(caplog):
@@ -45,4 +51,4 @@ def test_stream_teardown_closes_client_even_if_unsubscribe_fails(caplog):
         asyncio.run(consume())
 
     client.aclose.assert_awaited_once()
-    assert "SSE: unsubscribe failed for user_id=7" in caplog.text
+    assert _swallowed_logs(caplog, LOGGER, logging.DEBUG)

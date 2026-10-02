@@ -12,6 +12,12 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
+
+def _swallowed_logs(caplog, logger, level):
+    """Records from `logger` at `level` that carry the swallowed exception (MED-401)."""
+    return [r for r in caplog.records if r.name == logger and r.levelno == level and r.exc_info]
+
+
 User = get_user_model()
 
 
@@ -35,4 +41,4 @@ def test_avatar_delete_failure_is_logged_and_account_still_deleted(caplog):
     assert response.status_code == status.HTTP_200_OK
     user.refresh_from_db()
     assert user.is_deleted
-    assert f"Failed to delete avatar file for deleted user {user.id} (name=avatars/leftover.png)" in caplog.text
+    assert _swallowed_logs(caplog, "authentication.views", logging.WARNING)

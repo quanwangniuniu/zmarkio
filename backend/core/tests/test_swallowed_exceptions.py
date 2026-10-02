@@ -16,6 +16,11 @@ from rest_framework import status
 from core.middleware.tenant_schema import TenantSchemaMiddleware
 
 
+def _swallowed_logs(caplog, logger, level):
+    """Records from `logger` at `level` that carry the swallowed exception (MED-401)."""
+    return [r for r in caplog.records if r.name == logger and r.levelno == level and r.exc_info]
+
+
 class _FakeCursor:
     """Accepts the initial SET search_path, fails the reset in `finally`."""
 
@@ -50,8 +55,8 @@ def test_failed_search_path_reset_is_logged_and_response_kept(caplog):
         result = middleware(RequestFactory().get("/api/core/projects/"))
 
     assert result is response
-    assert "failed to reset search_path to public after GET /api/core/projects/" in caplog.text
-    assert "rollback after failed search_path reset also failed" in caplog.text
+    assert _swallowed_logs(caplog, "core.middleware.tenant_schema", logging.WARNING)
+    assert _swallowed_logs(caplog, "core.middleware.tenant_schema", logging.DEBUG)
 
 
 @pytest.mark.django_db
@@ -67,4 +72,4 @@ def test_calendar_lookup_failure_is_logged_and_project_still_deleted(authenticat
         response = authenticated_client.delete(reverse("project-detail", kwargs={"pk": project.slug}))
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
-    assert f"perform_destroy: could not load calendars for project {project.id}" in caplog.text
+    assert _swallowed_logs(caplog, "core.views", logging.WARNING)

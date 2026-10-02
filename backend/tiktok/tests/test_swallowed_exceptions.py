@@ -13,6 +13,12 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from tiktok.views import material_delete, upload_video_ad
 
+
+def _swallowed_logs(caplog, logger, level):
+    """Records from `logger` at `level` that carry the swallowed exception (MED-401)."""
+    return [r for r in caplog.records if r.name == logger and r.levelno == level and r.exc_info]
+
+
 LOGGER = "tiktok.views"
 
 
@@ -38,7 +44,7 @@ def test_temp_file_cleanup_failure_is_logged_and_response_kept(caplog):
         creatives.return_value.first.return_value = None
         response = upload_video_ad(request)
 
-    leaked = [r for r in caplog.records if r.getMessage().startswith("TikTok video upload: failed to remove temp file")]
+    leaked = _swallowed_logs(caplog, LOGGER, logging.WARNING)
     for record in leaked:
         real_unlink(record.args[0])
 
@@ -59,4 +65,4 @@ def test_stored_file_delete_failure_is_logged_and_material_still_deleted(caplog)
 
     assert response.status_code == status.HTTP_200_OK
     creative.delete.assert_called_once()
-    assert "TikTok material 5: failed to delete stored file tiktok/videos/abc.mp4; file is now orphaned" in caplog.text
+    assert _swallowed_logs(caplog, LOGGER, logging.ERROR)

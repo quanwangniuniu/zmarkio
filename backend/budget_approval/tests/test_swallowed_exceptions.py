@@ -10,6 +10,12 @@ from django.db import OperationalError
 
 from budget_approval.permissions import ApprovalPermission, BudgetRequestPermission
 
+
+def _swallowed_logs(caplog, logger, level):
+    """Records from `logger` at `level` that carry the swallowed exception (MED-401)."""
+    return [r for r in caplog.records if r.name == logger and r.levelno == level and r.exc_info]
+
+
 LOGGER = "budget_approval.permissions"
 
 
@@ -41,7 +47,7 @@ def test_budget_request_permission_logs_failed_organization_lookup(caplog):
 
     assert allowed is False
     assert rbac.call_args.args[3] == "fallback-org"
-    assert "BudgetRequestPermission: cannot resolve organization for budget_request_id=42" in caplog.text
+    assert _swallowed_logs(caplog, LOGGER, logging.WARNING)
 
 
 def test_approval_permission_logs_failed_organization_lookup(caplog):
@@ -54,4 +60,4 @@ def test_approval_permission_logs_failed_organization_lookup(caplog):
 
     assert allowed is True
     assert rbac.call_args.args[3] == "fallback-org"
-    assert "ApprovalPermission: cannot resolve organization for budget_request_id=42" in caplog.text
+    assert _swallowed_logs(caplog, LOGGER, logging.WARNING)

@@ -10,6 +10,11 @@ from django.db import OperationalError
 from task.tasks import scan_task_attachment
 
 
+def _swallowed_logs(caplog, logger, level):
+    """Records from `logger` at `level` that carry the swallowed exception (MED-401)."""
+    return [r for r in caplog.records if r.name == logger and r.levelno == level and r.exc_info]
+
+
 def test_status_update_failure_after_scan_error_is_logged(caplog):
     # The "task" logger does not propagate to root (settings.LOGGING), so attach
     # caplog's handler to it directly.
@@ -25,4 +30,4 @@ def test_status_update_failure_after_scan_error_is_logged(caplog):
         task_logger.removeHandler(caplog.handler)
 
     assert result is False
-    assert "Failed to mark task attachment 9 as error_scanning; it may stay in SCANNING" in caplog.text
+    assert _swallowed_logs(caplog, "task.tasks", logging.ERROR)
