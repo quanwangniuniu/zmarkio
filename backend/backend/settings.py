@@ -128,7 +128,7 @@ MIDDLEWARE = [
     'core.middleware.project_access.CheckProjectAccessMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'access_control.middleware.authorization.AuthorizationMiddleware',
+    'access_control.middleware.authorization.AuthorizationMiddleware', 
     'user_preferences.middleware.user_locale.UserLocaleMiddleware',
     'django.middleware.locale.LocaleMiddleware',
     'tracking.middleware.ServerSideTrackingMiddleware',
@@ -832,64 +832,64 @@ KAFKA_TOPICS = {
     'CAMPAIGN_UPDATED': 'campaign.updated.json',
     'CAMPAIGN_DELETED': 'campaign.deleted.json',
     'CAMPAIGN_STATUS_CHANGED': 'campaign.status_changed.json',
-
+    
     # Asset domain
     'ASSET_CREATED': 'asset.created.json',
     'ASSET_UPDATED': 'asset.updated.json',
     'ASSET_DELETED': 'asset.deleted.json',
     'ASSET_STATUS_CHANGED': 'asset.status_changed.json',
-
+    
     # Task domain
     'TASK_CREATED': 'task.created.json',
     'TASK_UPDATED': 'task.updated.json',
     'TASK_STATUS_CHANGED': 'task.status_changed.json',
     'TASK_DELETED': 'task.deleted.json',
-
+    
     # Retrospective domain
     'RETROSPECTIVE_CREATED': 'retrospective.created.json',
     'RETROSPECTIVE_COMPLETED': 'retrospective.completed.json',
     'RETROSPECTIVE_UPDATED': 'retrospective.updated.json',
-
+    
     # Budget Approval domain
     'BUDGET_REQUEST_CREATED': 'budget_approval.request_created.json',
     'BUDGET_REQUEST_APPROVED': 'budget_approval.request_approved.json',
     'BUDGET_REQUEST_REJECTED': 'budget_approval.request_rejected.json',
-
+    
     # Report domain
-
+    
     # Metric Upload domain
     'METRIC_UPLOADED': 'metric_upload.uploaded.json',
     'METRIC_PROCESSED': 'metric_upload.processed.json',
-
+    
     # Optimization domain
     'OPTIMIZATION_EXPERIMENT_CREATED': 'optimization.experiment_created.json',
     'OPTIMIZATION_EXPERIMENT_COMPLETED': 'optimization.experiment_completed.json',
-
+    
     # Project domain (core)
     'PROJECT_CREATED': 'core.project_created.json',
     'PROJECT_UPDATED': 'core.project_updated.json',
     'PROJECT_DELETED': 'core.project_deleted.json',
-
+    
     # Organization domain (core)
     'ORGANIZATION_CREATED': 'core.organization_created.json',
     'ORGANIZATION_UPDATED': 'core.organization_updated.json',
-
+    
     # Team domain
     'TEAM_CREATED': 'teams.team_created.json',
     'TEAM_UPDATED': 'teams.team_updated.json',
     'TEAM_MEMBER_ADDED': 'teams.member_added.json',
     'TEAM_MEMBER_REMOVED': 'teams.member_removed.json',
-
+    
     # User domain (authentication/core)
     'USER_CREATED': 'authentication.user_created.json',
     'USER_UPDATED': 'authentication.user_updated.json',
     'USER_LOGGED_IN': 'authentication.user_logged_in.json',
-
+    
     # Access Control domain
     'PERMISSION_GRANTED': 'access_control.permission_granted.json',
     'PERMISSION_REVOKED': 'access_control.permission_revoked.json',
     'ROLE_ASSIGNED': 'access_control.role_assigned.json',
-
+    
     # Integration domains (optional - enable as needed)
     'FACEBOOK_META_AD_CREATED': 'facebook_meta.ad_created.json',
     'GOOGLE_ADS_CREATED': 'google_ads.ad_created.json',
@@ -898,7 +898,7 @@ KAFKA_TOPICS = {
     'KLAVIYO_EMAIL_SENT': 'klaviyo.email_sent.json',
     'STRIPE_PAYMENT_PROCESSED': 'stripe_meta.payment_processed.json',
     'NOTION_DOCUMENT_CREATED': 'notion_editor.document_created.json',
-
+    
     # Workflow domain
     'WORKFLOW_TRIGGERED': 'workflows.workflow_triggered.json',
     'WORKFLOW_COMPLETED': 'workflows.workflow_completed.json',
