@@ -14,6 +14,7 @@ export {
   SYSTEM_PROMPT,
   buildExternalUrlPrompt,
   buildUserPrompt,
+  withVariationAngle,
 } from './prompts';
 
 export {

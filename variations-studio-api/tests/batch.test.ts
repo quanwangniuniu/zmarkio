@@ -1,6 +1,7 @@
 import { POST as generate } from '@/app/api/ad_copy_variation/variations/generate/route';
 import { callOllamaJson, getOllamaErrorMessage, } from '@/src/ai/providers/ollama';
 import { prisma } from '@/lib/prisma';
+import { VARIATION_ANGLES } from '@/src/ai/prompts';
 import {
   countVariations,
   findVariationsByIdsAnyProject,
@@ -171,6 +172,29 @@ describe('batch generate failure handling', () => {
     expect(new Set(rows.map((row) => row.batchId)).size).toBe(1);
     expect(rows[0].batchId).toBe(body.batch_id);
     expect(rows.map((row) => row.batchPosition).sort()).toEqual([0, 1, 2]);
+  });
+
+  it('asks once more when the model returns the source copy unchanged', async () => {
+    ollamaMock
+      .mockResolvedValueOnce(copy('Base'))
+      .mockResolvedValueOnce(copy('Generated'));
+
+    const response = await generateBatch(1);
+
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    expect(ollamaMock).toHaveBeenCalledTimes(2);
+    expect(body.results).toMatchObject([{ hook: 'Generated hook' }]);
+  });
+
+  it('gives each batch member its own angle', async () => {
+    ollamaMock.mockResolvedValue(copy('Generated'));
+
+    await generateBatch(2);
+
+    const prompts = ollamaMock.mock.calls.map(([, userPrompt]) => userPrompt);
+    expect(prompts.some((prompt) => prompt.includes(VARIATION_ANGLES[0]))).toBe(true);
+    expect(prompts.some((prompt) => prompt.includes(VARIATION_ANGLES[1]))).toBe(true);
   });
 });
 

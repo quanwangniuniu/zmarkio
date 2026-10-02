@@ -1,5 +1,5 @@
 import { requireProjectForUser } from '@/lib/projects';
-import { buildUserPrompt } from '@/src/ai/prompts';
+import { buildUserPrompt, withVariationAngle } from '@/src/ai/prompts';
 import type { CopyGenerator, CopyJson } from '@/src/ai/types';
 import { runCustomGenerate } from '@/src/domains/generate/orchestrator';
 import { getPlatformSpec, type PlatformSpec } from '@/src/platforms';
@@ -50,7 +50,10 @@ describe('platform configuration in generation', () => {
     });
 
     expect(getPlatformSpec).toHaveBeenCalledWith('meta');
-    expect(generateCopy).toHaveBeenCalledWith(spec.promptFragment, buildUserPrompt(baseCopy, 'Focus on value'));
+    expect(generateCopy).toHaveBeenCalledWith(
+      spec.promptFragment,
+      withVariationAngle(buildUserPrompt(baseCopy, 'Focus on value'), 0)
+    );
     expect(result.results[0]).toMatchObject({
       cta: 'SKIP', prompt_version: 'alternate-v2', slug: 'hook-for-the-slug',
     });

@@ -316,6 +316,7 @@ class AdCopyVariationViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
                 cta=copy.get('cta', ''),
                 instruction=instruction,
                 model_name=services.ollama_model(),
+                prompt_version=services.PROMPT_VERSION,
                 batch_id=batch['batch_id'],
                 batch_position=index,
                 status=AdCopyVariation.STATUS_DRAFT,

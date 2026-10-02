@@ -4,6 +4,7 @@ import {
   BATCH_CONCURRENCY,
   MAX_BATCH,
   defaultCopyGenerator,
+  withVariationAngle,
   type CopyGenerator,
   type CopyJson,
 } from '@/src/ai';
@@ -37,11 +38,18 @@ function parseCount(raw: unknown): number {
   throw new ApiError(400, 'count must be an integer');
 }
 
+function isSourceCopy(copy: CopyJson, source: CopyJson): boolean {
+  return (['hook', 'headline', 'description'] as const).every(
+    (field) => copy[field].trim() === source[field].trim()
+  );
+}
+
 async function generateCopies(
   systemPrompt: string,
   userPrompt: string,
   count: number,
-  generator: CopyGenerator
+  generator: CopyGenerator,
+  sourceCopy?: CopyJson
 ): Promise<{
   copies: CopyJson[];
   failedIndices: number[];
@@ -57,8 +65,14 @@ async function generateCopies(
       const index = next;
       next += 1;
       if (index >= count) return;
+      const prompt = withVariationAngle(userPrompt, index);
       try {
-        ordered[index] = await generator.generateCopy(systemPrompt, userPrompt);
+        let copy = await generator.generateCopy(systemPrompt, prompt);
+        // Small local models sometimes hand the source back unchanged; ask once more.
+        if (sourceCopy && isSourceCopy(copy, sourceCopy)) {
+          copy = await generator.generateCopy(systemPrompt, prompt);
+        }
+        ordered[index] = copy;
       } catch (err) {
         const message = generator.getErrorMessage(err);
         if (!providerError && message) {
@@ -170,7 +184,8 @@ export async function runCustomGenerate(args: {
     spec.promptFragment,
     modeResult.userPrompt,
     count,
-    generator
+    generator,
+    modeResult.sourceCopy
   );
 
   const saved = copies.length
