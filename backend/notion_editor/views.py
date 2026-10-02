@@ -830,9 +830,8 @@ class MediaUploadView(APIView):
                 except OSError:
                     # Best-effort cleanup on the error path: the original failure is
                     # already logged above with its traceback, and a cleanup error
-                    # must not replace the JSON 500 response. Log the path because the
-                    # leaked file is a full, possibly unscanned copy of the upload.
-                    logger.warning(
+                    # must not replace the JSON 500 response.
+                    logger.debug(
                         "Media upload: failed to remove temp file %s", temp_file_path, exc_info=True
                     )
             return Response(

@@ -29,10 +29,10 @@ def test_temp_file_cleanup_failure_is_logged_and_error_response_kept(caplog):
 
     with patch("notion_editor.views.perform_clamav_scan", side_effect=RuntimeError("ClamAV unavailable")), patch(
         "notion_editor.views.os.unlink", side_effect=OSError("read-only /tmp")
-    ), caplog.at_level(logging.WARNING, logger="notion_editor.views"):
+    ), caplog.at_level(logging.DEBUG, logger="notion_editor.views"):
         response = MediaUploadView.as_view()(request)
 
-    leaked = _swallowed_logs(caplog, "notion_editor.views", logging.WARNING)
+    leaked = _swallowed_logs(caplog, "notion_editor.views", logging.DEBUG)
     for record in leaked:
         real_unlink(record.args[0])
 

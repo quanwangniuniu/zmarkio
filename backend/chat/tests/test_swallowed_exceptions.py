@@ -51,13 +51,13 @@ def test_forward_source_close_failure_is_logged_and_copy_succeeds(caplog):
     source.close.side_effect = OSError("EIO")
     target = MagicMock()
 
-    with caplog.at_level(logging.WARNING, logger="chat.services"):
+    with caplog.at_level(logging.DEBUG, logger="chat.services"):
         MessageService._copy_file_field_for_forward(
             source_field=source, target_field=target, fallback_filename="report.pdf"
         )
 
     target.save.assert_called_once()
-    assert _swallowed_logs(caplog, "chat.services", logging.WARNING)
+    assert _swallowed_logs(caplog, "chat.services", logging.DEBUG)
 
 
 def test_scheduled_message_failed_status_write_failure_is_logged(caplog):

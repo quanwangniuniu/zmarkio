@@ -2128,7 +2128,7 @@ class MessageService:
                 # Raising from `finally` would replace an in-flight
                 # SourceAttachmentMissingError/AttachmentCopyError (changing the
                 # failure reason reported to the client) or fail a copy that succeeded.
-                logger.warning(
+                logger.debug(
                     "forward_messages_batch source_close_failed file=%s",
                     getattr(source_field, 'name', ''), exc_info=True,
                 )

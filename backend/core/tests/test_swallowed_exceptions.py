@@ -55,8 +55,8 @@ def test_failed_search_path_reset_is_logged_and_response_kept(caplog):
         result = middleware(RequestFactory().get("/api/core/projects/"))
 
     assert result is response
-    assert _swallowed_logs(caplog, "core.middleware.tenant_schema", logging.WARNING)
-    assert _swallowed_logs(caplog, "core.middleware.tenant_schema", logging.DEBUG)
+    # One record for the failed reset, one for the failed rollback.
+    assert len(_swallowed_logs(caplog, "core.middleware.tenant_schema", logging.DEBUG)) == 2
 
 
 @pytest.mark.django_db

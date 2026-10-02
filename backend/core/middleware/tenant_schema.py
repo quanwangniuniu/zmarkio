@@ -90,7 +90,7 @@ class TenantSchemaMiddleware:
                 with connection.cursor() as cursor:
                     cursor.execute('SET search_path TO public')
             except Exception:
-                logger.warning(
+                logger.debug(
                     "TenantSchemaMiddleware: failed to reset search_path to public "
                     "after %s %s; rolling back",
                     request.method, request.path, exc_info=True,

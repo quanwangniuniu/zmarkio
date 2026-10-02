@@ -40,11 +40,11 @@ def test_temp_file_cleanup_failure_is_logged_and_response_kept(caplog):
         "tiktok.views.default_storage.save", return_value="tiktok/videos/clip.mp4"
     ), patch("tiktok.views.subprocess.run", return_value=no_video_track), patch(
         "tiktok.views.os.unlink", side_effect=OSError("read-only /tmp")
-    ), caplog.at_level(logging.WARNING, logger=LOGGER):
+    ), caplog.at_level(logging.DEBUG, logger=LOGGER):
         creatives.return_value.first.return_value = None
         response = upload_video_ad(request)
 
-    leaked = _swallowed_logs(caplog, LOGGER, logging.WARNING)
+    leaked = _swallowed_logs(caplog, LOGGER, logging.DEBUG)
     for record in leaked:
         real_unlink(record.args[0])
 
