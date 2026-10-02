@@ -58,4 +58,8 @@ urlpatterns = [
 
     # Natural-language → PivotConfig generation
     path('sheets/<int:sheet_id>/generate-pivot-config/', views.GeneratePivotConfigView.as_view(), name='generate-pivot-config'),
+
+    # User Defined Function
+    path("projects/<str:project_slug>/udfs/", views.UserDefinedFunctionView.as_view(), name="udf-list"),
+    path("projects/<str:project_slug>/udfs/<int:udf_id>", views.UserDefinedFunctionDetailView.as_view(), name="udf-detail"),
 ]

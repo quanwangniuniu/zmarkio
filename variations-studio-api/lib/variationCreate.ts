@@ -110,7 +110,7 @@ export async function createVariation(args: {
   ) as Record<(typeof TEXT_FIELDS)[number], string>;
 
   const creativeId = await resolveCreativeId(args.body.creative, args.projectId);
-  const [slug] = await allocateSlugs(args.schema, [text.headline]);
+  const [slug] = allocateSlugs([text.headline]);
 
   return insertVariation(args.schema, {
     sourceMode,

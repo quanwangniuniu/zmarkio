@@ -1,0 +1,8 @@
+# Security-scan tooling for the code_scan CI job (MED-322).
+#
+# These were installed unpinned as `pip install bandit pip-audit`, which meant
+# the scan could change behaviour between runs and gave pip caching nothing
+# stable to key on. Versions below are the ones the last green run resolved.
+# Bump deliberately; the CI pip cache key is the hash of this file.
+bandit==1.9.4
+pip-audit==2.10.1

@@ -1025,13 +1025,18 @@ class SharePreviewView(APIView):
     GET /facebook_meta/{ad_creative_id}/share-preview/
     """
     permission_classes = [IsAuthenticated]
+
+    def get_ad_creative(self, user, identifier):
+        """Accept the same owner-scoped slug or ID as the creative detail page."""
+        creatives = AdCreative.objects.filter(actor=user)
+        return creatives.filter(slug=identifier).first() or creatives.get(pk=identifier)
     
     def post(self, request, ad_creative_id):
         """Create a new share preview link"""
         try:
             # Validate ad_creative_id
             try:
-                ad_creative = AdCreative.objects.get(id=ad_creative_id, actor=request.user)
+                ad_creative = self.get_ad_creative(request.user, ad_creative_id)
             except AdCreative.DoesNotExist:
                 return Response(
                     ErrorResponseSerializer(
@@ -1121,7 +1126,7 @@ class SharePreviewView(APIView):
         try:
             # Validate ad_creative_id
             try:
-                ad_creative = AdCreative.objects.get(id=ad_creative_id, actor=request.user)
+                ad_creative = self.get_ad_creative(request.user, ad_creative_id)
             except AdCreative.DoesNotExist:
                 return Response(
                     ErrorResponseSerializer(
@@ -1162,7 +1167,7 @@ class SharePreviewView(APIView):
         try:
             # Validate ad_creative_id
             try:
-                ad_creative = AdCreative.objects.get(id=ad_creative_id, actor=request.user)
+                ad_creative = self.get_ad_creative(request.user, ad_creative_id)
             except AdCreative.DoesNotExist:
                 return Response(
                     ErrorResponseSerializer(

@@ -13,7 +13,6 @@ export {
   deleteVariationsByIds,
   deleteVariationsForProjects,
   setVariationStatus,
-  listSlugs,
 } from './variation.repo';
 
 export {

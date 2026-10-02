@@ -78,5 +78,7 @@ test("Slack OAuth callback submits signed state when no local state is available
 
   await expect(page.getByText("Connection Successful!")).toBeVisible();
   await expect.poll(() => callbackPayload?.code).toBe("slack-code");
-  expect(callbackPayload?.state).toBe("signed-slack-state");
+  // Read through a closure like the line above: the route handler assigns
+  // `callbackPayload` asynchronously, so a direct read is still narrowed to null.
+  await expect.poll(() => callbackPayload?.state).toBe("signed-slack-state");
 });

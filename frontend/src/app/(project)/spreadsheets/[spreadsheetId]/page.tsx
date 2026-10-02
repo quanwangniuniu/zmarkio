@@ -28,6 +28,7 @@ import {
 import SpreadsheetGrid, { SpreadsheetGridHandle } from '@/components/spreadsheets/SpreadsheetGrid';
 import PatternAgentPanelV2 from '@/components/spreadsheets/PatternAgentPanelV2';
 import { PivotEditorPanel } from '@/components/spreadsheets/PivotEditorPanel';
+import UdfManagerModal from '@/components/spreadsheets/UdfManagerModal';
 import {
   PivotConfig,
   SourceColumn,
@@ -126,7 +127,8 @@ function extractSpreadsheetLoadError(err: unknown): string {
 export default function SpreadsheetsV2DetailPage() {
   const params = useParams();
   const spreadsheetId = params?.spreadsheetId as string;
-  const { projectId } = useActiveProjectForFlatRoute();
+  const { projectId, activeProject } = useActiveProjectForFlatRoute();
+  const projectSlug = activeProject?.slug ?? null;
   const buildUrl = useBuildUrl();
 
   const [spreadsheet, setSpreadsheet] = useState<SpreadsheetData | null>(null);
@@ -178,6 +180,7 @@ export default function SpreadsheetsV2DetailPage() {
   const [patternJobProgress, setPatternJobProgress] = useState(0);
   const [patternJobError, setPatternJobError] = useState<string | null>(null);
   const [sheetHydrationReady, setSheetHydrationReady] = useState(true);
+  const [udfModalOpen, setUdfModalOpen] = useState(false);
 
   const [pivotConfigsBySheet, setPivotConfigsBySheet] = useState<Record<number, PivotConfig>>({});
   const [pivotSourceDataBySheet, setPivotSourceDataBySheet] = useState<Record<number, {
@@ -1146,6 +1149,7 @@ export default function SpreadsheetsV2DetailPage() {
                       highlightLocations={highlightLocations}
                       onHydrationStatusChange={(status) => setSheetHydrationReady(status === 'ready')}
                       onOpenPivotBuilder={handleCreatePivotSheet}
+                      onOpenUdfManager={projectSlug ? () => setUdfModalOpen(true) : undefined}
                     />
                   </div>
                   {activeSheet && isPivotSheet && showPivotEditor ? (
@@ -1267,6 +1271,14 @@ export default function SpreadsheetsV2DetailPage() {
           existingNames={sheets.map((s) => s.name)}
           onSubmit={handleSubmitCreateSheet}
         />
+
+        {projectSlug && (
+          <UdfManagerModal
+            isOpen={udfModalOpen}
+            onClose={() => setUdfModalOpen(false)}
+            projectSlug={projectSlug}
+          />
+        )}
 
         <ConfirmDialog
           isOpen={!!deleteConfirmSheet}

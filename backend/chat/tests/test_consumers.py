@@ -398,10 +398,9 @@ class TestChatConsumer:
         hours, so a removal that only takes effect on reconnect means the
         removed user keeps reading the channel until then.
         """
-        from asgiref.sync import sync_to_async
         from channels.db import database_sync_to_async
         from channels.layers import get_channel_layer
-        from chat.services import ChatService, chat_group_name
+        from chat.services import chat_group_name
 
         settings.CHAT_CHANNEL_GROUPS_ENABLED = True
 
@@ -429,19 +428,19 @@ class TestChatConsumer:
             received = await communicator.receive_json_from(timeout=5)
             assert received['message']['content'] == 'before'
 
-            # Remove them. Every membership mutator funnels through this hook,
-            # which is what tells the live socket to re-derive its groups.
+            # Direct model saves must revoke live access through the signal.
             @database_sync_to_async
             def remove():
                 participant.is_active = False
                 participant.save(update_fields=['is_active'])
-                ChatService.invalidate_presence_recipients_for_chat(
-                    chat, extra_user_ids=[user.id]
-                )
 
             await remove()
-            # Let the membership event reach the consumer and be acted on.
-            await asyncio.sleep(0.5)
+            revoked = await communicator.receive_json_from(timeout=1)
+            assert revoked == {
+                'type': 'chat_access_revoked',
+                'chat_id': chat.id,
+                'reason': 'participant_removed',
+            }
 
             # After removal the same publish must not reach this socket.
             await channel_layer.group_send(
@@ -450,6 +449,42 @@ class TestChatConsumer:
             assert await communicator.receive_nothing(timeout=2), (
                 'a removed member still received the channel'
             )
+        finally:
+            await _disconnect_communicators(communicator)
+
+    async def test_chat_group_access_is_granted_on_addition(self, db, settings):
+        """A newly added participant sees the room without reconnecting."""
+        from channels.db import database_sync_to_async
+
+        settings.CHAT_CHANNEL_GROUPS_ENABLED = True
+
+        user = await self._create_user('granteduser', 'granted@example.com')
+        org = await self._create_organization('Grant Org')
+        project = await self._create_project(org, 'Grant Project')
+        chat = await self._create_chat(project, ChatType.GROUP)
+
+        token = str(AccessToken.for_user(user))
+        application = JWTAuthMiddleware(URLRouter(websocket_urlpatterns))
+        communicator = WebsocketCommunicator(application, f'/ws/chat/{user.id}/?token={token}')
+        try:
+            connected, _ = await communicator.connect()
+            assert connected
+            await communicator.receive_json_from(timeout=5)  # presence_snapshot
+
+            @database_sync_to_async
+            def add():
+                ChatParticipant.objects.create(chat=chat, user=user, is_active=True)
+
+            await add()
+            granted = await communicator.receive_json_from(timeout=1)
+            assert granted == {
+                'type': 'chat_access_granted',
+                'chat_id': chat.id,
+                'chat_slug': chat.slug,
+                'project_id': project.id,
+                'project_slug': project.slug,
+                'reason': 'participant_added',
+            }
         finally:
             await _disconnect_communicators(communicator)
 

@@ -63,21 +63,38 @@ export async function insertVariation(
   row: VariationInsert,
   db: SqlClient = prisma
 ): Promise<VariationRow> {
-  const now = new Date();
-  const rows = await db.$queryRaw<VariationRow[]>`
-    INSERT INTO ${table(schema)} (
-      created_at, updated_at, is_deleted, source_mode, source_ref,
-      hook, headline, description, cta, instruction, model_name, prompt_version,
-      batch_id, batch_position, status, created_by_id, creative_id, project_id, slug
-    ) VALUES (
-      ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
-      ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
-      ${row.instruction}, ${row.modelName}, ${row.promptVersion},
-      ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
-      ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${row.slug}
-    )
-    RETURNING ${COLUMNS}`;
-  return rows[0];
+  const baseSlug = row.slug;
+  let counter = 0;
+
+  while (true) {
+    const suffix = counter === 0 ? '' : `-${counter}`;
+    const slug =
+      counter === 0
+        ? baseSlug
+        : `${baseSlug.slice(0, 200 - suffix.length)}${suffix}`;
+
+    const now = new Date();
+    const rows = await db.$queryRaw<VariationRow[]>`
+      INSERT INTO ${table(schema)} (
+        created_at, updated_at, is_deleted, source_mode, source_ref,
+        hook, headline, description, cta, instruction, model_name, prompt_version,
+        batch_id, batch_position, status, created_by_id, creative_id, project_id, slug
+      ) VALUES (
+        ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
+        ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
+        ${row.instruction}, ${row.modelName}, ${row.promptVersion},
+        ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
+        ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${slug}
+      )
+      ON CONFLICT (slug) DO NOTHING
+      RETURNING ${COLUMNS}`;
+
+    if (rows[0]) {
+      return rows[0];
+    }
+
+    counter += 1;
+  }
 }
 
 export async function insertVariations(
@@ -164,13 +181,4 @@ export async function setVariationStatus(
     UPDATE ${table(schema)}
     SET status = ${status}, updated_at = ${new Date()}
     WHERE id = ${id}`;
-}
-
-export async function listSlugs(
-  schema: string,
-  db: SqlClient = prisma
-): Promise<string[]> {
-  const rows = await db.$queryRaw<{ slug: string }[]>`
-    SELECT slug FROM ${table(schema)}`;
-  return rows.map((row) => row.slug);
 }
