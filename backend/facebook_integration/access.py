@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 
 from core.models import Project, ProjectMember
 from core.permissions import can_manage_project_members
+from core.tenant_context import current_tenant_schema
 
 from .models import MetaAdAccount
 
@@ -33,12 +34,13 @@ def get_accessible_meta_ad_accounts(
     shared_project_ids = _active_project_ids_for_user(user, project_id=project_id)
     account_filter |= Q(
         project_id__in=shared_project_ids,
+        project_schema=current_tenant_schema(),
         connection__is_active=True,
     )
 
     return (
         MetaAdAccount.objects.filter(account_filter)
-        .select_related("connection", "connection__user", "project")
+        .select_related("connection", "connection__user")
         .distinct()
     )
 
@@ -55,7 +57,7 @@ def user_can_read_meta_ad_account(user, account: MetaAdAccount) -> bool:
         return False
     if account.connection.user_id == user.id:
         return True
-    if account.project_id is None:
+    if account.project_id is None or account.project_schema != current_tenant_schema():
         return False
     return ProjectMember.objects.filter(
         user=user,
@@ -76,7 +78,8 @@ def user_can_manage_meta_ad_account(
         return False
     if account.connection.user_id == user.id:
         return True
-    if account.project_id and can_manage_project_members(user, account.project):
+    if (account.project_id and account.project_schema == current_tenant_schema()
+            and can_manage_project_members(user, account.project)):
         return True
     if target_project is not None and can_manage_project_members(user, target_project):
         return True

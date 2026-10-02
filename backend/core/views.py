@@ -633,6 +633,8 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         """Delete project using raw SQL to bypass Django's cross-schema cascade issues."""
         from django.db import connection
+        from core.tenant_context import current_tenant_schema
+        from facebook_integration.models import MetaAdAccount
         before = capture_snapshot(instance)
         project_org = instance.organization
 
@@ -705,6 +707,10 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         # Step 2: Delete project and all related records in tenant schema using raw SQL
         # ON DELETE CASCADE may not be set on all tables, so manually delete in correct order
         with transaction.atomic():
+            # Shared accounts identify tenant-local projects by schema as well as ID.
+            MetaAdAccount.objects.filter(
+                project_id=project_id, project_schema=current_tenant_schema(),
+            ).update(project=None)
             with connection.cursor() as cursor:
                 # Delete child records first (bottom-up approach)
 
