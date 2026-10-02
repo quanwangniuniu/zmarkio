@@ -16,6 +16,7 @@ import TimelineSection, { type TimelineSectionHandle } from '@/components/campai
 import CheckInsSection, { type CheckInsSectionHandle } from '@/components/campaigns/sections/CheckInsSection';
 import SnapshotsSection, { type SnapshotsSectionHandle } from '@/components/campaigns/sections/SnapshotsSection';
 import StatusHistorySection, { type StatusHistorySectionHandle } from '@/components/campaigns/sections/StatusHistorySection';
+import PacingSection from '@/components/campaigns/sections/PacingSection';
 import TasksSection, { type TasksSectionHandle } from '@/components/campaigns/sections/TasksSection';
 import CampaignFSMActionBar from '@/components/campaigns/detail/CampaignFSMActionBar';
 import CreateCheckInDialog from '@/components/campaigns/modals/CreateCheckInDialog';
@@ -174,6 +175,10 @@ export default function CampaignV2DetailPage() {
             <TasksSection ref={tasksRef} campaignId={campaignId} />
           </div>
           <div className="space-y-6 lg:col-span-1">
+            <PacingSection
+              campaignSlug={campaignId}
+              configKey={`${currentCampaign.budget_estimate ?? ''}|${currentCampaign.start_date}|${currentCampaign.end_date ?? ''}`}
+            />
             <CheckInsSection
               ref={checkInsRef}
               campaignId={campaignId}

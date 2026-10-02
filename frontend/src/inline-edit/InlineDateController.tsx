@@ -50,6 +50,9 @@ function InlineDateController({
   const originalValueRef = useRef<string | null | undefined>(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Clicking outside fires both the outside-mousedown handler and blur, so two
+  // saves can start before the first finishes; the second must not re-send.
+  const savingRef = useRef(false);
 
   // Sync value when initialValue changes externally (only when not editing)
   useEffect(() => {
@@ -68,6 +71,7 @@ function InlineDateController({
   }, [isEditing]);
 
   const handleSave = useCallback(async () => {
+    if (savingRef.current) return;
     const newValue = dateValue.trim() || null;
 
     // Validate
@@ -109,6 +113,7 @@ function InlineDateController({
     }
 
     // Save
+    savingRef.current = true;
     try {
       setIsLoading(true);
       setError(null);
@@ -119,6 +124,7 @@ function InlineDateController({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
+      savingRef.current = false;
       setIsLoading(false);
     }
   }, [dateValue, validate, onSave, minDate, maxDate]);
@@ -182,11 +188,12 @@ function InlineDateController({
             min={minDate}
             max={maxDate}
             onChange={(e) => {
+              // Only track the value here — don't save. The native picker also
+              // changes the value while the user moves between months (it carries
+              // the selected day along), and typing a year passes through 0002,
+              // 0020, 0202. Enter, blur or a click outside commits, the same as
+              // the inline text editors.
               setDateValue(e.target.value);
-              // Auto-save on change
-              setTimeout(() => {
-                handleSave();
-              }, 100);
             }}
             onBlur={handleSave}
             onKeyDown={(e) => {
