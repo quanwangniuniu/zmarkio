@@ -1,6 +1,6 @@
 export const MAX_BATCH = 50;
 export const BATCH_CONCURRENCY = 5;
-export const MODEL_NAME = 'gemini-2.5-flash-lite';
+export const MODEL_NAME = 'qwen3:4b';
 export const PROMPT_VERSION = 'v1';
 export const AI_QUOTA_MESSAGE =
   'AI generation is temporarily rate-limited or quota-limited. Please wait '

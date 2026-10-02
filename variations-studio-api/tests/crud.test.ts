@@ -60,7 +60,7 @@ describe('POST /variations/', () => {
 
     const row = await findVariationById(fixture.schema, BigInt(body.id as number));
     expect(row?.createdById).toBe(BigInt(fixture.memberUserId));
-    expect(row?.modelName).toBe('gemini-2.5-flash-lite');
+    expect(row?.modelName).toBe('qwen3:4b');
   });
 
   it('rejects a missing project', async () => {

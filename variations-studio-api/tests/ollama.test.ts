@@ -1,6 +1,8 @@
+import { AI_QUOTA_MESSAGE } from '@/src/ai/prompts';
 import {
     callOllamaJson,
     getOllamaConfig,
+    getOllamaErrorMessage,
 } from '@/src/ai/providers/ollama';
 
 const originalEnv = process.env;
@@ -18,7 +20,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 describe('Ollama provider', () => {
     beforeEach(() => {
-        jest.clearAllMocks();
+        jest.resetAllMocks();
         process.env = {
             ...originalEnv,
             OLLAMA_BASE_URL: 'http://ollama.test:11434/',
@@ -179,7 +181,7 @@ describe('Ollama provider', () => {
     });
 
     it('rejects malformed copy JSON', async () => {
-        fetchMock.mockResolvedValueOnce(
+        fetchMock.mockImplementation(async () =>
             jsonResponse({
                 message: {
                     content: 'not-json',
@@ -196,7 +198,7 @@ describe('Ollama provider', () => {
     });
 
     it('rejects copy with a missing required field', async () => {
-        fetchMock.mockResolvedValueOnce(
+        fetchMock.mockImplementation(async () =>
             jsonResponse({
                 message: {
                     content: JSON.stringify({
@@ -217,7 +219,7 @@ describe('Ollama provider', () => {
     });
 
     it('rejects an empty Ollama response', async () => {
-        fetchMock.mockResolvedValueOnce(
+        fetchMock.mockImplementation(async () =>
             jsonResponse({
                 message: {
                     content: '',
@@ -231,5 +233,74 @@ describe('Ollama provider', () => {
             code: 'invalid_output',
             message: 'Ollama returned an empty response.',
         });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries malformed JSON once and strips code fences', async () => {
+        const copy = {
+            hook: 'Hook',
+            headline: 'Headline',
+            description: 'Description',
+            cta: 'LEARN_MORE',
+        };
+        fetchMock
+            .mockResolvedValueOnce(jsonResponse({ message: { content: 'not-json' } }))
+            .mockResolvedValueOnce(
+                jsonResponse({
+                    message: {
+                        content: '```json\n' + JSON.stringify(copy) + '\n```',
+                    },
+                })
+            );
+
+        await expect(callOllamaJson('system', 'user')).resolves.toEqual(copy);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries busy responses with backoff', async () => {
+        jest.useFakeTimers();
+        const copy = {
+            hook: 'Hook',
+            headline: 'Headline',
+            description: 'Description',
+            cta: 'LEARN_MORE',
+        };
+        fetchMock
+            .mockResolvedValueOnce(jsonResponse({ error: 'server busy' }, 503))
+            .mockResolvedValueOnce(jsonResponse({ error: 'rate limited' }, 429))
+            .mockResolvedValueOnce(
+                jsonResponse({ message: { content: JSON.stringify(copy) } })
+            );
+
+        try {
+            const result = callOllamaJson('system', 'user');
+            await jest.advanceTimersByTimeAsync(6000);
+
+            await expect(result).resolves.toEqual(copy);
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    it('returns the quota message once busy retries run out', async () => {
+        jest.useFakeTimers();
+        fetchMock.mockImplementation(async () =>
+            jsonResponse({ error: 'rate limited' }, 429)
+        );
+
+        try {
+            const result = callOllamaJson('system', 'user').catch(
+                (error: unknown) => error
+            );
+            await jest.advanceTimersByTimeAsync(6000);
+            const error = await result;
+
+            expect(error).toMatchObject({ code: 'request_failed', status: 429 });
+            expect(getOllamaErrorMessage(error)).toBe(AI_QUOTA_MESSAGE);
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+        } finally {
+            jest.useRealTimers();
+        }
     });
 });

@@ -1,7 +1,11 @@
+import { AI_QUOTA_MESSAGE } from '@/src/ai/prompts';
 import type { CopyJson } from '@/src/ai/types';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 const DEFAULT_TIMEOUT_MS = 60_000;
+// 429 is a rate limit; Ollama answers 503 when its request queue is full.
+const BUSY_STATUSES = [429, 503];
+const BUSY_BACKOFF_MS = [2000, 4000];
 
 const COPY_SCHEMA = {
     type: 'object',
@@ -72,6 +76,16 @@ export function getOllamaConfig(): OllamaConfig {
     };
 }
 
+function stripJsonFences(text: string): string {
+    let stripped = text.trim();
+    if (stripped.startsWith('```')) {
+        const firstNewline = stripped.indexOf('\n');
+        if (firstNewline !== -1) stripped = stripped.slice(firstNewline + 1);
+        if (stripped.endsWith('```')) stripped = stripped.slice(0, -3);
+    }
+    return stripped.trim();
+}
+
 function asCopy(raw: unknown): CopyJson {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         throw new OllamaError(
@@ -109,54 +123,80 @@ async function readErrorMessage(response: Response): Promise<string | null> {
     }
 }
 
-export async function callOllamaJson(
+async function postChat(
+    config: OllamaConfig,
     systemPrompt: string,
     userPrompt: string
-): Promise<CopyJson> {
-    const config = getOllamaConfig();
+): Promise<Response> {
+    for (let attempt = 0; ; attempt += 1) {
+        let response: Response;
 
-    let response: Response;
-
-    try {
-        response = await fetch(`${config.baseUrl}/api/chat`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                model: config.model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
-                ],
-                stream: false,
-                think: false,
-                format: COPY_SCHEMA,
-                options: {
-                    temperature: 0.7,
+        try {
+            response = await fetch(`${config.baseUrl}/api/chat`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
                 },
-            }),
-            signal: AbortSignal.timeout(config.timeoutMs),
-        });
-    } catch (error) {
-        if (
-            error instanceof Error &&
-            (error.name === 'TimeoutError' || error.name === 'AbortError')
-        ) {
+                body: JSON.stringify({
+                    model: config.model,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userPrompt },
+                    ],
+                    stream: false,
+                    think: false,
+                    format: COPY_SCHEMA,
+                    options: {
+                        temperature: 0.7,
+                    },
+                }),
+                signal: AbortSignal.timeout(config.timeoutMs),
+            });
+        } catch (error) {
+            if (
+                error instanceof Error &&
+                (error.name === 'TimeoutError' || error.name === 'AbortError')
+            ) {
+                throw new OllamaError(
+                    `Ollama request timed out after ${config.timeoutMs} ms.`,
+                    'timeout'
+                );
+            }
+
             throw new OllamaError(
-                `Ollama request timed out after ${config.timeoutMs} ms.`,
-                'timeout'
+                `Unable to connect to Ollama at ${config.baseUrl}.`,
+                'connection'
             );
         }
 
-        throw new OllamaError(
-            `Unable to connect to Ollama at ${config.baseUrl}.`,
-            'connection'
-        );
+        if (
+            !BUSY_STATUSES.includes(response.status) ||
+            attempt >= BUSY_BACKOFF_MS.length
+        ) {
+            return response;
+        }
+
+        await new Promise((resolve) => {
+            setTimeout(resolve, BUSY_BACKOFF_MS[attempt]);
+        });
     }
+}
+
+export async function callOllamaJson(
+    systemPrompt: string,
+    userPrompt: string,
+    retryParse = true
+): Promise<CopyJson> {
+    const config = getOllamaConfig();
+    const response = await postChat(config, systemPrompt, userPrompt);
 
     if (!response.ok) {
         const detail = await readErrorMessage(response);
+        console.error(
+            'Ollama request failed status=%s error=%s',
+            response.status,
+            detail
+        );
 
         if (response.status === 404) {
             throw new OllamaError(
@@ -195,16 +235,20 @@ export async function callOllamaJson(
             ? (payload as { message: { content: string } }).message.content
             : null;
 
-    if (!content) {
-        throw new OllamaError(
-            'Ollama returned an empty response.',
-            'invalid_output'
-        );
-    }
-
     try {
-        return asCopy(JSON.parse(content));
+        if (!content) {
+            throw new OllamaError(
+                'Ollama returned an empty response.',
+                'invalid_output'
+            );
+        }
+
+        return asCopy(JSON.parse(stripJsonFences(content)));
     } catch (error) {
+        if (retryParse) {
+            return callOllamaJson(systemPrompt, userPrompt, false);
+        }
+
         if (error instanceof OllamaError) {
             throw error;
         }
@@ -217,5 +261,12 @@ export async function callOllamaJson(
 }
 
 export function getOllamaErrorMessage(error: unknown): string | null {
+    if (
+        error instanceof OllamaError &&
+        error.status !== undefined &&
+        BUSY_STATUSES.includes(error.status)
+    ) {
+        return AI_QUOTA_MESSAGE;
+    }
     return error instanceof OllamaError ? error.message : null;
 }
