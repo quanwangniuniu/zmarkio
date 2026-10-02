@@ -1,11 +1,12 @@
 'use client';
 
-import { AlertCircle, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, Pencil, Plus, Share2, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import ReportAPI from '@/lib/api/reportApi';
 import type { CustomKPI, KPIMetric } from '@/types/report';
 import KPIBuilderDialog from './KPIBuilderDialog';
+import ShareKPIDialog from './ShareKPIDialog';
 import { formatKPIValue } from './formatKPIValue';
 import { isNoData } from './kpiErrors';
 
@@ -92,6 +93,7 @@ export default function CustomKPIPanel({ projectSlug }: CustomKPIPanelProps) {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [editing, setEditing] = useState<CustomKPI | null>(null);
 
   const loadKPIs = useCallback(async () => {
@@ -166,10 +168,22 @@ export default function CustomKPIPanel({ projectSlug }: CustomKPIPanelProps) {
             Metrics you define with a formula, over the last 30 days.
           </p>
         </div>
-        <Button size="sm" onClick={openCreate} data-testid="new-kpi-button">
-          <Plus className="mr-1 h-3.5 w-3.5" />
-          New KPI
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setShareOpen(true)}
+            data-testid="share-kpi-button"
+          >
+            <Share2 className="mr-1 h-3.5 w-3.5" />
+            Share
+          </Button>
+          <Button size="sm" onClick={openCreate} data-testid="new-kpi-button">
+            <Plus className="mr-1 h-3.5 w-3.5" />
+            New KPI
+          </Button>
+        </div>
       </div>
 
       {loadError && (
@@ -215,6 +229,11 @@ export default function CustomKPIPanel({ projectSlug }: CustomKPIPanelProps) {
         metrics={metrics}
         editing={editing}
         onSaved={handleSaved}
+      />
+      <ShareKPIDialog
+        open={shareOpen}
+        onOpenChange={setShareOpen}
+        projectSlug={projectSlug}
       />
     </section>
   );

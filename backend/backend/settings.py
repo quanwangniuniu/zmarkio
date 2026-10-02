@@ -500,6 +500,12 @@ REST_FRAMEWORK = {
         # tight, since each one creates a real calendar event.
         'public_booking_read': config('PUBLIC_BOOKING_READ_THROTTLE_RATE', default='60/minute'),
         'public_booking_write': config('PUBLIC_BOOKING_WRITE_THROTTLE_RATE', default='10/hour'),
+        # Anonymous Custom KPI share GETs re-aggregate warehouse metrics each
+        # hit; cap by IP like public booking reads.
+        'public_kpi_share_read': config(
+            'PUBLIC_KPI_SHARE_READ_THROTTLE_RATE',
+            default='60/minute',
+        ),
         'chat_message_write': config('CHAT_MESSAGE_WRITE_THROTTLE_RATE', default='60/minute'),
         'chat_reaction': config('CHAT_REACTION_THROTTLE_RATE', default='120/minute'),
         'spreadsheet_ws_ticket': config(
