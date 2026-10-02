@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
         ('core', '0024_merge_0023_sessions_and_ai'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
         ('experience_group', '0002_experiencegroup_slug'),
-        ('csm', '0027_guidance_entries'),
+        ('csm', '0028_conversation_quality_review'),
     ]
 
     operations = [
