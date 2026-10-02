@@ -1,0 +1,72 @@
+"""
+Swallowed exceptions in chat presence, forwarding and scheduled messages must
+leave a log record without changing behaviour (MED-401).
+"""
+import io
+import logging
+from contextlib import nullcontext
+from unittest.mock import MagicMock, patch
+
+from django.db import OperationalError
+from redis.exceptions import ConnectionError as RedisConnectionError
+
+from chat.models import ScheduledMessage
+from chat.services import ChatService, MessageService, OnlineStatusService
+from chat.tasks import send_scheduled_message
+
+
+def test_touch_cache_key_failure_is_logged_at_debug(caplog):
+    with patch("chat.services.cache.touch", side_effect=RedisConnectionError("down")), caplog.at_level(
+        logging.DEBUG, logger="chat.services"
+    ):
+        OnlineStatusService._touch_cache_key("user_online:7")
+
+    assert "[OnlineStatus] Failed to touch cache key user_online:7" in caplog.text
+
+
+def test_presence_recipients_cache_write_failure_still_returns_db_result(caplog):
+    participants = MagicMock()
+    participants.filter.return_value.exclude.return_value.values_list.return_value.distinct.return_value = [3, 4]
+
+    with patch("chat.services.ChatParticipant.objects", participants), patch(
+        "chat.services.cache.get", return_value=None
+    ), patch("chat.services.cache.set", side_effect=RedisConnectionError("down")), caplog.at_level(
+        logging.DEBUG, logger="chat.services"
+    ):
+        recipients = ChatService.get_presence_recipient_ids(7)
+
+    assert recipients == [3, 4]
+    assert "[OnlineStatus] Failed to cache presence recipients for user 7" in caplog.text
+
+
+def test_forward_source_close_failure_is_logged_and_copy_succeeds(caplog):
+    source = MagicMock()
+    source.name = "chat/attachments/report.pdf"
+    source.file = io.BytesIO(b"pdf")
+    source.close.side_effect = OSError("EIO")
+    target = MagicMock()
+
+    with caplog.at_level(logging.WARNING, logger="chat.services"):
+        MessageService._copy_file_field_for_forward(
+            source_field=source, target_field=target, fallback_filename="report.pdf"
+        )
+
+    target.save.assert_called_once()
+    assert "forward_messages_batch source_close_failed file=chat/attachments/report.pdf" in caplog.text
+
+
+def test_scheduled_message_failed_status_write_failure_is_logged(caplog):
+    scheduled = MagicMock(status=ScheduledMessage.STATUS_PENDING)
+    # First save marks SENDING; the second (marking FAILED) hits the outage.
+    scheduled.save.side_effect = [None, OperationalError("connection lost")]
+    scheduled_manager = MagicMock()
+    scheduled_manager.select_related.return_value.get.return_value = scheduled
+
+    with patch("chat.tasks.tenant_schema_context", lambda _schema: nullcontext()), patch(
+        "chat.tasks.transaction.atomic", nullcontext
+    ), patch("chat.models.ScheduledMessage.objects", scheduled_manager), patch(
+        "chat.models.Message.objects.create", side_effect=ValueError("attachments are no longer available")
+    ), caplog.at_level(logging.ERROR, logger="chat.tasks"):
+        send_scheduled_message(5)
+
+    assert "send_scheduled_message 5: failed to mark FAILED; row may be stuck in SENDING" in caplog.text
