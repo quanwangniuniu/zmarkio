@@ -608,7 +608,7 @@ function VariationsStudioContent() {
               Generating {count} variations…
             </p>
             <p className="mt-1 text-[11px] text-gray-400">
-              This typically takes 5-15 seconds depending on count.
+              Larger batches can take a minute or more.
             </p>
           </section>
         )}
