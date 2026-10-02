@@ -19,21 +19,14 @@ Public API:
   register_column(schema_key, canonical_name, spec) -> registered column
 
 Plugin author guidance:
-  Keep the existing dict format and register through register_schema/register_column
-  instead of assigning to SCHEMA_REGISTRY directly. Schema keys must be unique;
-  within each schema, canonical names and aliases must be unambiguous after case,
-  whitespace and underscore normalization. Repeated aliases for the same column
-  and shared column names in different schemas are allowed.
+  Use register_schema/register_column instead of editing SCHEMA_REGISTRY directly.
+  Schema keys must be unique. Within a schema, column names and aliases must not
+  identify different columns after case, whitespace and underscore normalization.
+  Conflicts raise ColumnRegistryCollisionError before changing the registry.
   Example: register_schema('my_plugin', {'name': 'My export', 'columns': {}})
            register_column('my_plugin', 'sales', {'aliases': ['Total Sales']})
-  Duplicate registration (including reloading a plugin) raises
-  ColumnRegistryCollisionError before changing definitions or lookup indexes.
   Set AGENT_COLUMN_REGISTRY_TEST_MODE=1 only in tests that need overwrites.
-  Django's autoreloader starts a fresh process and rebuilds the registry; plugins
-  should register once per process. Fix conflicting definitions and restart.
-  Run `python manage.py check` to validate registered names during development/CI.
-  Duplicate keys inside a dict literal are a Python lint concern: use F601/F602;
-  runtime checks cannot recover keys already discarded by Python.
+  Validate definitions with `python manage.py check`.
 """
 
 import json
