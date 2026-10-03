@@ -17,6 +17,18 @@ from decouple import config
 from django.core.exceptions import ImproperlyConfigured
 from celery.schedules import crontab
 
+from .secret_settings import (
+    ALLOW_LEGACY_ENV,
+    COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
+    COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
+    COMMITTED_SECRET_KEY_DIGESTS,
+    read_bool_env,
+    read_secret_env,
+    validate_distinct_secrets,
+    validate_fernet_key_setting,
+    validate_secret_setting,
+)
+
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -26,11 +38,24 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-4g=$b1l14w5*aia@bgix6zv9%ky2#elk0f*jso867wpgcq8&3u')
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
+
+# Local-only escape hatch for keys that were committed to this repository: they
+# boot with a warning only when DEBUG is on AND ALLOW_LEGACY_LOCAL_KEYS is set.
+# Off by default. See backend/secret_settings.py.
+ALLOW_LEGACY_LOCAL_KEYS = DEBUG and read_bool_env(ALLOW_LEGACY_ENV)
+
+# SECURITY WARNING: keep the secret key used in production secret!
+# Required, with no fallback: it signs every JWT and is shared with
+# variations-studio-api. Read from the environment only. See
+# backend/secret_settings.py.
+SECRET_KEY = validate_secret_setting(
+    'SECRET_KEY',
+    read_secret_env('SECRET_KEY'),
+    allow_committed=ALLOW_LEGACY_LOCAL_KEYS,
+    committed_digests=COMMITTED_SECRET_KEY_DIGESTS,
+)
 
 ALLOWED_HOSTS = [
     h.strip() for h in config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0').split(',')
@@ -475,6 +500,12 @@ REST_FRAMEWORK = {
         # tight, since each one creates a real calendar event.
         'public_booking_read': config('PUBLIC_BOOKING_READ_THROTTLE_RATE', default='60/minute'),
         'public_booking_write': config('PUBLIC_BOOKING_WRITE_THROTTLE_RATE', default='10/hour'),
+        # Anonymous Custom KPI share GETs re-aggregate warehouse metrics each
+        # hit; cap by IP like public booking reads.
+        'public_kpi_share_read': config(
+            'PUBLIC_KPI_SHARE_READ_THROTTLE_RATE',
+            default='60/minute',
+        ),
         'chat_message_write': config('CHAT_MESSAGE_WRITE_THROTTLE_RATE', default='60/minute'),
         'chat_reaction': config('CHAT_REACTION_THROTTLE_RATE', default='120/minute'),
         'spreadsheet_ws_ticket': config(
@@ -937,8 +968,26 @@ FAIR_USE_THRESHOLD_RATIO = 0.30   # alert when user > 30% of org quota
 FREE_USER_MAX_COST_CENTS = 200    # safety cap for fair-use alert on Free tier
 
 # Organization Access Token Configuration
-ORGANIZATION_ACCESS_TOKEN_SECRET_KEY = config('ORGANIZATION_ACCESS_TOKEN_SECRET_KEY', default='52r(=liv3ro&zsuau-doa(wekq-(x^&y8(b$5h@k(g(c9&jlmp')
-ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY = config('ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY', default='jtBsdl7-HVKnF61JnesSM0xpqB-vkAXboBbIRawVUhU=')
+# Required, with no fallback: they sign and encrypt the organization access
+# token. Read from the environment only. See backend/secret_settings.py.
+ORGANIZATION_ACCESS_TOKEN_SECRET_KEY = validate_secret_setting(
+    'ORGANIZATION_ACCESS_TOKEN_SECRET_KEY',
+    read_secret_env('ORGANIZATION_ACCESS_TOKEN_SECRET_KEY'),
+    allow_committed=ALLOW_LEGACY_LOCAL_KEYS,
+    committed_digests=COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
+)
+ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY = validate_fernet_key_setting(
+    'ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY',
+    read_secret_env('ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY'),
+    allow_committed=ALLOW_LEGACY_LOCAL_KEYS,
+    committed_digests=COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
+)
+# Rule 5: one leaked key must not unlock the others.
+validate_distinct_secrets(
+    SECRET_KEY=SECRET_KEY,
+    ORGANIZATION_ACCESS_TOKEN_SECRET_KEY=ORGANIZATION_ACCESS_TOKEN_SECRET_KEY,
+    ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY=ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY,
+)
 
 # Field-level encryption keys for OAuth tokens and API secrets stored in the DB.
 # Format: comma-separated list of "key_id:fernet_base64_key" pairs.
