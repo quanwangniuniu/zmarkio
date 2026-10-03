@@ -1,10 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef } from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
-import StarterKit from '@tiptap/starter-kit';
 import { ConversationMessage, MessageSenderType } from '@/types/csmConversation';
 import { cn } from '@/lib/utils';
+import { RichMessageBody } from './RichMessageBody';
 
 const SENDER_LABELS: Record<MessageSenderType, string> = {
   agent: 'Agent',
@@ -34,37 +33,19 @@ function formatDateDivider(iso: string): string {
   return date.toLocaleDateString([], options);
 }
 
-// Read-only rich text renderer using Tiptap
-function RichMessageBody({ body, isAgent }: { body: object; isAgent: boolean }) {
-  const editor = useEditor({
-    extensions: [StarterKit],
-    content: body,
-    editable: false,
-    immediatelyRender: false,
-    editorProps: {
-      attributes: {
-        class: isAgent ? 'csm-rich-dark text-sm' : 'csm-rich-light text-sm text-gray-900',
-      },
-    },
-  });
-
-  useEffect(() => {
-    editor?.commands.setContent(body);
-  }, [editor, body]);
-
-  return <EditorContent editor={editor} />;
-}
-
 interface ConversationThreadProps {
   messages: ConversationMessage[];
   typingUserIds?: number[];
 }
 
 export function ConversationThread({ messages, typingUserIds = [] }: ConversationThreadProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Scroll only the thread: scrollIntoView would also scroll the page and
+  // the app shell around it.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = scrollRef.current;
+    container?.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
   }, [messages.length]);
 
   if (messages.length === 0) {
@@ -101,7 +82,7 @@ export function ConversationThread({ messages, typingUserIds = [] }: Conversatio
   let lastDate = '';
 
   return (
-    <div className="flex flex-col flex-1 overflow-y-auto px-4 py-4 gap-4">
+    <div ref={scrollRef} className="flex flex-col flex-1 overflow-y-auto px-4 py-4 gap-4">
       {groups.map((group, gi) => {
         const firstMessage = group.messages[0];
         const showDateDivider = group.dateKey !== lastDate;
@@ -221,8 +202,6 @@ export function ConversationThread({ messages, typingUserIds = [] }: Conversatio
           <span>typing…</span>
         </div>
       )}
-
-      <div ref={bottomRef} />
     </div>
   );
 }

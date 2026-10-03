@@ -14,6 +14,8 @@ from .views import (
     BusinessHoursCalendarViewSet,
     TicketStatusViewSet,
     StatusMachineView,
+    RoutingRuleViewSet,
+    RoutingSandboxViewSet,
 )
 from .views_quality import (
     QualityConversationViewSet,
@@ -40,6 +42,8 @@ router.register(r'business-hours-calendars', BusinessHoursCalendarViewSet, basen
 router.register(r'ticket-statuses', TicketStatusViewSet, basename='ticket-status')
 router.register(
     r'quality/conversations', QualityConversationViewSet, basename='quality-conversation')
+router.register(r'routing-rules', RoutingRuleViewSet, basename='routing-rule')
+router.register(r'routing-sandbox', RoutingSandboxViewSet, basename='routing-sandbox')
 
 urlpatterns = [
     # Standard routes

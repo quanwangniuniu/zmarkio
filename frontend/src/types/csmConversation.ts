@@ -182,6 +182,12 @@ export interface TemplateTag {
   created_at: string;
 }
 
+/** A team a CSM admin can preview the template list as (sandbox). */
+export interface TemplatePreviewTeam {
+  id: number;
+  name: string;
+}
+
 // WebSocket event types
 export type CsmWsEvent =
   | { type: 'new_message'; message: ConversationMessage }

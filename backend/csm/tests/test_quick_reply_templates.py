@@ -227,3 +227,115 @@ def test_agent_cannot_manage_tags(api_client, user, customer_organisation):
     # Delete is denied
     assert api_client.delete(f'{TAG_URL}{tag.id}/').status_code == 403
     assert TemplateTag.objects.filter(id=tag.id).exists()
+
+
+# --- Sandbox "view as team" preview (CSM-S03-05) -----------------------------
+
+@pytest.fixture
+def team_templates(organization, customer_organisation):
+    frontline = Team.objects.create(organization=organization, name='Frontline')
+    billing = Team.objects.create(organization=organization, name='Billing')
+    workspace = QuickReplyTemplate.objects.create(
+        organisation=customer_organisation, title='WS', content='x', tags=['a'],
+    )
+    frontline_only = QuickReplyTemplate.objects.create(
+        organisation=customer_organisation, title='Frontline', content='y', tags=['a'], team=frontline,
+    )
+    billing_only = QuickReplyTemplate.objects.create(
+        organisation=customer_organisation, title='Billing', content='z', tags=['a'], team=billing,
+    )
+    return {
+        'frontline': frontline, 'billing': billing, 'workspace': workspace,
+        'frontline_only': frontline_only, 'billing_only': billing_only,
+    }
+
+
+def _ids(api_client, org, **params):
+    resp = api_client.get(URL, {'organisation': org.id, **params})
+    assert resp.status_code == 200, resp.data
+    return {t['id'] for t in _rows(resp)}
+
+
+def test_view_as_team_shows_that_teams_view(api_client, user, customer_organisation, team_templates):
+    # The admin is in Billing, but previews Frontline.
+    _member(user, customer_organisation, team=team_templates['billing'], user_type='admin')
+    api_client.force_authenticate(user)
+    ids = _ids(api_client, customer_organisation, view_as_team=team_templates['frontline'].id)
+    assert ids == {team_templates['workspace'].id, team_templates['frontline_only'].id}
+
+
+def test_view_as_no_team_shows_workspace_templates_only(
+    api_client, user, customer_organisation, team_templates,
+):
+    _member(user, customer_organisation, team=team_templates['billing'], user_type='admin')
+    api_client.force_authenticate(user)
+    assert _ids(api_client, customer_organisation, view_as_team='none') == {team_templates['workspace'].id}
+
+
+def test_default_scope_unchanged_without_view_as_team(
+    api_client, user, customer_organisation, team_templates,
+):
+    _member(user, customer_organisation, team=team_templates['billing'], user_type='admin')
+    api_client.force_authenticate(user)
+    assert _ids(api_client, customer_organisation) == {
+        team_templates['workspace'].id, team_templates['billing_only'].id,
+    }
+
+
+def test_view_as_team_forbidden_for_agents(api_client, user, customer_organisation, team_templates):
+    _member(user, customer_organisation, user_type='agent')
+    api_client.force_authenticate(user)
+    resp = api_client.get(URL, {
+        'organisation': customer_organisation.id, 'view_as_team': team_templates['frontline'].id,
+    })
+    assert resp.status_code == 403
+
+
+def test_view_as_team_forbidden_for_admin_of_other_org(
+    api_client, user, organization, customer_organisation, team_templates,
+):
+    from customer.models import CustomerOrganisation
+    other = CustomerOrganisation.objects.create(name='Other', organization=organization)
+    _member(user, other, user_type='admin')
+    api_client.force_authenticate(user)
+    resp = api_client.get(URL, {
+        'organisation': customer_organisation.id, 'view_as_team': 'none',
+    })
+    assert resp.status_code == 403
+
+
+def test_view_as_team_requires_organisation(api_client, user, customer_organisation):
+    _member(user, customer_organisation, user_type='admin')
+    api_client.force_authenticate(user)
+    resp = api_client.get(URL, {'view_as_team': 'none'})
+    assert resp.status_code == 400
+
+
+def test_view_as_team_rejects_foreign_team(api_client, user, customer_organisation):
+    from core.models import Organization
+    foreign = Team.objects.create(organization=Organization.objects.create(name='Elsewhere'), name='X')
+    _member(user, customer_organisation, user_type='admin')
+    api_client.force_authenticate(user)
+    resp = api_client.get(URL, {'organisation': customer_organisation.id, 'view_as_team': foreign.id})
+    assert resp.status_code == 400
+    assert 'view_as_team' in resp.data
+
+
+def test_preview_teams_lists_agent_and_template_teams(
+    api_client, user, user2, organization, customer_organisation, team_templates,
+):
+    agents_only = Team.objects.create(organization=organization, name='Agents only')
+    Team.objects.create(organization=organization, name='Unused')
+    _member(user, customer_organisation, user_type='admin')
+    _member(user2, customer_organisation, team=agents_only)
+    api_client.force_authenticate(user)
+    resp = api_client.get(f'{URL}preview-teams/', {'organisation': customer_organisation.id})
+    assert resp.status_code == 200
+    assert [t['name'] for t in resp.data] == ['Agents only', 'Billing', 'Frontline']
+
+
+def test_preview_teams_forbidden_for_agents(api_client, user, customer_organisation):
+    _member(user, customer_organisation, user_type='agent')
+    api_client.force_authenticate(user)
+    resp = api_client.get(f'{URL}preview-teams/', {'organisation': customer_organisation.id})
+    assert resp.status_code == 403

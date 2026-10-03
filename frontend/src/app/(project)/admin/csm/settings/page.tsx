@@ -1,7 +1,20 @@
 'use client';
 
 import Link from 'next/link';
-import { CalendarClock, ClipboardList, FileText, FolderKanban, Lightbulb, ListOrdered, Radio, Shield, Tag, Workflow } from 'lucide-react';
+import {
+  CalendarClock,
+  ClipboardList,
+  FileText,
+  FlaskConical,
+  FolderKanban,
+  GitBranch,
+  Lightbulb,
+  ListOrdered,
+  Radio,
+  Shield,
+  Tag,
+  Workflow,
+} from 'lucide-react';
 import CsmSettingsPageRoot, { CsmSettingsProjectGuard } from '@/components/csm-settings/CsmSettingsPageRoot';
 import CsmSettingsNavCard from '@/components/csm-settings/CsmSettingsNavCard';
 import { useProjectIdFromUrl } from '@/components/csm-settings/useProjectIdFromUrl';
@@ -89,6 +102,18 @@ export default function CsmSettingsHubPage() {
             icon={Lightbulb}
             title="Agent Guidance"
             description="Handoffs, suggested replies, and procedures shown to agents per Experience Group."
+          />
+          <CsmSettingsNavCard
+            href={buildUrl('/admin/csm/settings/routing-rules')}
+            icon={GitBranch}
+            title="Routing Rules"
+            description="Route conversations to queues per experience group. First matching rule wins."
+          />
+          <CsmSettingsNavCard
+            href={buildUrl('/admin/csm/settings/routing-sandbox')}
+            icon={FlaskConical}
+            title="Routing & Template Sandbox"
+            description="Simulate a conversation, trace rule evaluation, and preview templates. Nothing is saved."
           />
         </div>
       )}
