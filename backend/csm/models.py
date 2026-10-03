@@ -1019,9 +1019,13 @@ class RoutingRule(TimeStampedModel):
                 fields=['experience_group', 'name'],
                 name='csm_rr_unique_name_per_eg',
             ),
-        ]
-        indexes = [
-            models.Index(fields=['experience_group', 'position'], name='csm_rr_eg_pos_idx'),
+            # Deferred so a reorder can swap positions inside one transaction;
+            # it is checked at commit. Also serves the (group, position) lookups.
+            models.UniqueConstraint(
+                fields=['experience_group', 'position'],
+                name='csm_rr_unique_position_per_eg',
+                deferrable=models.Deferrable.DEFERRED,
+            ),
         ]
 
     def __str__(self):

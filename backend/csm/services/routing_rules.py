@@ -234,9 +234,12 @@ def list_rules(project_id, experience_group_id=None):
     return qs.order_by('experience_group_id', 'position', 'id')
 
 
-def _lock_experience_group(experience_group):
-    # Serialise position allocation for concurrent creates on the same group.
-    ExperienceGroup.objects.select_for_update().filter(pk=experience_group.pk).first()
+def _lock_experience_group(experience_group_id):
+    # Serialises everything that assigns positions in a group (create and
+    # reorder), so they can't interleave and hand out the same position.
+    # NO KEY: still conflicts with itself, but not with FK checks from other
+    # tables that reference the group.
+    ExperienceGroup.objects.select_for_update(no_key=True).filter(pk=experience_group_id).first()
 
 
 def _next_position(experience_group_id):
@@ -257,7 +260,7 @@ def create_rule(project_id, *, user, experience_group, name, target_queue,
     conditions = validate_conditions(project_id, conditions or [])
     add_tags = _validate_tags(add_tags)
 
-    _lock_experience_group(experience_group)
+    _lock_experience_group(experience_group.id)
     return RoutingRule.objects.create(
         project_id=project_id,
         experience_group=experience_group,
@@ -275,27 +278,37 @@ def create_rule(project_id, *, user, experience_group, name, target_queue,
 @transaction.atomic
 def update_rule(rule, *, name=None, target_queue=None, conditions=None,
                 match_mode=None, is_enabled=None, add_tags=None):
+    changed = []
     if name is not None:
         name = _validate_name(name)
         _assert_unique_name(rule.experience_group_id, name, exclude_id=rule.pk)
         rule.name = name
+        changed.append('name')
     if target_queue is not None:
         rule.target_queue = _validate_target_queue(rule.project_id, target_queue)
+        changed.append('target_queue')
     if conditions is not None:
         rule.conditions = validate_conditions(rule.project_id, conditions)
+        changed.append('conditions')
     if match_mode is not None:
         rule.match_mode = match_mode
+        changed.append('match_mode')
     if is_enabled is not None:
         rule.is_enabled = is_enabled
+        changed.append('is_enabled')
     if add_tags is not None:
         rule.add_tags = _validate_tags(add_tags)
-    rule.save()
+        changed.append('add_tags')
+    # Only the edited fields: `rule` may hold a position that a concurrent
+    # reorder has since changed, and only create/reorder may write position.
+    rule.save(update_fields=[*changed, 'updated_at'])
     return rule
 
 
 @transaction.atomic
 def reorder_rules(project_id, experience_group_id, ordered_ids):
     """Set positions from `ordered_ids`, which must list every rule in the group once."""
+    _lock_experience_group(experience_group_id)
     existing = list(
         RoutingRule.objects.select_for_update().filter(
             project_id=project_id, experience_group_id=experience_group_id,

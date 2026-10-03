@@ -1,11 +1,14 @@
 """Routing rule CRUD API tests (CSM-S03-05)."""
 
 import pytest
+from django.db import IntegrityError, connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from rest_framework import status
 
 from core.models import Project, ProjectMember
 from csm.models import CustomerUser, Queue, RoutingRule, SupportChannel
+from csm.services.routing_rules import create_rule, reorder_rules, update_rule
 from experience_group.models import ExperienceGroup
 
 pytestmark = pytest.mark.django_db
@@ -257,6 +260,72 @@ class TestReorder:
         }, format='json')
         assert res.status_code == status.HTTP_400_BAD_REQUEST
         assert 'ids' in res.data
+
+
+
+def _check_positions_now():
+    """Run the deferred (group, position) check now; tests never reach COMMIT."""
+    with connection.cursor() as cursor:
+        cursor.execute('SET CONSTRAINTS csm_rr_unique_position_per_eg IMMEDIATE')
+
+
+class TestPositionIntegrity:
+    def test_two_rules_cannot_share_a_position(self, project, experience_group, csm_queue):
+        # Inside a savepoint so the duplicate is rolled back before teardown,
+        # which checks deferred constraints too.
+        with pytest.raises(IntegrityError):
+            with transaction.atomic():
+                for name in ('A', 'B'):
+                    RoutingRule.objects.create(
+                        project=project, experience_group=experience_group, name=name,
+                        position=0, target_queue=csm_queue,
+                    )
+                _check_positions_now()
+
+    def test_reorder_swap_leaves_unique_positions(self, csm_admin_client, project, experience_group, csm_queue):
+        a = _create(csm_admin_client, project, experience_group, csm_queue, name='A').data['id']
+        b = _create(csm_admin_client, project, experience_group, csm_queue, name='B').data['id']
+        res = csm_admin_client.put(_reorder_url(project.id), {
+            'experience_group': experience_group.id, 'ids': [b, a],
+        }, format='json')
+        assert res.status_code == status.HTTP_200_OK, res.data
+        _check_positions_now()  # raises if the swap left a duplicate
+
+    def test_edit_does_not_write_back_a_stale_position(self, user, project, experience_group, csm_queue):
+        a = create_rule(project.id, user=user, experience_group=experience_group, name='A', target_queue=csm_queue)
+        b = create_rule(project.id, user=user, experience_group=experience_group, name='B', target_queue=csm_queue)
+        stale_a = RoutingRule.objects.get(pk=a.pk)  # loaded before the reorder, position 0
+        reorder_rules(project.id, experience_group.id, [b.pk, a.pk])
+
+        update_rule(stale_a, is_enabled=False)
+
+        _check_positions_now()
+        assert list(
+            RoutingRule.objects.filter(experience_group=experience_group).values_list('name', 'position'),
+        ) == [('B', 0), ('A', 1)]
+        assert RoutingRule.objects.get(pk=a.pk).is_enabled is False
+
+    def test_create_and_reorder_take_the_same_group_lock(
+        self, user, project, experience_group, csm_queue,
+    ):
+        rule = create_rule(
+            project.id, user=user, experience_group=experience_group, name='A', target_queue=csm_queue,
+        )
+        table = ExperienceGroup._meta.db_table
+        for run in (
+            lambda: create_rule(
+                project.id, user=user, experience_group=experience_group, name='B', target_queue=csm_queue,
+            ),
+            lambda: reorder_rules(project.id, experience_group.id, [rule.id] + list(
+                RoutingRule.objects.filter(experience_group=experience_group).exclude(pk=rule.pk)
+                .values_list('id', flat=True),
+            )),
+        ):
+            with CaptureQueriesContext(connection) as queries:
+                run()
+            assert any(
+                table in q['sql'] and 'FOR NO KEY UPDATE' in q['sql'] for q in queries.captured_queries
+            )
 
 
 class TestVocabularyAndPermissions:
