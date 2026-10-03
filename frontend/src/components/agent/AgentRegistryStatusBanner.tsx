@@ -6,12 +6,18 @@ import { useAuthStore } from '@/lib/authStore';
 import { AgentAPI } from '@/lib/api/agentApi';
 
 /** Shows actionable registry boot failures to staff and organisation admins. */
-export function AgentRegistryStatusBanner() {
+export function AgentRegistryStatusBanner({ isOpen }: { isOpen: boolean }) {
   const user = useAuthStore((state) => state.user);
   const [error, setError] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
+    if (!isOpen) {
+      setError(null);
+      setUnavailable(false);
+      return;
+    }
+
     if (!user || (!user.is_staff && !user.is_org_admin)) {
       setError(null);
       setUnavailable(false);
@@ -47,9 +53,15 @@ export function AgentRegistryStatusBanner() {
       window.clearInterval(interval);
       window.removeEventListener('focus', refresh);
     };
-  }, [user]);
+  }, [isOpen, user]);
 
-  if (!user || (!user.is_staff && !user.is_org_admin) || (!error && !unavailable)) return null;
+  if (!user || (!user.is_staff && !user.is_org_admin) || (!error && !unavailable)) {
+    return null;
+  }
+
+  if (!isOpen) {
+    return null;
+  }
 
   return (
     <div
