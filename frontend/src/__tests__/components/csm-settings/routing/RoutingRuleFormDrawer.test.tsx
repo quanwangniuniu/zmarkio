@@ -103,8 +103,8 @@ describe('RoutingRuleFormDrawer', () => {
     renderDrawer({
       id: 5, experience_group: 7, name: 'Busy', position: 0, is_enabled: false, match_mode: 'any',
       conditions: [{ field: 'message_count', operator: 'gte', value: 3 }],
-      action_type: 'route_to_queue', target_queue: 10, target_queue_name: 'Billing',
-      target_queue_is_active: true, add_tags: ['vip'], created_at: '', updated_at: '',
+      target_queue: 10, target_queue_name: 'Billing',
+      target_queue_is_active: true, can_route: true, add_tags: ['vip'], created_at: '', updated_at: '',
     });
     expect(screen.getAllByTestId('condition-row')).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: /add condition/i }));
@@ -119,5 +119,16 @@ describe('RoutingRuleFormDrawer', () => {
       conditions: [{ field: 'message_count', operator: 'gte', value: 3 }],
       add_tags: ['vip'],
     }));
+  });
+
+  it('makes the admin pick a new queue when editing a rule that cannot route', async () => {
+    renderDrawer({
+      id: 6, experience_group: 7, name: 'Legacy', position: 1, is_enabled: true, match_mode: 'all',
+      conditions: [], target_queue: 11, target_queue_name: 'Archived',
+      target_queue_is_active: false, can_route: false, add_tags: [], created_at: '', updated_at: '',
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save rule/i }));
+    expect(await screen.findByText('Choose a queue to route to.')).toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
   });
 });

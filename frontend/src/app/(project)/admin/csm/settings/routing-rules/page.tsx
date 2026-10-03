@@ -36,6 +36,7 @@ export default function RoutingRulesSettingsPage() {
     router.replace(buildUrl(`/admin/csm/settings/routing-rules?${params.toString()}`));
   };
   const { rules, loading, error, load, upsert, reorder, toggle, remove } = useRoutingRules(projectId, groupId);
+  const unroutable = rules.filter((r) => !r.can_route).length;
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<RoutingRule | null>(null);
@@ -110,6 +111,18 @@ export default function RoutingRulesSettingsPage() {
             Rules are not applied to live conversations yet. Use the sandbox to check how they would route;
             live chats still go to the channel&apos;s default queue.
           </div>
+
+          {!loading && unroutable > 0 && (
+            <div
+              className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+              role="status"
+              data-testid="unroutable-banner"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              {unroutable === 1 ? '1 rule' : `${unroutable} rules`} in this group can&apos;t route because the queue was deleted or
+              deactivated, so evaluation skips {unroutable === 1 ? 'it' : 'them'}. Edit and choose an active queue.
+            </div>
+          )}
 
           <div className="max-w-sm">
             <label htmlFor="rr-group" className={FORM_LABEL_CLASS}>

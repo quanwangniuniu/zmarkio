@@ -73,7 +73,8 @@ export default function RoutingRuleFormDrawer({
     setIsEnabled(editing?.is_enabled ?? true);
     setMatchMode(editing?.match_mode ?? 'all');
     setConditions(editing?.conditions ?? [newCondition(vocabulary)]);
-    setTargetQueueId(editing?.target_queue ? String(editing.target_queue) : '');
+    // A dead queue isn't among the (active-only) options; start empty so the admin picks one.
+    setTargetQueueId(editing?.target_queue && editing.can_route ? String(editing.target_queue) : '');
     setAddTags(editing?.add_tags ?? []);
     setFieldErrors({});
     setConditionErrors([]);

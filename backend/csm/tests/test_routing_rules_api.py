@@ -328,6 +328,27 @@ class TestPositionIntegrity:
             )
 
 
+class TestCanRoute:
+    def _listed(self, client, project, experience_group):
+        res = client.get(_list_url(project.id, experience_group=experience_group.id))
+        return {r['name']: r['can_route'] for r in res.data}
+
+    def test_flags_rules_whose_queue_is_inactive_or_deleted(
+        self, csm_admin_client, project, experience_group, csm_queue, tech_queue,
+    ):
+        _create(csm_admin_client, project, experience_group, csm_queue, name='Live')
+        _create(csm_admin_client, project, experience_group, tech_queue, name='Retired')
+        assert self._listed(csm_admin_client, project, experience_group) == {'Live': True, 'Retired': True}
+
+        tech_queue.is_active = False
+        tech_queue.save()
+        assert self._listed(csm_admin_client, project, experience_group) == {'Live': True, 'Retired': False}
+
+        tech_queue.delete()  # target_queue is SET_NULL
+        assert self._listed(csm_admin_client, project, experience_group) == {'Live': True, 'Retired': False}
+        assert RoutingRule.objects.get(name='Retired').target_queue is None
+
+
 class TestVocabularyAndPermissions:
     def test_vocabulary(self, csm_admin_client, project):
         res = csm_admin_client.get(reverse('routing-rule-vocabulary') + f'?project={project.id}')

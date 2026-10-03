@@ -19,14 +19,15 @@ export default function RoutingRuleRow({ rule, index, lookups, onEdit, onToggle,
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: rule.id,
   });
-  const brokenTarget = rule.target_queue === null || rule.target_queue_is_active === false;
   const joiner = rule.match_mode === 'any' ? 'or' : 'and';
 
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`flex items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 ${
+      className={`flex items-start gap-3 rounded-lg border bg-white p-4 ${
+        rule.can_route ? 'border-gray-200' : 'border-red-300'
+      } ${
         isDragging ? 'opacity-60' : ''
       } ${rule.is_enabled ? '' : 'bg-gray-50'}`}
       data-testid="routing-rule-row"
@@ -44,8 +45,13 @@ export default function RoutingRuleRow({ rule, index, lookups, onEdit, onToggle,
       <span className="mt-1 w-6 shrink-0 text-xs font-semibold text-gray-400">{index + 1}</span>
 
       <div className="min-w-0 flex-1">
-        <p className={`text-sm font-medium ${rule.is_enabled ? 'text-gray-900' : 'text-gray-500'}`}>
+        <p className={`flex items-center gap-2 text-sm font-medium ${rule.is_enabled ? 'text-gray-900' : 'text-gray-500'}`}>
           {rule.name}
+          {!rule.can_route && (
+            <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-medium text-red-700">
+              Can&apos;t route
+            </span>
+          )}
         </p>
         <p className="mt-1 text-xs text-gray-600">
           {rule.conditions.length === 0
@@ -57,12 +63,11 @@ export default function RoutingRuleRow({ rule, index, lookups, onEdit, onToggle,
           <span className="font-medium text-gray-800">{rule.target_queue_name ?? 'no queue'}</span>
           {rule.add_tags.length > 0 && <> · tag {rule.add_tags.join(', ')}</>}
         </p>
-        {brokenTarget && (
-          <p className="mt-1 inline-flex items-center gap-1 text-xs text-amber-700">
+        {!rule.can_route && (
+          <p className="mt-1 inline-flex items-center gap-1 text-xs text-red-700">
             <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
-            {rule.target_queue === null
-              ? 'Target queue was deleted; this rule is skipped.'
-              : 'Target queue is inactive; this rule is skipped.'}
+            {rule.target_queue === null ? 'Its queue was deleted' : 'Its queue is inactive'}, so this rule is
+            skipped. Edit it and choose an active queue.
           </p>
         )}
       </div>

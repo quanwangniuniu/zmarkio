@@ -896,13 +896,14 @@ class RoutingRuleSerializer(serializers.ModelSerializer):
     target_queue_is_active = serializers.BooleanField(
         source='target_queue.is_active', read_only=True, default=None,
     )
+    can_route = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = RoutingRule
         fields = [
             'id', 'experience_group', 'name', 'position', 'is_enabled',
             'match_mode', 'conditions',
-            'target_queue', 'target_queue_name', 'target_queue_is_active',
+            'target_queue', 'target_queue_name', 'target_queue_is_active', 'can_route',
             'add_tags', 'created_at', 'updated_at',
         ]
         read_only_fields = fields

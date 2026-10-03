@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import RoutingRulesSettingsPage from '@/app/(project)/admin/csm/settings/routing-rules/page';
 import { useRoutingRules } from '@/components/csm-settings/routing/useRoutingRules';
+import type { RoutingRule } from '@/types/routingRule';
 import { VOCABULARY } from '../__mocks__/routingFixtures';
 
 const replace = jest.fn();
@@ -36,17 +37,26 @@ jest.mock('@/components/csm-settings/routing/useRoutingOptions', () => ({
 }));
 
 jest.mock('@/components/csm-settings/routing/useRoutingRules', () => ({
-  useRoutingRules: jest.fn(() => ({
-    rules: [],
-    loading: false,
-    error: null,
-    load: jest.fn(),
-    upsert: jest.fn(),
-    reorder: jest.fn(),
-    toggle: jest.fn(),
-    remove: jest.fn(),
-  })),
+  useRoutingRules: jest.fn(),
 }));
+
+const rulesState = (rules: RoutingRule[]) => ({
+  rules,
+  loading: false,
+  error: null,
+  load: jest.fn(),
+  upsert: jest.fn(),
+  reorder: jest.fn(),
+  toggle: jest.fn(),
+  remove: jest.fn(),
+});
+
+const rule = (id: number, name: string, overrides: Partial<RoutingRule> = {}): RoutingRule => ({
+  id, experience_group: 1, name, position: id, is_enabled: true, match_mode: 'all', conditions: [],
+  target_queue: 10, target_queue_name: 'Billing', target_queue_is_active: true, can_route: true,
+  add_tags: [], created_at: '', updated_at: '',
+  ...overrides,
+});
 
 const useRoutingRulesMock = useRoutingRules as jest.Mock;
 
@@ -58,7 +68,8 @@ function loadedGroupId() {
 beforeEach(() => {
   search = '';
   replace.mockClear();
-  useRoutingRulesMock.mockClear();
+  useRoutingRulesMock.mockReset();
+  useRoutingRulesMock.mockImplementation(() => rulesState([]));
 });
 
 describe('RoutingRulesSettingsPage group selection', () => {
@@ -86,5 +97,31 @@ describe('RoutingRulesSettingsPage group selection', () => {
     await waitFor(() => expect(screen.getByRole('option', { name: 'VIP Customers' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('option', { name: 'VIP Customers' }));
     expect(replace).toHaveBeenCalledWith('/admin/csm/settings/routing-rules?group=1');
+  });
+});
+
+describe('RoutingRulesSettingsPage rules that cannot route', () => {
+  it('flags each rule whose queue is missing or inactive and counts them in a banner', () => {
+    useRoutingRulesMock.mockImplementation(() => rulesState([
+      rule(1, 'Refunds'),
+      rule(2, 'Legacy', { target_queue_is_active: false, can_route: false }),
+      rule(3, 'Orphan', { target_queue: null, target_queue_name: null, target_queue_is_active: null, can_route: false }),
+    ]));
+    render(<RoutingRulesSettingsPage />);
+
+    const banner = screen.getByTestId('unroutable-banner');
+    expect(banner).toHaveAttribute('role', 'status');
+    expect(banner).toHaveTextContent("2 rules in this group can't route");
+    const rows = screen.getAllByTestId('routing-rule-row');
+    expect(rows[0]).not.toHaveTextContent("Can't route");
+    expect(rows[1]).toHaveTextContent("Can't route");
+    expect(rows[1]).toHaveTextContent('Its queue is inactive');
+    expect(rows[2]).toHaveTextContent('Its queue was deleted');
+  });
+
+  it('shows no banner when every rule can route', () => {
+    useRoutingRulesMock.mockImplementation(() => rulesState([rule(1, 'Refunds')]));
+    render(<RoutingRulesSettingsPage />);
+    expect(screen.queryByTestId('unroutable-banner')).not.toBeInTheDocument();
   });
 });

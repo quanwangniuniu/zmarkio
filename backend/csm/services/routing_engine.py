@@ -307,7 +307,7 @@ def evaluate_rules(rules, ctx, fallback_queue, *, evaluated_at):
             continue
 
         queue = rule.target_queue
-        if queue is None or not queue.is_active:
+        if not rule.can_route:
             reason = 'has no target queue' if queue is None else f"targets inactive queue '{queue.name}'"
             warnings.append(f"Rule '{rule.name}' matched but {reason}; it was skipped.")
             steps.append(_step(

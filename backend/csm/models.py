@@ -1028,6 +1028,11 @@ class RoutingRule(TimeStampedModel):
             ),
         ]
 
+    @property
+    def can_route(self):
+        """False when the target queue was deleted or deactivated; the rule is then skipped."""
+        return self.target_queue is not None and self.target_queue.is_active
+
     def __str__(self):
         return f"RoutingRule '{self.name}' (EG {self.experience_group_id}, #{self.position})"
 
