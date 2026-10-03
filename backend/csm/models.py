@@ -79,7 +79,11 @@ class QueueAgent(TimeStampedModel):
 
 class QueueTeam(TimeStampedModel):
     queue = models.ForeignKey(Queue, on_delete=models.CASCADE, related_name='teams')
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='queue_assignments')
+    team = models.ForeignKey(
+        Team, on_delete=models.CASCADE, related_name='queue_assignments',
+        # core.Team is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
+        db_constraint=False,
+    )
 
     class Meta:
         unique_together = ('queue', 'team')
@@ -103,6 +107,8 @@ class CustomerUser(TimeStampedModel):
         Team, on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='customer_users',
+        # core.Team is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
+        db_constraint=False,
     )
     queue = models.ForeignKey(
         Queue, on_delete=models.SET_NULL,
@@ -437,6 +443,8 @@ class QuickReplyTemplate(SluggedResourceModelMixin, TimeStampedModel):
         null=True, blank=True,
         related_name='quick_reply_templates',
         help_text="If set, only members of this team can see the template",
+        # core.Team is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
+        db_constraint=False,
     )
     title = models.CharField(max_length=200, help_text="Short label shown in the template picker")
     content = models.TextField(help_text="Plain-text content inserted into the composer")
@@ -988,6 +996,8 @@ class RoutingRule(TimeStampedModel):
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name='routing_rules',
+        # core.Project is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
+        db_constraint=False,
     )
     experience_group = models.ForeignKey(
         'experience_group.ExperienceGroup', on_delete=models.CASCADE,
@@ -1042,7 +1052,9 @@ class CSMInvitation(TimeStampedModel):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='csm_invitations')
     team = models.ForeignKey(
         Team, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='csm_invitations'
+        null=True, blank=True, related_name='csm_invitations',
+        # core.Team is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
+        db_constraint=False,
     )
     invited_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,

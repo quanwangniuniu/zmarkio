@@ -35,14 +35,11 @@ class Migration(migrations.Migration):
             ],
             options={
                 'ordering': ['experience_group', 'position', 'id'],
+                'indexes': [models.Index(fields=['experience_group', 'position'], name='csm_rr_eg_pos_idx')],
             },
         ),
         migrations.AddConstraint(
             model_name='routingrule',
             constraint=models.UniqueConstraint(fields=('experience_group', 'name'), name='csm_rr_unique_name_per_eg'),
-        ),
-        migrations.AddConstraint(
-            model_name='routingrule',
-            constraint=models.UniqueConstraint(deferrable=models.Deferrable['DEFERRED'], fields=('experience_group', 'position'), name='csm_rr_unique_position_per_eg'),
         ),
     ]
