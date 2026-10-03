@@ -25,6 +25,9 @@ const EMPTY_CONFIG: SandboxConfig = {
 
 export const PREVIEW_AGENT_NAME = 'Template preview · not sent';
 
+/** Settings edits (e.g. typing a subject) wait this long; a sent message runs at once. */
+export const CONFIG_DEBOUNCE_MS = 300;
+
 let localId = 0;
 const nextLocalId = () => { localId -= 1; return localId; };
 
@@ -81,15 +84,30 @@ export function useRoutingSandbox(projectId: number) {
       const data = (err as { response?: { data?: unknown } }).response?.data;
       const [reason] = Object.values(parseFieldErrors(data));
       setError(reason ?? 'Could not evaluate routing rules.');
+      // Don't leave a trace for different settings next to the error.
+      setTraces([]);
+      setMeta(null);
     } finally {
       if (seq === requestSeq.current) setEvaluating(false);
     }
   }, [projectId]);
 
   // Re-run when the scenario changes so the trace always matches the config.
+  // `evaluating` is set while a change waits, so the old trace reads as stale.
   const textsKey = JSON.stringify(customerTexts);
+  const lastTextsKey = useRef(textsKey);
   useEffect(() => {
-    evaluate(JSON.parse(textsKey), config);
+    const texts: string[] = JSON.parse(textsKey);
+    const messageSent = textsKey !== lastTextsKey.current;
+    lastTextsKey.current = textsKey;
+    requestSeq.current += 1; // drop any response for the previous scenario
+    if (config.experienceGroupId === null || texts.length === 0) {
+      setEvaluating(false);
+      return undefined;
+    }
+    setEvaluating(true);
+    const timer = setTimeout(() => evaluate(texts, config), messageSent ? 0 : CONFIG_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
   }, [config, textsKey, evaluate]);
 
   const sendCustomerMessage = useCallback((text: string) => {

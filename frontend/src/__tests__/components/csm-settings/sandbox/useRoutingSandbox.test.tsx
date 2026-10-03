@@ -1,7 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { RoutingSandboxAPI } from '@/lib/api/routingRuleApi';
 import CsmConversationAPI from '@/lib/api/csmConversationApi';
-import { PREVIEW_AGENT_NAME, useRoutingSandbox } from '@/components/csm-settings/sandbox/useRoutingSandbox';
+import {
+  CONFIG_DEBOUNCE_MS,
+  PREVIEW_AGENT_NAME,
+  useRoutingSandbox,
+} from '@/components/csm-settings/sandbox/useRoutingSandbox';
 import type { QuickReplyTemplate } from '@/types/csmConversation';
 import { makeTrace } from '../__mocks__/routingFixtures';
 
@@ -76,13 +80,6 @@ describe('useRoutingSandbox', () => {
     await waitFor(() => expect(hook.current.error).toBe('Could not evaluate routing rules.'));
   });
 
-  it('does not evaluate before an experience group is chosen or for blank messages', () => {
-    const { result: hook } = renderHook(() => useRoutingSandbox(3));
-    act(() => hook.current.sendCustomerMessage('Hi'));
-    act(() => hook.current.sendCustomerMessage('   '));
-    expect(evaluate).not.toHaveBeenCalled();
-    expect(hook.current.messages).toHaveLength(1);
-  });
 
   it('inserts templates as local preview bubbles without calling any API', async () => {
     const { result: hook } = renderHook(() => useRoutingSandbox(3));
@@ -96,6 +93,8 @@ describe('useRoutingSandbox', () => {
     expect(last.sender_type).toBe('agent');
     expect(last.sender_agent_name).toBe(PREVIEW_AGENT_NAME);
     expect(last.content).toBe('We will refund you.');
+    // Wait out the debounce: an agent bubble must not schedule an evaluation.
+    await act(async () => { await new Promise((r) => { setTimeout(r, CONFIG_DEBOUNCE_MS + 50); }); });
     expect(evaluate).toHaveBeenCalledTimes(1);
     expect(CsmConversationAPI.sendMessage).not.toHaveBeenCalled();
   });
@@ -117,5 +116,76 @@ describe('useRoutingSandbox', () => {
     await waitFor(() => expect(evaluate).toHaveBeenCalledTimes(1));
     act(() => { window.dispatchEvent(new Event('focus')); });
     await waitFor(() => expect(evaluate).toHaveBeenCalledTimes(2));
+  });
+
+  describe('timing', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    const flush = () => act(async () => { jest.runOnlyPendingTimers(); });
+
+    it('sends a message immediately but waits for a burst of settings edits to settle', async () => {
+      const { result: hook } = renderHook(() => useRoutingSandbox(3));
+      act(() => hook.current.setConfig({ ...hook.current.config, experienceGroupId: 7 }));
+      act(() => hook.current.sendCustomerMessage('Hi'));
+      await act(async () => { jest.advanceTimersByTime(0); });
+      expect(evaluate).toHaveBeenCalledTimes(1);
+
+      for (const subject of ['E', 'Er', 'Error']) {
+        act(() => hook.current.setConfig({ ...hook.current.config, subject }));
+        await act(async () => { jest.advanceTimersByTime(100); });
+      }
+      expect(evaluate).toHaveBeenCalledTimes(1);
+      expect(hook.current.evaluating).toBe(true); // the old trace is marked stale meanwhile
+
+      await act(async () => { jest.advanceTimersByTime(CONFIG_DEBOUNCE_MS); });
+      expect(evaluate).toHaveBeenCalledTimes(2);
+      expect(evaluate).toHaveBeenLastCalledWith(3, expect.objectContaining({ subject: 'Error' }));
+    });
+
+    it('does not evaluate before an experience group is chosen or for blank messages', async () => {
+      const { result: hook } = renderHook(() => useRoutingSandbox(3));
+      act(() => hook.current.sendCustomerMessage('Hi'));
+      act(() => hook.current.sendCustomerMessage('   '));
+      await flush();
+      expect(evaluate).not.toHaveBeenCalled();
+      expect(hook.current.messages).toHaveLength(1);
+      expect(hook.current.evaluating).toBe(false);
+    });
+
+    it('ignores a slow response that lands while a settings change is waiting', async () => {
+      let resolveFirst: (value: unknown) => void = () => {};
+      evaluate
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+        .mockImplementationOnce(() => Promise.resolve({ ...result(1), rule_count: 2 }));
+      const { result: hook } = renderHook(() => useRoutingSandbox(3));
+      act(() => hook.current.setConfig({ ...hook.current.config, experienceGroupId: 7 }));
+      act(() => hook.current.sendCustomerMessage('Hi'));
+      await flush(); // first request in flight
+
+      act(() => hook.current.setConfig({ ...hook.current.config, subject: 'Error' }));
+      // The old request answers inside the debounce window, before the new one is sent.
+      await act(async () => { resolveFirst({ ...result(1), rule_count: 1 }); });
+      expect(hook.current.meta).toBeNull();
+      expect(hook.current.evaluating).toBe(true);
+
+      await act(async () => { jest.advanceTimersByTime(CONFIG_DEBOUNCE_MS); });
+      expect(hook.current.meta?.rule_count).toBe(2);
+      expect(hook.current.evaluating).toBe(false);
+    });
+
+    it('clears the trace when evaluation fails', async () => {
+      const { result: hook } = renderHook(() => useRoutingSandbox(3));
+      act(() => hook.current.setConfig({ ...hook.current.config, experienceGroupId: 7 }));
+      act(() => hook.current.sendCustomerMessage('Hi'));
+      await flush();
+      expect(hook.current.traces).toHaveLength(1);
+
+      evaluate.mockRejectedValueOnce(new Error('Network Error'));
+      act(() => hook.current.setConfig({ ...hook.current.config, subject: 'x' }));
+      await flush();
+      expect(hook.current.error).toBe('Could not evaluate routing rules.');
+      expect(hook.current.traces).toHaveLength(0);
+    });
   });
 });

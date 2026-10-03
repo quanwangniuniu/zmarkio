@@ -48,7 +48,7 @@ export default function RoutingTracePanel({
         <button
           type="button"
           onClick={onRerun}
-          disabled={evaluating || traces.length === 0}
+          disabled={evaluating || customerMessages.length === 0}
           className={SECONDARY_BUTTON_CLASS}
         >
           <RefreshCw className={`h-4 w-4 ${evaluating ? 'animate-spin' : ''}`} aria-hidden />
@@ -65,23 +65,30 @@ export default function RoutingTracePanel({
         </p>
       ))}
 
-      {traces.length === 0 ? (
+      {customerMessages.length === 0 ? (
         <p className="rounded-lg border-2 border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">
           Send a test message to see which rules run.
         </p>
       ) : (
-        traces.map((_, i) => i).reverse().map((index) => (
-          <TraceTurnCard
-            key={index}
-            trace={traces[index]}
-            turn={index + 1}
-            message={customerMessages[index] ?? ''}
-            previous={index > 0 ? traces[index - 1] : null}
-            expanded={expanded.has(index)}
-            lookups={lookups}
-            onToggle={() => toggle(index)}
-          />
-        ))
+        // Dimmed while a newer evaluation is pending, so it never reads as current.
+        <div
+          className={`flex flex-col gap-3 transition-opacity ${evaluating ? 'opacity-50' : ''}`}
+          aria-busy={evaluating}
+          data-testid="trace-list"
+        >
+          {traces.map((_, i) => i).reverse().map((index) => (
+            <TraceTurnCard
+              key={index}
+              trace={traces[index]}
+              turn={index + 1}
+              message={customerMessages[index] ?? ''}
+              previous={index > 0 ? traces[index - 1] : null}
+              expanded={expanded.has(index)}
+              lookups={lookups}
+              onToggle={() => toggle(index)}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

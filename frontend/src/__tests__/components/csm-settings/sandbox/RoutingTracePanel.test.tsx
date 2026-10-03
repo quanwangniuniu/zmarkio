@@ -126,4 +126,17 @@ describe('RoutingTracePanel', () => {
     expect(screen.queryByTestId('condition-actual')).not.toBeInTheDocument();
     expect(screen.getByText(/Actual: I want a refund · Matched: refund/)).toBeInTheDocument();
   });
+
+  it('marks the trace busy while a newer evaluation is pending', () => {
+    renderPanel({ traces: [makeTrace()], customerMessages: ['refund'], evaluating: true });
+    expect(screen.getByTestId('trace-list')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByTestId('trace-list')).toHaveClass('opacity-50');
+  });
+
+  it('can re-run after an error cleared the trace', () => {
+    const { onRerun } = renderPanel({ traces: [], customerMessages: ['Hi'], error: 'Could not evaluate routing rules.' });
+    expect(screen.queryByText(/send a test message/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /re-run/i }));
+    expect(onRerun).toHaveBeenCalled();
+  });
 });
