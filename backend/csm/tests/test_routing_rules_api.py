@@ -266,7 +266,7 @@ class TestReorder:
 def _check_positions_now():
     """Run the deferred (group, position) check now; tests never reach COMMIT."""
     with connection.cursor() as cursor:
-        cursor.execute('SET CONSTRAINTS csm_rr_unique_position_per_eg IMMEDIATE')
+        cursor.execute('SET CONSTRAINTS csm_rr_unique_position_per_org_eg IMMEDIATE')
 
 
 class TestPositionIntegrity:
@@ -277,7 +277,8 @@ class TestPositionIntegrity:
             with transaction.atomic():
                 for name in ('A', 'B'):
                     RoutingRule.objects.create(
-                        project=project, experience_group=experience_group, name=name,
+                        organization=project.organization, project=project,
+                        experience_group=experience_group, name=name,
                         position=0, target_queue=csm_queue,
                     )
                 _check_positions_now()
@@ -347,6 +348,105 @@ class TestCanRoute:
         tech_queue.delete()  # target_queue is SET_NULL
         assert self._listed(csm_admin_client, project, experience_group) == {'Live': True, 'Retired': False}
         assert RoutingRule.objects.get(name='Retired').target_queue is None
+
+
+
+class TestOrganizationIsolation:
+    """
+    Project ids are numbered per organisation schema, so another organisation
+    can have a project with our id. Its rules share this public table and must
+    never surface or change through our project.
+    """
+
+    @pytest.fixture
+    def foreign(self, project, csm_queue):
+        from core.models import Organization
+        other_org = Organization.objects.create(name='Elsewhere', email_domain='elsewhere.test')
+        group = ExperienceGroup.objects.create(project=project, name='Their group')
+        rule = RoutingRule.objects.create(
+            organization=other_org, project=project, experience_group=group, name='Theirs',
+            position=0, target_queue=csm_queue,
+        )
+        return {'group': group, 'rule': rule, 'org': other_org}
+
+    def test_new_rules_record_the_projects_organization(
+        self, csm_admin_client, project, experience_group, csm_queue,
+    ):
+        rule_id = _create(csm_admin_client, project, experience_group, csm_queue).data['id']
+        assert RoutingRule.objects.get(pk=rule_id).organization_id == project.organization_id
+
+    def test_lists_never_include_another_organisations_rules(
+        self, csm_admin_client, project, experience_group, csm_queue, foreign,
+    ):
+        _create(csm_admin_client, project, experience_group, csm_queue, name='Ours')
+        everything = csm_admin_client.get(_list_url(project.id))
+        assert [r['name'] for r in everything.data] == ['Ours']
+        theirs = csm_admin_client.get(_list_url(project.id, experience_group=foreign['group'].id))
+        assert theirs.data == []
+
+    def test_another_organisations_rule_cannot_be_changed(self, csm_admin_client, project, foreign):
+        rule = foreign['rule']
+        assert csm_admin_client.patch(_detail_url(rule.pk), {'name': 'Hacked'}, format='json').status_code == 404
+        assert csm_admin_client.delete(_detail_url(rule.pk)).status_code == 404
+        res = csm_admin_client.put(_reorder_url(project.id), {
+            'experience_group': foreign['group'].id, 'ids': [rule.pk],
+        }, format='json')
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        rule.refresh_from_db()
+        assert (rule.name, rule.position) == ('Theirs', 0)
+
+    def test_another_organisations_rows_in_the_same_group_never_collide(
+        self, csm_admin_client, project, experience_group, csm_queue, foreign,
+    ):
+        # Their rule sits in *our* group with the name and position ours will take.
+        RoutingRule.objects.create(
+            organization=foreign['org'], project=project, experience_group=experience_group,
+            name='Refunds', position=0, target_queue=csm_queue,
+        )
+        a = _create(csm_admin_client, project, experience_group, csm_queue, name='Refunds')
+        assert a.status_code == status.HTTP_201_CREATED, a.data  # no "already exists" oracle
+        assert a.data['position'] == 0
+        b = _create(csm_admin_client, project, experience_group, csm_queue, name='Billing').data['id']
+        res = csm_admin_client.put(_reorder_url(project.id), {
+            'experience_group': experience_group.id, 'ids': [b, a.data['id']],
+        }, format='json')
+        assert res.status_code == status.HTTP_200_OK, res.data
+        _check_positions_now()
+
+    def test_queue_of_another_organisation_is_rejected(
+        self, csm_admin_client, project, experience_group, foreign,
+    ):
+        from customer.models import CustomerOrganisation
+        their_customer = CustomerOrganisation.objects.create(name='Their customer', organization=foreign['org'])
+        their_queue = Queue.objects.create(project=project, organisation=their_customer, name='Theirs', tier='T1')
+        res = _create(csm_admin_client, project, experience_group, their_queue)
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'target_queue' in res.data
+
+    def test_another_organisations_rule_cannot_be_read(self, csm_admin_client, foreign):
+        assert csm_admin_client.get(_detail_url(foreign['rule'].pk)).status_code == 404
+
+    def test_project_without_an_organisation_is_a_400_not_a_500(
+        self, csm_admin_client, user, experience_group, csm_queue,
+    ):
+        orphan = Project.objects.create(
+            name='Orphan', organization=None, owner=user, objectives=['awareness'], kpis={},
+        )
+        ProjectMember.objects.create(user=user, project=orphan, role='owner', is_active=True)
+        listed = csm_admin_client.get(_list_url(orphan.id))
+        assert listed.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'project' in listed.data
+        created = _create(csm_admin_client, orphan, experience_group, csm_queue)
+        assert created.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_sandbox_ignores_another_organisations_rules(self, csm_admin_client, project, foreign):
+        res = csm_admin_client.post(
+            reverse('routing-sandbox-evaluate') + f'?project={project.id}',
+            {'experience_group': foreign['group'].id, 'messages': ['Hi']}, format='json',
+        )
+        assert res.status_code == status.HTTP_200_OK, res.data
+        assert res.data['rule_count'] == 0
+        assert res.data['traces'][0]['steps'] == []
 
 
 class TestVocabularyAndPermissions:

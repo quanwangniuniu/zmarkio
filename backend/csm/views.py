@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.filters import SearchFilter
@@ -14,7 +16,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
 from core.admin_permissions import IsCsmAccessAllowed
-from core.models import Team
+from core.models import Project, Team
 from core.permissions import IsProjectMember, IsProjectOwner
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from core.slug_mixins import SlugLookupViewSetMixin
@@ -1620,10 +1622,21 @@ class RoutingRuleViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
             project_id = self.get_required_project_id()
             raw_group = self.request.query_params.get('experience_group')
             group_id = int(raw_group) if raw_group and raw_group.isdigit() else None
-            return list_rules(project_id, group_id)
-        return self.filter_by_accessible_projects(
-            RoutingRule.objects.select_related('target_queue', 'project'),
-        )
+            try:
+                return list_rules(project_id, group_id)
+            except DjangoValidationError as exc:
+                _raise_drf_validation(exc)
+        # Detail routes: the caller's projects *in the caller's organisation*,
+        # since another organisation can have a project with the same id.
+        projects_by_org = defaultdict(list)
+        for project_id, organization_id in Project.objects.filter(
+            pk__in=self._accessible_project_ids(),
+        ).values_list('id', 'organization_id'):
+            projects_by_org[organization_id].append(project_id)
+        scope = Q(pk__in=[])
+        for organization_id, project_ids in projects_by_org.items():
+            scope |= Q(organization_id=organization_id, project_id__in=project_ids)
+        return RoutingRule.objects.select_related('target_queue', 'project').filter(scope)
 
     def create(self, request, *args, **kwargs):
         serializer = RoutingRuleWriteSerializer(data=request.data)

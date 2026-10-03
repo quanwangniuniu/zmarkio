@@ -66,7 +66,8 @@ class TenantTeamAndProjectReferencesTest(TenantTestCase):
     def test_routing_rule_saves_with_a_tenant_project(self):
         group = ExperienceGroup.objects.create(name='VIP')
         rule = RoutingRule.objects.create(
-            project=self.project, experience_group=group, name='Refunds', target_queue=self.queue,
+            organization=self.test_org, project=self.project, experience_group=group,
+            name='Refunds', target_queue=self.queue,
         )
         assert RoutingRule.objects.select_related('project').get(pk=rule.pk).project.name == 'Support'
 

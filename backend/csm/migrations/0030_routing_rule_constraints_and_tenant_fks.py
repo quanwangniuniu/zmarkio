@@ -5,6 +5,26 @@ import django.db.models.constraints
 import django.db.models.deletion
 
 
+def set_rule_organization(apps, schema_editor):
+    """
+    Pin existing rules to their workspace Organization through the target
+    queue's customer organisation (public, unambiguous). The table is new in
+    this release, so only development data exists; a rule with no queue to
+    attribute it by can't be scoped safely and is removed.
+    """
+    # Run FK checks now, so no trigger events stay pending for the ALTER TABLEs
+    # later in this (atomic) migration; see customer/0012 for the same issue.
+    schema_editor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+    RoutingRule = apps.get_model('csm', 'RoutingRule')
+    for rule in RoutingRule.objects.select_related('target_queue__organisation'):
+        organisation = rule.target_queue.organisation if rule.target_queue_id else None
+        if organisation is None or organisation.organization_id is None:
+            rule.delete()
+            continue
+        rule.organization_id = organisation.organization_id
+        rule.save(update_fields=['organization'])
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -13,6 +33,17 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        migrations.AddField(
+            model_name='routingrule',
+            name='organization',
+            field=models.ForeignKey(null=True, on_delete=django.db.models.deletion.CASCADE, related_name='routing_rules', to='core.organization'),
+        ),
+        migrations.RunPython(set_rule_organization, migrations.RunPython.noop),
+        migrations.AlterField(
+            model_name='routingrule',
+            name='organization',
+            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='routing_rules', to='core.organization'),
+        ),
         migrations.RemoveIndex(
             model_name='routingrule',
             name='csm_rr_eg_pos_idx',
@@ -42,8 +73,16 @@ class Migration(migrations.Migration):
             name='project',
             field=models.ForeignKey(db_constraint=False, on_delete=django.db.models.deletion.CASCADE, related_name='routing_rules', to='core.project'),
         ),
+        migrations.RemoveConstraint(
+            model_name='routingrule',
+            name='csm_rr_unique_name_per_eg',
+        ),
         migrations.AddConstraint(
             model_name='routingrule',
-            constraint=models.UniqueConstraint(deferrable=django.db.models.constraints.Deferrable['DEFERRED'], fields=('experience_group', 'position'), name='csm_rr_unique_position_per_eg'),
+            constraint=models.UniqueConstraint(fields=('organization', 'experience_group', 'name'), name='csm_rr_unique_name_per_org_eg'),
+        ),
+        migrations.AddConstraint(
+            model_name='routingrule',
+            constraint=models.UniqueConstraint(deferrable=django.db.models.constraints.Deferrable['DEFERRED'], fields=('organization', 'experience_group', 'position'), name='csm_rr_unique_position_per_org_eg'),
         ),
     ]

@@ -125,11 +125,23 @@ def _project_channel_ids(project_id):
     return set(SupportChannel.objects.filter(project_id=project_id).values_list('id', flat=True))
 
 
-def _project_organisation_ids(project_id):
+def project_organization_id(project_id):
+    """
+    The workspace Organization of `project_id`. Project ids repeat across
+    organisation schemas; under the request's search_path this resolves the
+    caller's own project, so it pins a public row to the right organisation.
+    Call it only inside a request (or an explicit tenant schema context).
+    """
     organization_id = Project.objects.values_list('organization_id', flat=True).get(pk=project_id)
+    if organization_id is None:
+        raise ValidationError({'project': 'This project does not belong to an organisation.'})
+    return organization_id
+
+
+def _project_organisation_ids(project_id):
     return set(
         CustomerOrganisation.objects.filter(
-            organization_id=organization_id,
+            organization_id=project_organization_id(project_id),
         ).values_list('id', flat=True),
     )
 
@@ -190,16 +202,21 @@ def _validate_name(name):
     return name
 
 
-def _assert_unique_name(experience_group_id, name, exclude_id=None):
-    qs = RoutingRule.objects.filter(experience_group_id=experience_group_id, name__iexact=name)
+def _assert_unique_name(organization_id, experience_group_id, name, exclude_id=None):
+    qs = RoutingRule.objects.filter(
+        organization_id=organization_id, experience_group_id=experience_group_id, name__iexact=name,
+    )
     if exclude_id is not None:
         qs = qs.exclude(pk=exclude_id)
     if qs.exists():
         raise ValidationError({'name': 'A rule with this name already exists for this experience group.'})
 
 
-def _validate_target_queue(project_id, queue):
-    if queue.project_id != project_id or not queue.is_active:
+def _validate_target_queue(organization_id, project_id, queue):
+    # project_id alone is ambiguous across organisations; the queue's customer
+    # organisation pins it to one.
+    queue_organization_id = queue.organisation.organization_id if queue.organisation_id else None
+    if queue.project_id != project_id or queue_organization_id != organization_id or not queue.is_active:
         raise ValidationError({
             'target_queue': 'Queue must belong to this workspace and be active.',
         })
@@ -228,7 +245,9 @@ def _validate_experience_group(project_id, experience_group):
 # ---------------------------------------------------------------------------
 
 def list_rules(project_id, experience_group_id=None):
-    qs = RoutingRule.objects.filter(project_id=project_id).select_related('target_queue')
+    qs = RoutingRule.objects.filter(
+        organization_id=project_organization_id(project_id), project_id=project_id,
+    ).select_related('target_queue')
     if experience_group_id is not None:
         qs = qs.filter(experience_group_id=experience_group_id)
     return qs.order_by('experience_group_id', 'position', 'id')
@@ -242,9 +261,9 @@ def _lock_experience_group(experience_group_id):
     ExperienceGroup.objects.select_for_update(no_key=True).filter(pk=experience_group_id).first()
 
 
-def _next_position(experience_group_id):
+def _next_position(organization_id, experience_group_id):
     current = RoutingRule.objects.filter(
-        experience_group_id=experience_group_id,
+        organization_id=organization_id, experience_group_id=experience_group_id,
     ).aggregate(m=Max('position'))['m']
     return 0 if current is None else current + 1
 
@@ -253,19 +272,21 @@ def _next_position(experience_group_id):
 def create_rule(project_id, *, user, experience_group, name, target_queue,
                 conditions=None, match_mode=RoutingRule.MatchMode.ALL,
                 is_enabled=True, add_tags=None):
+    organization_id = project_organization_id(project_id)
     _validate_experience_group(project_id, experience_group)
     name = _validate_name(name)
-    _assert_unique_name(experience_group.id, name)
-    _validate_target_queue(project_id, target_queue)
+    _assert_unique_name(organization_id, experience_group.id, name)
+    _validate_target_queue(organization_id, project_id, target_queue)
     conditions = validate_conditions(project_id, conditions or [])
     add_tags = _validate_tags(add_tags)
 
     _lock_experience_group(experience_group.id)
     return RoutingRule.objects.create(
+        organization_id=organization_id,
         project_id=project_id,
         experience_group=experience_group,
         name=name,
-        position=_next_position(experience_group.id),
+        position=_next_position(organization_id, experience_group.id),
         is_enabled=is_enabled,
         match_mode=match_mode,
         conditions=conditions,
@@ -281,11 +302,11 @@ def update_rule(rule, *, name=None, target_queue=None, conditions=None,
     changed = []
     if name is not None:
         name = _validate_name(name)
-        _assert_unique_name(rule.experience_group_id, name, exclude_id=rule.pk)
+        _assert_unique_name(rule.organization_id, rule.experience_group_id, name, exclude_id=rule.pk)
         rule.name = name
         changed.append('name')
     if target_queue is not None:
-        rule.target_queue = _validate_target_queue(rule.project_id, target_queue)
+        rule.target_queue = _validate_target_queue(rule.organization_id, rule.project_id, target_queue)
         changed.append('target_queue')
     if conditions is not None:
         rule.conditions = validate_conditions(rule.project_id, conditions)
@@ -311,6 +332,7 @@ def reorder_rules(project_id, experience_group_id, ordered_ids):
     _lock_experience_group(experience_group_id)
     existing = list(
         RoutingRule.objects.select_for_update().filter(
+            organization_id=project_organization_id(project_id),
             project_id=project_id, experience_group_id=experience_group_id,
         ),
     )

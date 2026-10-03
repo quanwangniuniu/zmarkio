@@ -57,7 +57,8 @@ def channel(project, csm_queue, experience_group):
 @pytest.fixture
 def refund_rule(project, experience_group, billing_queue):
     return RoutingRule.objects.create(
-        project=project, experience_group=experience_group, name='Refunds', position=0,
+        organization=project.organization, project=project, experience_group=experience_group,
+        name='Refunds', position=0,
         conditions=[{'field': 'latest_message', 'operator': 'contains_any', 'value': ['refund']}],
         target_queue=billing_queue, add_tags=['billing'],
     )
@@ -133,7 +134,8 @@ class TestTrace:
         self, csm_admin_client, project, experience_group, channel, billing_queue,
     ):
         RoutingRule.objects.create(
-            project=project, experience_group=experience_group, name='After hours',
+            organization=project.organization, project=project, experience_group=experience_group,
+            name='After hours',
             conditions=[{'field': 'channel_status', 'operator': 'equals', 'value': 'offline'}],
             target_queue=billing_queue,
         )

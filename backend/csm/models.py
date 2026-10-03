@@ -994,6 +994,11 @@ class RoutingRule(TimeStampedModel):
         ALL = 'all', 'All conditions'
         ANY = 'any', 'Any condition'
 
+    # Project ids are numbered per organisation schema, so project_id alone is
+    # ambiguous in this public table; every query also filters by organization.
+    organization = models.ForeignKey(
+        'core.Organization', on_delete=models.CASCADE, related_name='routing_rules',
+    )
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name='routing_rules',
         # core.Project is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
@@ -1025,15 +1030,18 @@ class RoutingRule(TimeStampedModel):
     class Meta:
         ordering = ['experience_group', 'position', 'id']
         constraints = [
+            # Per organisation as well as group: experience group ids are not
+            # organisation-scoped yet, so another organisation's rows must never
+            # collide with (or reveal) these names and positions.
             models.UniqueConstraint(
-                fields=['experience_group', 'name'],
-                name='csm_rr_unique_name_per_eg',
+                fields=['organization', 'experience_group', 'name'],
+                name='csm_rr_unique_name_per_org_eg',
             ),
             # Deferred so a reorder can swap positions inside one transaction;
-            # it is checked at commit. Also serves the (group, position) lookups.
+            # it is checked at commit. Also serves the position lookups.
             models.UniqueConstraint(
-                fields=['experience_group', 'position'],
-                name='csm_rr_unique_position_per_eg',
+                fields=['organization', 'experience_group', 'position'],
+                name='csm_rr_unique_position_per_org_eg',
                 deferrable=models.Deferrable.DEFERRED,
             ),
         ]
