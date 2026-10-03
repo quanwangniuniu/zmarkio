@@ -1,8 +1,8 @@
-"""Agent services, split by domain modules (MED-301).
+"""Agent services package.
 
-This package replaces the former ``agent/services.py``. The imports below are a
-thin re-export shim so every name that was importable from ``agent.services``
-still is. New code should import from the defining submodule instead.
+The imports below are a thin re-export shim so ``from agent.services import X``
+keeps working for every public name. New code should import from the defining
+submodule instead.
 
 Patch helpers on the submodule that looks them up (e.g.
 ``agent.services.analysis._run_analysis``), never on this package: a patch here
