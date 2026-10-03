@@ -5,6 +5,7 @@ from django.http import HttpResponse
 from django.utils import timezone
 from datetime import timedelta
 from access_control.middleware.authorization import AuthorizationMiddleware
+from access_control.services import invalidate_user_permission_cache
 from core.services.tenant import slug_to_schema_name
 import access_control.tests.test_urls as test_urls
 from access_control.tests.test_urls import dummy_view
@@ -60,6 +61,8 @@ class AuthorizationMiddlewareTest(TestCase):
         _schema = slug_to_schema_name(self.org.slug)
         with connection.cursor() as cursor:
             cursor.execute(f'SET search_path TO {_schema}, public')
+            
+        invalidate_user_permission_cache(_schema, self.user.id)
 
     def tearDown(self):
         super().tearDown()

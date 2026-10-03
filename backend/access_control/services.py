@@ -1,8 +1,137 @@
+import math
 from typing import Dict, List, Optional, TypedDict
 
-from core.models import Permission, Project, ProjectMember, Role
-from access_control.models import RolePermission
+from django.core.cache import cache
+from django.utils import timezone
 
+from core.models import Permission, Project, ProjectMember, Role
+from access_control.models import RolePermission, UserRole
+
+
+class PermissionBundle(TypedDict):
+    permissions: List[str]
+    has_any_role: bool
+    is_org_admin: bool
+
+
+def permission_cache_key(schema_name: str, user_id: int) -> str:
+    return f"access_control:permission_bundle:{schema_name}:{user_id}"
+
+
+def invalidate_user_permission_cache(schema_name: str, user_id: int) -> None:
+    """Remove one user's cached permission bundle for the current tenant."""
+    try:
+        cache.delete(permission_cache_key(schema_name, user_id))
+    except Exception:
+        # Cache failure must not break authorization or role-management flows.
+        pass
+
+
+def get_user_permission_bundle(
+    user_id: int,
+    schema_name: str,
+) -> PermissionBundle:
+    """
+    Return the user's resolved RBAC permissions for one tenant.
+
+    Cache misses are resolved from UserRole -> RolePermission and then stored
+    in Redis. The cached bundle preserves the existing authorization behavior:
+    users with no UserRole records receive the existing RBAC grace period,
+    while users with roles but without a required permission are denied.
+    """
+    key = permission_cache_key(schema_name, user_id)
+
+    try:
+        cached = cache.get(key)
+    except Exception:
+        cached = None
+
+    if cached is not None:
+        return cached
+
+    now = timezone.now()
+
+    user_roles = list(
+        UserRole.objects.filter(user_id=user_id).values(
+            "role_id",
+            "role__level",
+            "valid_from",
+            "valid_to",
+        )
+    )
+
+    active_role_ids = []
+    next_transition_seconds = None
+
+    for user_role in user_roles:
+        valid_from = user_role["valid_from"]
+        valid_to = user_role["valid_to"]
+
+        is_active = (
+            valid_from <= now
+            and (valid_to is None or valid_to >= now)
+        )
+
+        if is_active:
+            active_role_ids.append(user_role["role_id"])
+
+            if valid_to is not None:
+                seconds = max(
+                    1,
+                    math.ceil((valid_to - now).total_seconds()),
+                )
+                if (
+                    next_transition_seconds is None
+                    or seconds < next_transition_seconds
+                ):
+                    next_transition_seconds = seconds
+
+        elif valid_from > now:
+            seconds = max(
+                1,
+                math.ceil((valid_from - now).total_seconds()),
+            )
+            if (
+                next_transition_seconds is None
+                or seconds < next_transition_seconds
+            ):
+                next_transition_seconds = seconds
+
+    permission_pairs = RolePermission.objects.filter(
+        role_id__in=active_role_ids
+    ).values_list(
+        "permission__module",
+        "permission__action",
+    )
+
+    bundle: PermissionBundle = {
+        "permissions": sorted(
+            f"{module}:{action}"
+            for module, action in permission_pairs
+        ),
+        "has_any_role": bool(user_roles),
+        "is_org_admin": any(
+            user_role["role_id"] in active_role_ids
+            and user_role["role__level"] == 2
+            for user_role in user_roles
+        ),
+    }
+
+    timeout = cache.default_timeout
+    if next_transition_seconds is not None:
+        timeout = (
+            next_transition_seconds
+            if timeout is None
+            else min(timeout, next_transition_seconds)
+        )
+
+    try:
+        cache.set(key, bundle, timeout)
+    except Exception:
+        # PostgreSQL remains the source of truth if Redis is unavailable.
+        pass 
+
+    return bundle
 
 MODULE_LABELS = {
     "ASSET": "Asset Management",
