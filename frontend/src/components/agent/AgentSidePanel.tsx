@@ -200,7 +200,13 @@ export default function AgentSidePanel() {
           </div>
         </div>
 
-        <AgentRegistryStatusBanner isOpen={isOpen} />
+        {(function () {
+          if (isOpen) {
+            return <AgentRegistryStatusBanner />;
+          } else {
+            return null;
+          }
+        })()}
 
         {/* Message boards (left) + chat (right) */}
         <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
