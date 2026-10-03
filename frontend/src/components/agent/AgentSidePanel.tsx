@@ -108,6 +108,13 @@ export default function AgentSidePanel() {
     };
   }, []);
 
+  let registryStatusBanner: React.ReactNode;
+  if (isOpen) {
+    registryStatusBanner = <AgentRegistryStatusBanner />;
+  } else {
+    registryStatusBanner = null;
+  }
+
   return (
     <>
       {isOpen && (
@@ -200,9 +207,7 @@ export default function AgentSidePanel() {
           </div>
         </div>
 
-        {isOpen && (
-          <AgentRegistryStatusBanner />
-        )}
+        {registryStatusBanner}
 
         {/* Message boards (left) + chat (right) */}
         <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
