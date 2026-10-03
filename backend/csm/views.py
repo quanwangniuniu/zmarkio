@@ -905,13 +905,28 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
             raise PermissionDenied('Only CSM admins of this organisation can preview team views.')
         return CustomerOrganisation.objects.get(pk=int(org_id))
 
+    @staticmethod
+    def _previewable_teams(organisation):
+        """
+        Teams an admin may preview for `organisation`: its agents' teams plus
+        teams its templates target. Both the picker (preview-teams) and the
+        ?view_as_team= check use this, so they can't disagree.
+        """
+        agent_team_ids = CustomerUser.objects.filter(
+            organisation=organisation, is_active=True, team__isnull=False,
+        ).values_list('team_id', flat=True)
+        template_team_ids = QuickReplyTemplate.objects.filter(
+            organisation=organisation, is_active=True, team__isnull=False,
+        ).values_list('team_id', flat=True)
+        return Team.objects.filter(Q(pk__in=agent_team_ids) | Q(pk__in=template_team_ids))
+
     def _preview_team_ids(self, org_id, view_as_team):
-        """Team ids for ?view_as_team=<team id>|none, validated against the organisation."""
+        """Team ids for ?view_as_team=<team id>|none, checked against the previewable teams."""
         organisation = self._admin_organisation(org_id)
         if view_as_team == 'none':
             return []
-        if not view_as_team.isdigit() or not Team.objects.filter(
-            pk=int(view_as_team), organization_id=organisation.organization_id,
+        if not view_as_team.isdigit() or not self._previewable_teams(organisation).filter(
+            pk=int(view_as_team),
         ).exists():
             raise ValidationError({'view_as_team': 'Team not found for this organisation.'})
         return [int(view_as_team)]
@@ -920,15 +935,7 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
     def preview_teams(self, request):
         """Teams an admin can preview: agents' teams plus teams used by templates."""
         organisation = self._admin_organisation(request.query_params.get('organisation'))
-        agent_team_ids = CustomerUser.objects.filter(
-            organisation=organisation, is_active=True, team__isnull=False,
-        ).values_list('team_id', flat=True)
-        template_team_ids = QuickReplyTemplate.objects.filter(
-            organisation=organisation, is_active=True, team__isnull=False,
-        ).values_list('team_id', flat=True)
-        teams = Team.objects.filter(
-            Q(pk__in=agent_team_ids) | Q(pk__in=template_team_ids),
-        ).order_by('name').values('id', 'name')
+        teams = self._previewable_teams(organisation).order_by('name').values('id', 'name')
         return Response(list(teams))
 
     def perform_create(self, serializer):

@@ -339,3 +339,40 @@ def test_preview_teams_forbidden_for_agents(api_client, user, customer_organisat
     api_client.force_authenticate(user)
     resp = api_client.get(f'{URL}preview-teams/', {'organisation': customer_organisation.id})
     assert resp.status_code == 403
+
+
+def test_view_as_team_rejects_workspace_team_unused_by_this_organisation(
+    api_client, user, organization, customer_organisation, team_templates,
+):
+    # Same workspace, but no agent of this organisation is in it and no template targets it.
+    unused = Team.objects.create(organization=organization, name='Unused')
+    _member(user, customer_organisation, user_type='admin')
+    api_client.force_authenticate(user)
+    resp = api_client.get(URL, {'organisation': customer_organisation.id, 'view_as_team': unused.id})
+    assert resp.status_code == 400
+    assert 'view_as_team' in resp.data
+
+
+def test_view_as_team_accepts_every_team_the_picker_offers(
+    api_client, user, user2, organization, customer_organisation, team_templates,
+):
+    agents_only = Team.objects.create(organization=organization, name='Agents only')
+    _member(user, customer_organisation, user_type='admin')
+    _member(user2, customer_organisation, team=agents_only)
+    api_client.force_authenticate(user)
+    offered = api_client.get(f'{URL}preview-teams/', {'organisation': customer_organisation.id}).data
+    assert offered
+    for team in offered:
+        resp = api_client.get(URL, {'organisation': customer_organisation.id, 'view_as_team': team['id']})
+        assert resp.status_code == 200, (team, resp.data)
+
+
+def test_preview_teams_forbidden_for_admin_of_other_org(
+    api_client, user, organization, customer_organisation, team_templates,
+):
+    from customer.models import CustomerOrganisation
+    other = CustomerOrganisation.objects.create(name='Other', organization=organization)
+    _member(user, other, user_type='admin')
+    api_client.force_authenticate(user)
+    resp = api_client.get(f'{URL}preview-teams/', {'organisation': customer_organisation.id})
+    assert resp.status_code == 403
