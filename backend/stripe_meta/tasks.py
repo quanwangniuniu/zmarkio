@@ -96,7 +96,7 @@ def settle_overage_for_org(org, ym):
         return False
 
 
-@shared_task
+@shared_task(time_limit=300)
 def report_overage_to_stripe():
     """
     Report overage tokens for the PREVIOUS (completed) calendar month to Stripe
@@ -118,7 +118,7 @@ def report_overage_to_stripe():
         settle_overage_for_org(sub.organization, ym)
 
 
-@shared_task
+@shared_task(time_limit=60)
 def settle_final_overage(org_id, ym):
     """
     Settle an organization's accrued overage for month ``ym`` at subscription
@@ -173,7 +173,7 @@ def _send_alert_email(org, tier: str, cost_cents: int, revenue_cents: int) -> No
         logger.exception('_send_alert_email mail_admins failed for org %s', org.id)
 
 
-@shared_task
+@shared_task(time_limit=90)
 def aggregate_monthly_llm_cost():
     """
     Aggregate LLMCallLog(success=True) into OrgMonthlyCost for the current month.
@@ -211,7 +211,7 @@ def aggregate_monthly_llm_cost():
     logger.info('aggregate_monthly_llm_cost done ym=%s orgs_updated=%d', ym, updated)
 
 
-@shared_task
+@shared_task(time_limit=60)
 def check_fair_use_alerts():
     """
     Check OrgMonthlyCost against fair-use thresholds and alert admins when exceeded.
@@ -257,7 +257,7 @@ def check_fair_use_alerts():
     logger.info('check_fair_use_alerts done ym=%s alerts_sent=%d', ym, alerts)
 
 
-@shared_task
+@shared_task(time_limit=60)
 def reset_daily_usage():
     """
     Reset daily usage records at midnight every day.

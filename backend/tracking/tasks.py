@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 _BATCH_SIZE = 5000
 
 
-@shared_task
+@shared_task(time_limit=30)
 def emit_tracking_event(user_id, request_path, request_method, request_meta=None):
     if request_meta is None:
         request_meta = {}
@@ -46,7 +46,7 @@ def emit_tracking_event(user_id, request_path, request_method, request_meta=None
             )
 
 
-@shared_task
+@shared_task(time_limit=30)
 def expire_stale_sessions():
     cutoff = timezone.now() - timedelta(seconds=settings.TRACKING_SESSION_TIMEOUT_SECONDS)
     updated = TrackingSession.objects.filter(
@@ -60,7 +60,7 @@ def expire_stale_sessions():
     return updated
 
 
-@shared_task
+@shared_task(time_limit=300)
 def purge_old_data():
     now = timezone.now()
     event_cutoff = now - timedelta(days=settings.TRACKING_EVENT_RETENTION_DAYS)

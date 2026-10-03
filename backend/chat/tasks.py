@@ -249,7 +249,7 @@ def _publish_to_chat_group(channel_layer, chat_id, claimed_user_ids, event):
     return list(claimed_user_ids), {}
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+@shared_task(bind=True, max_retries=3, default_retry_delay=60, time_limit=30)
 @tenant_schema_task
 def deliver_message_task(self, message_id: int, tenant_schema: str = 'public'):
     """
@@ -382,7 +382,7 @@ def finalize_presence_offline_now(user_id: int, offline_token: str) -> bool:
     return True
 
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=5)
+@shared_task(bind=True, max_retries=2, default_retry_delay=5, time_limit=10)
 @tenant_schema_task
 def finalize_presence_offline(
     self,
@@ -471,7 +471,7 @@ def cleanup_orphaned_attachments() -> int:
     return deleted
 
 
-@shared_task
+@shared_task(time_limit=10)
 @tenant_schema_task
 def send_typing_indicator(
     chat_id: int,
@@ -520,7 +520,7 @@ def send_typing_indicator(
         logger.error(f"Error sending typing indicator: {e}")
 
 
-@shared_task(bind=True, max_retries=3)
+@shared_task(bind=True, max_retries=3, time_limit=10)
 @tenant_schema_task
 def update_message_status_task(
     self,
@@ -571,7 +571,7 @@ def update_message_status_task(
         raise self.retry(exc=e)
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=5)
+@shared_task(bind=True, max_retries=3, default_retry_delay=5, time_limit=10)
 @tenant_schema_task
 def notify_new_message(
     self,
@@ -677,7 +677,7 @@ def _notification_exists_for_message(*, recipient_id: int, event_type: str, mess
     ).exists()
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+@shared_task(bind=True, max_retries=3, default_retry_delay=30, time_limit=20)
 @tenant_schema_task
 def notify_message_recipients(
     self,
@@ -841,7 +841,7 @@ def notify_message_recipients(
         raise self.retry(exc=exc)
 
 
-@shared_task
+@shared_task(time_limit=10)
 @tenant_schema_task
 def notify_pin_update(
     chat_id: int,
@@ -918,7 +918,7 @@ def notify_pin_update(
         )
 
 
-@shared_task
+@shared_task(time_limit=10)
 @tenant_schema_task
 def notify_reaction_update(
     message_id: int,
@@ -1027,7 +1027,7 @@ def notify_reaction_update(
         logger.error(f"Error notifying reaction update for message {message_id}: {e}")
 
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=30)
+@shared_task(bind=True, max_retries=3, default_retry_delay=30, time_limit=30)
 @tenant_schema_task
 def send_scheduled_message(
     self,
@@ -1126,7 +1126,7 @@ def send_scheduled_message(
         raise self.retry(exc=exc)
 
 
-@shared_task
+@shared_task(time_limit=35)
 @tenant_schema_task
 def fetch_link_preview_task(message_id: int, url: str, tenant_schema: str = 'public'):
     """Fetch a URL's OpenGraph metadata and cache it (MED-279).
@@ -1304,7 +1304,7 @@ def _store_preview_outcome(
     preview.save(update_fields=['status', 'title', 'description', 'image_url', 'fetched_at', 'updated_at'])
 
 
-@shared_task
+@shared_task(time_limit=35)
 @tenant_schema_task
 def prune_link_previews(tenant_schema: str = 'public') -> int:
     """Delete cache rows nobody has needed for a long time.
