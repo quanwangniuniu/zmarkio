@@ -56,6 +56,26 @@ describe('useRoutingSandbox', () => {
     });
   });
 
+  it("shows the server's reason when evaluation is rejected", async () => {
+    evaluate.mockRejectedValueOnce({
+      response: { data: { support_channel: ["Channel 'Web chat' is not assigned to experience group 'VIP'."] } },
+    });
+    const { result: hook } = renderHook(() => useRoutingSandbox(3));
+    act(() => hook.current.setConfig({ ...hook.current.config, experienceGroupId: 7, supportChannelId: 9 }));
+    act(() => hook.current.sendCustomerMessage('Hi'));
+    await waitFor(() => expect(hook.current.error).toBe(
+      "Channel 'Web chat' is not assigned to experience group 'VIP'.",
+    ));
+  });
+
+  it('falls back to a generic error without a reason', async () => {
+    evaluate.mockRejectedValueOnce(new Error('Network Error'));
+    const { result: hook } = renderHook(() => useRoutingSandbox(3));
+    act(() => hook.current.setConfig({ ...hook.current.config, experienceGroupId: 7 }));
+    act(() => hook.current.sendCustomerMessage('Hi'));
+    await waitFor(() => expect(hook.current.error).toBe('Could not evaluate routing rules.'));
+  });
+
   it('does not evaluate before an experience group is chosen or for blank messages', () => {
     const { result: hook } = renderHook(() => useRoutingSandbox(3));
     act(() => hook.current.sendCustomerMessage('Hi'));

@@ -167,11 +167,35 @@ class TestTrace:
         email = SupportChannel.objects.create(
             project=project, channel_type='email', display_name='Inbox', is_active=False,
         )
+        SupportChannelExperienceGroup.objects.create(channel=email, experience_group=experience_group)
         res = _evaluate(csm_admin_client, project, experience_group, ['Hi'], support_channel=email.id)
         warnings = ' '.join(res.data['warnings'])
         assert 'is inactive' in warnings
         assert 'not live chat' in warnings
-        assert 'not assigned to experience group' in warnings
+
+    def test_channel_outside_the_group_is_rejected(
+        self, csm_admin_client, project, experience_group, csm_queue,
+    ):
+        other = SupportChannel.objects.create(
+            project=project, channel_type='live_chat', display_name='Other chat', default_queue=csm_queue,
+        )
+        res = _evaluate(csm_admin_client, project, experience_group, ['Hi'], support_channel=other.id)
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'not assigned to experience group' in str(res.data['support_channel'])
+
+    def test_channel_from_another_workspace_is_not_found(
+        self, csm_admin_client, project, organization, user, experience_group,
+    ):
+        from core.models import Project
+        other_project = Project.objects.create(
+            name='Other', organization=organization, owner=user, objectives=['awareness'], kpis={},
+        )
+        foreign = SupportChannel.objects.create(
+            project=other_project, channel_type='live_chat', display_name='Foreign chat',
+        )
+        res = _evaluate(csm_admin_client, project, experience_group, ['Hi'], support_channel=foreign.id)
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert 'not found in this workspace' in str(res.data['support_channel'])
 
 
 class TestValidation:

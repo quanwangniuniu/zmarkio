@@ -10,6 +10,9 @@ import type { SandboxConfig } from './useRoutingSandbox';
 
 const NONE = '';
 
+const channelInGroup = (c: SupportChannelListItem, groupId: number | null) =>
+  c.experience_groups.some((g) => g.id === groupId);
+
 interface Props {
   config: SandboxConfig;
   experienceGroups: ExperienceGroupListItem[];
@@ -29,21 +32,22 @@ export default function SandboxConfigPanel({
 }: Props) {
   const update = (patch: Partial<SandboxConfig>) => onChange({ ...config, ...patch });
 
-  // Channels assigned to the selected group first; the rest are still testable.
-  const channelOptions = useMemo(() => {
-    const linked = (c: SupportChannelListItem) =>
-      c.experience_groups.some((g) => g.id === config.experienceGroupId);
-    const sorted = [...channels].sort((a, b) => Number(linked(b)) - Number(linked(a)));
-    return [
-      { value: NONE, label: 'No channel (organisation fallback)' },
-      ...sorted.map((c) => ({
+  // Only the group's own channels: the API rejects any other.
+  const channelOptions = useMemo(() => [
+    { value: NONE, label: 'No channel (organisation fallback)' },
+    ...channels
+      .filter((c) => channelInGroup(c, config.experienceGroupId))
+      .map((c) => ({
         value: String(c.id),
-        label: `${c.display_name} · ${CHANNEL_TYPE_LABELS[c.channel_type]}${
-          linked(c) ? '' : ' (not in this group)'
-        }${c.is_active ? '' : ' (inactive)'}`,
+        label: `${c.display_name} · ${CHANNEL_TYPE_LABELS[c.channel_type]}${c.is_active ? '' : ' (inactive)'}`,
       })),
-    ];
-  }, [channels, config.experienceGroupId]);
+  ], [channels, config.experienceGroupId]);
+
+  const changeGroup = (groupId: number | null) => {
+    const channel = channels.find((c) => c.id === config.supportChannelId);
+    const keepChannel = channel !== undefined && channelInGroup(channel, groupId);
+    update({ experienceGroupId: groupId, supportChannelId: keepChannel ? config.supportChannelId : null });
+  };
 
   const toId = (value: string) => (value === NONE ? null : Number(value));
 
@@ -61,7 +65,7 @@ export default function SandboxConfigPanel({
           value={config.experienceGroupId === null ? NONE : String(config.experienceGroupId)}
           options={experienceGroups.map((g) => ({ value: String(g.id), label: g.name }))}
           placeholder="Select a group…"
-          onChange={(v) => update({ experienceGroupId: toId(v) })}
+          onChange={(v) => changeGroup(toId(v))}
         />
       </div>
 

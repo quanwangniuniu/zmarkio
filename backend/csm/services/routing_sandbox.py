@@ -27,7 +27,7 @@ def _resolve_experience_group(project_id, experience_group_id):
     return group
 
 
-def _resolve_channel(project_id, support_channel_id):
+def _resolve_channel(project_id, group, support_channel_id):
     if support_channel_id is None:
         return None
     channel = (
@@ -37,6 +37,12 @@ def _resolve_channel(project_id, support_channel_id):
     )
     if channel is None:
         raise ValidationError({'support_channel': 'Channel not found in this workspace.'})
+    # Only the group's own channels can carry its conversations, so another
+    # channel's default queue or hours would give a misleading trace.
+    if not SupportChannelExperienceGroup.objects.filter(channel=channel, experience_group=group).exists():
+        raise ValidationError({
+            'support_channel': f"Channel '{channel.display_name}' is not assigned to experience group '{group.name}'.",
+        })
     return channel
 
 
@@ -54,20 +60,13 @@ def _resolve_organisation(project_id, customer_organisation_id):
     return organisation
 
 
-def _channel_warnings(channel, group):
+def _channel_warnings(channel):
     warnings = []
     if not channel.is_active:
         warnings.append(f"Channel '{channel.display_name}' is inactive.")
     if channel.channel_type != SupportChannel.ChannelType.LIVE_CHAT:
         warnings.append(
             f"Channel '{channel.display_name}' is not live chat; live conversations can only start on live chat channels.",
-        )
-    linked = SupportChannelExperienceGroup.objects.filter(
-        channel=channel, experience_group=group,
-    ).exists()
-    if not linked:
-        warnings.append(
-            f"Channel '{channel.display_name}' is not assigned to experience group '{group.name}'.",
         )
     return warnings
 
@@ -81,14 +80,14 @@ def run_sandbox(project_id, *, experience_group_id, messages, subject='',
     conversation as it stood after the Nth customer message.
     """
     group = _resolve_experience_group(project_id, experience_group_id)
-    channel = _resolve_channel(project_id, support_channel_id)
+    channel = _resolve_channel(project_id, group, support_channel_id)
     organisation = _resolve_organisation(project_id, customer_organisation_id)
     evaluated_at = simulated_at or timezone.now()
 
     warnings = []
     availability = None
     if channel is not None:
-        warnings.extend(_channel_warnings(channel, group))
+        warnings.extend(_channel_warnings(channel))
         availability = evaluate_channel_availability(channel, at=evaluated_at)
         fallback_queue = channel.default_queue
     elif organisation is not None:

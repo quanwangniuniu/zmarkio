@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { parseFieldErrors } from '@/components/ticket-form/formErrors';
 import { RoutingSandboxAPI } from '@/lib/api/routingRuleApi';
 import type { ConversationMessage, QuickReplyTemplate } from '@/types/csmConversation';
 import type { RoutingSandboxResult, RoutingTrace } from '@/types/routingRule';
@@ -74,8 +75,12 @@ export function useRoutingSandbox(projectId: number) {
       const { traces: nextTraces, ...rest } = result;
       setTraces(nextTraces);
       setMeta(rest);
-    } catch {
-      if (seq === requestSeq.current) setError('Could not evaluate routing rules.');
+    } catch (err) {
+      if (seq !== requestSeq.current) return;
+      // Show the server's reason for a 400, e.g. a channel no longer in the group.
+      const data = (err as { response?: { data?: unknown } }).response?.data;
+      const [reason] = Object.values(parseFieldErrors(data));
+      setError(reason ?? 'Could not evaluate routing rules.');
     } finally {
       if (seq === requestSeq.current) setEvaluating(false);
     }
