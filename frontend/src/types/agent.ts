@@ -1,5 +1,14 @@
 // Type definitions for AI Agent feature
 
+export interface AgentConfigStatus {
+  gemini: boolean;
+  anthropic: boolean;
+  column_registry?: {
+    ok: boolean;
+    error?: string;
+  };
+}
+
 // ==================== Session Types ====================
 
 export interface AgentSession {
