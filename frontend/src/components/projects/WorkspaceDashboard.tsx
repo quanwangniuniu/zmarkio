@@ -270,12 +270,12 @@ function SummaryCard({
           height: '100%',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 8, minWidth: 0 }}>
-          {tileControls?.dragHandle}
-          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: TEXT_MUTED }}>{label}</span>
+        <div style={{ display: 'flex', alignItems: 'center', height: 28, position: 'relative', marginBottom: 8, minWidth: 0 }}>
+          {tileControls?.dragHandle && <span className="absolute left-0 top-0 z-10">{tileControls.dragHandle}</span>}
+          <span className={tileControls ? 'group-hover:pl-8 group-focus-within:pl-8' : ''} style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: TEXT_MUTED }}>{label}</span>
           {tileControls?.removeButton && <span style={{ marginLeft: 'auto' }}>{tileControls.removeButton}</span>}
         </div>
-        <div style={{ paddingLeft: tileControls ? 20 : 0 }}>
+        <div>
           <div style={{ fontSize: 32, fontWeight: 700, color: valueColor, lineHeight: 1, letterSpacing: 0 }}>
             {shownValue}
           </div>
@@ -303,7 +303,7 @@ function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
 }) {
   const tileControls = useDashboardTileControls(title.toLowerCase());
   const [hovered, setHovered] = useState(false);
-  const viewAll = <Link href={viewAllHref} style={{ fontSize: 12, color: OVERVIEW_PRIMARY, whiteSpace: 'nowrap', flexShrink: 0, textDecoration: 'none', fontWeight: 500 }}>View all →</Link>;
+  const viewAll = <Link href={viewAllHref} style={{ fontSize: 12, color: OVERVIEW_PRIMARY, whiteSpace: 'nowrap', flexShrink: 0, textDecoration: 'none', fontWeight: 500 }}>View all</Link>;
   return (
     <div
       onMouseEnter={() => setHovered(true)}
@@ -351,9 +351,10 @@ function ChartPanel({ section, title, children, right, full = false }: {
   const tileControls = useDashboardTileControls(widgetId);
   return (
     <div style={{ background: '#fff', borderRadius: SURFACE_RADIUS, border: `1px solid ${SURFACE_BORDER}`, padding: PANEL_PAD, gridColumn: full ? '1 / -1' : undefined, boxShadow: 'none', minWidth: 0, overflow: 'hidden', height: '100%' }}>
-      <div style={{ fontSize: 9, color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{section}</div>
+      <div style={{ display: 'flex', alignItems: 'center', height: 28, marginBottom: 4 }}>
+        <DashboardTileIcon icon={<span style={{ fontSize: 9, color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{section}</span>} dragHandle={tileControls?.dragHandle} />
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 8, minWidth: 0 }}>
-        {tileControls?.dragHandle}
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: TEXT_PRIMARY, marginRight: 'auto' }}>{title}</span>
         {right}
         {tileControls?.removeButton}

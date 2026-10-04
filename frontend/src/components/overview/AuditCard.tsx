@@ -93,7 +93,7 @@ export default function AuditCard({ events }: { events: AdminAuditEvent[] }) {
           onClick={() => router.push('/admin/audit-log')}
           className="mt-2 w-full shrink-0 text-center text-[11px] font-medium text-[#3CCED7] hover:underline"
         >
-          View all actions →
+          View all actions
         </button>
       </CardContent>
     </Card>

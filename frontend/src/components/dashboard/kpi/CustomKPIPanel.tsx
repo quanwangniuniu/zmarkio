@@ -164,9 +164,9 @@ export default function CustomKPIPanel({ projectSlug }: CustomKPIPanelProps) {
       data-testid="custom-kpi-panel"
     >
       <div className="mb-3 flex shrink-0 flex-wrap items-start justify-between gap-2">
-        <div className="flex min-w-0 items-start gap-1">
-          {tileControls?.dragHandle}
-          <div className="min-w-0">
+        <div className="relative flex min-w-0 items-start">
+          {tileControls?.dragHandle && <span className="absolute left-0 top-0 z-10">{tileControls.dragHandle}</span>}
+          <div className={`min-w-0 ${tileControls ? 'group-hover:pl-8 group-focus-within:pl-8' : ''}`}>
             <h2 className="text-sm font-semibold text-gray-900">Custom KPIs</h2>
             <p className="text-[11px] text-gray-400">
               Metrics you define with a formula, over the last 30 days.

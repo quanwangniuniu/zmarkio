@@ -94,7 +94,7 @@ export default function RecentActivityCard({ activities }: RecentActivityCardPro
         </div>
 
         <button className="mt-2 w-full shrink-0 text-center text-[11px] font-medium text-[#3CCED7] hover:underline">
-          View all activity →
+          View all activity
         </button>
       </CardContent>
     </Card>

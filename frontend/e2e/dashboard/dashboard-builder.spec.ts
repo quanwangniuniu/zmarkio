@@ -17,7 +17,7 @@ const initial = [
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
-async function openDashboard(page: Page) {
+async function openDashboard(page: Page, widgets = initial) {
   await installApiMockSafetyNet(page);
   await seedAuthenticatedUser(page);
   await mockAuthenticatedUserApis(page);
@@ -36,7 +36,12 @@ async function openDashboard(page: Page) {
       status_overview: { total_work_items: 0, breakdown: [] }, priority_breakdown: [], types_of_work: [],
     }) });
   });
-  let persisted = initial.map((widget) => ({ ...widget }));
+  await page.route('**/api/dashboard/workspace/**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      decisions: [], tasks: [], spreadsheets: [], patterns: [],
+    }) });
+  });
+  let persisted = widgets.map((widget) => ({ ...widget }));
   let writes = 0;
   await page.route('**/api/dashboard/layout/**', async (route) => {
     if (route.request().method() === 'PUT') {
@@ -112,4 +117,35 @@ test('shows the drag grip over a card icon without shifting its title', async ({
   const gripBox = await grip.boundingBox();
   expect(after!.x).toBeCloseTo(before!.x, 0);
   expect(Math.abs((gripBox!.x + gripBox!.width / 2) - (iconBox!.x + iconBox!.width / 2))).toBeLessThan(4);
+});
+
+test('keeps metric headings flush and places chart drag control on its section label', async ({ page }) => {
+  await openDashboard(page, [
+    { id: 'overall-progress', x: 0, y: 0, w: 4, h: 4 },
+    { id: 'decisions', x: 4, y: 0, w: 4, h: 8 },
+    { id: 'task-status', x: 8, y: 0, w: 4, h: 8 },
+    { id: 'custom-kpis', x: 0, y: 4, w: 4, h: 8 },
+    { id: 'activity', x: 4, y: 8, w: 4, h: 5 },
+    { id: 'audit', x: 8, y: 8, w: 4, h: 5 },
+  ]);
+  const metric = page.getByTestId('dashboard-widget-overall-progress');
+  const metricTitle = metric.getByText('Overall Progress', { exact: true });
+  const metricValue = metric.getByText('0%', { exact: true });
+  await expect(metricTitle).toBeVisible();
+  expect(Math.abs((await metricTitle.boundingBox())!.x - (await metricValue.boundingBox())!.x)).toBeLessThan(3);
+
+  const chart = page.getByTestId('dashboard-widget-task-status');
+  const sectionLabel = chart.getByText('Tasks', { exact: true });
+  const chartTitle = chart.getByText('Status breakdown', { exact: true });
+  const grip = chart.getByRole('button', { name: 'Move Task Status Breakdown', exact: true });
+  expect(Math.abs((await sectionLabel.boundingBox())!.x - (await chartTitle.boundingBox())!.x)).toBeLessThan(3);
+  expect((await grip.boundingBox())!.y).toBeLessThan((await chartTitle.boundingBox())!.y);
+
+  await expect(page.getByTestId('dashboard-widget-decisions').getByRole('link', { name: 'View all', exact: true })).toBeVisible();
+  await expect(page.getByTestId('dashboard-widget-activity').getByRole('button', { name: 'View all activity', exact: true })).toBeVisible();
+  await expect(page.getByTestId('dashboard-widget-audit').getByRole('button', { name: 'View all actions', exact: true })).toBeVisible();
+  const kpiPanel = page.getByTestId('dashboard-widget-custom-kpis').getByTestId('custom-kpi-panel');
+  const kpiHeading = kpiPanel.getByRole('heading', { name: 'Custom KPIs' });
+  await expect(kpiHeading).toBeVisible();
+  expect(Math.abs((await kpiHeading.boundingBox())!.x - (await kpiPanel.boundingBox())!.x - 17)).toBeLessThan(3);
 });
