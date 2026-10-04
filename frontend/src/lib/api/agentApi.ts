@@ -1,6 +1,5 @@
 import api, { readPersistedAuthState } from '../api';
 import {
-  AgentConfigStatus,
   AgentSession,
   AgentSessionDetail,
   CreateSessionRequest,
@@ -350,7 +349,17 @@ export const AgentAPI = {
     return response.data;
   },
 
-  getConfigStatus: async (): Promise<AgentConfigStatus> => {
+  getConfigStatus: async (): Promise<{
+    dify_api: boolean;
+    dify_chat: boolean;
+    dify_calendar: boolean;
+    dify_miro: boolean;
+    anthropic: boolean;
+    column_registry?: {
+      ok: boolean;
+      error?: string;
+    };
+  }> => {
     const response = await api.get('/api/agent/config/status/');
     return response.data;
   },
