@@ -922,16 +922,10 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
                 user=user, is_active=True, organisation__isnull=False,
             ).values_list('organisation_id', flat=True)
         )
-        if read_only:
+        if read_only and not (user.is_staff or user.is_superuser):
+            # Staff work every queue; their reads are handled in get_queryset.
             org_ids |= set(
-                QueueAgent.objects.filter(
-                    user=user, queue__is_active=True, queue__organisation__isnull=False,
-                ).values_list('queue__organisation_id', flat=True)
-            )
-            org_ids |= set(
-                CustomerUser.objects.filter(
-                    user=user, is_active=True, queue__is_active=True, queue__organisation__isnull=False,
-                ).values_list('queue__organisation_id', flat=True)
+                accessible_queues_for(user).exclude(organisation=None).values_list('organisation_id', flat=True)
             )
         return org_ids
 

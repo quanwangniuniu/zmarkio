@@ -52,6 +52,8 @@ export default function KeywordChipsInput({ id, values, onChange, placeholder, m
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
+          // Enter also confirms an IME composition; don't commit a half-composed chip.
+          if (e.nativeEvent.isComposing) return;
           if (e.key === 'Enter' || e.key === ',') {
             e.preventDefault();
             commit();
