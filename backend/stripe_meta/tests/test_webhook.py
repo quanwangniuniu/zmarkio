@@ -12,7 +12,7 @@ from unittest.mock import patch, Mock
 
 import stripe
 from django.contrib.auth import get_user_model
-from django.test import TestCase, Client
+from django.test import TestCase, Client, override_settings
 
 from django.utils import timezone
 
@@ -71,6 +71,93 @@ class WebhookTests(TestCase):
             response = self._post()
 
         self.assertEqual(response.status_code, 400)
+        self.assertEqual(StripeWebhookEvent.objects.count(), 0)
+
+    @override_settings(
+        STRIPE_WEBHOOK_SECRET='whsec_current',
+        STRIPE_WEBHOOK_SECRET_NEXT='',
+    )
+    def test_webhook_only_current_secret(self):
+        """With no next secret configured, the current secret is used."""
+        event = _make_event('evt_current_only', event_type='some.unknown.event')
+
+        with patch(
+            'stripe_meta.views.stripe.Webhook.construct_event',
+            return_value=event,
+        ) as mock_ce:
+            response = self._post()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_ce.call_count, 1)
+        self.assertEqual(mock_ce.call_args.args[2], 'whsec_current')
+
+    @override_settings(
+        STRIPE_WEBHOOK_SECRET='whsec_current',
+        STRIPE_WEBHOOK_SECRET_NEXT='whsec_next',
+    )
+    def test_webhook_both_active_accepts_current_secret(self):
+        """During rotation, a webhook signed with the current secret is accepted."""
+        event = _make_event('evt_current_active', event_type='some.unknown.event')
+
+        with patch(
+            'stripe_meta.views.stripe.Webhook.construct_event',
+            return_value=event,
+        ) as mock_ce:
+            response = self._post()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_ce.call_count, 1)
+        self.assertEqual(mock_ce.call_args.args[2], 'whsec_current')
+
+    @override_settings(
+        STRIPE_WEBHOOK_SECRET='whsec_current',
+        STRIPE_WEBHOOK_SECRET_NEXT='whsec_next',
+    )
+    def test_webhook_both_active_accepts_next_secret(self):
+        """During rotation, the next secret is tried if the current secret fails."""
+        event = _make_event('evt_next_active', event_type='some.unknown.event')
+
+        with patch(
+            'stripe_meta.views.stripe.Webhook.construct_event'
+        ) as mock_ce:
+            mock_ce.side_effect = [
+                stripe.SignatureVerificationError(
+                    'Invalid signature', 'valid_sig'
+                ),
+                event,
+            ]
+
+            response = self._post()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(mock_ce.call_count, 2)
+        self.assertEqual(mock_ce.call_args_list[0].args[2], 'whsec_current')
+        self.assertEqual(mock_ce.call_args_list[1].args[2], 'whsec_next')
+
+    @override_settings(
+        STRIPE_WEBHOOK_SECRET='whsec_current',
+        STRIPE_WEBHOOK_SECRET_NEXT='whsec_next',
+    )
+    def test_webhook_both_active_rejects_invalid_signature(self):
+        """When both active secrets reject the signature, the webhook returns 400."""
+        with patch(
+            'stripe_meta.views.stripe.Webhook.construct_event'
+        ) as mock_ce:
+            mock_ce.side_effect = [
+                stripe.SignatureVerificationError(
+                    'Invalid signature', 'bad_sig'
+                ),
+                stripe.SignatureVerificationError(
+                    'Invalid signature', 'bad_sig'
+                ),
+            ]
+
+            response = self._post(sig='bad_sig')
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(mock_ce.call_count, 2)
+        self.assertEqual(mock_ce.call_args_list[0].args[2], 'whsec_current')
+        self.assertEqual(mock_ce.call_args_list[1].args[2], 'whsec_next')
         self.assertEqual(StripeWebhookEvent.objects.count(), 0)
 
     # ── Idempotency ────────────────────────────────────────────────────────
