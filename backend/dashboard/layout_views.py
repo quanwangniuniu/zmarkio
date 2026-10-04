@@ -34,11 +34,19 @@ class DashboardLayoutView(APIView):
     def get(self, request):
         project = self.project(request)
         layout = DashboardLayout.objects.filter(project=project, user=request.user).first()
-        return Response({'widgets': widgets_for_response(layout.widgets) if layout else DEFAULT_WIDGETS})
+        return Response(
+            {'project_id': project.pk, 'project_slug': project.slug,
+             'widgets': widgets_for_response(layout.widgets) if layout else DEFAULT_WIDGETS},
+            headers={'Cache-Control': 'private, no-store'},
+        )
 
     def put(self, request):
         project = self.project(request)
         serializer = DashboardLayoutSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         layout = save_layout(project, request.user, serializer.validated_data['widgets'])
-        return Response({'widgets': layout.widgets, 'updated_at': layout.updated_at})
+        return Response(
+            {'project_id': project.pk, 'project_slug': project.slug,
+             'widgets': layout.widgets, 'updated_at': layout.updated_at},
+            headers={'Cache-Control': 'private, no-store'},
+        )

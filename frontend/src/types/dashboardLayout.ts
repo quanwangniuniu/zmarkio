@@ -7,6 +7,8 @@ export interface DashboardWidgetPosition {
 }
 
 export interface DashboardLayoutResponse {
+  project_id: number;
+  project_slug: string;
   widgets: DashboardWidgetPosition[];
   updated_at?: string;
 }

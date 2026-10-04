@@ -6,6 +6,8 @@ import OverviewContent from '@/components/overview/OverviewContent';
 import { useOverviewData } from '@/hooks/useOverviewData';
 import { useOverviewSectionHashScroll } from '@/hooks/useOverviewSectionHashScroll';
 import { useProjectStore } from '@/lib/projectStore';
+import { useProjectRoute } from '@/lib/projectRouteContext';
+import { useAuthStore } from '@/lib/authStore';
 
 function OverviewSkeleton() {
   return (
@@ -39,8 +41,12 @@ function ErrorBanner({ errors }: { errors: Record<string, string> }) {
 }
 
 export default function OverviewPage() {
-  const activeProject = useProjectStore((s) => s.activeProject);
+  const selectedProject = useProjectStore((s) => s.activeProject);
+  const routeProject = useProjectRoute();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const activeProject = routeProject ?? selectedProject;
   const projectId = activeProject?.id ?? null;
+  const layoutKey = `${userId ?? 'anonymous'}:${activeProject?.organization?.slug ?? ''}:${projectId ?? ''}`;
   const { data, alerts, loading, errors } = useOverviewData(projectId);
   useOverviewSectionHashScroll(!loading && projectId != null);
 
@@ -59,6 +65,7 @@ export default function OverviewPage() {
           projectId={projectId}
           projectName={activeProject?.name}
           projectSlug={activeProject?.slug}
+          layoutKey={layoutKey}
         />
       )}
       <ChatFAB />

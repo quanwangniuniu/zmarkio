@@ -48,7 +48,9 @@ async function openDashboard(page: Page, widgets = initial) {
       writes += 1;
       persisted = route.request().postDataJSON().widgets;
     }
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ widgets: persisted }) });
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      project_id: project.id, project_slug: project.slug, widgets: persisted,
+    }) });
   });
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/overview', { waitUntil: 'domcontentloaded', timeout: 90_000 });
@@ -148,4 +150,71 @@ test('keeps metric headings flush and places chart drag control on its section l
   const kpiHeading = kpiPanel.getByRole('heading', { name: 'Custom KPIs' });
   await expect(kpiHeading).toBeVisible();
   expect(Math.abs((await kpiHeading.boundingBox())!.x - (await kpiPanel.boundingBox())!.x - 17)).toBeLessThan(3);
+});
+
+test('loads the layout for the project in the URL when switching projects', async ({ page }) => {
+  const org = { id: 28, name: 'Dashboard Test Org', slug: 'dashboard-test-org' };
+  const projects = [
+    { id: 287, slug: 'first-project', name: 'First', organization: org },
+    { id: 288, slug: 'second-project', name: 'Second', organization: org },
+  ];
+  const layouts: Record<number, typeof initial> = {
+    287: [{ id: 'audit', x: 0, y: 0, w: 6, h: 5 }],
+    288: [{ id: 'activity', x: 0, y: 0, w: 6, h: 5 }],
+  };
+  const requestedProjects: string[] = [];
+  await installApiMockSafetyNet(page);
+  const user = { id: 1, email: 'e2e@example.com', username: 'e2e-user', current_organization: org };
+  await seedAuthenticatedUser(page, user);
+  await mockAuthenticatedUserApis(page, user);
+  await mockProjectShellApis(page);
+  await seedActiveProject(page, projects[0]);
+  await page.route('**/api/core/organizations/dashboard-test-org/**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(org) });
+  });
+  await page.route('**/api/core/projects/**', async (route) => {
+    const slug = new URL(route.request().url()).pathname.split('/').filter(Boolean).at(-1);
+    const selected = projects.find((item) => item.slug === slug);
+    if (selected) {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(selected) });
+    } else {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(projects) });
+    }
+  });
+  await page.route('**/api/dashboard/summary/**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      recent_activity: [], time_metrics: { completed_last_7_days: 0, updated_last_7_days: 0, created_last_7_days: 0, due_soon: 0 },
+      status_overview: { total_work_items: 0, breakdown: [] }, priority_breakdown: [], types_of_work: [],
+    }) });
+  });
+  await page.route('**/api/dashboard/layout/**', async (route) => {
+    const id = Number(new URL(route.request().url()).searchParams.get('project_id'));
+    requestedProjects.push(String(id));
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      project_id: id, project_slug: projects.find((item) => item.id === id)?.slug,
+      widgets: layouts[id],
+    }) });
+  });
+  for (const [slug, expectedId, visible, hidden] of [
+    ['first-project', '287', 'audit', 'activity'],
+    ['second-project', '288', 'activity', 'audit'],
+    ['first-project', '287', 'audit', 'activity'],
+  ] as const) {
+    await page.goto(`/dashboard-test-org/${slug}/overview`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByTestId(`dashboard-widget-${visible}`)).toBeVisible();
+    await expect(page.getByTestId(`dashboard-widget-${hidden}`)).toHaveCount(0);
+    expect(requestedProjects.at(-1)).toBe(expectedId);
+  }
+});
+
+test('does not display a layout returned for another project', async ({ page }) => {
+  await openDashboard(page);
+  await page.route('**/api/dashboard/layout/**', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      project_id: 999, project_slug: 'another-project', widgets: initial,
+    }) });
+  });
+  await page.reload();
+  await expect(page.getByRole('alert').filter({ hasText: 'Dashboard layout could not be loaded' })).toBeVisible();
+  await expect(page.getByTestId('dashboard-widget-audit')).toHaveCount(0);
 });

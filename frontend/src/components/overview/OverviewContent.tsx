@@ -8,6 +8,7 @@ interface OverviewContentProps {
   projectId: number | string | null;
   projectName?: string | null;
   projectSlug?: string | null;
+  layoutKey?: string;
 }
 
 export default function OverviewContent({
@@ -15,11 +16,12 @@ export default function OverviewContent({
   projectId,
   projectName,
   projectSlug,
+  layoutKey,
 }: OverviewContentProps) {
   return (
     <div>
       {projectId ? (
-        <DashboardBuilder key={String(projectId)} data={data} projectId={projectId} projectName={projectName} projectSlug={projectSlug} />
+        <DashboardBuilder key={layoutKey ?? String(projectId)} data={data} projectId={projectId} projectName={projectName} projectSlug={projectSlug} />
       ) : (
         <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-500">No active project selected.</div>
       )}

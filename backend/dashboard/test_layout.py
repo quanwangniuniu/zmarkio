@@ -32,16 +32,27 @@ class DashboardLayoutTest(TestCase):
 
     def test_default_and_persistence_are_per_user_and_project(self):
         self.client.force_authenticate(user=self.owner)
-        self.assertEqual(self.client.get(self.url()).data['widgets'], DEFAULT_WIDGETS)
+        initial = self.client.get(self.url())
+        self.assertEqual(initial.data['widgets'], DEFAULT_WIDGETS)
+        self.assertEqual(initial.data['project_id'], self.project.pk)
+        self.assertEqual(initial.data['project_slug'], self.project.slug)
+        self.assertEqual(initial['Cache-Control'], 'private, no-store')
         edited = [{'id': 'audit', 'x': 3, 'y': 2, 'w': 4, 'h': 6}]
         self.assertEqual(self.client.put(self.url(), {'widgets': edited}, format='json').status_code, 200)
         self.assertEqual(self.client.get(self.url()).data['widgets'], edited)
         self.assertEqual(self.client.get(self.url(self.other_project)).data['widgets'], DEFAULT_WIDGETS)
+        other_edited = [{'id': 'activity', 'x': 0, 'y': 0, 'w': 6, 'h': 5}]
+        self.assertEqual(self.client.put(self.url(self.other_project), {'widgets': other_edited}, format='json').status_code, 200)
+        self.assertEqual(self.client.get(self.url()).data['widgets'], edited)
+        self.assertEqual(self.client.get(self.url(self.other_project)).data['widgets'], other_edited)
         self.client.force_authenticate(user=self.member)
         self.assertEqual(self.client.get(self.url()).data['widgets'], DEFAULT_WIDGETS)
         self.assertEqual(self.client.put(self.url(), {'widgets': []}, format='json').status_code, 200)
         self.assertEqual(self.client.get(self.url()).data['widgets'], [])
-        self.assertEqual(DashboardLayout.objects.count(), 2)
+        self.client.force_authenticate(user=self.owner)
+        self.assertEqual(self.client.get(self.url()).data['widgets'], edited)
+        self.assertEqual(self.client.get(self.url(self.other_project)).data['widgets'], other_edited)
+        self.assertEqual(DashboardLayout.objects.count(), 3)
 
     def test_reads_saved_group_document_without_mutating_it(self):
         self.client.force_authenticate(user=self.owner)

@@ -7,6 +7,8 @@ import { OrganizationAPI } from '@/lib/api/organizationApi';
 import { useProjectStore } from '@/lib/projectStore';
 import { useAuthStore } from '@/lib/authStore';
 import { ChatWebSocketProvider } from '@/hooks/useChatWebSocket';
+import { ProjectRouteContext } from '@/lib/projectRouteContext';
+import type { ProjectData } from '@/lib/api/projectApi';
 
 /**
  * Resolves [orgSlug]/[projectSlug] from the URL and syncs org + project
@@ -27,6 +29,7 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
   const authHasHydrated = useAuthStore((s) => s.hasHydrated);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [resolved, setResolved] = useState<{ routeKey: string; project: ProjectData } | null>(null);
 
   useEffect(() => {
     const orgSlug = params?.orgSlug;
@@ -47,6 +50,7 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setResolved(null);
 
     (async () => {
       try {
@@ -73,6 +77,7 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
 
         const project = await ProjectAPI.getProject(projectSlug);
         if (cancelled) return;
+        setResolved({ routeKey: `${orgSlug}/${projectSlug}`, project });
         setActiveProject(project);
       } catch (err: any) {
         if (cancelled) return;
@@ -93,13 +98,15 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
     return <div className="p-6 text-sm text-rose-600">{error}</div>;
   }
 
-  if (loading) {
+  if (loading || resolved?.routeKey !== `${params?.orgSlug}/${params?.projectSlug}`) {
     return null;
   }
 
   return (
-    <ChatWebSocketProvider userId={user?.id ? Number(user.id) : null}>
-      {children}
-    </ChatWebSocketProvider>
+    <ProjectRouteContext.Provider value={resolved.project}>
+      <ChatWebSocketProvider userId={user?.id ? Number(user.id) : null}>
+        {children}
+      </ChatWebSocketProvider>
+    </ProjectRouteContext.Provider>
   );
 }

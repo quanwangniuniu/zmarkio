@@ -142,6 +142,9 @@ export default function DashboardBuilder(context: WidgetContext) {
     try {
       const { data } = await DashboardAPI.getLayout(projectId);
       if (version !== loadVersionRef.current || pendingRef.current) return;
+      if (String(projectId) !== String(data.project_id) && String(projectId) !== data.project_slug) {
+        throw new Error('Dashboard layout belongs to a different project');
+      }
       if (!Array.isArray(data.widgets)) throw new Error('Invalid dashboard layout response');
       widgetsRef.current = data.widgets;
       setWidgets(data.widgets);
