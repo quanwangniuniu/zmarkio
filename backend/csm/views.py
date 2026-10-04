@@ -881,16 +881,15 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         # Team scoping: show workspace-wide templates (no team) OR templates whose
         # team the user belongs to. In CSM a user's team membership is recorded on
         # CustomerUser.team (core.TeamMember is not populated for CSM agents), so
-        # that is the source of truth here. CSM admins may preview another team's
-        # view with ?view_as_team= (routing & template sandbox).
+        # that is the source of truth here.
+        user_team_ids = CustomerUser.objects.filter(
+            user=self.request.user, is_active=True, team__isnull=False,
+        ).values_list('team_id', flat=True)
+        # CSM admins may preview another team's view (routing & template sandbox).
         view_as_team = self.request.query_params.get('view_as_team')
         if view_as_team is not None:
-            team_ids = self._preview_team_ids(org_id, view_as_team)
-        else:
-            team_ids = list(CustomerUser.objects.filter(
-                user=self.request.user, is_active=True, team__isnull=False,
-            ).values_list('team_id', flat=True))
-        qs = qs.filter(Q(team__isnull=True) | Q(team_id__in=team_ids))
+            user_team_ids = self._preview_team_ids(org_id, view_as_team)
+        qs = qs.filter(Q(team__isnull=True) | Q(team_id__in=list(user_team_ids)))
 
         # Support filtering by tag
         tag = self.request.query_params.get('tag')

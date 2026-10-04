@@ -1,20 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import {
-  CalendarClock,
-  ClipboardList,
-  FileText,
-  FlaskConical,
-  FolderKanban,
-  GitBranch,
-  Lightbulb,
-  ListOrdered,
-  Radio,
-  Shield,
-  Tag,
-  Workflow,
-} from 'lucide-react';
+import { CalendarClock, ClipboardList, FileText, FlaskConical, FolderKanban, GitBranch, Lightbulb, ListOrdered, Radio, Shield, Tag, Workflow } from 'lucide-react';
 import CsmSettingsPageRoot, { CsmSettingsProjectGuard } from '@/components/csm-settings/CsmSettingsPageRoot';
 import CsmSettingsNavCard from '@/components/csm-settings/CsmSettingsNavCard';
 import { useProjectIdFromUrl } from '@/components/csm-settings/useProjectIdFromUrl';
