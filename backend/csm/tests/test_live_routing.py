@@ -1,7 +1,7 @@
 """
 Live intake applies the customer's experience-group routing rules when a portal
 conversation starts. Same engine and fallback as the sandbox, so the two cannot
-disagree.
+disagree on the queue. Rule tags are not added to the conversation.
 """
 from unittest.mock import patch
 
@@ -66,7 +66,7 @@ def _conversation(response):
     return Conversation.objects.get(pk=response.data['id'])
 
 
-def test_matching_rule_routes_the_conversation_and_adds_its_tags(
+def test_matching_rule_routes_the_conversation_but_keeps_its_tags(
     portal_customer_client, vip_customer, chat, project, experience_group, billing_queue,
 ):
     _rule(project, experience_group, billing_queue)
@@ -74,7 +74,7 @@ def test_matching_rule_routes_the_conversation_and_adds_its_tags(
         _start(portal_customer_client, 'I need a refund', support_channel_id=chat.id, subject='Order 42'),
     )
     assert conversation.queue_id == billing_queue.id
-    assert conversation.tags == ['Order 42', 'billing']
+    assert conversation.tags == ['Order 42']  # rule tags are sandbox-only
 
 
 @pytest.mark.parametrize('overrides', [
@@ -167,13 +167,3 @@ def test_a_database_error_inside_routing_still_creates_the_conversation(
             _start(portal_customer_client, 'I need a refund', support_channel_id=chat.id),
         )
     assert conversation.queue_id == csm_queue.id
-
-
-def test_a_rule_tag_matching_the_subject_is_not_added_twice(
-    portal_customer_client, vip_customer, chat, project, experience_group, billing_queue,
-):
-    _rule(project, experience_group, billing_queue, add_tags=['billing', 'refund'])
-    conversation = _conversation(
-        _start(portal_customer_client, 'I need a refund', support_channel_id=chat.id, subject='Billing'),
-    )
-    assert conversation.tags == ['Billing', 'refund']

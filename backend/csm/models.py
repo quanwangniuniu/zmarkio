@@ -986,8 +986,8 @@ class RoutingRule(TimeStampedModel):
     Rules are evaluated top-down by `position`; the first enabled rule whose
     conditions match decides the queue. `conditions` is a list of
     {"field", "operator", "value"} dicts validated by
-    csm.services.routing_rules.validate_conditions. Rules are currently only
-    evaluated by the routing sandbox; live intake still uses channel defaults.
+    csm.services.routing_rules.validate_conditions. Live intake applies the
+    winning rule's queue; `add_tags` are shown in the sandbox only.
     """
 
     class MatchMode(models.TextChoices):

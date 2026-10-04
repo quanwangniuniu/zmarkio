@@ -165,17 +165,14 @@ class PortalConversationViewSet(
 
         # The customer's experience-group routing rules may pick another queue.
         # Routing must never block a customer from starting a chat.
-        tags = [subject] if subject else []
         try:
             # Savepoint: a DB error in routing must not abort the insert below.
             with transaction.atomic():
-                queue, rule_tags = route_new_conversation(
+                queue = route_new_conversation(
                     customer, support_channel=support_channel,
                     availability=availability,
                     message=message_text, subject=subject, fallback_queue=queue,
                 )
-            seen = {tag.casefold() for tag in tags}
-            tags += [tag for tag in rule_tags if tag.casefold() not in seen]
         except Exception:
             logger.exception('Routing rules failed for a new conversation; using the default queue.')
 
@@ -185,7 +182,7 @@ class PortalConversationViewSet(
             status='pending',
             channel='web',
             support_channel=support_channel,
-            tags=tags,
+            tags=[subject] if subject else [],
         )
 
         ConversationMessage.objects.create(

@@ -263,6 +263,7 @@ export default function RoutingRuleFormDrawer({
                 placeholder="Type a tag and press Enter"
                 disabled={submitting}
               />
+              <p className="mt-1 text-xs text-gray-500">Shown in the sandbox trace; not added to live conversations.</p>
               {fieldErrors.add_tags && (
                 <p className="mt-1 text-xs text-red-600">{fieldErrors.add_tags}</p>
               )}

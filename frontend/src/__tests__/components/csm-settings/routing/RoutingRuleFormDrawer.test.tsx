@@ -77,6 +77,11 @@ describe('RoutingRuleFormDrawer', () => {
     expect(screen.queryByRole('option', { name: 'Archived' })).not.toBeInTheDocument();
   });
 
+  it('says rule tags are not added to live conversations', () => {
+    renderDrawer();
+    expect(screen.getByText(/not added to live conversations/i)).toBeInTheDocument();
+  });
+
   it('requires a name and queue before calling the API', async () => {
     renderDrawer();
     fireEvent.click(screen.getByRole('button', { name: /create rule/i }));

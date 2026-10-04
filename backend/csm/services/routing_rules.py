@@ -363,21 +363,21 @@ def reorder_rules(project_id, experience_group_id, ordered_ids):
 def route_new_conversation(customer, *, support_channel, availability, message, subject,
                            fallback_queue):
     """
-    Queue and tags for a conversation the customer is starting, from their
-    experience group's rules (the same engine and fallback as the sandbox).
-    Returns (queue, tags); with no group or no match it is (fallback_queue, []).
+    Queue for a conversation the customer is starting, from their experience
+    group's rules (the same engine and fallback as the sandbox). With no group
+    or no match it is fallback_queue. The rule's tags are not applied.
 
     Scoped by the customer organisation's workspace Organization (a public,
     unambiguous id), so it does not depend on the request's schema.
     """
     organisation = customer.organisation
     if customer.experience_group_id is None or organisation is None or organisation.organization_id is None:
-        return fallback_queue, []
+        return fallback_queue
     # As in the sandbox, only the group's own channels carry its rules.
     if support_channel is not None and not SupportChannelExperienceGroup.objects.filter(
         channel=support_channel, experience_group_id=customer.experience_group_id,
     ).exists():
-        return fallback_queue, []
+        return fallback_queue
 
     rules = list(
         RoutingRule.objects.filter(
@@ -392,10 +392,10 @@ def route_new_conversation(customer, *, support_channel, availability, message, 
     trace = evaluate_rules(rules, ctx, fallback_queue, evaluated_at=timezone.now())
     outcome = trace['outcome']
     if outcome['decided_by'] != 'rule':
-        return fallback_queue, []
+        return fallback_queue
     winner = next(rule for rule in rules if rule.id == outcome['rule_id'])
     logger.info(
         'Routing rule %s (%r) routed a new conversation for customer %s to queue %s',
         winner.id, winner.name, customer.id, winner.target_queue_id,
     )
-    return winner.target_queue, list(outcome['tags'])
+    return winner.target_queue
