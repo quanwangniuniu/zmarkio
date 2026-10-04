@@ -108,8 +108,9 @@ export default function RoutingRulesSettingsPage() {
         <>
           <div className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
             <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            Rules are not applied to live conversations yet. Use the sandbox to check how they would route;
-            live chats still go to the channel&apos;s default queue.
+            Rules route each new portal conversation once, when the customer sends their first message, using
+            the customer&apos;s experience group. With no match it goes to the channel&apos;s default queue. Test
+            changes in the sandbox first.
           </div>
 
           {!loading && unroutable > 0 && (

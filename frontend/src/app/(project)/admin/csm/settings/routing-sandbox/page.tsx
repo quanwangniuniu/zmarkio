@@ -48,7 +48,8 @@ export default function RoutingSandboxPage() {
           <h1 className="text-2xl font-bold text-gray-900">Routing &amp; Template Sandbox</h1>
           <p className="mt-1 text-sm text-gray-500">
             Simulate a customer conversation to see how routing rules evaluate and preview templates as agents see
-            them. Nothing is saved, sent, or counted in live queues.
+            them. Nothing is saved, sent, or counted in live queues. Live conversations are routed once, on the first
+            message; later traces show how the rules read the conversation so far.
           </p>
         </div>
         {projectValid && (

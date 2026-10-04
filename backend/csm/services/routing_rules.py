@@ -1,11 +1,14 @@
-"""Routing rule CRUD and validation for CSM-S03-05."""
+"""Routing rule CRUD, validation and live-intake routing for CSM-S03-05."""
+
+import logging
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Max
+from django.utils import timezone
 
 from core.models import Project
-from csm.models import RoutingRule, SupportChannel
+from csm.models import RoutingRule, SupportChannel, SupportChannelExperienceGroup
 from customer.models import CustomerOrganisation
 from experience_group.models import ExperienceGroup
 from csm.services.routing_engine import (
@@ -22,7 +25,11 @@ from csm.services.routing_engine import (
     VALUE_ORGANISATION_IDS,
     VALUE_TEXT,
     VOCABULARY,
+    evaluate_rules,
+    routing_context,
 )
+
+logger = logging.getLogger(__name__)
 
 MAX_CONDITIONS = 10
 MAX_KEYWORDS = 20
@@ -348,3 +355,47 @@ def reorder_rules(project_id, experience_group_id, ordered_ids):
     RoutingRule.objects.bulk_update(by_id.values(), ['position', 'updated_at'])
     return list_rules(project_id, experience_group_id)
 
+
+# ---------------------------------------------------------------------------
+# Live intake
+# ---------------------------------------------------------------------------
+
+def route_new_conversation(customer, *, support_channel, availability, message, subject,
+                           fallback_queue):
+    """
+    Queue and tags for a conversation the customer is starting, from their
+    experience group's rules (the same engine and fallback as the sandbox).
+    Returns (queue, tags); with no group or no match it is (fallback_queue, []).
+
+    Scoped by the customer organisation's workspace Organization (a public,
+    unambiguous id), so it does not depend on the request's schema.
+    """
+    organisation = customer.organisation
+    if customer.experience_group_id is None or organisation is None or organisation.organization_id is None:
+        return fallback_queue, []
+    # As in the sandbox, only the group's own channels carry its rules.
+    if support_channel is not None and not SupportChannelExperienceGroup.objects.filter(
+        channel=support_channel, experience_group_id=customer.experience_group_id,
+    ).exists():
+        return fallback_queue, []
+
+    rules = list(
+        RoutingRule.objects.filter(
+            organization_id=organisation.organization_id,
+            experience_group_id=customer.experience_group_id,
+        ).select_related('target_queue'),
+    )
+    ctx = routing_context(
+        [message], subject=subject, channel=support_channel, availability=availability,
+        customer_organisation_id=organisation.id,
+    )
+    trace = evaluate_rules(rules, ctx, fallback_queue, evaluated_at=timezone.now())
+    outcome = trace['outcome']
+    if outcome['decided_by'] != 'rule':
+        return fallback_queue, []
+    winner = next(rule for rule in rules if rule.id == outcome['rule_id'])
+    logger.info(
+        'Routing rule %s (%r) routed a new conversation for customer %s to queue %s',
+        winner.id, winner.name, customer.id, winner.target_queue_id,
+    )
+    return winner.target_queue, list(outcome['tags'])

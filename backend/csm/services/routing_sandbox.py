@@ -15,7 +15,7 @@ from core.models import Project
 from csm.models import Queue, SupportChannel, SupportChannelExperienceGroup
 from customer.models import CustomerOrganisation
 from experience_group.models import ExperienceGroup
-from csm.services.routing_engine import evaluate_rules
+from csm.services.routing_engine import evaluate_rules, routing_context
 from csm.services.routing_rules import list_rules
 from csm.services.support_channels import evaluate_channel_availability
 
@@ -103,15 +103,10 @@ def run_sandbox(project_id, *, experience_group_id, messages, subject='',
 
     traces = []
     for length in range(1, len(messages) + 1):
-        ctx = {
-            'messages': messages[:length],
-            'subject': subject or '',
-            'support_channel_id': channel.id if channel else None,
-            'channel_type': channel.channel_type if channel else None,
-            'channel_online': availability['is_online'] if availability else None,
-            'channel_offline_reason': availability['reason'] if availability else None,
-            'customer_organisation_id': organisation.id if organisation else None,
-        }
+        ctx = routing_context(
+            messages[:length], subject=subject, channel=channel, availability=availability,
+            customer_organisation_id=organisation.id if organisation else None,
+        )
         traces.append(evaluate_rules(rules, ctx, fallback_queue, evaluated_at=evaluated_at))
 
     return {

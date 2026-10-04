@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
@@ -8,12 +10,14 @@ from rest_framework.response import Response
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from django.http import Http404
 from core.services.auth_tokens import build_user_refresh_token
 
 from customer.models import Customer
 from csm.models import Conversation, ConversationMessage, Queue, SupportChannel
 from csm.serializers import ConversationSerializer, ConversationMessageSerializer
+from csm.services.routing_rules import route_new_conversation
 from csm.services.support_channels import (
     build_offline_payload,
     evaluate_channel_availability,
@@ -26,6 +30,8 @@ from .serializers import (
     PortalMessageSerializer,
     PortalConversationCreateSerializer,
 )
+
+logger = logging.getLogger(__name__)
 
 
 SUPPORTED_MESSAGE_IMAGE_TYPES = {
@@ -114,6 +120,7 @@ class PortalConversationViewSet(
         subject = data.get('subject', '').strip()
 
         support_channel = None
+        availability = None
         channel_id = data.get('support_channel_id')
         embed_key = data.get('embed_key')
         if channel_id is not None or embed_key is not None:
@@ -156,13 +163,29 @@ class PortalConversationViewSet(
         elif customer.organisation:
             queue = Queue.objects.filter(organisation=customer.organisation).first()
 
+        # The customer's experience-group routing rules may pick another queue
+        # (CSM-S03-05). Routing must never block a customer from starting a chat.
+        tags = [subject] if subject else []
+        try:
+            # Savepoint: a DB error in routing must not abort the insert below.
+            with transaction.atomic():
+                queue, rule_tags = route_new_conversation(
+                    customer, support_channel=support_channel,
+                    availability=availability,
+                    message=message_text, subject=subject, fallback_queue=queue,
+                )
+            seen = {tag.casefold() for tag in tags}
+            tags += [tag for tag in rule_tags if tag.casefold() not in seen]
+        except Exception:
+            logger.exception('Routing rules failed for a new conversation; using the default queue.')
+
         conversation = Conversation.objects.create(
             customer=customer,
             queue=queue,
             status='pending',
             channel='web',
             support_channel=support_channel,
-            tags=[subject] if subject else [],
+            tags=tags,
         )
 
         ConversationMessage.objects.create(

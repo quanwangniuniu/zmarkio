@@ -89,6 +89,20 @@ FALLBACK_ORGANISATION_QUEUE = 'first_organisation_queue'
 FALLBACK_NONE = 'none'
 
 
+def routing_context(messages, *, subject='', channel=None, availability=None,
+                    customer_organisation_id=None):
+    """The context dict for evaluate_rules; shared by the sandbox and live intake."""
+    return {
+        'messages': list(messages),
+        'subject': subject or '',
+        'support_channel_id': channel.id if channel else None,
+        'channel_type': channel.channel_type if channel else None,
+        'channel_online': availability['is_online'] if availability else None,
+        'channel_offline_reason': availability['reason'] if availability else None,
+        'customer_organisation_id': customer_organisation_id,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Condition evaluation
 # ---------------------------------------------------------------------------
