@@ -55,7 +55,7 @@ export default function RuleStepItem(
                   {fieldLabel(lookups.vocabulary, c.field)} {operatorLabel(lookups.vocabulary, c.field, c.operator)}{' '}
                   {formatConditionValue(c.field, c.expected, lookups)}
                 </p>
-                <p className="break-words text-gray-500">
+                <p className="whitespace-pre-wrap break-words text-gray-500">
                   Actual: {formatActual(c.field, c.actual, lookups)}
                   {c.detail && <> · {c.detail}</>}
                 </p>

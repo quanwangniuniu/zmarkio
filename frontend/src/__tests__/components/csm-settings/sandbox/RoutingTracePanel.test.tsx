@@ -98,14 +98,7 @@ describe('RoutingTracePanel', () => {
 
   it('keeps long messages readable without flooding the trace', () => {
     const longText = `I was charged twice. ${'Some more context about my order. '.repeat(10)}`;
-    const base = makeTrace();
-    const trace = makeTrace({
-      steps: [{
-        ...base.steps[0],
-        conditions: [{ ...base.steps[0].conditions[0], actual: longText, detail: 'Matched: charged' }],
-      }],
-    });
-    renderPanel({ traces: [trace, trace], customerMessages: [longText, longText] });
+    renderPanel({ traces: [makeTrace(), makeTrace()], customerMessages: [longText, longText] });
     const turns = screen.getAllByTestId('trace-turn');
 
     // The expanded (newest) turn shows the whole message; a collapsed one clamps it.
