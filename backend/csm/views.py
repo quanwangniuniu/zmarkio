@@ -1668,10 +1668,6 @@ class RoutingRuleViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
             _raise_drf_validation(exc)
         return Response(RoutingRuleSerializer(rule).data)
 
-    def destroy(self, request, *args, **kwargs):
-        self.get_object().delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
     @action(detail=False, methods=['put'], url_path='reorder')
     def reorder(self, request):
         project_id = self.get_required_project_id()

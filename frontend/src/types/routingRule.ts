@@ -105,7 +105,6 @@ export interface ConditionResult {
 }
 
 export interface RuleStepAction {
-  type: 'route_to_queue';
   queue_id: number | null;
   queue_name: string | null;
   add_tags: string[];
@@ -150,7 +149,7 @@ export interface RoutingTrace {
 }
 
 export interface RoutingSandboxResult {
-  experience_group: { id: number; name: string; status: string };
+  experience_group: { id: number; name: string };
   support_channel: {
     id: number;
     display_name: string;

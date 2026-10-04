@@ -1,5 +1,7 @@
 """Tests for the routing rule evaluator. Unsaved instances; no database."""
 
+from datetime import datetime, timezone
+
 import pytest
 
 from csm.models import Queue, RoutingRule
@@ -51,7 +53,7 @@ def rule(rule_id, *conditions, position=None, match_mode='all', enabled=True,
 
 
 def run(rules, context, fallback_queue=None):
-    return evaluate_rules(rules, context, fallback_queue, evaluated_at='2026-09-25T00:00:00+00:00')
+    return evaluate_rules(rules, context, fallback_queue, evaluated_at=datetime(2026, 9, 25, tzinfo=timezone.utc))
 
 
 # ---------------------------------------------------------------------------

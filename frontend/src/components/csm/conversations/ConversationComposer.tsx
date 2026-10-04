@@ -82,11 +82,7 @@ export function TemplatePicker({
   const [previewId, setPreviewId] = useState<number | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    const params = viewAsTeam === undefined
-      ? { organisation: organisationId }
-      : { organisation: organisationId, view_as_team: viewAsTeam };
-    QuickReplyTemplateAPI.list(params)
+    QuickReplyTemplateAPI.list({ organisation: organisationId, view_as_team: viewAsTeam })
       .then(setTemplates)
       .catch(() => setTemplates([]))
       .finally(() => setLoading(false));

@@ -41,7 +41,7 @@ export function makeTrace(overrides: Partial<RoutingTrace> = {}): RoutingTrace {
           passed: true,
           detail: 'Matched: refund',
         }],
-        action: { type: 'route_to_queue', queue_id: 10, queue_name: 'Billing', add_tags: ['money'] },
+        action: { queue_id: 10, queue_name: 'Billing', add_tags: ['money'] },
         note: '',
       },
       {

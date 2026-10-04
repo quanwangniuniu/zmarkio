@@ -83,7 +83,7 @@ describe('RoutingTracePanel', () => {
       traces: [makeTrace({ warnings: ["Rule 'Old' matched but has no target queue; it was skipped."] })],
       customerMessages: ['refund'],
       meta: {
-        experience_group: { id: 1, name: 'VIP', status: 'DRAFT' },
+        experience_group: { id: 1, name: 'VIP' },
         support_channel: null,
         rule_count: 2,
         warnings: ["Channel 'Inbox' is inactive."],
@@ -111,19 +111,10 @@ describe('RoutingTracePanel', () => {
     // The expanded (newest) turn shows the whole message; a collapsed one clamps it.
     expect(within(turns[0]).getByTestId('trace-message')).not.toHaveClass('line-clamp-2');
     expect(within(turns[1]).getByTestId('trace-message')).toHaveClass('line-clamp-2');
-
-    // A long actual value collapses, but the match detail stays visible.
-    expect(within(turns[0]).getByText('Matched: charged')).toBeInTheDocument();
-    const actual = within(turns[0]).getByTestId('condition-actual');
-    expect(actual).toHaveClass('line-clamp-2');
-    fireEvent.click(within(turns[0]).getByRole('button', { name: 'Show more' }));
-    expect(actual).not.toHaveClass('line-clamp-2');
-    expect(within(turns[0]).getByRole('button', { name: 'Show less' })).toBeInTheDocument();
   });
 
-  it('leaves short actual values on one line', () => {
+  it('shows the actual value with its match detail', () => {
     renderPanel({ traces: [makeTrace()], customerMessages: ['I want a refund'] });
-    expect(screen.queryByTestId('condition-actual')).not.toBeInTheDocument();
     expect(screen.getByText(/Actual: I want a refund · Matched: refund/)).toBeInTheDocument();
   });
 

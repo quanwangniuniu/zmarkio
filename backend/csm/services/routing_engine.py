@@ -11,7 +11,6 @@ customer_organisation_id.
 """
 
 import re
-from datetime import datetime
 
 from csm.models import SupportChannel
 
@@ -239,7 +238,6 @@ def _rule_matches(rule, results):
 def _action_payload(rule):
     queue = rule.target_queue
     return {
-        'type': 'route_to_queue',
         'queue_id': queue.id if queue else None,
         'queue_name': queue.name if queue else None,
         'add_tags': list(rule.add_tags),
@@ -356,11 +354,8 @@ def evaluate_rules(rules, ctx, fallback_queue, *, evaluated_at):
         if fallback_queue is not None and not fallback_queue.is_active:
             warnings.append(f"Fallback queue '{fallback_queue.name}' is inactive.")
 
-    if isinstance(evaluated_at, datetime):
-        evaluated_at = evaluated_at.isoformat()
-
     return {
-        'evaluated_at': evaluated_at,
+        'evaluated_at': evaluated_at.isoformat(),
         'message_count': len(ctx['messages']),
         'steps': steps,
         'fallback': fallback_step,

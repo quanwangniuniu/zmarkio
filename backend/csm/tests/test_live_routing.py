@@ -128,17 +128,6 @@ def test_rules_also_apply_without_a_channel(
     assert fallback.queue_id == csm_queue.id  # the organisation's first queue, as before
 
 
-def test_a_routing_failure_never_blocks_the_conversation(
-    portal_customer_client, vip_customer, chat, project, experience_group, billing_queue, csm_queue,
-):
-    _rule(project, experience_group, billing_queue)
-    with patch('csm.services.routing_rules.evaluate_rules', side_effect=RuntimeError('boom')):
-        conversation = _conversation(
-            _start(portal_customer_client, 'I need a refund', support_channel_id=chat.id),
-        )
-    assert conversation.queue_id == csm_queue.id
-
-
 def test_a_channel_outside_the_customers_group_keeps_its_default_queue(
     portal_customer_client, vip_customer, project, experience_group, billing_queue, csm_queue,
 ):

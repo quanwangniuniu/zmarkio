@@ -21,7 +21,7 @@ jest.mock('@/lib/api/csmConversationApi', () => ({
 const evaluate = RoutingSandboxAPI.evaluate as jest.Mock;
 
 const result = (count: number) => ({
-  experience_group: { id: 7, name: 'VIP', status: 'DRAFT' },
+  experience_group: { id: 7, name: 'VIP' },
   support_channel: null,
   rule_count: 1,
   traces: Array.from({ length: count }, () => makeTrace()),

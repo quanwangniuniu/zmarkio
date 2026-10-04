@@ -108,7 +108,7 @@ def run_sandbox(project_id, *, experience_group_id, messages, subject='',
         traces.append(evaluate_rules(rules, ctx, fallback_queue, evaluated_at=evaluated_at))
 
     return {
-        'experience_group': {'id': group.id, 'name': group.name, 'status': group.status},
+        'experience_group': {'id': group.id, 'name': group.name},
         'support_channel': (
             {
                 'id': channel.id,
