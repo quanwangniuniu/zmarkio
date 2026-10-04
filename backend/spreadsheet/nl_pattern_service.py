@@ -17,7 +17,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from core.services.gemini_client import call_gemini_json
+from core.services.ollama_client import call_ollama_json
 from .nl_pattern_schema import SYSTEM_PROMPT, VALID_STEP_TYPES, VALID_HIGHLIGHT_OPERATORS
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def generate_pattern_steps(instruction: str, sheet_schema: dict) -> list[dict]:
         len(sheet_schema.get("columns", [])),
     )
     try:
-        raw = call_gemini_json(
+        raw = call_ollama_json(
             system_prompt=SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=0.1,

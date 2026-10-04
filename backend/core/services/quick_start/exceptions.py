@@ -6,7 +6,7 @@ class QuickStartError(Exception):
 
 
 class QuickStartConfigurationError(QuickStartError):
-    """Missing or invalid environment configuration (e.g. GEMINI_API_KEY)."""
+    """Missing or invalid environment configuration (e.g. OLLAMA_BASE_URL)."""
 
 
 class QuickStartValidationError(QuickStartError):

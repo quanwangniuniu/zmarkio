@@ -18,12 +18,12 @@ const MESSAGE_BY_ERROR_CODE: Record<string, string> = {
     'We could not reach the AI service. Check your connection and try again.',
   llm_generation_failed: QUICK_START_PREVIEW_ERROR_FALLBACK,
   configuration_error:
-    'AI setup is not complete. Ask your administrator to configure the Gemini API key.',
+    'AI setup is not complete. Ask your administrator to configure the AI model server.',
 };
 
 /** Patterns that indicate a technical message we should not show to users. */
 const TECHNICAL_DETAIL_PATTERN =
-  /json|traceback|http\s*\d{3}|gemini|unterminated|runtimeerror|exception|429|too many requests|plan\.|blueprint\.|tasks\[/i;
+  /json|traceback|http\s*\d{3}|ollama|unterminated|runtimeerror|exception|429|too many requests|plan\.|blueprint\.|tasks\[/i;
 
 export type QuickStartResolvedError = {
   message: string;

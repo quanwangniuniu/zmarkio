@@ -18,7 +18,7 @@ def _prompts_dir() -> Path:
 class QuickStartConfig:
     """Runtime configuration for the Quick Start LLM chain."""
 
-    gemini_api_key: str
+    ollama_base_url: str
     llm_timeout_seconds: int
     prompts_dir: Path
     plan_system_prompt_filename: str = 'system_plan_v1.txt'
@@ -33,14 +33,14 @@ class QuickStartConfig:
 
     @property
     def is_llm_configured(self) -> bool:
-        return bool(self.gemini_api_key and self.gemini_api_key.strip())
+        return bool(self.ollama_base_url and self.ollama_base_url.strip())
 
     def require_llm_configured(self) -> None:
         from core.services.quick_start.exceptions import QuickStartConfigurationError
 
         if not self.is_llm_configured:
             raise QuickStartConfigurationError(
-                'GEMINI_API_KEY is not configured. Quick Start requires Gemini.'
+                'OLLAMA_BASE_URL is not configured. Quick Start requires the Ollama LLM server.'
             )
 
 
@@ -49,13 +49,9 @@ def get_quick_start_config() -> QuickStartConfig:
     """
     Load Quick Start config from Django settings / environment.
 
-    Uses the same GEMINI_API_KEY as Agent but does not import Agent workflow code.
+    Uses the same OLLAMA_BASE_URL as Agent but does not import Agent workflow code.
     """
-    key = (
-        getattr(settings, 'GEMINI_API_KEY', None)
-        or os.environ.get('GEMINI_API_KEY', '')
-        or ''
-    )
+    base_url = getattr(settings, 'OLLAMA_BASE_URL', None) or ''
     timeout_raw = (
         getattr(settings, 'QUICK_START_LLM_TIMEOUT_SECONDS', None)
         or os.environ.get('QUICK_START_LLM_TIMEOUT_SECONDS', '120')
@@ -66,7 +62,7 @@ def get_quick_start_config() -> QuickStartConfig:
         timeout = 120
 
     return QuickStartConfig(
-        gemini_api_key=key.strip() if isinstance(key, str) else '',
+        ollama_base_url=base_url.strip() if isinstance(base_url, str) else '',
         llm_timeout_seconds=max(timeout, 30),
         prompts_dir=_prompts_dir(),
     )

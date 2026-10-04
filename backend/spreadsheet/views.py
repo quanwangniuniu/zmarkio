@@ -1480,8 +1480,8 @@ def _audit_nl_generation(request, sheet, event_type, *, instruction, cols, rows)
             'cols_sent': cols,
             'rows_sent': rows,
             'instruction_chars': len(instruction),
-            'provider': 'gemini',
-            'model': 'gemini-2.5-flash-lite',
+            'provider': 'ollama',
+            'model': settings.OLLAMA_MODEL,
         },
         request=request,
     )

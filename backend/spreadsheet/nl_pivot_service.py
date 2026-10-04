@@ -17,7 +17,7 @@ Usage:
 """
 import logging
 
-from core.services.gemini_client import call_gemini_json
+from core.services.ollama_client import call_ollama_json
 from .nl_pivot_schema import SYSTEM_PROMPT, VALID_AGGREGATIONS, VALID_DISPLAY_MODES
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ def generate_pivot_config(instruction: str, sheet_schema: dict) -> dict:
         len(sheet_schema.get("columns", [])),
     )
     try:
-        raw = call_gemini_json(
+        raw = call_ollama_json(
             system_prompt=SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=0.1,

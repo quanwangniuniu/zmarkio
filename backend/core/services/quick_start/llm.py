@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Mapping
 
-from core.services.gemini_client import call_gemini_json
+from core.services.ollama_client import call_ollama_json
 
 from core.services.quick_start.blueprint import normalize_selected_modules
 from core.services.quick_start.brief import build_campaign_brief
@@ -47,7 +47,7 @@ class QuickStartLLMChain:
     ) -> None:
         self.config = config or get_quick_start_config()
         self._uses_live_gemini = call_json is None
-        self._call_json = call_json or call_gemini_json
+        self._call_json = call_json or call_ollama_json
 
     def _read_prompt_file(self, filename: str) -> str:
         path = self.config.prompts_dir / filename
