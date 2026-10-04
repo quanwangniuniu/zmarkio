@@ -11,13 +11,12 @@ channel-layer events and never triggers notifications.
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
-from core.models import Project
 from csm.models import Queue, SupportChannel, SupportChannelExperienceGroup
+from csm.services.routing_engine import evaluate_rules, routing_context
+from csm.services.routing_rules import list_rules, project_organization_id
+from csm.services.support_channels import evaluate_channel_availability
 from customer.models import CustomerOrganisation
 from experience_group.models import ExperienceGroup
-from csm.services.routing_engine import evaluate_rules, routing_context
-from csm.services.routing_rules import list_rules
-from csm.services.support_channels import evaluate_channel_availability
 
 
 def _resolve_experience_group(project_id, experience_group_id):
@@ -49,9 +48,8 @@ def _resolve_channel(project_id, group, support_channel_id):
 def _resolve_organisation(project_id, customer_organisation_id):
     if customer_organisation_id is None:
         return None
-    organization_id = Project.objects.values_list('organization_id', flat=True).get(pk=project_id)
     organisation = CustomerOrganisation.objects.filter(
-        pk=customer_organisation_id, organization_id=organization_id,
+        pk=customer_organisation_id, organization_id=project_organization_id(project_id),
     ).first()
     if organisation is None:
         raise ValidationError({

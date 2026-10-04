@@ -1,5 +1,3 @@
-from collections import defaultdict
-
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.filters import SearchFilter
@@ -16,7 +14,7 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
 from core.admin_permissions import IsCsmAccessAllowed
-from core.models import Project, Team
+from core.models import Team
 from core.permissions import IsProjectMember, IsProjectOwner
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from core.slug_mixins import SlugLookupViewSetMixin
@@ -114,6 +112,7 @@ from .services.routing_rules import (
     create_rule,
     update_rule,
     reorder_rules,
+    rules_in_projects,
 )
 from .services.routing_sandbox import run_sandbox
 
@@ -858,6 +857,7 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
     serializer_class = QuickReplyTemplateSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+    READ_ACTIONS = ('list', 'retrieve', 'history')
 
     def get_queryset(self):
         qs = QuickReplyTemplate.objects.filter(is_active=True).select_related('created_by', 'team')
@@ -905,8 +905,6 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
             )
 
         return qs
-
-    READ_ACTIONS = ('list', 'retrieve', 'history')
 
     @staticmethod
     def _template_org_ids(user, *, read_only):
@@ -968,7 +966,7 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         organisation = self._admin_organisation(org_id)
         if view_as_team == 'none':
             return []
-        if not view_as_team.isdigit() or not self._previewable_teams(organisation).filter(
+        if not (view_as_team.isascii() and view_as_team.isdigit()) or not self._previewable_teams(organisation).filter(
             pk=int(view_as_team),
         ).exists():
             raise ValidationError({'view_as_team': 'Team not found for this organisation.'})
@@ -1621,25 +1619,25 @@ class RoutingRuleViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
         if self.action == 'list':
             project_id = self.get_required_project_id()
             raw_group = self.request.query_params.get('experience_group')
-            group_id = int(raw_group) if raw_group and raw_group.isdigit() else None
+            group_id = None
+            if raw_group:
+                try:
+                    group_id = int(raw_group)
+                except (TypeError, ValueError):
+                    raise ValidationError({'experience_group': 'Must be an integer id.'})
             try:
                 return list_rules(project_id, group_id)
             except DjangoValidationError as exc:
                 _raise_drf_validation(exc)
-        # Detail routes: the caller's projects *in the caller's organisation*,
-        # since another organisation can have a project with the same id.
-        projects_by_org = defaultdict(list)
-        for project_id, organization_id in Project.objects.filter(
-            pk__in=self._accessible_project_ids(),
-        ).values_list('id', 'organization_id'):
-            projects_by_org[organization_id].append(project_id)
-        scope = Q(pk__in=[])
-        for organization_id, project_ids in projects_by_org.items():
-            scope |= Q(organization_id=organization_id, project_id__in=project_ids)
-        return RoutingRule.objects.select_related('target_queue', 'project').filter(scope)
+        return rules_in_projects(self._accessible_project_ids())
+
+    def get_serializer_class(self):
+        if self.action in ('create', 'partial_update'):
+            return RoutingRuleWriteSerializer
+        return RoutingRuleSerializer
 
     def create(self, request, *args, **kwargs):
-        serializer = RoutingRuleWriteSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
@@ -1660,7 +1658,7 @@ class RoutingRuleViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         rule = self.get_object()
-        serializer = RoutingRuleWriteSerializer(data=request.data, partial=True)
+        serializer = self.get_serializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
         data.pop('experience_group', None)  # a rule never moves between groups

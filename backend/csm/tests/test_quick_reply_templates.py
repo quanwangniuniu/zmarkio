@@ -321,6 +321,13 @@ def test_view_as_team_rejects_foreign_team(api_client, user, customer_organisati
     assert 'view_as_team' in resp.data
 
 
+def test_view_as_team_rejects_non_ascii_digits(api_client, user, customer_organisation):
+    _member(user, customer_organisation, user_type='admin')
+    api_client.force_authenticate(user)
+    resp = api_client.get(URL, {'organisation': customer_organisation.id, 'view_as_team': '\u00b2'})
+    assert resp.status_code == 400
+
+
 def test_preview_teams_lists_agent_and_template_teams(
     api_client, user, user2, organization, customer_organisation, team_templates,
 ):

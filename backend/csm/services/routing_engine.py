@@ -13,6 +13,8 @@ customer_organisation_id.
 import re
 from datetime import datetime
 
+from csm.models import SupportChannel
+
 # ---------------------------------------------------------------------------
 # Vocabulary (shared by validation, the vocabulary endpoint and evaluation)
 # ---------------------------------------------------------------------------
@@ -28,7 +30,7 @@ VALUE_CHANNEL_STATUS = 'channel_status'
 VALUE_ORGANISATION_IDS = 'organisation_ids'
 VALUE_INTEGER = 'integer'
 
-CHANNEL_TYPES = ('live_chat', 'contact_form', 'email')
+CHANNEL_TYPES = tuple(SupportChannel.ChannelType.values)
 CHANNEL_STATUSES = ('online', 'offline')
 
 # field -> {operator: value kind}

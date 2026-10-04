@@ -7,7 +7,7 @@ import toast from 'react-hot-toast';
 import { AlertCircle, FlaskConical, Info, Plus } from 'lucide-react';
 import CsmSettingsPageRoot, { CsmSettingsProjectGuard } from '@/components/csm-settings/CsmSettingsPageRoot';
 import { useProjectIdFromUrl } from '@/components/csm-settings/useProjectIdFromUrl';
-import { FORM_LABEL_CLASS, SECONDARY_BUTTON_CLASS } from '@/components/csm-settings/constants';
+import { SECONDARY_BUTTON_CLASS } from '@/components/csm-settings/constants';
 import RoutingRuleFormDrawer from '@/components/csm-settings/routing/RoutingRuleFormDrawer';
 import RoutingRulesList from '@/components/csm-settings/routing/RoutingRulesList';
 import { useRoutingOptions } from '@/components/csm-settings/routing/useRoutingOptions';
@@ -125,8 +125,8 @@ export default function RoutingRulesSettingsPage() {
             </div>
           )}
 
-          <div className="max-w-sm">
-            <label htmlFor="rr-group" className={FORM_LABEL_CLASS}>
+          <div className="flex max-w-sm flex-col gap-1.5">
+            <label htmlFor="rr-group" className="text-sm font-medium text-gray-700">
               Experience group
             </label>
             <PortalSelect

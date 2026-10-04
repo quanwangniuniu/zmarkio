@@ -1,16 +1,15 @@
 """Routing rule CRUD, validation and live-intake routing."""
 
 import logging
+from collections import defaultdict
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Q
 from django.utils import timezone
 
 from core.models import Project
 from csm.models import RoutingRule, SupportChannel, SupportChannelExperienceGroup
-from customer.models import CustomerOrganisation
-from experience_group.models import ExperienceGroup
 from csm.services.routing_engine import (
     CHANNEL_STATUSES,
     CHANNEL_TYPES,
@@ -28,6 +27,8 @@ from csm.services.routing_engine import (
     evaluate_rules,
     routing_context,
 )
+from customer.models import CustomerOrganisation
+from experience_group.models import ExperienceGroup
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +259,22 @@ def list_rules(project_id, experience_group_id=None):
     if experience_group_id is not None:
         qs = qs.filter(experience_group_id=experience_group_id)
     return qs.order_by('experience_group_id', 'position', 'id')
+
+
+def rules_in_projects(project_ids):
+    """
+    Rules of `project_ids`, each matched with its own organisation, since another
+    organisation can have a project with the same id.
+    """
+    projects_by_org = defaultdict(list)
+    for project_id, organization_id in Project.objects.filter(
+        pk__in=project_ids,
+    ).values_list('id', 'organization_id'):
+        projects_by_org[organization_id].append(project_id)
+    scope = Q(pk__in=[])
+    for organization_id, ids in projects_by_org.items():
+        scope |= Q(organization_id=organization_id, project_id__in=ids)
+    return RoutingRule.objects.select_related('target_queue', 'project').filter(scope)
 
 
 def _lock_experience_group(experience_group_id):

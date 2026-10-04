@@ -199,6 +199,10 @@ class TestListUpdateDelete:
         assert res.status_code == status.HTTP_200_OK
         assert [r['name'] for r in res.data] == ['A', 'B']
 
+    def test_list_rejects_a_malformed_group(self, csm_admin_client, project):
+        res = csm_admin_client.get(_list_url(project.id, experience_group='abc'))
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_partial_update(self, csm_admin_client, project, experience_group, csm_queue, tech_queue):
         rule_id = _create(csm_admin_client, project, experience_group, csm_queue).data['id']
         res = csm_admin_client.patch(_detail_url(rule_id), {
