@@ -12,7 +12,7 @@ import {
   type ProjectRoleOption,
 } from '@/lib/api/projectApi';
 import { useAuthStore } from '@/lib/authStore';
-import { useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
+import { DashboardTileIcon, useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
 
 interface Props {
   projectId: number | string | null;
@@ -226,8 +226,7 @@ export default function TeamManagementSection({ projectId, projectName }: Props)
     >
       <CardHeader className="shrink-0 pb-3 px-5 pt-5">
         <div className="flex flex-wrap items-center gap-2">
-          {tileControls?.dragHandle}
-          <Users className="w-4 h-4 text-gray-500" />
+          <DashboardTileIcon icon={<Users className="w-4 h-4 text-gray-500" />} dragHandle={tileControls?.dragHandle} />
           <CardTitle className="text-sm font-semibold text-gray-900">
             Team Management
           </CardTitle>

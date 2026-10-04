@@ -33,8 +33,9 @@ export const widgetRegistry: WidgetDefinition[] = [
     ['decisions', 'Decisions', 0, 8, 4, 10],
     ['tasks', 'Tasks', 4, 8, 4, 10],
     ['operations', 'Operations', 8, 8, 4, 10],
-    ['task-status', 'Task Status Breakdown', 0, 18, 6, 9],
-    ['task-priority', 'Task Priority Distribution', 6, 18, 6, 9],
+    ['task-status', 'Task Status Breakdown', 0, 18, 4, 9],
+    ['task-priority', 'Task Priority Distribution', 4, 18, 4, 9],
+    ['task-types', 'Type breakdown', 8, 18, 4, 9],
     ['task-trend', 'Tasks Created vs Completed', 0, 27, 12, 8],
   ] as const).map(([id, title, x, y, w, h]) => ({
     id, title,

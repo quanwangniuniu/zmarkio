@@ -15,8 +15,9 @@ DEFAULT_WIDGETS = [
     {'id': 'decisions', 'x': 0, 'y': 8, 'w': 4, 'h': 10},
     {'id': 'tasks', 'x': 4, 'y': 8, 'w': 4, 'h': 10},
     {'id': 'operations', 'x': 8, 'y': 8, 'w': 4, 'h': 10},
-    {'id': 'task-status', 'x': 0, 'y': 18, 'w': 6, 'h': 9},
-    {'id': 'task-priority', 'x': 6, 'y': 18, 'w': 6, 'h': 9},
+    {'id': 'task-status', 'x': 0, 'y': 18, 'w': 4, 'h': 9},
+    {'id': 'task-priority', 'x': 4, 'y': 18, 'w': 4, 'h': 9},
+    {'id': 'task-types', 'x': 8, 'y': 18, 'w': 4, 'h': 9},
     {'id': 'task-trend', 'x': 0, 'y': 27, 'w': 12, 'h': 8},
     {'id': 'custom-kpis', 'x': 0, 'y': 35, 'w': 12, 'h': 7},
     {'id': 'meetings', 'x': 0, 'y': 42, 'w': 6, 'h': 8},
@@ -25,6 +26,39 @@ DEFAULT_WIDGETS = [
     {'id': 'project-team', 'x': 6, 'y': 50, 'w': 6, 'h': 10},
 ]
 WIDGET_IDS = {widget['id'] for widget in DEFAULT_WIDGETS}
+
+
+def widgets_for_response(raw):
+    """Read saved v2/v3 group layouts as flat widgets without changing the row."""
+    if isinstance(raw, list):
+        return raw
+    if not isinstance(raw, dict) or not isinstance(raw.get('items'), list):
+        return DEFAULT_WIDGETS
+
+    widgets = []
+    seen = set()
+    for item in raw['items']:
+        if not isinstance(item, dict):
+            continue
+        children = item.get('children', []) if item.get('kind') == 'group' else [item]
+        if not isinstance(children, list):
+            continue
+        for child in children:
+            if not isinstance(child, dict) or child.get('id') not in WIDGET_IDS or child['id'] in seen:
+                continue
+            try:
+                x = child['x'] + (item['x'] if item.get('kind') == 'group' else 0)
+                y = child['y'] + (item['y'] if item.get('kind') == 'group' else 0)
+                w, h = child['w'], child['h']
+            except (KeyError, TypeError):
+                continue
+            if not all(isinstance(value, int) and not isinstance(value, bool) for value in (x, y, w, h)):
+                continue
+            if not (0 <= x < 12 and 0 <= y <= 999 and 1 <= w <= 12 - x and 3 <= h <= 30):
+                continue
+            widgets.append({'id': child['id'], 'x': x, 'y': y, 'w': w, 'h': h})
+            seen.add(child['id'])
+    return widgets
 
 
 class WidgetPositionSerializer(serializers.Serializer):

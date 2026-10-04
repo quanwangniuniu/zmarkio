@@ -36,7 +36,7 @@ function WidgetTile({ widget, context, onResize, onResizeStart, onResizePreview,
       type="button"
       aria-label={`Move ${title}`}
       title={`Move ${title}`}
-      className="-ml-2 flex h-7 w-7 shrink-0 touch-none cursor-grab items-center justify-center rounded text-gray-500 opacity-0 transition-colors group-hover:opacity-100 group-focus-within:opacity-100 hover:text-gray-700 active:cursor-grabbing focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500 [@media(hover:none)]:opacity-80"
+      className="flex h-7 w-7 shrink-0 touch-none cursor-grab items-center justify-center rounded bg-white text-gray-500 opacity-0 transition-colors group-hover:opacity-100 group-focus-within:opacity-100 hover:text-gray-700 active:cursor-grabbing focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500 [@media(hover:none)]:opacity-80"
       {...attributes}
       {...listeners}
     >
@@ -142,6 +142,7 @@ export default function DashboardBuilder(context: WidgetContext) {
     try {
       const { data } = await DashboardAPI.getLayout(projectId);
       if (version !== loadVersionRef.current || pendingRef.current) return;
+      if (!Array.isArray(data.widgets)) throw new Error('Invalid dashboard layout response');
       widgetsRef.current = data.widgets;
       setWidgets(data.widgets);
       setLoaded(true);

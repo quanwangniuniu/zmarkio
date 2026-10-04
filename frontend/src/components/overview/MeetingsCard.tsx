@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Users, Clock, CalendarDays } from 'lucide-react';
 import type { MeetingListItem } from '@/types/meeting';
 import type { ActionItemDisplay } from '@/types/overview';
-import { useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
+import { DashboardTileIcon, useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
 
 interface MeetingsCardProps {
   upcoming: MeetingListItem[];
@@ -42,8 +42,7 @@ export default function MeetingsCard({ upcoming, actions }: MeetingsCardProps) {
     >
       <CardHeader className="shrink-0 pb-2 px-4 pt-4">
         <div className="flex items-center gap-2">
-          {tileControls?.dragHandle}
-          <Users className="w-4 h-4 text-gray-400" />
+          <DashboardTileIcon icon={<Users className="w-4 h-4 text-gray-400" />} dragHandle={tileControls?.dragHandle} />
           <CardTitle className="text-sm font-medium text-gray-900">Meetings & Action Items</CardTitle>
           <span className="ml-auto text-xs text-gray-400">
             {todayMeetings.length} today

@@ -43,6 +43,29 @@ class DashboardLayoutTest(TestCase):
         self.assertEqual(self.client.get(self.url()).data['widgets'], [])
         self.assertEqual(DashboardLayout.objects.count(), 2)
 
+    def test_reads_saved_group_document_without_mutating_it(self):
+        self.client.force_authenticate(user=self.owner)
+        document = {
+            'version': 3,
+            'items': [
+                {'kind': 'group', 'id': 'group-older', 'title': 'Tasks', 'x': 0, 'y': 7, 'w': 12, 'h': 8,
+                 'children': [
+                     {'kind': 'widget', 'id': 'task-priority', 'x': 0, 'y': 0, 'w': 6, 'h': 4},
+                     {'kind': 'widget', 'id': 'task-types', 'x': 6, 'y': 0, 'w': 6, 'h': 4},
+                 ]},
+                {'kind': 'widget', 'id': 'audit', 'x': 0, 'y': 15, 'w': 6, 'h': 4},
+            ],
+        }
+        DashboardLayout.objects.create(project=self.project, user=self.owner, widgets=document)
+        response = self.client.get(self.url())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['widgets'], [
+            {'id': 'task-priority', 'x': 0, 'y': 7, 'w': 6, 'h': 4},
+            {'id': 'task-types', 'x': 6, 'y': 7, 'w': 6, 'h': 4},
+            {'id': 'audit', 'x': 0, 'y': 15, 'w': 6, 'h': 4},
+        ])
+        self.assertEqual(DashboardLayout.objects.get(project=self.project, user=self.owner).widgets, document)
+
     def test_membership_and_organization_boundary(self):
         self.assertEqual(self.client.get(self.url()).status_code, 401)
         self.client.force_authenticate(user=self.stranger)

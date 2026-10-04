@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 
 from core.models import Project
 from core.slug_mixins import resolve_project_pk
-from .layout import DEFAULT_WIDGETS, DashboardLayoutSerializer, save_layout
+from .layout import DEFAULT_WIDGETS, DashboardLayoutSerializer, save_layout, widgets_for_response
 from .models import DashboardLayout
 
 
@@ -34,7 +34,7 @@ class DashboardLayoutView(APIView):
     def get(self, request):
         project = self.project(request)
         layout = DashboardLayout.objects.filter(project=project, user=request.user).first()
-        return Response({'widgets': layout.widgets if layout else DEFAULT_WIDGETS})
+        return Response({'widgets': widgets_for_response(layout.widgets) if layout else DEFAULT_WIDGETS})
 
     def put(self, request):
         project = self.project(request)

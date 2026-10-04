@@ -19,3 +19,14 @@ export function useDashboardTileControls(widgetId: string) {
   const controls = useContext(Context);
   return controls?.widgetId === widgetId ? controls : null;
 }
+
+/** Put the drag grip over an existing card icon so its title never shifts. */
+export function DashboardTileIcon({ icon, dragHandle }: { icon: ReactNode; dragHandle?: ReactNode }) {
+  if (!dragHandle) return <>{icon}</>;
+  return (
+    <span className="relative inline-flex shrink-0 items-center justify-center">
+      <span className="inline-flex group-hover:opacity-0 group-focus-within:opacity-0 [@media(hover:none)]:opacity-0">{icon}</span>
+      <span className="absolute inset-0 z-10 flex items-center justify-center">{dragHandle}</span>
+    </span>
+  );
+}

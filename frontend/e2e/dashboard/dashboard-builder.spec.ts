@@ -92,3 +92,24 @@ test('persists a resized widget after the pointer is released', async ({ page })
   await page.reload();
   await expect.poll(async () => (await tile.boundingBox())!.height).toBeGreaterThan(before!.height);
 });
+
+test('shows the drag grip over a card icon without shifting its title', async ({ page }) => {
+  await openDashboard(page);
+  const tile = page.getByTestId('dashboard-widget-activity');
+  const title = tile.getByText('Recent Activity', { exact: true });
+  const icon = tile.locator('svg.lucide-clipboard-list');
+  const grip = tile.getByRole('button', { name: 'Move Recent activity', exact: true });
+  const before = await title.boundingBox();
+  const iconBox = await icon.boundingBox();
+  expect(before).not.toBeNull();
+  expect(iconBox).not.toBeNull();
+  expect(await icon.locator('..').evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
+
+  await tile.hover();
+  await expect.poll(() => grip.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
+  await expect.poll(() => icon.locator('..').evaluate((element) => getComputedStyle(element).opacity)).toBe('0');
+  const after = await title.boundingBox();
+  const gripBox = await grip.boundingBox();
+  expect(after!.x).toBeCloseTo(before!.x, 0);
+  expect(Math.abs((gripBox!.x + gripBox!.width / 2) - (iconBox!.x + iconBox!.width / 2))).toBeLessThan(4);
+});

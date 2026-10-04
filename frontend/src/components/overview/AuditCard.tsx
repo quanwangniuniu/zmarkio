@@ -4,7 +4,7 @@ import { ShieldCheck, UserCog, Users, FolderOpen, Building2 } from "lucide-react
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import type { AdminAuditEvent } from "@/types/audit";
 import { useRouter } from "next/navigation";
-import { useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
+import { DashboardTileIcon, useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
 
 const ACTION_LABEL: Record<string, string> = {
   'role.created':             'created role',
@@ -49,8 +49,7 @@ export default function AuditCard({ events }: { events: AdminAuditEvent[] }) {
     <Card data-overview-card="audit" className="flex h-full min-h-0 flex-col border-[0.5px] border-gray-200 bg-white shadow-none">
       <CardHeader className="shrink-0 pb-2 px-4 pt-4">
         <div className="flex items-center gap-2">
-          {tileControls?.dragHandle}
-          <ShieldCheck className="w-4 h-4 text-gray-400" />
+          <DashboardTileIcon icon={<ShieldCheck className="w-4 h-4 text-gray-400" />} dragHandle={tileControls?.dragHandle} />
           <CardTitle className="text-sm font-medium text-gray-900">Admin Action Log</CardTitle>
           <span className="ml-auto">{tileControls?.removeButton}</span>
         </div>

@@ -10,7 +10,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { ActivityEvent } from '@/types/dashboard';
-import { useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
+import { DashboardTileIcon, useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
 
 interface RecentActivityCardProps {
   activities: ActivityEvent[];
@@ -53,8 +53,7 @@ export default function RecentActivityCard({ activities }: RecentActivityCardPro
     >
       <CardHeader className="shrink-0 pb-2 px-4 pt-4">
         <div className="flex items-center gap-2">
-          {tileControls?.dragHandle}
-          <ClipboardList className="w-4 h-4 text-gray-400" />
+          <DashboardTileIcon icon={<ClipboardList className="w-4 h-4 text-gray-400" />} dragHandle={tileControls?.dragHandle} />
           <CardTitle className="text-sm font-medium text-gray-900">Recent Activity</CardTitle>
           <span className="ml-auto">{tileControls?.removeButton}</span>
         </div>

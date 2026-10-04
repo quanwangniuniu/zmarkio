@@ -17,7 +17,7 @@ import {
   type WorkspaceSpreadsheet,
 } from '@/lib/api/workspaceApi';
 import { nestedProjectPath } from '@/lib/projectNestedRoutes';
-import { useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
+import { DashboardTileIcon, useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -320,11 +320,10 @@ function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
     >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 8, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 0', minWidth: 0 }}>
-          {tileControls?.dragHandle}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 7, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <DashboardTileIcon dragHandle={tileControls?.dragHandle} icon={<div style={{ width: 28, height: 28, borderRadius: 7, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               {iconSvg}
-            </div>
+            </div>} />
             <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, whiteSpace: 'nowrap' }}>{title}</span>
           </div>
         </div>
@@ -348,7 +347,7 @@ function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
 function ChartPanel({ section, title, children, right, full = false }: {
   section: string; title: string; children: React.ReactNode; right?: React.ReactNode; full?: boolean;
 }) {
-  const widgetId = title === 'Status breakdown' ? 'task-status' : title === 'Priority distribution' ? 'task-priority' : 'task-trend';
+  const widgetId = title === 'Status breakdown' ? 'task-status' : title === 'Priority distribution' ? 'task-priority' : title === 'Type breakdown' ? 'task-types' : 'task-trend';
   const tileControls = useDashboardTileControls(widgetId);
   return (
     <div style={{ background: '#fff', borderRadius: SURFACE_RADIUS, border: `1px solid ${SURFACE_BORDER}`, padding: PANEL_PAD, gridColumn: full ? '1 / -1' : undefined, boxShadow: 'none', minWidth: 0, overflow: 'hidden', height: '100%' }}>
@@ -854,7 +853,7 @@ interface Props { projectId: Id; }
 export type WorkspaceWidgetId =
   | 'overall-progress' | 'tasks-completed' | 'task-completion-rate' | 'overdue-tasks' | 'needs-attention'
   | 'decisions' | 'tasks' | 'operations'
-  | 'task-status' | 'task-priority' | 'task-trend';
+  | 'task-status' | 'task-priority' | 'task-types' | 'task-trend';
 
 interface WorkspaceContextValue {
   workspace: WorkspaceDashboardData | null;
@@ -1175,7 +1174,7 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
       </div>}
 
       {/* CHART ROW */}
-      {['task-status', 'task-priority'].includes(section) && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 12, height: '100%' }}>
+      {['task-status', 'task-priority', 'task-types'].includes(section) && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 12, height: '100%' }}>
         {section === 'task-status' && <ChartPanel section="Tasks" title="Status breakdown">
           <HorizontalBarChart labels={statusLabels} values={statusValues} colors={statusColors} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
@@ -1196,9 +1195,8 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
               return <PriorityRow key={p.key} label={p.label} count={count} max={maxPriority} color={p.color} />;
             })}
           </div>
-          <Divider />
-          <div style={{ fontSize: 10, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tasks</div>
-          <p style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, marginBottom: 10 }}>Type breakdown</p>
+        </ChartPanel>}
+        {section === 'task-types' && <ChartPanel section="Tasks" title="Type breakdown">
           <DonutChart labels={typeLabels} values={typeValues} colors={typeColors} />
         </ChartPanel>}
       </div>}
