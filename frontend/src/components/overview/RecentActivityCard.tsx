@@ -10,6 +10,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import type { ActivityEvent } from '@/types/dashboard';
+import { useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
 
 interface RecentActivityCardProps {
   activities: ActivityEvent[];
@@ -44,20 +45,23 @@ function formatTime(iso: string): string {
 }
 
 export default function RecentActivityCard({ activities }: RecentActivityCardProps) {
+  const tileControls = useDashboardTileControls('activity');
   return (
     <Card
       data-overview-card="activity"
-      className="border-[0.5px] border-gray-200 bg-white shadow-none"
+      className="flex h-full min-h-0 flex-col border-[0.5px] border-gray-200 bg-white shadow-none"
     >
-      <CardHeader className="pb-2 px-4 pt-4">
+      <CardHeader className="shrink-0 pb-2 px-4 pt-4">
         <div className="flex items-center gap-2">
+          {tileControls?.dragHandle}
           <ClipboardList className="w-4 h-4 text-gray-400" />
           <CardTitle className="text-sm font-medium text-gray-900">Recent Activity</CardTitle>
+          <span className="ml-auto">{tileControls?.removeButton}</span>
         </div>
       </CardHeader>
 
-      <CardContent className="px-4 pb-4">
-        <div className="space-y-0">
+      <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-4">
+        <div className="min-h-0 flex-1 space-y-0 overflow-y-auto">
           {activities.slice(0, 6).map((ev) => {
             const Icon = eventIcon[ev.event_type];
             const colors = eventColor[ev.event_type];
@@ -90,7 +94,7 @@ export default function RecentActivityCard({ activities }: RecentActivityCardPro
           })}
         </div>
 
-        <button className="w-full text-center text-[11px] text-[#3CCED7] font-medium mt-2 hover:underline">
+        <button className="mt-2 w-full shrink-0 text-center text-[11px] font-medium text-[#3CCED7] hover:underline">
           View all activity →
         </button>
       </CardContent>

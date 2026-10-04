@@ -20,6 +20,7 @@ const budgetRealE2eSpecs = [
 ];
 
 const mockOnlyE2eSpecs = [
+  /e2e[\\/]dashboard[\\/]dashboard-builder\.spec\.ts$/,
   /e2e[\\/]budget[\\/]budget-admin-override\.spec\.ts$/,
   /e2e[\\/]meta-ads[\\/]meta-ads-preview-account-switch\.spec\.ts$/,
 ];
@@ -161,6 +162,11 @@ export default defineConfig({
         /e2e[\\/]messages[\\/]messages-live-load\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-multi-client-render\.spec\.ts$/,
       ],
+    },
+    {
+      name: 'dashboard-mock',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /e2e[\\/]dashboard[\\/]dashboard-builder\.spec\.ts$/,
     },
     {
       name: 'budget-mock',

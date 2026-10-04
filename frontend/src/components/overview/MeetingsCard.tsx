@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Users, Clock, CalendarDays } from 'lucide-react';
 import type { MeetingListItem } from '@/types/meeting';
 import type { ActionItemDisplay } from '@/types/overview';
+import { useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
 
 interface MeetingsCardProps {
   upcoming: MeetingListItem[];
@@ -28,6 +29,7 @@ function formatDateLabel(iso: string | null): string {
 }
 
 export default function MeetingsCard({ upcoming, actions }: MeetingsCardProps) {
+  const tileControls = useDashboardTileControls('meetings');
   const todayMeetings = upcoming.filter((m) => m.scheduled_date === TODAY_ISO);
   const next7Days = upcoming.filter((m) => m.scheduled_date && m.scheduled_date > TODAY_ISO);
 
@@ -36,19 +38,21 @@ export default function MeetingsCard({ upcoming, actions }: MeetingsCardProps) {
   return (
     <Card
       data-overview-card="meetings"
-      className="border-[0.5px] border-gray-200 bg-white shadow-none"
+      className="flex h-full min-h-0 flex-col border-[0.5px] border-gray-200 bg-white shadow-none"
     >
-      <CardHeader className="pb-2 px-4 pt-4">
+      <CardHeader className="shrink-0 pb-2 px-4 pt-4">
         <div className="flex items-center gap-2">
+          {tileControls?.dragHandle}
           <Users className="w-4 h-4 text-gray-400" />
           <CardTitle className="text-sm font-medium text-gray-900">Meetings & Action Items</CardTitle>
           <span className="ml-auto text-xs text-gray-400">
             {todayMeetings.length} today
           </span>
+          {tileControls?.removeButton}
         </div>
       </CardHeader>
 
-      <CardContent className="px-4 pb-4 space-y-3">
+      <CardContent className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 pb-4">
         {todayMeetings.length > 0 && (
           <div>
             <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">

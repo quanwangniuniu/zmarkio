@@ -6,7 +6,7 @@
 //   Zone metrics  → ProjectWorkspaceDashboardView  (/api/dashboard/workspace/)
 //   Chart metrics → DashboardSummaryView           (/api/dashboard/summary/)
 
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { AlertCircle, Loader2 } from 'lucide-react';
 import { Id } from '@/types/common';
@@ -17,6 +17,7 @@ import {
   type WorkspaceSpreadsheet,
 } from '@/lib/api/workspaceApi';
 import { nestedProjectPath } from '@/lib/projectNestedRoutes';
+import { useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -242,6 +243,8 @@ function SummaryCard({
   sub?: string; subColor?: string;
   barFill?: number; barColor?: string;
 }) {
+  const widgetId = ({ 'Overall Progress': 'overall-progress', 'Tasks Completed': 'tasks-completed', 'Task Completion Rate': 'task-completion-rate', 'Overdue Tasks': 'overdue-tasks', 'Needs Attention': 'needs-attention' } as Record<string, string>)[label];
+  const tileControls = useDashboardTileControls(widgetId);
   const [hovered, setHovered] = useState(false);
   const animated = useCountUp(rawValue);
 
@@ -249,7 +252,7 @@ function SummaryCard({
   const shownValue = `${animated}${suffix}`;
 
   return (
-    <div style={{ position: 'relative', minWidth: 0 }}>
+    <div style={{ position: 'relative', minWidth: 0, height: '100%' }}>
       <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -264,24 +267,29 @@ function SummaryCard({
           position: 'relative',
           minWidth: 0,
           overflow: 'hidden',
+          height: '100%',
         }}
       >
-        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: TEXT_MUTED, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {label}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 8, minWidth: 0 }}>
+          {tileControls?.dragHandle}
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: TEXT_MUTED }}>{label}</span>
+          {tileControls?.removeButton && <span style={{ marginLeft: 'auto' }}>{tileControls.removeButton}</span>}
         </div>
-        <div style={{ fontSize: 32, fontWeight: 700, color: valueColor, lineHeight: 1, letterSpacing: 0 }}>
-          {shownValue}
-        </div>
-        {barFill !== undefined && (
-          <div style={{ height: 3, background: '#eef0f2', borderRadius: 2, marginTop: 10, overflow: 'hidden' }}>
-            <div style={{
-              height: 3, borderRadius: 2, background: barColor,
-              width: `${(animated / Math.max(rawValue, 1)) * barFill}%`,
-              transition: 'width 0.05s linear',
-            }} />
+        <div style={{ paddingLeft: tileControls ? 20 : 0 }}>
+          <div style={{ fontSize: 32, fontWeight: 700, color: valueColor, lineHeight: 1, letterSpacing: 0 }}>
+            {shownValue}
           </div>
-        )}
-        {sub && <div style={{ fontSize: 10, color: subColor, marginTop: 5, overflowWrap: 'anywhere' }}>{sub}</div>}
+          {barFill !== undefined && (
+            <div style={{ height: 3, background: '#eef0f2', borderRadius: 2, marginTop: 10, overflow: 'hidden' }}>
+              <div style={{
+                height: 3, borderRadius: 2, background: barColor,
+                width: `${(animated / Math.max(rawValue, 1)) * barFill}%`,
+                transition: 'width 0.05s linear',
+              }} />
+            </div>
+          )}
+          {sub && <div style={{ fontSize: 10, color: subColor, marginTop: 5, overflowWrap: 'anywhere' }}>{sub}</div>}
+        </div>
       </div>
     </div>
   );
@@ -293,7 +301,9 @@ function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
   iconSvg: React.ReactNode; iconBg: string; title: string;
   badge: string; viewAllHref: string; children: React.ReactNode;
 }) {
+  const tileControls = useDashboardTileControls(title.toLowerCase());
   const [hovered, setHovered] = useState(false);
+  const viewAll = <Link href={viewAllHref} style={{ fontSize: 12, color: OVERVIEW_PRIMARY, whiteSpace: 'nowrap', flexShrink: 0, textDecoration: 'none', fontWeight: 500 }}>View all →</Link>;
   return (
     <div
       onMouseEnter={() => setHovered(true)}
@@ -305,23 +315,27 @@ function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
         transition: 'all 0.18s ease',
         minWidth: 0,
         overflow: 'hidden',
+        height: '100%',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 8, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 1, minWidth: 0 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 7, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {iconSvg}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: tileControls ? 'wrap' : undefined, marginBottom: 14, gap: 8, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: tileControls ? '1 1 0' : undefined, minWidth: 0 }}>
+          {tileControls?.dragHandle}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 7, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              {iconSvg}
+            </div>
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, whiteSpace: 'nowrap' }}>{title}</span>
           </div>
-          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, whiteSpace: 'nowrap' }}>{title}</span>
         </div>
         {badge ? (
           <span style={{ fontSize: 11, color: TEXT_SECONDARY, background: '#f8fafc', borderRadius: 9999, padding: '2px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}>
             {badge}
           </span>
         ) : null}
-        <Link href={viewAllHref} style={{ fontSize: 12, color: OVERVIEW_PRIMARY, whiteSpace: 'nowrap', flexShrink: 0, textDecoration: 'none', fontWeight: 500 }}>
-          View all →
-        </Link>
+        {!tileControls && viewAll}
+        {tileControls?.removeButton}
+        {tileControls && <div style={{ width: '100%', textAlign: 'right' }}>{viewAll}</div>}
       </div>
       {children}
     </div>
@@ -333,12 +347,16 @@ function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
 function ChartPanel({ section, title, children, right, full = false }: {
   section: string; title: string; children: React.ReactNode; right?: React.ReactNode; full?: boolean;
 }) {
+  const widgetId = title === 'Status breakdown' ? 'task-status' : title === 'Priority distribution' ? 'task-priority' : 'task-trend';
+  const tileControls = useDashboardTileControls(widgetId);
   return (
-    <div style={{ background: '#fff', borderRadius: SURFACE_RADIUS, border: `1px solid ${SURFACE_BORDER}`, padding: PANEL_PAD, gridColumn: full ? '1 / -1' : undefined, boxShadow: 'none', minWidth: 0, overflow: 'hidden' }}>
+    <div style={{ background: '#fff', borderRadius: SURFACE_RADIUS, border: `1px solid ${SURFACE_BORDER}`, padding: PANEL_PAD, gridColumn: full ? '1 / -1' : undefined, boxShadow: 'none', minWidth: 0, overflow: 'hidden', height: '100%' }}>
       <div style={{ fontSize: 9, color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{section}</div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 8, minWidth: 0 }}>
-        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: TEXT_PRIMARY }}>{title}</span>
+        {tileControls?.dragHandle}
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: TEXT_PRIMARY, marginRight: 'auto' }}>{title}</span>
         {right}
+        {tileControls?.removeButton}
       </div>
       {children}
     </div>
@@ -832,8 +850,25 @@ function deriveOpsMetrics(
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface Props { projectId: Id; }
+export type WorkspaceWidgetId =
+  | 'overall-progress' | 'tasks-completed' | 'task-completion-rate' | 'overdue-tasks' | 'needs-attention'
+  | 'decisions' | 'tasks' | 'operations'
+  | 'task-status' | 'task-priority' | 'task-trend';
 
-export default function WorkspaceDashboard({ projectId }: Props) {
+interface WorkspaceContextValue {
+  workspace: WorkspaceDashboardData | null;
+  summary: DashboardSummaryData | null;
+  loading: boolean;
+  error: string | null;
+  trendDays: 7 | 30;
+  setTrendDays: (days: 7 | 30) => void;
+  trendLoading: boolean;
+  projectId: Id;
+}
+const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
+
+/** Fetch workspace metrics once, even when every card is a separate dashboard widget. */
+export function WorkspaceDashboardProvider({ projectId, children }: Props & { children: ReactNode }) {
   const [workspace, setWorkspace] = useState<WorkspaceDashboardData | null>(null);
   const [summary, setSummary] = useState<DashboardSummaryData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -889,6 +924,13 @@ export default function WorkspaceDashboard({ projectId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trendDays]);
 
+  return <WorkspaceContext.Provider value={{ workspace, summary, loading, error, trendDays, setTrendDays, trendLoading, projectId }}>{children}</WorkspaceContext.Provider>;
+}
+
+export default function WorkspaceDashboardWidget({ section }: { section: WorkspaceWidgetId }) {
+  const context = useContext(WorkspaceContext);
+  if (!context) throw new Error('WorkspaceDashboardWidget requires WorkspaceDashboardProvider');
+  const { workspace, summary, loading, error, trendDays, setTrendDays, trendLoading, projectId } = context;
   if (loading) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 16, border: '1px dashed #E5E7EB', background: '#fff', padding: 40 }}>
@@ -946,11 +988,12 @@ export default function WorkspaceDashboard({ projectId }: Props) {
   const trendCompleted = (summary?.daily_task_activity ?? []).map((d) => d.completed);
 
   return (
-    <div>
+    <div style={{ height: '100%' }}>
       {/* PROJECT OVERVIEW */}
-      <SectionLabel>Project Overview</SectionLabel>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 210px), 1fr))', gap: 10, marginBottom: 20 }}>
 
+      {['overall-progress', 'tasks-completed', 'task-completion-rate', 'overdue-tasks', 'needs-attention'].includes(section) && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 210px), 1fr))', gap: 10, height: '100%' }}>
+
+        {section === 'overall-progress' && (<>
         {/* Overall Progress */}
         <SummaryCard
           label="Overall Progress"
@@ -959,6 +1002,11 @@ export default function WorkspaceDashboard({ projectId }: Props) {
           sub={`${doneTasks} / ${totalTasks} tasks done`}
         />
 
+        </>)}
+        {section === 'tasks-completed' && (
+          <SummaryCard label="Tasks Completed" rawValue={doneTasks} sub={`${totalTasks} total tasks`} />
+        )}
+        {section === 'task-completion-rate' && (<>
         {/* Task Completion Rate */}
         <SummaryCard
           label="Task Completion Rate"
@@ -967,6 +1015,8 @@ export default function WorkspaceDashboard({ projectId }: Props) {
           sub={`+${summary.time_metrics.completed_last_7_days} completed last 7d`} subColor={COLOR.green}
         />
 
+        </>)}
+        {section === 'overdue-tasks' && (<>
         {/* Overdue Tasks */}
         <SummaryCard
           label="Overdue Tasks"
@@ -976,6 +1026,8 @@ export default function WorkspaceDashboard({ projectId }: Props) {
           sub={`${pct(task.overdueCount, totalTasks)}% of active tasks`}
         />
 
+        </>)}
+        {section === 'needs-attention' && (<>
         {/* Needs Attention */}
         <SummaryCard
           label="Needs Attention"
@@ -985,12 +1037,14 @@ export default function WorkspaceDashboard({ projectId }: Props) {
           sub={`${dec.highRiskCount} high-risk · ${task.overdueCount} overdue · ${task.blockedCount} blocked`}
         />
 
-      </div>
+        </>)}
+      </div>}
 
       {/* MODULE SUMMARY */}
-      <SectionLabel>Module Summary</SectionLabel>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 10, marginBottom: 12 }}>
 
+      {['decisions', 'tasks', 'operations'].includes(section) && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 10, height: '100%' }}>
+
+        {section === 'decisions' && (<>
         {/* DECISIONS */}
         <ZonePanel
           iconSvg={
@@ -1028,6 +1082,8 @@ export default function WorkspaceDashboard({ projectId }: Props) {
           </div>
         </ZonePanel>
 
+        </>)}
+        {section === 'tasks' && (<>
         {/* TASKS */}
         <ZonePanel
           iconSvg={
@@ -1086,6 +1142,8 @@ export default function WorkspaceDashboard({ projectId }: Props) {
           <p style={{ fontSize: 10, color: '#bbb', marginTop: 5 }}>Hover to see breakdown · full chart below</p>
         </ZonePanel>
 
+        </>)}
+        {section === 'operations' && (<>
         {/* OPERATIONS */}
         <ZonePanel
           iconSvg={
@@ -1112,11 +1170,12 @@ export default function WorkspaceDashboard({ projectId }: Props) {
           <SheetMiniBarChart spreadsheets={workspace.spreadsheets} />
         </ZonePanel>
 
-      </div>
+        </>)}
+      </div>}
 
       {/* CHART ROW */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 12, marginBottom: 12 }}>
-        <ChartPanel section="Tasks" title="Status breakdown">
+      {['task-status', 'task-priority'].includes(section) && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 12, height: '100%' }}>
+        {section === 'task-status' && <ChartPanel section="Tasks" title="Status breakdown">
           <HorizontalBarChart labels={statusLabels} values={statusValues} colors={statusColors} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
             {summary.status_overview.breakdown.map((b) => (
@@ -1128,8 +1187,8 @@ export default function WorkspaceDashboard({ projectId }: Props) {
               />
             ))}
           </div>
-        </ChartPanel>
-        <ChartPanel section="Tasks" title="Priority distribution">
+        </ChartPanel>}
+        {section === 'task-priority' && <ChartPanel section="Tasks" title="Priority distribution">
           <div style={{ padding: '2px 0 10px' }}>
             {PRIORITY_CONFIG.map((p) => {
               const count = summary.priority_breakdown.find((b) => b.priority === p.key)?.count ?? 0;
@@ -1140,11 +1199,11 @@ export default function WorkspaceDashboard({ projectId }: Props) {
           <div style={{ fontSize: 10, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tasks</div>
           <p style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, marginBottom: 10 }}>Type breakdown</p>
           <DonutChart labels={typeLabels} values={typeValues} colors={typeColors} />
-        </ChartPanel>
-      </div>
+        </ChartPanel>}
+      </div>}
 
       {/* TREND */}
-      <ChartPanel
+      {section === 'task-trend' && <ChartPanel
         section="Tasks" title="Created vs Completed — last 7 days" full
         right={
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
@@ -1182,7 +1241,7 @@ export default function WorkspaceDashboard({ projectId }: Props) {
           <LegendItem color={COLOR.blue} label="Created" />
           <LegendItem color={COLOR.green} label="Completed" />
         </div>
-      </ChartPanel>
+      </ChartPanel>}
     </div>
   );
 }
