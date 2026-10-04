@@ -964,6 +964,34 @@ def org_token_summary(request):
         'currency': plan.currency if plan else 'AUD',
     })
 
+def _construct_webhook_event(payload, sig_header):
+    secrets = [
+        settings.STRIPE_WEBHOOK_SECRET,
+        getattr(settings, 'STRIPE_WEBHOOK_SECRET_NEXT', ''),
+    ]
+
+    last_signature_error = None
+
+    for secret in secrets:
+        if not secret:
+            continue
+
+        try:
+            return stripe.Webhook.construct_event(
+                payload,
+                sig_header,
+                secret,
+            )
+        except stripe.SignatureVerificationError as exc:
+            last_signature_error = exc
+
+    if last_signature_error is not None:
+        raise last_signature_error
+
+    raise stripe.SignatureVerificationError(
+        'No Stripe webhook signing secret configured',
+        sig_header,
+    )
 
 @csrf_exempt
 @require_http_methods(["POST"])
@@ -973,9 +1001,7 @@ def stripe_webhook(request):
     sig_header = request.META.get('HTTP_STRIPE_SIGNATURE')
 
     try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
-        )
+        event = _construct_webhook_event(payload, sig_header)
     except ValueError:
         return JsonResponse({'error': 'Invalid payload'}, status=400)
     except stripe.SignatureVerificationError:
