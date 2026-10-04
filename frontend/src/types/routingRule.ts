@@ -1,4 +1,4 @@
-// Routing rules & sandbox (CSM-S03-05). Mirrors backend csm/services/routing_engine.py.
+// Routing rules & sandbox. Mirrors backend csm/services/routing_engine.py.
 
 export type RoutingMatchMode = 'all' | 'any';
 

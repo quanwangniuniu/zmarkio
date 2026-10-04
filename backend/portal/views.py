@@ -163,8 +163,8 @@ class PortalConversationViewSet(
         elif customer.organisation:
             queue = Queue.objects.filter(organisation=customer.organisation).first()
 
-        # The customer's experience-group routing rules may pick another queue
-        # (CSM-S03-05). Routing must never block a customer from starting a chat.
+        # The customer's experience-group routing rules may pick another queue.
+        # Routing must never block a customer from starting a chat.
         tags = [subject] if subject else []
         try:
             # Savepoint: a DB error in routing must not abort the insert below.

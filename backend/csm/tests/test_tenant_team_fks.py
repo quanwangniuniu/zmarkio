@@ -1,5 +1,5 @@
 """
-csm rows that point at tenant-scoped core.Team / core.Project (MED-225 PR review).
+csm rows that point at tenant-scoped core.Team / core.Project.
 
 csm tables live in public, while core.Team and core.Project live in each org's
 schema. A database FK from public would check the (empty) public copy, so these

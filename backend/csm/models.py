@@ -981,7 +981,7 @@ class SupportChannelExperienceGroup(models.Model):
 
 class RoutingRule(TimeStampedModel):
     """
-    Ordered routing rule for an Experience Group (CSM-S03-05).
+    Ordered routing rule for an Experience Group.
 
     Rules are evaluated top-down by `position`; the first enabled rule whose
     conditions match decides the queue. `conditions` is a list of

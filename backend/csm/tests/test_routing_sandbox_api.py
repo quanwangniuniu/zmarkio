@@ -1,4 +1,4 @@
-"""Routing sandbox API tests (CSM-S03-05): trace shape and isolation."""
+"""Routing sandbox API tests: trace shape and isolation."""
 
 from datetime import datetime, timezone as dt_timezone
 from unittest.mock import patch

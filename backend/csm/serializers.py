@@ -886,7 +886,7 @@ class QualityConversationDetailSerializer(ConversationDetailSerializer):
 
 
 # ---------------------------------------------------------------------------
-# Routing rules & sandbox (CSM-S03-05)
+# Routing rules & sandbox
 # ---------------------------------------------------------------------------
 
 class RoutingRuleSerializer(serializers.ModelSerializer):

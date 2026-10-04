@@ -1,5 +1,5 @@
 """
-Routing sandbox (CSM-S03-05): evaluate routing rules for a simulated
+Routing sandbox: evaluate routing rules for a simulated
 conversation without touching live data.
 
 Read-only by design: this module only queries configuration (experience

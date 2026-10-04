@@ -1,7 +1,7 @@
 """
 Live intake applies the customer's experience-group routing rules when a portal
-conversation starts (MED-225 PR review: rules were sandbox-only). Same engine and
-fallback as the sandbox, so the two cannot disagree.
+conversation starts. Same engine and fallback as the sandbox, so the two cannot
+disagree.
 """
 from unittest.mock import patch
 

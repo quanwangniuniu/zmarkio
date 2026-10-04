@@ -882,7 +882,7 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         # team the user belongs to. In CSM a user's team membership is recorded on
         # CustomerUser.team (core.TeamMember is not populated for CSM agents), so
         # that is the source of truth here. CSM admins may preview another team's
-        # view with ?view_as_team= (routing & template sandbox, CSM-S03-05).
+        # view with ?view_as_team= (routing & template sandbox).
         view_as_team = self.request.query_params.get('view_as_team')
         if view_as_team is not None:
             team_ids = self._preview_team_ids(org_id, view_as_team)
@@ -1603,7 +1603,7 @@ class GuidanceEntryViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
 
 class RoutingRuleViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     """
-    Routing rule CRUD per experience group (CSM-S03-05).
+    Routing rule CRUD per experience group.
 
     - GET    /routing-rules/?project={id}&experience_group={id}   ordered list
     - POST   /routing-rules/?project={id}                          create (appended)

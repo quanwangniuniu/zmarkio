@@ -229,7 +229,7 @@ def test_agent_cannot_manage_tags(api_client, user, customer_organisation):
     assert TemplateTag.objects.filter(id=tag.id).exists()
 
 
-# --- Sandbox "view as team" preview (CSM-S03-05) -----------------------------
+# --- Sandbox "view as team" preview -----------------------------------------
 
 @pytest.fixture
 def team_templates(organization, customer_organisation):

@@ -1,4 +1,4 @@
-"""Routing rule CRUD API tests (CSM-S03-05)."""
+"""Routing rule CRUD API tests."""
 
 import pytest
 from django.db import IntegrityError, connection, transaction

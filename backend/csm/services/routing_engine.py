@@ -1,5 +1,5 @@
 """
-Routing-rule evaluator for CSM-S03-05.
+Routing-rule evaluator.
 
 Takes RoutingRule instances (with target_queue loaded) and a context dict,
 and returns a JSON-ready trace of every rule and condition that was checked.

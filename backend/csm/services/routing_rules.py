@@ -1,4 +1,4 @@
-"""Routing rule CRUD, validation and live-intake routing for CSM-S03-05."""
+"""Routing rule CRUD, validation and live-intake routing."""
 
 import logging
 

@@ -1,4 +1,4 @@
-"""Tests for the routing rule evaluator (CSM-S03-05). Unsaved instances; no database."""
+"""Tests for the routing rule evaluator. Unsaved instances; no database."""
 
 import pytest
 
