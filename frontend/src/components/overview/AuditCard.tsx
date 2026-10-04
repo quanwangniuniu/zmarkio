@@ -4,6 +4,7 @@ import { ShieldCheck, UserCog, Users, FolderOpen, Building2 } from "lucide-react
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import type { AdminAuditEvent } from "@/types/audit";
 import { useRouter } from "next/navigation";
+import { useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
 
 const ACTION_LABEL: Record<string, string> = {
   'role.created':             'created role',
@@ -43,19 +44,22 @@ function formatTime(iso: string): string {
 
 export default function AuditCard({ events }: { events: AdminAuditEvent[] }) {
   const router = useRouter();
+  const tileControls = useDashboardTileControls('audit');
   return (
-    <Card data-overview-card="audit" className="border-[0.5px] border-gray-200 bg-white shadow-none">
-      <CardHeader className="pb-2 px-4 pt-4">
+    <Card data-overview-card="audit" className="flex h-full min-h-0 flex-col border-[0.5px] border-gray-200 bg-white shadow-none">
+      <CardHeader className="shrink-0 pb-2 px-4 pt-4">
         <div className="flex items-center gap-2">
+          {tileControls?.dragHandle}
           <ShieldCheck className="w-4 h-4 text-gray-400" />
           <CardTitle className="text-sm font-medium text-gray-900">Admin Action Log</CardTitle>
+          <span className="ml-auto">{tileControls?.removeButton}</span>
         </div>
       </CardHeader>
-      <CardContent className="px-4 pb-4">
+      <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-4">
         {events.length === 0 ? (
-          <p className="text-[12px] text-gray-400 py-2">No recent admin actions.</p>
+          <p className="min-h-0 flex-1 overflow-y-auto py-2 text-[12px] text-gray-400">No recent admin actions.</p>
         ) : (
-          <div className="space-y-0">
+          <div className="min-h-0 flex-1 space-y-0 overflow-y-auto">
             {events.slice(0, 6).map((ev) => {
               const { Icon, colors } = actionIcon(ev.action);
               const label = ACTION_LABEL[ev.action] ?? ev.action;
@@ -88,7 +92,7 @@ export default function AuditCard({ events }: { events: AdminAuditEvent[] }) {
 
         <button
           onClick={() => router.push('/admin/audit-log')}
-          className="w-full text-center text-[11px] text-[#3CCED7] font-medium mt-2 hover:underline"
+          className="mt-2 w-full shrink-0 text-center text-[11px] font-medium text-[#3CCED7] hover:underline"
         >
           View all actions →
         </button>

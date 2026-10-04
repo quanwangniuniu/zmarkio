@@ -250,6 +250,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     # and MetaAdCreative / CustomUser (public).
     # ------------------------------------------------------------------
     from ad_copy_variation.models import AdCopyVariation
+    from dashboard.models import DashboardLayout
 
     # ------------------------------------------------------------------
     # Return in topological order
@@ -262,6 +263,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         Team,
         Project,
         ProjectMember,
+        DashboardLayout,  # project is tenant-scoped; user is in public
         ProjectInvitation,
         AdChannel,
         TeamMember,

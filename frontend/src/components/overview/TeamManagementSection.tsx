@@ -12,6 +12,7 @@ import {
   type ProjectRoleOption,
 } from '@/lib/api/projectApi';
 import { useAuthStore } from '@/lib/authStore';
+import { useDashboardTileControls } from '@/components/dashboard/builder/DashboardTileControls';
 
 interface Props {
   projectId: number | string | null;
@@ -66,6 +67,7 @@ const getApiErrorMessage = (err: unknown, fallback: string): string => {
 };
 
 export default function TeamManagementSection({ projectId, projectName }: Props) {
+  const tileControls = useDashboardTileControls('project-team');
   const currentUser = useAuthStore((s) => s.user);
   const [tab, setTab] = useState<Tab>('members');
   const [members, setMembers] = useState<ProjectMemberData[]>([]);
@@ -220,10 +222,11 @@ export default function TeamManagementSection({ projectId, projectName }: Props)
   return (
     <Card
       data-overview-section="team-management"
-      className="border-[0.5px] border-gray-200 bg-white shadow-none"
+      className="flex h-full min-h-0 flex-col border-[0.5px] border-gray-200 bg-white shadow-none"
     >
-      <CardHeader className="pb-3 px-5 pt-5">
+      <CardHeader className="shrink-0 pb-3 px-5 pt-5">
         <div className="flex flex-wrap items-center gap-2">
+          {tileControls?.dragHandle}
           <Users className="w-4 h-4 text-gray-500" />
           <CardTitle className="text-sm font-semibold text-gray-900">
             Team Management
@@ -242,25 +245,26 @@ export default function TeamManagementSection({ projectId, projectName }: Props)
               Approvals ({approvals.length})
             </TabButton>
           </div>
+          {tileControls?.removeButton}
         </div>
       </CardHeader>
 
-      <CardContent className="px-5 pb-5 space-y-4">
+      <CardContent className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pb-5">
         {isOwner && (
           <form
             onSubmit={handleInvite}
-            className="flex flex-col gap-2 rounded-lg border border-[#3CCED7]/20 bg-[#3CCED7]/5 p-3 sm:flex-row sm:items-center"
+            className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-[#3CCED7]/20 bg-[#3CCED7]/5 p-3"
           >
-            <UserPlus className="hidden w-4 h-4 text-[#3CCED7] sm:block" />
+            <UserPlus className="hidden w-4 h-4 shrink-0 text-[#3CCED7] lg:block" />
             <input
               type="email"
               required
               placeholder="name@company.com"
               value={inviteEmail}
               onChange={(e) => setInviteEmail(e.target.value)}
-              className="flex-1 h-9 rounded-md border border-gray-200 bg-white px-3 text-sm outline-none focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
+              className="h-9 min-w-0 flex-[1_1_180px] rounded-md border border-gray-200 bg-white px-3 text-sm outline-none focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
             />
-            <div className="w-full sm:min-w-[160px] sm:w-auto">
+            <div className="min-w-0 flex-[1_1_140px]">
               <InlineSelect
                 ariaLabel="Invite role"
                 value={inviteRole}
@@ -275,7 +279,7 @@ export default function TeamManagementSection({ projectId, projectName }: Props)
             <button
               type="submit"
               disabled={inviting || !inviteEmail.trim()}
-              className="inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md bg-gradient-to-r from-[#3CCED7] to-[#A6E661] px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+              className="inline-flex h-9 min-w-0 flex-[1_1_100px] items-center justify-center gap-1.5 rounded-md bg-gradient-to-r from-[#3CCED7] to-[#A6E661] px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {inviting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
               Invite
