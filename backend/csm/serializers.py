@@ -893,9 +893,6 @@ class RoutingRuleSerializer(serializers.ModelSerializer):
     target_queue_name = serializers.CharField(
         source='target_queue.name', read_only=True, default=None,
     )
-    target_queue_is_active = serializers.BooleanField(
-        source='target_queue.is_active', read_only=True, default=None,
-    )
     can_route = serializers.BooleanField(read_only=True)
 
     class Meta:
@@ -903,7 +900,7 @@ class RoutingRuleSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'experience_group', 'name', 'position', 'is_enabled',
             'match_mode', 'conditions',
-            'target_queue', 'target_queue_name', 'target_queue_is_active', 'can_route',
+            'target_queue', 'target_queue_name', 'can_route',
             'add_tags', 'created_at', 'updated_at',
         ]
         read_only_fields = fields

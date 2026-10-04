@@ -40,7 +40,6 @@ export interface RoutingRule {
   conditions: RoutingCondition[];
   target_queue: number | null;
   target_queue_name: string | null;
-  target_queue_is_active: boolean | null;
   /** False when the target queue was deleted or deactivated; the rule is skipped. */
   can_route: boolean;
   add_tags: string[];

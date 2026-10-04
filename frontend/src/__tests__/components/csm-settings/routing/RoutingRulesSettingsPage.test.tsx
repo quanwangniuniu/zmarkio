@@ -53,7 +53,7 @@ const rulesState = (rules: RoutingRule[]) => ({
 
 const rule = (id: number, name: string, overrides: Partial<RoutingRule> = {}): RoutingRule => ({
   id, experience_group: 1, name, position: id, is_enabled: true, match_mode: 'all', conditions: [],
-  target_queue: 10, target_queue_name: 'Billing', target_queue_is_active: true, can_route: true,
+  target_queue: 10, target_queue_name: 'Billing', can_route: true,
   add_tags: [], created_at: '', updated_at: '',
   ...overrides,
 });
@@ -104,8 +104,8 @@ describe('RoutingRulesSettingsPage rules that cannot route', () => {
   it('flags each rule whose queue is missing or inactive and counts them in a banner', () => {
     useRoutingRulesMock.mockImplementation(() => rulesState([
       rule(1, 'Refunds'),
-      rule(2, 'Legacy', { target_queue_is_active: false, can_route: false }),
-      rule(3, 'Orphan', { target_queue: null, target_queue_name: null, target_queue_is_active: null, can_route: false }),
+      rule(2, 'Legacy', { can_route: false }),
+      rule(3, 'Orphan', { target_queue: null, target_queue_name: null, can_route: false }),
     ]));
     render(<RoutingRulesSettingsPage />);
 

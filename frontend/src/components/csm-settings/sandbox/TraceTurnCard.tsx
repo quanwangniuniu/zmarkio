@@ -84,7 +84,7 @@ export default function TraceTurnCard({ trace, turn, message, previous, expanded
           )}
 
           {outcome.tags.length > 0 && (
-            <p className="text-xs text-gray-600">Tags added: {outcome.tags.join(', ')}</p>
+            <p className="text-xs text-gray-600">Rule tags: {outcome.tags.join(', ')}</p>
           )}
 
           {trace.warnings.map((w) => (
