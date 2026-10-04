@@ -1,7 +1,7 @@
 """Focused unit tests for the helper functions in the agent/services/ package.
 
 External systems are replaced at their boundaries.  In particular, these tests
-never make real Anthropic or Gemini requests.
+never make real LLM requests.
 """
 import json
 from types import SimpleNamespace
@@ -47,23 +47,6 @@ class AgentStatusMessageTests(SimpleTestCase):
             message_type="status",
             metadata={"event_type": "miro_queued", "workflow_run_id": "run-7"},
         )
-
-
-class AnthropicClientTests(SimpleTestCase):
-    @patch.dict("os.environ", {"ANTHROPIC_API_KEY": ""})
-    def test_missing_api_key_returns_none(self):
-        self.assertIsNone(analysis._get_llm_client())
-
-    @patch("anthropic.Anthropic")
-    @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-anthropic-key"})
-    def test_configured_api_key_builds_anthropic_client(self, mock_anthropic):
-        expected_client = object()
-        mock_anthropic.return_value = expected_client
-
-        result = analysis._get_llm_client()
-
-        self.assertIs(result, expected_client)
-        mock_anthropic.assert_called_once_with(api_key="test-anthropic-key")
 
 
 class AnalysisInputHelperTests(SimpleTestCase):

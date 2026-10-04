@@ -350,11 +350,7 @@ export const AgentAPI = {
   },
 
   getConfigStatus: async (): Promise<{
-    dify_api: boolean;
-    dify_chat: boolean;
-    dify_calendar: boolean;
-    dify_miro: boolean;
-    anthropic: boolean;
+    gemini: boolean;
     column_registry?: {
       ok: boolean;
       error?: string;

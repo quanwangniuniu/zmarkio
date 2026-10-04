@@ -162,7 +162,7 @@ export function StepConfigForm({ stepType, config, disabled, onChange }: StepCon
   if (stepType === "call_llm") {
     return (
       <p className="text-xs text-muted-foreground">
-        Uses the configured LLM provider (Anthropic). Per-step prompt overrides are not yet
+        Uses the configured LLM (Ollama). Per-step prompt overrides are not yet
         supported — the executor runs the standard analysis flow.
       </p>
     )

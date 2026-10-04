@@ -6,7 +6,6 @@ causes token billing to be missed.
 PM decisions: Confluence 'Stripe Subscription Redesign' Q1-Q19
 """
 import logging
-import os
 from typing import Any
 
 from django.conf import settings
@@ -133,38 +132,8 @@ def call_llm(
 
 
 # ---------------------------------------------------------------------------
-# Provider backends
+# Ollama backend
 # ---------------------------------------------------------------------------
-
-def _call_anthropic(
-    model: str,
-    system_prompt: str,
-    user_prompt: str,
-    max_output_tokens: int,
-    temperature: float,
-) -> dict:
-    import anthropic
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
-    if not api_key:
-        raise RuntimeError("ANTHROPIC_API_KEY is not configured")
-    client = anthropic.Anthropic(api_key=api_key)
-    logger.info("_call_anthropic model=%s system_chars=%d user_chars=%d",
-                model, len(system_prompt), len(user_prompt))
-    message = client.messages.create(
-        model=model,
-        max_tokens=max_output_tokens,
-        temperature=temperature,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-    return {
-        'text': message.content[0].text if message.content else '',
-        'usage': {
-            'input': message.usage.input_tokens,
-            'output': message.usage.output_tokens,
-        },
-    }
-
 
 def _call_ollama(
     model: str,

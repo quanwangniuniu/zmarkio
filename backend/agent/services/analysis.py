@@ -10,29 +10,14 @@ from spreadsheet.providers import (
 from ..models import AgentWorkflowRun, ImportedCSVFile
 from .. import data_service
 from core.services import file_parser
-from ..agent_utils import json_input
 from ..llm_client import call_llm as _call_llm_unified
 from .analysis_prompts import (
-    _ANALYSIS_SYSTEM_PROMPT,
     _CONTEXT_BLOCK_TEMPLATE,
     _CRITERIA_WITH_BLOCK,
     _NO_CRITERIA_BLOCK,
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _get_llm_client():
-    """Return an Anthropic client if API key is set, else None."""
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
-    if not api_key:
-        return None
-    try:
-        import anthropic
-        return anthropic.Anthropic(api_key=api_key)
-    except ImportError:
-        logger.warning("anthropic package not installed, using mock LLM")
-        return None
 
 
 def _truncation_notice(spreadsheet_data):
@@ -49,37 +34,6 @@ def _truncation_notice(spreadsheet_data):
         )
         return f"{base} — narrow the sheet or a range for a full pass."
     return "Analyzed a subset of the columns — some wide columns were left out."
-
-
-def _call_llm(client, spreadsheet_data):
-    """Deprecated by the unified LLM caller"""
-    raise NotImplementedError("Use the `call_llm()` from llm_client module.")
-    """Call Claude API to analyze spreadsheet data."""
-    system_prompt = (
-        "You are a media buying analyst AI. Analyze spreadsheet data and identify "
-        "anomalies in campaign performance metrics like ROAS, CPA, CTR, conversion "
-        "rate, ad spend, etc.\n\n"
-        "Return your analysis as JSON with this structure:\n"
-        '{"anomalies": [{"metric": "...", "movement": "...", "scope_type": "...", '
-        '"scope_value": "...", "delta_value": ..., "delta_unit": "...", '
-        '"period": "...", "description": "..."}], '
-        '"recommended_tasks": [{"type": "optimization|alert|asset|execution", '
-        '"summary": "...", "priority": "HIGH|MEDIUM|LOW"}]}\n\n'
-        "Only return valid JSON, no markdown code fences."
-    )
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2000,
-        system=system_prompt,
-        messages=[
-            {
-                "role": "user",
-                "content": f"Analyze this spreadsheet data:\n{json.dumps(spreadsheet_data, default=str)}",
-            }
-        ],
-    )
-    text = response.content[0].text
-    return json.loads(text)
 
 
 def _build_criteria_text(success_criteria) -> tuple[str, list]:
@@ -294,24 +248,6 @@ def _assign_anomaly_ids(analysis):
         analysis['anomalies_confirmed'] = True
 
     return analysis
-
-
-def _coerce_llm_analysis_for_requested(data, requested):
-    """Map Claude/legacy full analysis JSON to the requested analysis key set."""
-    from ..generation_registry import analysis_keys_for_request, validate_analysis_response
-
-    expected = analysis_keys_for_request(requested)
-    if not expected:
-        return {}
-    subset = {}
-    if 'recommended_tasks' in expected:
-        subset['recommended_tasks'] = data.get('recommended_tasks', [])
-    if 'recommended_decision_tree' in expected:
-        subset['recommended_decision_tree'] = data.get(
-            'recommended_decision_tree',
-            {'nodes': []},
-        )
-    return validate_analysis_response(subset, requested)
 
 
 def _run_analysis(

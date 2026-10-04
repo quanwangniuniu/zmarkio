@@ -100,7 +100,7 @@ class BaseStepExecutor:
 
 
 class AnalyzeDataExecutor(BaseStepExecutor):
-    """Runs the Dify->Claude analysis fallback chain via _run_analysis()."""
+    """Runs the spreadsheet analysis via _run_analysis()."""
 
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='fail')
     def execute(self, input_data):

@@ -1344,7 +1344,6 @@ class AgentConfigStatusView(EnglishResponseMixin, APIView):
     # Mapping of response key -> (settings attr, env var fallback)
     KEY_MAP = {
         'gemini': ('GEMINI_API_KEY', 'GEMINI_API_KEY'),
-        'anthropic': ('ANTHROPIC_API_KEY', 'ANTHROPIC_API_KEY'),
     }
 
     def get(self, request):
