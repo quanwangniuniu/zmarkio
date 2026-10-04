@@ -2,9 +2,10 @@ from rest_framework import serializers
 from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, CsmNotification,
     Conversation, ConversationMessage, Ticket, QuickReplyTemplate, QuickReplyTemplateHistory,
+    ConversationQualityReview,
     TemplateTag,
     TicketForm, TicketFormField, TicketFormAssignment,
-    SupportProject, CsmWorkType, SupportChannel,
+    SupportProject, CsmWorkType, GuidanceEntry, SupportChannel,
     SLAPolicy, SLAPriorityTarget, BusinessHoursCalendar,
     TicketStatus, TicketStatusTransition, TicketAutoResolveConfig,
 )
@@ -574,6 +575,69 @@ class WorkTypeReorderSerializer(serializers.Serializer):
 
 
 # ---------------------------------------------------------------------------
+# Guidance entries (CSM-S03-02)
+# ---------------------------------------------------------------------------
+
+class GuidanceEntrySerializer(serializers.ModelSerializer):
+    guidance_type_display = serializers.CharField(
+        source='get_guidance_type_display', read_only=True,
+    )
+    experience_groups = serializers.SerializerMethodField()
+    experience_group_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        write_only=True,
+    )
+    # Optimistic concurrency: the updated_at the client last saw (PATCH only).
+    expected_updated_at = serializers.DateTimeField(write_only=True, required=False)
+
+    class Meta:
+        model = GuidanceEntry
+        fields = [
+            'id', 'project', 'guidance_type', 'guidance_type_display',
+            'trigger_description', 'recommended_response',
+            'experience_groups', 'experience_group_ids', 'expected_updated_at',
+            'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'project', 'created_at', 'updated_at']
+
+    def get_experience_groups(self, obj):
+        return [
+            {
+                'id': link.experience_group_id,
+                'name': link.experience_group.name,
+                'display_order': link.display_order,
+            }
+            for link in obj.experience_group_links.all()
+        ]
+
+
+class GuidanceReorderSerializer(serializers.Serializer):
+    experience_group = serializers.IntegerField(min_value=1)
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=True,
+    )
+    # The order the client saw before the drag; a mismatch means a conflict.
+    expected_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=True,
+        required=False,
+    )
+
+
+class WorkspaceGuidanceEntrySerializer(serializers.Serializer):
+    """Read-only shape for the agent workspace panel."""
+
+    id = serializers.IntegerField()
+    guidance_type = serializers.CharField()
+    guidance_type_display = serializers.CharField()
+    trigger_description = serializers.CharField()
+    recommended_response = serializers.CharField()
+    display_order = serializers.IntegerField()
+
+
+# ---------------------------------------------------------------------------
 # SLA Policy (MED-218)
 # ---------------------------------------------------------------------------
 
@@ -750,3 +814,70 @@ class ReplaceTransitionsSerializer(serializers.Serializer):
         child=serializers.DictField(child=serializers.CharField()),
         default=list,
     )
+
+
+class ConversationQualityReviewSerializer(serializers.ModelSerializer):
+    """One supervisor annotation, as returned by the quality endpoints."""
+    rating_display = serializers.CharField(source='get_rating_display', read_only=True)
+
+    class Meta:
+        model = ConversationQualityReview
+        fields = [
+            'id', 'conversation', 'rating', 'rating_display', 'comment',
+            'reviewer', 'reviewer_name', 'reviewed_at',
+            'agent_user',
+        ]
+        read_only_fields = fields
+
+
+class ConversationQualityReviewWriteSerializer(serializers.Serializer):
+    """Input for the annotate endpoint. Snapshots are resolved server-side."""
+    rating = serializers.ChoiceField(choices=ConversationQualityReview.Rating.choices)
+    comment = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class QualityConversationSerializer(ConversationSerializer):
+    """List row for the quality inspection table.
+
+    ``review_count`` and ``latest_rating`` come from annotations and
+    ``my_review`` from a filtered prefetch, so rendering a page costs no
+    per-row queries.
+    """
+    assigned_to_user_id = serializers.IntegerField(
+        source='assigned_to.user_id', read_only=True, default=None)
+    message_count = serializers.IntegerField(read_only=True, default=0)
+    review_count = serializers.IntegerField(read_only=True, default=0)
+    latest_rating = serializers.CharField(read_only=True, default=None)
+    my_review = serializers.SerializerMethodField()
+
+    class Meta(ConversationSerializer.Meta):
+        fields = ConversationSerializer.Meta.fields + [
+            'assigned_to_user_id', 'message_count', 'review_count',
+            'latest_rating', 'my_review',
+        ]
+
+    def get_my_review(self, obj):
+        reviews = getattr(obj, 'my_reviews', None)
+        if not reviews:
+            return None
+        return ConversationQualityReviewSerializer(reviews[0]).data
+
+
+class QualityConversationDetailSerializer(ConversationDetailSerializer):
+    """Detail payload for the review drawer: the transcript plus every review."""
+    reviews = serializers.SerializerMethodField()
+    my_review = serializers.SerializerMethodField()
+
+    class Meta(ConversationDetailSerializer.Meta):
+        fields = ConversationDetailSerializer.Meta.fields + ['reviews', 'my_review']
+
+    def get_reviews(self, obj):
+        return ConversationQualityReviewSerializer(obj.quality_reviews.all(), many=True).data
+
+    def get_my_review(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user:
+            return None
+        review = obj.quality_reviews.filter(reviewer=user).first()
+        return ConversationQualityReviewSerializer(review).data if review else None

@@ -28,7 +28,7 @@ from .models import (
     MetaSyncRun,
 )
 
-# Default preview cache TTL. 
+# Default preview cache TTL.
 CREATIVE_PREVIEW_CACHE_TTL_SECONDS = 3600
 
 

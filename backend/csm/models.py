@@ -316,6 +316,11 @@ class Conversation(TimeStampedModel):
 
     class Meta:
         ordering = ['-started_at']
+        indexes = [
+            # Quality inspection filters and sorts across a whole organisation.
+            models.Index(fields=['queue', 'started_at'], name='csm_conv_queue_started_idx'),
+            models.Index(fields=['status'], name='csm_conv_status_idx'),
+        ]
 
     def __str__(self):
         customer_name = self.customer.full_name if self.customer else 'Unknown'
@@ -354,6 +359,68 @@ class ConversationMessage(models.Model):
 
     def __str__(self):
         return f"[{self.sender_type}] {self.content[:50]}"
+
+
+class ConversationQualityReview(TimeStampedModel):
+    """A supervisor's quality annotation on one conversation.
+
+    One row per (conversation, reviewer): re-rating updates the row rather
+    than appending, so report counts stay truthful without having to
+    de-duplicate to latest-per-reviewer in every aggregate.
+
+    The agent is a SNAPSHOT taken at review time. ``Conversation.assigned_to``
+    is mutable and nullable, so joining through it live would let a later
+    reassignment retroactively move a rating onto an agent who never handled
+    the conversation. Queue and organisation are read through ``conversation``.
+    """
+
+    class Rating(models.TextChoices):
+        GOOD = 'good', 'Good'
+        NEEDS_IMPROVEMENT = 'needs_improvement', 'Needs Improvement'
+        POOR = 'poor', 'Poor'
+
+    conversation = models.ForeignKey(
+        Conversation, on_delete=models.CASCADE,
+        related_name='quality_reviews',
+    )
+    # Keyed on the auth user, not CustomerUser: one person may hold several
+    # CustomerUser rows (unique_together is ('user', 'queue')), so a
+    # CustomerUser-keyed constraint would permit duplicate reviews.
+    reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='csm_quality_reviews_given',
+    )
+    reviewer_name = models.CharField(max_length=200, blank=True, default='')
+    rating = models.CharField(max_length=32, choices=Rating.choices)
+    comment = models.TextField(blank=True, default='')
+    # Not auto_now_add: with upsert semantics the "as of" date must move when a
+    # rating is revised, or a stale bucket keeps counting a rewritten rating.
+    reviewed_at = models.DateTimeField(default=timezone.now)
+
+    # Snapshot, resolved once at review time; the name is read live from it.
+    agent_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='csm_quality_reviews_received',
+    )
+
+    class Meta:
+        ordering = ['-reviewed_at', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=('conversation', 'reviewer'),
+                name='csm_cqr_uniq_conversation_reviewer',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['reviewed_at'], name='csm_cqr_reviewed_idx'),
+            models.Index(fields=['agent_user', 'reviewed_at'], name='csm_cqr_agent_reviewed_idx'),
+            models.Index(fields=['rating'], name='csm_cqr_rating_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.get_rating_display()} - conversation {self.conversation_id}"
 
 
 class QuickReplyTemplate(SluggedResourceModelMixin, TimeStampedModel):
@@ -487,6 +554,66 @@ class CsmWorkType(TimeStampedModel):
 
     def __str__(self):
         return self.name
+
+
+class GuidanceEntry(TimeStampedModel):
+    """Agent guidance shown in the conversation workspace (CSM-S03-02)."""
+
+    class GuidanceType(models.TextChoices):
+        HANDOFF = 'handoff', 'Handoff'
+        SUGGESTED_REPLY = 'suggested_reply', 'Suggested Reply'
+        ESCALATION_PROCEDURE = 'escalation_procedure', 'Escalation Procedure'
+        PROCESS_NOTE = 'process_note', 'Process Note'
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name='csm_guidance_entries',
+    )
+    guidance_type = models.CharField(max_length=32, choices=GuidanceType.choices)
+    trigger_description = models.TextField()
+    recommended_response = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='csm_guidance_entries',
+    )
+
+    class Meta:
+        ordering = ['-updated_at', '-id']
+
+    def __str__(self):
+        return f"{self.get_guidance_type_display()}: {self.trigger_description[:50]}"
+
+
+class GuidanceEntryExperienceGroup(models.Model):
+    """Links a guidance entry to an Experience Group with a per-group display order."""
+
+    entry = models.ForeignKey(
+        GuidanceEntry, on_delete=models.CASCADE, related_name='experience_group_links',
+    )
+    experience_group = models.ForeignKey(
+        'experience_group.ExperienceGroup', on_delete=models.CASCADE,
+        related_name='guidance_links',
+    )
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['entry', 'experience_group'],
+                name='csm_geg_unique_entry_eg',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['experience_group', 'display_order'],
+                name='csm_geg_eg_order_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f"Guidance {self.entry_id} → EG {self.experience_group_id} (#{self.display_order})"
 
 
 class TicketForm(SluggedResourceModelMixin, TimeStampedModel):
