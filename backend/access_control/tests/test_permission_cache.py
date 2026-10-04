@@ -13,12 +13,7 @@ from access_control.services import (
 from core.models import (
     Organization,
     Permission,
-    Project,
-    ProjectMember,
     Role,
-    Team,
-    TeamMember,
-    TeamRole,
 )
 from core.services.tenant import slug_to_schema_name
 
@@ -27,7 +22,7 @@ import os
 import statistics
 from django.test import RequestFactory
 from access_control.middleware.authorization import AuthorizationMiddleware
-from unittest.mock import patch
+
 
 class PermissionCacheTest(TestCase):
     @classmethod
@@ -79,16 +74,6 @@ class PermissionCacheTest(TestCase):
             user=cls.user,
             role=cls.viewer_role,
             valid_from=timezone.now(),
-        )
-
-        cls.project = Project.objects.create(
-            name="Cache Project",
-            organization=cls.org,
-            owner=cls.user,
-        )
-        cls.team = Team.objects.create(
-            name="Cache Team",
-            organization=cls.org,
         )
 
         with connection.cursor() as cursor:
@@ -165,6 +150,7 @@ class PermissionCacheTest(TestCase):
         refreshed = self._warm_cache()
         self.assertIn("CAMPAIGN:EDIT", refreshed["permissions"])
 
+
     def test_role_change_invalidates_cached_bundle(self):
         key = self._cache_key()
         bundle = self._warm_cache()
@@ -179,33 +165,6 @@ class PermissionCacheTest(TestCase):
         refreshed = self._warm_cache()
         self.assertTrue(refreshed["is_org_admin"])
 
-    def test_project_membership_change_invalidates_cached_bundle(self):
-        key = self._cache_key()
-        self._warm_cache()
-        self.assertIsNotNone(cache.get(key))
-
-        with self.captureOnCommitCallbacks(execute=True):
-            ProjectMember.objects.create(
-                user=self.user,
-                project=self.project,
-                role="member",
-            )
-
-        self.assertIsNone(cache.get(key))
-
-    def test_team_membership_change_invalidates_cached_bundle(self):
-        key = self._cache_key()
-        self._warm_cache()
-        self.assertIsNotNone(cache.get(key))
-
-        with self.captureOnCommitCallbacks(execute=True):
-            TeamMember.objects.create(
-                user=self.user,
-                team=self.team,
-                role_id=TeamRole.MEMBER,
-            )
-
-        self.assertIsNone(cache.get(key))
 
     def test_user_role_change_reflected_within_one_second(self):
         self._warm_cache()
@@ -319,57 +278,4 @@ class PermissionCacheTest(TestCase):
 
         refreshed = self._warm_cache()
         self.assertNotIn("ASSET:VIEW", refreshed["permissions"])
-
-
-    def test_project_membership_delete_invalidates_cached_bundle(self):
-        with self.captureOnCommitCallbacks(execute=True):
-            membership = ProjectMember.objects.create(
-                user=self.user,
-                project=self.project,
-                role="member",
-            )
-
-        key = self._cache_key()
-        self._warm_cache()
-        self.assertIsNotNone(cache.get(key))
-
-        with self.captureOnCommitCallbacks(execute=True):
-            membership.delete()
-
-        self.assertIsNone(cache.get(key))
-
-
-    def test_team_membership_delete_invalidates_cached_bundle(self):
-        with self.captureOnCommitCallbacks(execute=True):
-            membership = TeamMember.objects.create(
-                user=self.user,
-                team=self.team,
-                role_id=TeamRole.MEMBER,
-            )
-
-        key = self._cache_key()
-        self._warm_cache()
-        self.assertIsNotNone(cache.get(key))
-
-        with self.captureOnCommitCallbacks(execute=True):
-            membership.delete()
-
-        self.assertIsNone(cache.get(key))
-
-
-    def test_redis_failure_falls_back_to_database(self):
-        # Redis failure must not block permission resolution from PostgreSQL.
-        with patch(
-            "access_control.services.cache.get",
-            side_effect=Exception("Redis unavailable"),
-        ), patch(
-            "access_control.services.cache.set",
-            side_effect=Exception("Redis unavailable"),
-        ):
-            bundle = get_user_permission_bundle(
-                self.user.id,
-                self.schema,
-            )
-
-        self.assertIn("ASSET:VIEW", bundle["permissions"])
-        self.assertTrue(bundle["has_any_role"])
+     

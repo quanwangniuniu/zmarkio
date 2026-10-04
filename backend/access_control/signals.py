@@ -4,7 +4,7 @@ from django.dispatch import receiver
 
 from access_control.models import RolePermission, UserRole
 from access_control.services import invalidate_user_permission_cache
-from core.models import ProjectMember, Role, TeamMember
+from core.models import Role
 
 
 def _current_schema_name() -> str:
@@ -52,14 +52,3 @@ def invalidate_on_role_permission_change(sender, instance, **kwargs):
 def invalidate_on_role_change(sender, instance, **kwargs):
     _invalidate_role_users(instance.id)
 
-
-@receiver(post_save, sender=ProjectMember)
-@receiver(post_delete, sender=ProjectMember)
-def invalidate_on_project_membership_change(sender, instance, **kwargs):
-    _invalidate_user(instance.user_id)
-
-
-@receiver(post_save, sender=TeamMember)
-@receiver(post_delete, sender=TeamMember)
-def invalidate_on_team_membership_change(sender, instance, **kwargs):
-    _invalidate_user(instance.user_id)
