@@ -8,7 +8,7 @@ import CsmConversationAPI, { QuickReplyTemplateAPI } from '@/lib/api/csmConversa
 import { useCsmConversationStore } from '@/lib/csmConversationStore';
 import type { QuickReplyTemplate } from '@/types/csmConversation';
 import { plainTextToParagraphs } from './plainTextToParagraphs';
-import { RichMessageBody } from './RichMessageBody';
+import { RichMessageBody } from './ConversationThread';
 import { AlertCircle, FileImage, Tag, Search, X, Bold, Italic, List, ListOrdered, LayoutTemplate, ImagePlus } from 'lucide-react';
 
 type ComposerFormat = 'bold' | 'italic' | 'bulletList' | 'orderedList';
