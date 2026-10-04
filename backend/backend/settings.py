@@ -422,6 +422,24 @@ GEMINI_CB_THRESHOLD = config('GEMINI_CB_THRESHOLD', default=5, cast=int)
 GEMINI_CB_WINDOW_SECONDS = config('GEMINI_CB_WINDOW_SECONDS', default=60, cast=int)
 GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, cast=int)
 
+# Ollama LLM server (core.services.ollama_client). An empty OLLAMA_BASE_URL means
+# the LLM is not configured and AI features report themselves unavailable.
+OLLAMA_BASE_URL = config('OLLAMA_BASE_URL', default='')
+OLLAMA_MODEL = config('OLLAMA_MODEL', default='qwen3:4b')
+# Context window sent with every request; Ollama's own default (4096) silently
+# truncates longer prompts.
+OLLAMA_NUM_CTX = config('OLLAMA_NUM_CTX', default=16384, cast=int)
+# How long the model stays loaded after a request (Ollama duration string).
+OLLAMA_KEEP_ALIVE = config('OLLAMA_KEEP_ALIVE', default='30m')
+# Ollama HTTP guardrails, same values as the previous hosted-LLM client.
+OLLAMA_TIMEOUT_SECONDS = config('OLLAMA_TIMEOUT_SECONDS', default=75, cast=int)
+OLLAMA_TOTAL_DEADLINE_SECONDS = config(
+    'OLLAMA_TOTAL_DEADLINE_SECONDS', default=150, cast=int
+)
+OLLAMA_CB_THRESHOLD = config('OLLAMA_CB_THRESHOLD', default=5, cast=int)
+OLLAMA_CB_WINDOW_SECONDS = config('OLLAMA_CB_WINDOW_SECONDS', default=60, cast=int)
+OLLAMA_CB_COOLDOWN_SECONDS = config('OLLAMA_CB_COOLDOWN_SECONDS', default=30, cast=int)
+
 # Dify LLM Platform integration (kept for reference / backward compat)
 DIFY_API_URL = config('DIFY_API_URL', default='')
 DIFY_API_KEY = config('DIFY_API_KEY', default='')
@@ -956,6 +974,9 @@ MODEL_TOKEN_MULTIPLIER = {
     'claude-haiku-4-5': 0.2,
     'claude-opus-4-6': 5.0,
     'gemini-2.5-flash-lite': 0.15,
+    # Temporary: copies the previous agent model's multiplier so quota usage is
+    # unchanged by the switch to Ollama. Revisit once local-model pricing is decided.
+    'qwen3:4b': 0.15,
 }
 # Actual API cost table in cents per 1M tokens (for LLMCallLog cost_cents)
 LLM_PRICE_TABLE = {
