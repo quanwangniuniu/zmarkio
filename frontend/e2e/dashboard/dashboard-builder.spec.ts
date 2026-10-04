@@ -100,6 +100,34 @@ test('persists a resized widget after the pointer is released', async ({ page })
   await expect.poll(async () => (await tile.boundingBox())!.height).toBeGreaterThan(before!.height);
 });
 
+test('resizes Type breakdown repeatedly while its handle moves with the preview', async ({ page }) => {
+  const layout = await openDashboard(page, [
+    { id: 'task-types', x: 0, y: 0, w: 4, h: 8 },
+    { id: 'task-status', x: 4, y: 0, w: 4, h: 8 },
+  ]);
+  const tile = page.getByTestId('dashboard-widget-task-types');
+  const handle = tile.getByRole('button', { name: 'Resize Type breakdown' });
+  const grid = page.locator('.dashboard-builder-grid');
+  const columnStep = ((await grid.boundingBox())!.width + 12) / 12;
+
+  for (const [change, expectedWidth, expectedWrites] of [[2, 6, 1], [-2, 4, 2]] as const) {
+    const box = await handle.boundingBox();
+    expect(box).not.toBeNull();
+    const x = box!.x + box!.width / 2;
+    const y = box!.y + box!.height / 2;
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + change * columnStep, y, { steps: 12 });
+    await expect.poll(() => tile.evaluate((element) => getComputedStyle(element).gridColumnEnd)).toBe(`span ${expectedWidth}`);
+    expect(layout.writes()).toBe(expectedWrites - 1);
+    await page.mouse.up();
+    await expect.poll(() => layout.saved().find((widget) => widget.id === 'task-types')?.w).toBe(expectedWidth);
+    expect(layout.writes()).toBe(expectedWrites);
+  }
+  await page.reload();
+  await expect.poll(() => tile.evaluate((element) => getComputedStyle(element).gridColumnEnd)).toBe('span 4');
+});
+
 test('shows the drag grip over a card icon without shifting its title', async ({ page }) => {
   await openDashboard(page);
   const tile = page.getByTestId('dashboard-widget-activity');
@@ -150,6 +178,37 @@ test('keeps metric headings flush and places chart drag control on its section l
   const kpiHeading = kpiPanel.getByRole('heading', { name: 'Custom KPIs' });
   await expect(kpiHeading).toBeVisible();
   expect(Math.abs((await kpiHeading.boundingBox())!.x - (await kpiPanel.boundingBox())!.x - 17)).toBeLessThan(3);
+});
+
+test('keeps remove controls at the top right of narrow chart, KPI, and team widgets', async ({ page }) => {
+  await openDashboard(page, [
+    { id: 'task-priority', x: 0, y: 0, w: 3, h: 8 },
+    { id: 'task-types', x: 3, y: 0, w: 3, h: 8 },
+    { id: 'task-status', x: 6, y: 0, w: 3, h: 8 },
+    { id: 'task-trend', x: 9, y: 0, w: 3, h: 8 },
+    { id: 'custom-kpis', x: 0, y: 8, w: 3, h: 8 },
+    { id: 'project-team', x: 3, y: 8, w: 3, h: 8 },
+  ]);
+
+  for (const [id, title] of [
+    ['task-priority', 'Task Priority Distribution'],
+    ['task-types', 'Type breakdown'],
+    ['task-status', 'Task Status Breakdown'],
+    ['task-trend', 'Tasks Created vs Completed'],
+    ['custom-kpis', 'Custom KPIs'],
+    ['project-team', 'Project team'],
+  ]) {
+    const tile = page.getByTestId(`dashboard-widget-${id}`);
+    const grip = tile.getByRole('button', { name: `Move ${title}`, exact: true });
+    const remove = tile.getByRole('button', { name: `Remove ${title}`, exact: true });
+    await expect(remove).toBeAttached();
+    const [tileBox, gripBox, removeBox] = await Promise.all([tile.boundingBox(), grip.boundingBox(), remove.boundingBox()]);
+    expect(tileBox).not.toBeNull();
+    expect(gripBox).not.toBeNull();
+    expect(removeBox).not.toBeNull();
+    expect(Math.abs((gripBox!.y + gripBox!.height / 2) - (removeBox!.y + removeBox!.height / 2)), id).toBeLessThan(8);
+    expect(tileBox!.x + tileBox!.width - removeBox!.x - removeBox!.width, id).toBeLessThan(40);
+  }
 });
 
 test('loads the layout for the project in the URL when switching projects', async ({ page }) => {

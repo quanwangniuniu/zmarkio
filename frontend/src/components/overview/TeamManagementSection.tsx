@@ -224,16 +224,18 @@ export default function TeamManagementSection({ projectId, projectName }: Props)
       data-overview-section="team-management"
       className="flex h-full min-h-0 flex-col border-[0.5px] border-gray-200 bg-white shadow-none"
     >
-      <CardHeader className="shrink-0 pb-3 px-5 pt-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <DashboardTileIcon icon={<Users className="w-4 h-4 text-gray-500" />} dragHandle={tileControls?.dragHandle} />
-          <CardTitle className="text-sm font-semibold text-gray-900">
-            Team Management
-          </CardTitle>
-          {projectName && (
-            <span className="text-xs text-gray-400">· {projectName}</span>
-          )}
-          <div className="ml-0 flex max-w-full items-center gap-1 overflow-x-auto rounded-md bg-gray-50 p-1 sm:ml-auto">
+      <CardHeader className="relative shrink-0 pb-3 px-5 pt-5">
+        <div className="flex flex-wrap items-start gap-2 pr-8">
+          <div className="flex min-w-0 flex-1 items-start gap-2 pt-1">
+            <DashboardTileIcon icon={<Users className="w-4 h-4 text-gray-500" />} dragHandle={tileControls?.dragHandle} />
+            <CardTitle className="min-w-0 text-sm font-semibold text-gray-900">
+              Team Management
+            </CardTitle>
+            {projectName && (
+              <span className="min-w-0 truncate text-xs text-gray-400">· {projectName}</span>
+            )}
+          </div>
+          <div className="ml-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-md bg-gray-50 p-1">
             <TabButton active={tab === 'members'} onClick={() => setTab('members')}>
               Members ({members.length})
             </TabButton>
@@ -244,8 +246,8 @@ export default function TeamManagementSection({ projectId, projectName }: Props)
               Approvals ({approvals.length})
             </TabButton>
           </div>
-          {tileControls?.removeButton}
         </div>
+        {tileControls?.removeButton && <span className="absolute right-5 top-5">{tileControls.removeButton}</span>}
       </CardHeader>
 
       <CardContent className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 pb-5">

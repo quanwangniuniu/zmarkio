@@ -160,10 +160,10 @@ export default function CustomKPIPanel({ projectSlug }: CustomKPIPanelProps) {
 
   return (
     <section
-      className="flex h-full min-h-0 flex-col rounded-xl border-[0.5px] border-gray-200 bg-white p-4"
+      className="relative flex h-full min-h-0 flex-col rounded-xl border-[0.5px] border-gray-200 bg-white p-4"
       data-testid="custom-kpi-panel"
     >
-      <div className="mb-3 flex shrink-0 flex-wrap items-start justify-between gap-2">
+      <div className="mb-3 flex shrink-0 flex-wrap items-start justify-between gap-2 pr-8">
         <div className="relative flex min-w-0 items-start">
           {tileControls?.dragHandle && <span className="absolute left-0 top-0 z-10">{tileControls.dragHandle}</span>}
           <div className={`min-w-0 ${tileControls ? 'group-hover:pl-8 group-focus-within:pl-8' : ''}`}>
@@ -188,9 +188,9 @@ export default function CustomKPIPanel({ projectSlug }: CustomKPIPanelProps) {
             <Plus className="mr-1 h-3.5 w-3.5" />
             New KPI
           </Button>
-          {tileControls?.removeButton}
         </div>
       </div>
+      {tileControls?.removeButton && <span className="absolute right-4 top-4">{tileControls.removeButton}</span>}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {loadError && (

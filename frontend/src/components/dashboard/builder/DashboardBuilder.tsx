@@ -27,7 +27,9 @@ function WidgetTile({ widget, context, onResize, onResizeStart, onResizePreview,
 }) {
   const definition = widgetById[widget.id];
   const { attributes, listeners, setNodeRef, setActivatorNodeRef } = useDraggable({ id: widget.id });
-  const resizeStart = useRef<{ x: number; y: number } | null>(null);
+  const resizeCleanup = useRef<(() => void) | null>(null);
+  const onResizeEndRef = useRef(onResizeEnd);
+  onResizeEndRef.current = onResizeEnd;
   const resizeCellRef = useRef('0:0');
   const title = definition?.title ?? widget.id;
   const dragHandle = (
@@ -55,12 +57,59 @@ function WidgetTile({ widget, context, onResize, onResizeStart, onResizePreview,
     </button>
   );
 
-  const resizeDelta = (event: PointerEvent<HTMLElement>) => {
-    if (!resizeStart.current) return null;
-    return {
-      dw: Math.round((event.clientX - resizeStart.current.x) / columnStep),
-      dh: Math.round((event.clientY - resizeStart.current.y) / ROW_STEP),
+  useEffect(() => () => {
+    if (resizeCleanup.current) {
+      resizeCleanup.current();
+      onResizeEndRef.current();
+    }
+  }, []);
+
+  const beginResize = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0 || resizeCleanup.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const { pointerId, clientX: startX, clientY: startY } = event;
+    const grid = event.currentTarget.closest<HTMLElement>('.dashboard-builder-grid');
+    grid?.setPointerCapture(pointerId);
+    resizeCellRef.current = '0:0';
+    onResizeStart(widget.id);
+
+    const delta = (pointer: globalThis.PointerEvent) => ({
+      dw: Math.round((pointer.clientX - startX) / columnStep),
+      dh: Math.round((pointer.clientY - startY) / ROW_STEP),
+    });
+    const move = (pointer: globalThis.PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return;
+      const { dw, dh } = delta(pointer);
+      const cell = `${dw}:${dh}`;
+      if (cell === resizeCellRef.current) return;
+      resizeCellRef.current = cell;
+      onResizePreview(widget.id, dw, dh);
     };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', move, true);
+      window.removeEventListener('pointerup', finish, true);
+      window.removeEventListener('pointercancel', cancel, true);
+      if (grid?.hasPointerCapture(pointerId)) grid.releasePointerCapture(pointerId);
+      resizeCleanup.current = null;
+    };
+    const finish = (pointer: globalThis.PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return;
+      const { dw, dh } = delta(pointer);
+      cleanup();
+      onResizeEnd();
+      onResize(widget.id, dw, dh);
+    };
+    const cancel = (pointer: globalThis.PointerEvent) => {
+      if (pointer.pointerId !== pointerId) return;
+      cleanup();
+      onResizeEnd();
+    };
+    resizeCleanup.current = cleanup;
+    // The grid stays mounted while previews move the handle; keep capture there.
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', finish, true);
+    window.addEventListener('pointercancel', cancel, true);
   };
 
   return (
@@ -82,28 +131,7 @@ function WidgetTile({ widget, context, onResize, onResizeStart, onResizePreview,
         type="button"
         aria-label={`Resize ${definition?.title ?? widget.id}`}
         className="absolute bottom-0 right-0 z-10 flex h-10 w-10 cursor-nwse-resize touch-none items-end justify-end rounded-tl-md p-2 text-gray-500 opacity-0 group-hover:opacity-100 hover:text-cyan-700 focus-visible:text-cyan-700 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500 [@media(hover:none)]:opacity-60"
-        onPointerDown={(event) => {
-          event.stopPropagation();
-          resizeStart.current = { x: event.clientX, y: event.clientY };
-          resizeCellRef.current = '0:0';
-          onResizeStart(widget.id);
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          const delta = resizeDelta(event);
-          if (!delta) return;
-          const cell = `${delta.dw}:${delta.dh}`;
-          if (cell === resizeCellRef.current) return;
-          resizeCellRef.current = cell;
-          onResizePreview(widget.id, delta.dw, delta.dh);
-        }}
-        onPointerUp={(event) => {
-          const delta = resizeDelta(event);
-          resizeStart.current = null;
-          onResizeEnd();
-          if (delta) onResize(widget.id, delta.dw, delta.dh);
-        }}
-        onPointerCancel={() => { resizeStart.current = null; onResizeEnd(); }}
+        onPointerDown={beginResize}
         onKeyDown={(event) => {
           const keys: Record<string, [number, number]> = { ArrowRight: [1, 0], ArrowLeft: [-1, 0], ArrowDown: [0, 1], ArrowUp: [0, -1] };
           const delta = keys[event.key];
