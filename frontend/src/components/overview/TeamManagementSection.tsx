@@ -229,7 +229,7 @@ export default function TeamManagementSection({ projectId, projectName }: Props)
           {tileControls?.dragHandle}
           <Users className="w-4 h-4 text-gray-500" />
           <CardTitle className="text-sm font-semibold text-gray-900">
-            Team Management
+            {tileControls?.title ?? 'Team Management'}
           </CardTitle>
           {projectName && (
             <span className="text-xs text-gray-400">· {projectName}</span>

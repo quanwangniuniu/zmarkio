@@ -5,7 +5,7 @@ from rest_framework.test import APIClient
 
 from core.models import Organization, Project, ProjectMember
 from core.tenant_config import get_tenant_models
-from dashboard.layout import DEFAULT_WIDGETS, WORKSPACE_WIDGET_IDS
+from dashboard.layout import DEFAULT_ITEMS, DEFAULT_WIDGETS, WORKSPACE_WIDGET_IDS
 from dashboard.models import DashboardLayout
 
 
@@ -85,3 +85,74 @@ class DashboardLayoutTest(TestCase):
             with self.subTest(widgets=widgets):
                 self.assertEqual(self.client.put(self.url(), {'widgets': widgets}, format='json').status_code, 400)
         self.assertFalse(DashboardLayout.objects.exists())
+
+    def test_default_groups_and_versioned_document_round_trip(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.get(self.url())
+        self.assertEqual(response.data['version'], 3)
+        self.assertEqual(response.data['items'], DEFAULT_ITEMS)
+        self.assertIn('task-types', [child['id'] for child in response.data['items'][2]['children']])
+        self.assertEqual(
+            [child['id'] for child in response.data['items'][0]['children']],
+            ['overall-progress', 'task-completion-rate', 'overdue-tasks', 'needs-attention'],
+        )
+        items = [
+            {
+                'kind': 'group', 'id': 'group-my-overview', 'title': 'My Overview',
+                'x': 0, 'y': 0, 'w': 12, 'h': 6,
+                'children': [{'kind': 'widget', 'id': 'audit', 'title': 'Reviews',
+                              'x': 0, 'y': 0, 'w': 6, 'h': 4, 'settings': {'accent': 'cyan'}}],
+            },
+            {'kind': 'widget', 'id': 'activity', 'x': 6, 'y': 6, 'w': 6, 'h': 5},
+        ]
+        payload = {'version': 2, 'items': items}
+        self.assertEqual(self.client.put(self.url(), payload, format='json').status_code, 200)
+        self.assertEqual(self.client.get(self.url()).data['items'], items)
+        self.assertEqual(DashboardLayout.objects.get(project=self.project, user=self.owner).widgets, payload)
+        self.assertEqual(self.client.get(self.url(self.other_project)).data['items'], DEFAULT_ITEMS)
+        self.client.force_authenticate(user=self.member)
+        self.assertEqual(self.client.get(self.url()).data['items'], DEFAULT_ITEMS)
+
+    def test_versioned_document_rejects_nested_groups_duplicates_and_overflow(self):
+        self.client.force_authenticate(user=self.owner)
+        group = {
+            'kind': 'group', 'id': 'group-test', 'title': 'Test', 'x': 0, 'y': 0, 'w': 12, 'h': 6,
+            'children': [{'kind': 'widget', 'id': 'audit', 'x': 0, 'y': 0, 'w': 6, 'h': 4}],
+        }
+        invalid = [
+            [group, {'kind': 'widget', 'id': 'audit', 'x': 0, 'y': 6, 'w': 6, 'h': 4}],
+            [{**group, 'h': 4}],
+            [{**group, 'children': [{**group, 'x': 0, 'y': 0, 'w': 6, 'h': 4}]}],
+            [{**group, 'children': [{**group['children'][0], 'settings': {'source': 'other'}}]}],
+            [group, {**group, 'id': 'group-second', 'y': 2}],
+        ]
+        for items in invalid:
+            with self.subTest(items=items):
+                self.assertEqual(self.client.put(self.url(), {'version': 2, 'items': items}, format='json').status_code, 400)
+        self.assertFalse(DashboardLayout.objects.exists())
+
+    def test_existing_priority_chart_splits_once_and_removed_type_stays_removed(self):
+        self.client.force_authenticate(user=self.owner)
+        DashboardLayout.objects.create(project=self.project, user=self.owner, widgets={
+            'version': 2, 'items': [
+                {'kind': 'group', 'id': 'group-tasks', 'title': 'Tasks', 'x': 0, 'y': 0, 'w': 12, 'h': 18,
+                 'children': [
+                     {'kind': 'widget', 'id': 'task-priority', 'x': 0, 'y': 0, 'w': 12, 'h': 9},
+                     {'kind': 'widget', 'id': 'task-trend', 'x': 0, 'y': 9, 'w': 12, 'h': 8},
+                 ]},
+                {'kind': 'widget', 'id': 'audit', 'x': 0, 'y': 18, 'w': 6, 'h': 5},
+            ],
+        })
+        response = self.client.get(self.url())
+        self.assertEqual(response.data['version'], 3)
+        group, audit = response.data['items']
+        self.assertEqual({item['id']: item['y'] for item in group['children']},
+                         {'task-priority': 0, 'task-types': 9, 'task-trend': 16})
+        self.assertEqual(group['h'], 25)
+        self.assertEqual(audit['y'], 25)
+        self.assertEqual(DashboardLayout.objects.get(project=self.project, user=self.owner).widgets['version'], 2)
+
+        self.assertEqual(self.client.put(self.url(), {'version': 3, 'items': response.data['items']}, format='json').status_code, 200)
+        group['children'] = [child for child in group['children'] if child['id'] != 'task-types']
+        self.assertEqual(self.client.put(self.url(), {'version': 3, 'items': [group, audit]}, format='json').status_code, 200)
+        self.assertNotIn('task-types', [child['id'] for child in self.client.get(self.url()).data['items'][0]['children']])

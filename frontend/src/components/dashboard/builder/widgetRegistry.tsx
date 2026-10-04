@@ -37,7 +37,8 @@ export const widgetRegistry: WidgetDefinition[] = [
     ['operations', 'Operations', 8, 8, 4, 10],
     ['task-status', 'Task Status Breakdown', 0, 18, 6, 9],
     ['task-priority', 'Task Priority Distribution', 6, 18, 6, 9],
-    ['task-trend', 'Tasks Created vs Completed', 0, 27, 12, 8],
+    ['task-types', 'Type breakdown', 6, 27, 6, 8],
+    ['task-trend', 'Tasks Created vs Completed', 0, 27, 6, 8],
   ] as const).map(([id, title, x, y, w, h]) => ({
     id, title, group: ['overall-progress', 'tasks-completed', 'task-completion-rate', 'overdue-tasks', 'needs-attention'].includes(id) ? 'Project Overview' : ['decisions', 'tasks', 'operations'].includes(id) ? 'Module Summary' : 'Tasks',
     defaultPosition: { id, x, y, w, h },
@@ -52,7 +53,7 @@ export const widgetRegistry: WidgetDefinition[] = [
   // Render it rather than showing the unavailable-widget fallback during rollout.
   { id: 'workspace', title: 'Workspace', legacy: true, defaultPosition: { id: 'workspace', x: 0, y: 0, w: 12, h: 12 }, render: () => (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-      {(['overall-progress', 'tasks-completed', 'task-completion-rate', 'overdue-tasks', 'needs-attention', 'decisions', 'tasks', 'operations', 'task-status', 'task-priority', 'task-trend'] as WorkspaceWidgetId[]).map((section) => <WorkspaceDashboardWidget key={section} section={section} />)}
+      {(['overall-progress', 'tasks-completed', 'task-completion-rate', 'overdue-tasks', 'needs-attention', 'decisions', 'tasks', 'operations', 'task-status', 'task-priority', 'task-types', 'task-trend'] as WorkspaceWidgetId[]).map((section) => <WorkspaceDashboardWidget key={section} section={section} />)}
     </div>
   ) },
 ];

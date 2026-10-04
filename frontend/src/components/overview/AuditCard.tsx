@@ -51,7 +51,7 @@ export default function AuditCard({ events }: { events: AdminAuditEvent[] }) {
         <div className="flex items-center gap-2">
           {tileControls?.dragHandle}
           <ShieldCheck className="w-4 h-4 text-gray-400" />
-          <CardTitle className="text-sm font-medium text-gray-900">Admin Action Log</CardTitle>
+          <CardTitle className="text-sm font-medium text-gray-900">{tileControls?.title ?? 'Admin Action Log'}</CardTitle>
           <span className="ml-auto">{tileControls?.removeButton}</span>
         </div>
       </CardHeader>
@@ -94,7 +94,7 @@ export default function AuditCard({ events }: { events: AdminAuditEvent[] }) {
           onClick={() => router.push('/admin/audit-log')}
           className="mt-2 w-full shrink-0 text-center text-[11px] font-medium text-[#3CCED7] hover:underline"
         >
-          View all actions →
+          View all actions
         </button>
       </CardContent>
     </Card>

@@ -44,7 +44,7 @@ export default function MeetingsCard({ upcoming, actions }: MeetingsCardProps) {
         <div className="flex items-center gap-2">
           {tileControls?.dragHandle}
           <Users className="w-4 h-4 text-gray-400" />
-          <CardTitle className="text-sm font-medium text-gray-900">Meetings & Action Items</CardTitle>
+          <CardTitle className="text-sm font-medium text-gray-900">{tileControls?.title ?? 'Meetings & Action Items'}</CardTitle>
           <span className="ml-auto text-xs text-gray-400">
             {todayMeetings.length} today
           </span>

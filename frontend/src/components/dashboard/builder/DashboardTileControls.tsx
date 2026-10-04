@@ -4,6 +4,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 
 interface TileControls {
   widgetId: string;
+  title: string;
   dragHandle: ReactNode;
   removeButton: ReactNode;
 }

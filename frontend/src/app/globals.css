@@ -898,3 +898,17 @@ input[type="password"]::-webkit-contacts-auto-fill-button {
 .csm-rich-dark strong { font-weight: 600; color: #fff; }
 .csm-rich-dark em    { font-style: italic; color: #fff; }
 .csm-rich-dark a  { color: rgba(255,255,255,0.85); text-decoration: underline; }
+
+/* The Widgets palette scrolls inside its white floating window. */
+.dashboard-widgets-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #a8b6c8 transparent;
+  overscroll-behavior: contain;
+}
+.dashboard-widgets-scroll::-webkit-scrollbar { width: 7px; }
+.dashboard-widgets-scroll::-webkit-scrollbar-track { background: transparent; }
+.dashboard-widgets-scroll::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #a8b6c8;
+}
+.dashboard-widgets-scroll::-webkit-scrollbar-thumb:hover { background: #7f91a8; }

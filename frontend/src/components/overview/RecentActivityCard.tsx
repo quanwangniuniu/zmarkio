@@ -55,7 +55,7 @@ export default function RecentActivityCard({ activities }: RecentActivityCardPro
         <div className="flex items-center gap-2">
           {tileControls?.dragHandle}
           <ClipboardList className="w-4 h-4 text-gray-400" />
-          <CardTitle className="text-sm font-medium text-gray-900">Recent Activity</CardTitle>
+          <CardTitle className="text-sm font-medium text-gray-900">{tileControls?.title ?? 'Recent Activity'}</CardTitle>
           <span className="ml-auto">{tileControls?.removeButton}</span>
         </div>
       </CardHeader>
@@ -95,7 +95,7 @@ export default function RecentActivityCard({ activities }: RecentActivityCardPro
         </div>
 
         <button className="mt-2 w-full shrink-0 text-center text-[11px] font-medium text-[#3CCED7] hover:underline">
-          View all activity →
+          View all activity
         </button>
       </CardContent>
     </Card>

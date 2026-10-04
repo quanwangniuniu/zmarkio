@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 
 from core.models import Project
 from core.slug_mixins import resolve_project_pk
-from .layout import DEFAULT_WIDGETS, DashboardLayoutSerializer, normalize_legacy_workspace, save_layout
+from .layout import DashboardDocumentSerializer, DashboardLayoutSerializer, layout_response, save_layout
 from .models import DashboardLayout
 
 
@@ -34,11 +34,13 @@ class DashboardLayoutView(APIView):
     def get(self, request):
         project = self.project(request)
         layout = DashboardLayout.objects.filter(project=project, user=request.user).first()
-        return Response({'widgets': normalize_legacy_workspace(layout.widgets) if layout else DEFAULT_WIDGETS})
+        return Response(layout_response(layout.widgets if layout else None))
 
     def put(self, request):
         project = self.project(request)
-        serializer = DashboardLayoutSerializer(data=request.data)
+        is_document = 'version' in request.data or 'items' in request.data
+        serializer = (DashboardDocumentSerializer if is_document else DashboardLayoutSerializer)(data=request.data)
         serializer.is_valid(raise_exception=True)
-        layout = save_layout(project, request.user, serializer.validated_data['widgets'])
-        return Response({'widgets': layout.widgets, 'updated_at': layout.updated_at})
+        value = dict(serializer.validated_data) if is_document else serializer.validated_data['widgets']
+        layout = save_layout(project, request.user, value)
+        return Response({**layout_response(layout.widgets), 'updated_at': layout.updated_at})

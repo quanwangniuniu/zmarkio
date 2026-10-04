@@ -272,7 +272,7 @@ function SummaryCard({
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 8, minWidth: 0 }}>
           {tileControls?.dragHandle}
-          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: TEXT_MUTED }}>{label}</span>
+          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: TEXT_MUTED }}>{tileControls?.title ?? label}</span>
           {tileControls?.removeButton && <span style={{ marginLeft: 'auto' }}>{tileControls.removeButton}</span>}
         </div>
         <div style={{ paddingLeft: tileControls ? 20 : 0 }}>
@@ -303,7 +303,7 @@ function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
 }) {
   const tileControls = useDashboardTileControls(title.toLowerCase());
   const [hovered, setHovered] = useState(false);
-  const viewAll = <Link href={viewAllHref} style={{ fontSize: 12, color: OVERVIEW_PRIMARY, whiteSpace: 'nowrap', flexShrink: 0, textDecoration: 'none', fontWeight: 500 }}>View all →</Link>;
+  const viewAll = <Link href={viewAllHref} style={{ fontSize: 12, color: OVERVIEW_PRIMARY, whiteSpace: 'nowrap', flexShrink: 0, textDecoration: 'none', fontWeight: 500 }}>View all</Link>;
   return (
     <div
       onMouseEnter={() => setHovered(true)}
@@ -318,24 +318,25 @@ function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
         height: '100%',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: tileControls ? 'wrap' : undefined, marginBottom: 14, gap: 8, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: tileControls ? '1 1 0' : undefined, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 8, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 0', minWidth: 0 }}>
           {tileControls?.dragHandle}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
             <div style={{ width: 28, height: 28, borderRadius: 7, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               {iconSvg}
             </div>
-            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, whiteSpace: 'nowrap' }}>{title}</span>
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, whiteSpace: 'nowrap' }}>{tileControls?.title ?? title}</span>
           </div>
         </div>
-        {badge ? (
-          <span style={{ fontSize: 11, color: TEXT_SECONDARY, background: '#f8fafc', borderRadius: 9999, padding: '2px 8px', whiteSpace: 'nowrap', flexShrink: 0 }}>
-            {badge}
-          </span>
-        ) : null}
-        {!tileControls && viewAll}
-        {tileControls?.removeButton}
-        {tileControls && <div style={{ width: '100%', textAlign: 'right' }}>{viewAll}</div>}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+          {badge ? (
+            <span style={{ fontSize: 11, color: TEXT_SECONDARY, background: '#f8fafc', borderRadius: 9999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
+              {badge}
+            </span>
+          ) : null}
+          {viewAll}
+          {tileControls?.removeButton}
+        </div>
       </div>
       {children}
     </div>
@@ -347,14 +348,14 @@ function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
 function ChartPanel({ section, title, children, right, full = false }: {
   section: string; title: string; children: React.ReactNode; right?: React.ReactNode; full?: boolean;
 }) {
-  const widgetId = title === 'Status breakdown' ? 'task-status' : title === 'Priority distribution' ? 'task-priority' : 'task-trend';
+  const widgetId = title === 'Status breakdown' ? 'task-status' : title === 'Priority distribution' ? 'task-priority' : title === 'Type breakdown' ? 'task-types' : 'task-trend';
   const tileControls = useDashboardTileControls(widgetId);
   return (
     <div style={{ background: '#fff', borderRadius: SURFACE_RADIUS, border: `1px solid ${SURFACE_BORDER}`, padding: PANEL_PAD, gridColumn: full ? '1 / -1' : undefined, boxShadow: 'none', minWidth: 0, overflow: 'hidden', height: '100%' }}>
       <div style={{ fontSize: 9, color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{section}</div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, gap: 8, minWidth: 0 }}>
         {tileControls?.dragHandle}
-        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: TEXT_PRIMARY, marginRight: 'auto' }}>{title}</span>
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600, color: TEXT_PRIMARY, marginRight: 'auto' }}>{tileControls?.title ?? title}</span>
         {right}
         {tileControls?.removeButton}
       </div>
@@ -853,7 +854,7 @@ interface Props { projectId: Id; }
 export type WorkspaceWidgetId =
   | 'overall-progress' | 'tasks-completed' | 'task-completion-rate' | 'overdue-tasks' | 'needs-attention'
   | 'decisions' | 'tasks' | 'operations'
-  | 'task-status' | 'task-priority' | 'task-trend';
+  | 'task-status' | 'task-priority' | 'task-types' | 'task-trend';
 
 interface WorkspaceContextValue {
   workspace: WorkspaceDashboardData | null;
@@ -1174,7 +1175,7 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
       </div>}
 
       {/* CHART ROW */}
-      {['task-status', 'task-priority'].includes(section) && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 12, height: '100%' }}>
+      {['task-status', 'task-priority', 'task-types'].includes(section) && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 12, height: '100%' }}>
         {section === 'task-status' && <ChartPanel section="Tasks" title="Status breakdown">
           <HorizontalBarChart labels={statusLabels} values={statusValues} colors={statusColors} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
@@ -1195,9 +1196,8 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
               return <PriorityRow key={p.key} label={p.label} count={count} max={maxPriority} color={p.color} />;
             })}
           </div>
-          <Divider />
-          <div style={{ fontSize: 10, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Tasks</div>
-          <p style={{ fontSize: 13, fontWeight: 600, color: TEXT_PRIMARY, marginBottom: 10 }}>Type breakdown</p>
+        </ChartPanel>}
+        {section === 'task-types' && <ChartPanel section="Tasks" title="Type breakdown">
           <DonutChart labels={typeLabels} values={typeValues} colors={typeColors} />
         </ChartPanel>}
       </div>}

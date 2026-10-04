@@ -167,7 +167,7 @@ export default function CustomKPIPanel({ projectSlug }: CustomKPIPanelProps) {
         <div className="flex min-w-0 items-start gap-1">
           {tileControls?.dragHandle}
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-gray-900">Custom KPIs</h2>
+            <h2 className="text-sm font-semibold text-gray-900">{tileControls?.title ?? 'Custom KPIs'}</h2>
             <p className="text-[11px] text-gray-400">
               Metrics you define with a formula, over the last 30 days.
             </p>

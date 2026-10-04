@@ -49,6 +49,16 @@ describe('DashboardLayout upcoming meetings panel preference', () => {
     mockMatchMedia(false);
   });
 
+  it('keeps Hide Panel functional on routes without a preference provider', async () => {
+    const { container } = render(<DashboardLayout><div>Page content</div></DashboardLayout>);
+    expect(container.querySelector('[data-upcoming-meetings-panel]')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /hide panel/i }));
+
+    expect(container.querySelector('[data-upcoming-meetings-panel]')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /show panel/i })).toBeInTheDocument();
+  });
+
   it('initializes the UpcomingMeetingsPanel from localStorage and persists user toggles', async () => {
     localStorage.setItem('dashboard-upcoming-meetings-panel-open', 'false');
 
@@ -60,17 +70,20 @@ describe('DashboardLayout upcoming meetings panel preference', () => {
       </DashboardPanelPreferenceProvider>
     );
 
-    const panel = container.querySelector('[data-upcoming-meetings-panel]');
-    await waitFor(() => expect(panel).toHaveClass('sm:w-0'));
+    await waitFor(() => expect(container.querySelector('[data-upcoming-meetings-panel]')).not.toBeInTheDocument());
     expect(screen.getByRole('button', { name: /show panel/i })).toBeInTheDocument();
     expect(screen.queryByText('Upcoming Meetings')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /show panel/i }));
 
-    expect(panel).toHaveClass('sm:w-[320px]');
+    expect(container.querySelector('[data-upcoming-meetings-panel]')).toBeInTheDocument();
     expect(localStorage.getItem('dashboard-upcoming-meetings-panel-open')).toBe('true');
     expect(screen.getByRole('button', { name: /hide panel/i })).toBeInTheDocument();
     expect(screen.getByText('Upcoming Meetings')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /hide panel/i }));
+    expect(container.querySelector('[data-upcoming-meetings-panel]')).not.toBeInTheDocument();
+    expect(screen.queryByText('Upcoming Meetings')).not.toBeInTheDocument();
   });
 
   it('ignores persisted open state on mobile and does not persist mobile toggles', async () => {
@@ -85,18 +98,16 @@ describe('DashboardLayout upcoming meetings panel preference', () => {
       </DashboardPanelPreferenceProvider>
     );
 
-    const panel = container.querySelector('[data-upcoming-meetings-panel]');
-
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /show panel/i })).toBeInTheDocument();
     });
 
-    expect(panel).toHaveClass('translate-x-full');
+    expect(container.querySelector('[data-upcoming-meetings-panel]')).not.toBeInTheDocument();
     expect(screen.queryByText('Upcoming Meetings')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /show panel/i }));
 
-    expect(panel).toHaveClass('translate-x-0');
+    expect(container.querySelector('[data-upcoming-meetings-panel]')).toBeInTheDocument();
     expect(screen.getByText('Upcoming Meetings')).toBeInTheDocument();
     expect(localStorage.getItem('dashboard-upcoming-meetings-panel-open')).toBe('true');
   });

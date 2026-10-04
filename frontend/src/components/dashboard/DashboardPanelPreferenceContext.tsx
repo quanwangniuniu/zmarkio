@@ -40,11 +40,11 @@ export function DashboardPanelPreferenceProvider({
 
 export function useDashboardPanelPreference(): DashboardPanelPreferenceContextValue {
   const context = useContext(DashboardPanelPreferenceContext);
-  if (!context) {
-    return {
-      upcomingMeetingsPanelOpen: true,
-      setUpcomingMeetingsPanelOpen: () => undefined,
-    };
-  }
-  return context;
+  // DashboardLayout also appears under routes outside the (project) group.
+  // Keep its toggle functional if a new route forgets to install the provider.
+  const [localOpen, setLocalOpen] = useState(true);
+  return context ?? {
+    upcomingMeetingsPanelOpen: localOpen,
+    setUpcomingMeetingsPanelOpen: setLocalOpen,
+  };
 }
