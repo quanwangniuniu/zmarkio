@@ -216,7 +216,7 @@ def _call_gemini_analysis(
     agent_session=None,
 ):
     """Call Gemini to analyze spreadsheet data."""
-    from core.services.gemini_client import call_gemini_json
+    from core.services.ollama_client import call_ollama_json
     from ..generation_registry import (
         build_analysis_prompt,
         normalize_generation_outputs,
@@ -252,7 +252,7 @@ def _call_gemini_analysis(
         'retry' if validation_feedback else 'initial',
     )
     if agent_session is None:
-        return call_gemini_json(
+        return call_ollama_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.3,
@@ -260,8 +260,6 @@ def _call_gemini_analysis(
 
     result = _call_llm_unified(
         agent_session=agent_session,
-        provider='gemini',
-        model='gemini-2.5-flash-lite',
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         temperature=0.3,
@@ -325,9 +323,9 @@ def _run_analysis(
     user_context=None,
     agent_session=None,
 ):
-    """Run analysis using Gemini, with Claude as fallback.
+    """Run analysis using the configured LLM.
 
-    Raises RuntimeError if no provider is configured or all providers fail.
+    Raises RuntimeError if the LLM is not configured or the call fails.
     Raises GenerationValidationError if the model JSON does not match the contract.
     """
     from ..generation_registry import (
@@ -340,8 +338,8 @@ def _run_analysis(
     requested = frozenset(normalize_generation_outputs(generation_outputs))
 
     # 1. Try Gemini (primary)
-    from core.services.gemini_client import _get_api_key as _gemini_key
-    if _gemini_key():
+    from core.services.ollama_client import _get_base_url as _ollama_base_url
+    if _ollama_base_url():
         validation_feedback = None
         for attempt in range(1, _ANALYSIS_VALIDATION_MAX_ATTEMPTS + 1):
             try:
@@ -369,30 +367,10 @@ def _run_analysis(
             except QuotaError:
                 raise
             except Exception as e:
-                logger.error(f"Gemini analysis failed, falling back to Claude: {e}")
+                logger.error(f"Gemini analysis failed: {e}")
                 break
 
-    # 2. Try Claude API (fallback)
-    client = _get_llm_client()
-    if client:
-        try:
-            result = _call_llm_unified(
-                provider="anthropic",
-                model="claude-sonnet-5",
-                user_prompt=json_input(spreadsheet_data),
-                system_prompt=_ANALYSIS_SYSTEM_PROMPT,
-                agent_session=agent_session,
-            )
-            raw = json.loads(result['text'])
-            return _assign_anomaly_ids(_coerce_llm_analysis_for_requested(raw, requested))
-        except QuotaError:
-            raise
-        except GenerationValidationError:
-            raise
-        except Exception as e:
-            logger.error(f"LLM call failed: {e}")
-
-    # 3. No LLM available
+    # 2. No LLM available
     raise RuntimeError(
         "No analysis provider available."
     )

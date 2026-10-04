@@ -235,7 +235,7 @@ def _call_gemini_spreadsheet_insights(
     (mirrors ``_call_gemini_analysis``); otherwise it falls back to a direct
     ``call_gemini_json``.
     """
-    from core.services.gemini_client import call_gemini_json
+    from core.services.ollama_client import call_ollama_json
     from ..llm_client import call_llm as _call_llm_unified
 
     column_summary, cleaned_data = _preprocess_spreadsheet_insights(spreadsheet_data)
@@ -256,15 +256,13 @@ def _call_gemini_spreadsheet_insights(
         'retry' if validation_feedback else 'initial',
     )
     if agent_session is None:
-        return call_gemini_json(
+        return call_ollama_json(
             system_prompt=_SPREADSHEET_INSIGHTS_SYSTEM_PROMPT,
             user_prompt=user_prompt,
             temperature=0.3,
         )
     result = _call_llm_unified(
         agent_session=agent_session,
-        provider='gemini',
-        model='gemini-2.5-flash-lite',
         system_prompt=_SPREADSHEET_INSIGHTS_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         temperature=0.3,
@@ -284,11 +282,11 @@ def _run_spreadsheet_insights(
     Raises GenerationValidationError if recommended_tasks fail validation after retries.
     Propagates QuotaError from the billed path untouched.
     """
-    from core.services.gemini_client import _get_api_key as _gemini_key
+    from core.services.ollama_client import _get_base_url as _ollama_base_url
     from ..generation_registry import GenerationValidationError, validate_recommended_tasks
     from stripe_meta.exceptions import QuotaError
 
-    if not _gemini_key():
+    if not _ollama_base_url():
         raise RuntimeError("No analysis provider available.")
 
     sample_rows, sample_cols = _spreadsheet_insights_sample_bounds(spreadsheet_data)

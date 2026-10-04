@@ -30,8 +30,6 @@ logger = logging.getLogger(__name__)
 def call_llm(
     *,
     agent_session,
-    provider: str,
-    model: str,
     system_prompt: str,
     user_prompt: str,
     max_output_tokens: int = 4096,
@@ -49,6 +47,8 @@ def call_llm(
     On failure: release reservation, write failure log row, re-raise.
     All arithmetic is integer-only.
     """
+    provider = 'ollama'
+    model = settings.OLLAMA_MODEL
     org = resolve_charging_org(agent_session)
     multiplier = settings.MODEL_TOKEN_MULTIPLIER.get(model, 1.0)
 
@@ -76,15 +76,9 @@ def call_llm(
     reserved_ym = reserve_quota(org, estimated_total)
 
     try:
-        # 4. Dispatch to provider
-        if provider == 'anthropic':
-            result = _call_anthropic(model, system_prompt, user_prompt,
-                                     max_output_tokens, temperature)
-        elif provider == 'gemini':
-            result = _call_gemini(model, system_prompt, user_prompt,
-                                  max_output_tokens, temperature, response_mime_type)
-        else:
-            raise ValueError(f'Unknown LLM provider: {provider!r}')
+        # 4. Call the model
+        result = _call_ollama(model, system_prompt, user_prompt,
+                              max_output_tokens, temperature, response_mime_type)
 
         # 5. Reconcile with actual usage
         actual_input = result['usage']['input']
@@ -172,7 +166,7 @@ def _call_anthropic(
     }
 
 
-def _call_gemini(
+def _call_ollama(
     model: str,
     system_prompt: str,
     user_prompt: str,
@@ -181,52 +175,39 @@ def _call_gemini(
     response_mime_type: str | None,
 ) -> dict:
     """
-    Non-streaming generateContent endpoint — usageMetadata is stable here.
-    DO NOT use streamGenerateContent (core.services.gemini_client.call_gemini) for billing:
-    its usageMetadata is unreliable across chunks.
-    Retry/backoff via shared _gemini_request_with_retry helper.
+    Non-streaming /api/chat call; token counts come from the final response.
+    Retry/backoff via shared _ollama_request_with_retry helper.
     """
-    from core.services.gemini_client import _get_api_key, _GEMINI_BASE, _gemini_request_with_retry
+    from core.services.ollama_client import (
+        _chat_body,
+        _chat_url,
+        _extract_text,
+        _ollama_request_with_retry,
+    )
 
-    api_key = _get_api_key()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not configured")
+    url = _chat_url()
+    body = _chat_body(
+        system_prompt,
+        user_prompt,
+        temperature,
+        response_mime_type,
+        max_output_tokens=max_output_tokens,
+    )
+    body["model"] = model
 
-    url = f"{_GEMINI_BASE}/{model}:generateContent?key={api_key}"   # non-streaming
-    generation_config: dict = {
-        "temperature": temperature,
-        "maxOutputTokens": max_output_tokens,
-    }
-    if response_mime_type:
-        generation_config["responseMimeType"] = response_mime_type
-    body = {
-        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "generationConfig": generation_config,
-    }
-
-    logger.info("_call_gemini model=%s system_chars=%d user_chars=%d",
+    logger.info("_call_ollama model=%s system_chars=%d user_chars=%d",
                 model, len(system_prompt), len(user_prompt))
 
-    response = _gemini_request_with_retry(url, body, timeout=None, stream=False)
+    response = _ollama_request_with_retry(url, body, timeout=None)
     data = response.json()
 
-    # Extract text
-    text_parts: list[str] = []
-    for candidate in data.get("candidates", []):
-        for part in candidate.get("content", {}).get("parts", []):
-            if part.get("text"):
-                text_parts.append(part["text"])
-
-    # Extract usage — must not silently record 0 if metadata is absent
-    usage_meta = data.get("usageMetadata")
-    if usage_meta:
-        input_tokens = usage_meta.get("promptTokenCount", 0)
-        output_tokens = usage_meta.get("candidatesTokenCount", 0)
+    # Extract usage — must not silently record 0 if the counts are absent
+    if "prompt_eval_count" in data or "eval_count" in data:
+        input_tokens = data.get("prompt_eval_count", 0)
+        output_tokens = data.get("eval_count", 0)
     else:
-        # Non-streaming endpoint should always have usageMetadata; log as error
         logger.error(
-            "_call_gemini: usageMetadata missing in generateContent response "
+            "_call_ollama: token counts missing in /api/chat response "
             "for model %s — falling back to estimate; verify billing accuracy",
             model,
         )
@@ -235,6 +216,6 @@ def _call_gemini(
         output_tokens = max_output_tokens // 4   # conservative fallback
 
     return {
-        'text': "".join(text_parts).strip(),
+        'text': _extract_text(data),
         'usage': {'input': input_tokens, 'output': output_tokens},
     }

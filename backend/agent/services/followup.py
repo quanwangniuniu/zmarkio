@@ -145,7 +145,7 @@ def _call_gemini_chat(
     agent_session=None,
 ):
     """Call Gemini for post-analysis follow-up. Replaces _call_dify_chat."""
-    from core.services.gemini_client import call_gemini_json
+    from core.services.ollama_client import call_ollama_json
 
     user_prompt = (
         f"Chat history:\n  {chat_messages}\n\n"
@@ -157,7 +157,7 @@ def _call_gemini_chat(
 
     try:
         if agent_session is None:
-            parsed = call_gemini_json(
+            parsed = call_ollama_json(
                 system_prompt=_FOLLOWUP_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 temperature=0.5,
@@ -168,8 +168,6 @@ def _call_gemini_chat(
 
             result = _call_llm_unified(
                 agent_session=agent_session,
-                provider='gemini',
-                model='gemini-2.5-flash-lite',
                 system_prompt=_FOLLOWUP_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 temperature=0.5,

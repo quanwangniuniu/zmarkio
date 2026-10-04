@@ -9,10 +9,9 @@ import logging
 import os
 from django.core.cache import cache
 import time
-import anthropic
 from .agent_utils import json_input
 from .llm_client import call_llm as _call_llm_unified
-from core.services.gemini_client import GeminiRetriesExhausted
+from core.services.ollama_client import OllamaRetriesExhausted, OllamaUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +20,7 @@ def retry_policy(max_retries=3,  retry_delay= 5,on_exhausted='fail'):
     """
     retry_policy is a decorator that wraps a function with retry logic.
     It attempts to execute the function up to max_retries times in case of
-    specific exceptions (anthropic.APITimeoutError or RuntimeError).
+    specific exceptions (RuntimeError, which includes OllamaUnavailable).
     If all retries are exhausted, it returns a StepResult indicating failure or skip based on the on_exhausted parameter.
 
     Args:
@@ -49,7 +48,7 @@ def retry_policy(max_retries=3,  retry_delay= 5,on_exhausted='fail'):
             for attempt in range(effective_max_retries):
                 try:
                     return func(*args, **kwargs)
-                except (anthropic.APITimeoutError, RuntimeError) as e:
+                except RuntimeError as e:
                     if attempt == effective_max_retries -1:
                         if effective_on_exhausted == 'fail':
                             return StepResult(success=False, error=str(e), skipped=False)
@@ -169,13 +168,13 @@ class AnalyzeDataExecutor(BaseStepExecutor):
                 },
                 sse_events=sse_events,
             )
-        except (anthropic.APITimeoutError, RuntimeError) as e:
+        except RuntimeError as e:
             logger.warning("AnalyzeDataExecutor: LLM API timeout: %s", e)
             raise
         except GenerationValidationError as e:
             logger.warning("AnalyzeDataExecutor validation failed: %s", e)
             return StepResult(success=False, error=str(e))
-        except GeminiRetriesExhausted as e:
+        except OllamaRetriesExhausted as e:
             logger.warning("AnalyzeDataExecutor: Gemini 429 retries exhausted: %s", e)
             return StepResult(success=False, error=str(e))
         except Exception as e:
@@ -194,23 +193,20 @@ class CallDifyExecutor(BaseStepExecutor):
 
 
 class CallLLMExecutor(BaseStepExecutor):
-    """Calls Claude directly, supports per-step config override."""
+    """Calls the LLM directly, supports per-step config override."""
 
-    #Anthropic API call has default retry logic, so the retry policy is simple to avoid double retrying.
+    #The LLM client already retries transient failures, so the retry policy is simple to avoid double retrying.
     @retry_policy(max_retries=1, retry_delay=0, on_exhausted='fail')
     def execute(self, input_data):
-        from .services.analysis import _get_llm_client
+        from core.services.ollama_client import _get_base_url as _ollama_base_url
         from .services.analysis_prompts import _ANALYSIS_SYSTEM_PROMPT
 
         spreadsheet_data = input_data.get('spreadsheet_data', input_data)
         try:
-            client = _get_llm_client()
-            if not client:
-                return StepResult(success=False, error='No LLM API key configured')
+            if not _ollama_base_url():
+                return StepResult(success=False, error='No LLM configured')
 
             result = _call_llm_unified(
-                provider="anthropic",
-                model="claude-sonnet-5",
                 user_prompt=json_input(spreadsheet_data),
                 system_prompt=_ANALYSIS_SYSTEM_PROMPT,
                 agent_session=self.orchestrator.session,
@@ -228,7 +224,7 @@ class CallLLMExecutor(BaseStepExecutor):
                 },
                 sse_events=[{'type': 'text', 'content': 'LLM analysis completed.'}],
             )
-        except anthropic.APITimeoutError as e:
+        except OllamaUnavailable as e:
             logger.warning("CallLLMExecutor: LLM API timeout: %s", e)
             raise
         except Exception as e:
@@ -411,7 +407,7 @@ class GenerateMiroSnapshotExecutor(BaseStepExecutor):
         except RuntimeError as e:
             logger.warning("Gemini API Timeout Error: %s", e)
             raise
-        except GeminiRetriesExhausted as e:
+        except OllamaRetriesExhausted as e:
             logger.warning("GenerateMiroSnapshotExecutor: Gemini 429 retries exhausted: %s", e)
             return StepResult(success=False, error=str(e))
         except Exception as e:
@@ -628,7 +624,7 @@ class DetectColumnsExecutor(BaseStepExecutor):
         except RuntimeError as e:
             logger.warning("Gemini API Timeout Error: %s", e)
             raise
-        except GeminiRetriesExhausted as e:
+        except OllamaRetriesExhausted as e:
             logger.warning("DetectColumnsExecutor: Gemini 429 retries exhausted: %s", e)
             return StepResult(success=False, error=str(e), skipped=True)
         except Exception as e:
@@ -931,11 +927,11 @@ class GenerateCriteriaExecutor(BaseStepExecutor):
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='skip')
     def execute(self, input_data):
         import json
-        from core.services.gemini_client import _get_api_key as _gemini_key
+        from core.services.ollama_client import _get_base_url as _ollama_base_url
         from .llm_client import call_llm as _call_llm_unified
 
-        if not _gemini_key():
-            logger.warning("GenerateCriteriaExecutor: GEMINI_API_KEY not set; skipping")
+        if not _ollama_base_url():
+            logger.warning("GenerateCriteriaExecutor: OLLAMA_BASE_URL not set; skipping")
             return StepResult(
                 success=True,
                 output_data=input_data,
@@ -966,8 +962,6 @@ class GenerateCriteriaExecutor(BaseStepExecutor):
         try:
             _criteria_result = _call_llm_unified(
                 agent_session=self.orchestrator.session,
-                provider='gemini',
-                model='gemini-2.5-flash-lite',
                 system_prompt=_CRITERIA_SYSTEM_PROMPT,
                 user_prompt=(
                     f"Column names:\n{json.dumps(column_names)}\n\n"
@@ -1016,7 +1010,7 @@ class GenerateCriteriaExecutor(BaseStepExecutor):
         except RuntimeError as e:
             logger.warning("GenerateCriteriaExecutor: LLM API Timeout error: %s", e)
             raise
-        except GeminiRetriesExhausted as e:
+        except OllamaRetriesExhausted as e:
             logger.warning("GenerateCriteriaExecutor: Gemini 429 retries exhausted: %s", e)
             return StepResult(success=False, error=str(e), skipped=True)
         except Exception as e:

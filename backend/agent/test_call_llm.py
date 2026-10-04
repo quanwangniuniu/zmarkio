@@ -5,9 +5,9 @@ Covers:
   - Successful call: commit_quota fires, LLMCallLog(success=True), reservation cleared
   - Provider exception: release_quota fires, LLMCallLog(success=False), exception re-raised
   - SINGLE_CALL_TOO_LARGE: raises QuotaError BEFORE reserve_quota (mock_reserve.assert_not_called)
-  - Model multiplier: sonnet(×1.0) vs haiku(×0.2) normalized_tokens ratio = 5
-  - Gemini usage parsing: input/output tokens correctly flow into LLMCallLog
-  - Gemini missing usageMetadata: _call_gemini falls back to estimate, never records 0
+  - Model multiplier: model-a(×1.0) vs model-b(×0.2) normalized_tokens ratio = 5
+  - Ollama usage parsing: prompt_eval_count/eval_count flow into LLMCallLog
+  - Ollama missing token counts: _call_ollama falls back to estimate, never records 0
 """
 from unittest.mock import patch, MagicMock
 
@@ -25,16 +25,27 @@ User = get_user_model()
 # Settings override: controls multiplier and price tables without relying on
 # env-driven values. Models not listed get multiplier=1.0 (default in .get(...,1.0)).
 _SETTINGS = {
+    'OLLAMA_BASE_URL': 'http://ollama.test',
+    'OLLAMA_MODEL': 'model-a',
     'MODEL_TOKEN_MULTIPLIER': {
-        'claude-sonnet-4-20250514': 1.0,
-        'claude-haiku-4-5': 0.2,
+        'model-a': 1.0,
+        'model-b': 0.2,
     },
     'LLM_PRICE_TABLE': {
-        'claude-sonnet-4-20250514': {'input': 300, 'output': 1500},
-        'claude-haiku-4-5': {'input': 80, 'output': 400},
-        # gemini not listed → prices default to {'input': 0, 'output': 0}
+        'model-a': {'input': 300, 'output': 1500},
+        'model-b': {'input': 80, 'output': 400},
+        # model-c not listed → multiplier 1.0, prices {'input': 0, 'output': 0}
     },
 }
+
+
+def _ollama_response(content, **counts):
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        'message': {'role': 'assistant', 'content': content}, **counts,
+    }
+    return response
 
 
 class _LLMBase(TestCase):
@@ -89,8 +100,8 @@ class _LLMBase(TestCase):
 @override_settings(**_SETTINGS)
 class CallLLMSuccessTests(_LLMBase):
 
-    @patch('agent.llm_client._call_anthropic')
-    def test_success_commits_quota_and_writes_log(self, mock_anthropic):
+    @patch('agent.llm_client._call_ollama')
+    def test_success_commits_quota_and_writes_log(self, mock_ollama):
         """
         Successful call:
           - tokens_reserved=0 after commit (reservation cleared)
@@ -99,14 +110,12 @@ class CallLLMSuccessTests(_LLMBase):
         """
         from agent.llm_client import call_llm
 
-        mock_anthropic.return_value = {
+        mock_ollama.return_value = {
             'text': 'result',
             'usage': {'input': 50, 'output': 50},
         }
         call_llm(
             agent_session=self.session,
-            provider='anthropic',
-            model='claude-sonnet-4-20250514',
             system_prompt='system',
             user_prompt='user',
             max_output_tokens=200,
@@ -123,24 +132,22 @@ class CallLLMSuccessTests(_LLMBase):
         self.assertEqual(log.input_tokens, 50)
         self.assertEqual(log.output_tokens, 50)
         self.assertEqual(log.normalized_tokens, 100)
-        self.assertEqual(log.provider, 'anthropic')
-        self.assertEqual(log.model_name, 'claude-sonnet-4-20250514')
+        self.assertEqual(log.provider, 'ollama')
+        self.assertEqual(log.model_name, 'model-a')
 
-    @patch('agent.llm_client._call_anthropic')
-    def test_exception_releases_reservation_and_writes_failure_log(self, mock_anthropic):
+    @patch('agent.llm_client._call_ollama')
+    def test_exception_releases_reservation_and_writes_failure_log(self, mock_ollama):
         """
         Provider raises → release_quota fires → tokens_reserved=0 (no leak).
         LLMCallLog(success=False) written. Exception re-raised.
         """
         from agent.llm_client import call_llm
 
-        mock_anthropic.side_effect = RuntimeError('API down')
+        mock_ollama.side_effect = RuntimeError('API down')
 
         with self.assertRaises(RuntimeError):
             call_llm(
                 agent_session=self.session,
-                provider='anthropic',
-                model='claude-sonnet-4-20250514',
                 system_prompt='system',
                 user_prompt='user',
                 max_output_tokens=200,
@@ -154,94 +161,85 @@ class CallLLMSuccessTests(_LLMBase):
         self.assertFalse(log.success)
         self.assertIn('API down', log.error_message)
 
-    @patch('agent.llm_client._call_anthropic')
-    def test_model_multiplier_sonnet_vs_haiku(self, mock_anthropic):
+    @patch('agent.llm_client._call_ollama')
+    def test_model_multiplier_model_a_vs_model_b(self, mock_ollama):
         """
         Same 100 raw tokens (50 in + 50 out).
-        sonnet(×1.0) → normalized=100; haiku(×0.2) → normalized=20. Ratio = 5.
+        model-a(×1.0) → normalized=100; model-b(×0.2) → normalized=20. Ratio = 5.
         """
         from agent.llm_client import call_llm
 
-        mock_anthropic.return_value = {'text': 'ok', 'usage': {'input': 50, 'output': 50}}
+        mock_ollama.return_value = {'text': 'ok', 'usage': {'input': 50, 'output': 50}}
 
-        call_llm(
-            agent_session=self.session, provider='anthropic',
-            model='claude-sonnet-4-20250514',
-            system_prompt='s', user_prompt='u', max_output_tokens=100,
-        )
-        sonnet_log = LLMCallLog.objects.filter(
-            model_name='claude-sonnet-4-20250514'
-        ).latest('created_at')
-
-        call_llm(
-            agent_session=self.session, provider='anthropic',
-            model='claude-haiku-4-5',
-            system_prompt='s', user_prompt='u', max_output_tokens=100,
-        )
-        haiku_log = LLMCallLog.objects.filter(
-            model_name='claude-haiku-4-5'
-        ).latest('created_at')
-
-        self.assertEqual(sonnet_log.normalized_tokens, 100)   # int((50+50) × 1.0)
-        self.assertEqual(haiku_log.normalized_tokens, 20)     # int((50+50) × 0.2)
-        self.assertEqual(sonnet_log.normalized_tokens / haiku_log.normalized_tokens, 5.0)
-
-    @patch('agent.llm_client._call_gemini')
-    def test_gemini_usage_correctly_logged(self, mock_gemini):
-        """
-        Mock _call_gemini returns explicit usage → LLMCallLog has those exact values.
-        Verifies the usage dict flows into the log (not estimated or 0).
-        """
-        from agent.llm_client import call_llm
-
-        mock_gemini.return_value = {
-            'text': '{"ok": true}',
-            'usage': {'input': 80, 'output': 120},
-        }
         call_llm(
             agent_session=self.session,
-            provider='gemini',
-            model='gemini-2.5-flash-lite',
+            system_prompt='s', user_prompt='u', max_output_tokens=100,
+        )
+        a_log = LLMCallLog.objects.filter(model_name='model-a').latest('created_at')
+
+        with override_settings(OLLAMA_MODEL='model-b'):
+            call_llm(
+                agent_session=self.session,
+                system_prompt='s', user_prompt='u', max_output_tokens=100,
+            )
+        b_log = LLMCallLog.objects.filter(model_name='model-b').latest('created_at')
+
+        self.assertEqual(a_log.normalized_tokens, 100)   # int((50+50) × 1.0)
+        self.assertEqual(b_log.normalized_tokens, 20)    # int((50+50) × 0.2)
+        self.assertEqual(a_log.normalized_tokens / b_log.normalized_tokens, 5.0)
+
+    @override_settings(OLLAMA_MODEL='model-c')
+    @patch('core.services.ollama_client.requests.post')
+    def test_ollama_usage_correctly_logged(self, mock_post):
+        """
+        The real _call_ollama reads prompt_eval_count / eval_count from the
+        /api/chat response → LLMCallLog has those exact values (not estimated or 0).
+        """
+        from agent.llm_client import call_llm
+
+        mock_post.return_value = _ollama_response(
+            '{"ok": true}', prompt_eval_count=80, eval_count=120,
+        )
+        result = call_llm(
+            agent_session=self.session,
             system_prompt='sys',
             user_prompt='usr',
             max_output_tokens=256,
             response_mime_type='application/json',
         )
 
-        log = LLMCallLog.objects.get(organization=self.org, provider='gemini')
+        self.assertEqual(result['text'], '{"ok": true}')
+        body = mock_post.call_args.kwargs['json']
+        self.assertEqual(body['model'], 'model-c')
+        self.assertEqual(body['format'], 'json')
+        self.assertEqual(body['options']['num_predict'], 256)
+        log = LLMCallLog.objects.get(organization=self.org, provider='ollama')
         self.assertTrue(log.success)
         self.assertEqual(log.input_tokens, 80)
         self.assertEqual(log.output_tokens, 120)
-        # gemini not in _SETTINGS MODEL_TOKEN_MULTIPLIER → default 1.0
+        # model-c not in _SETTINGS MODEL_TOKEN_MULTIPLIER → default 1.0
         self.assertEqual(log.normalized_tokens, int((80 + 120) * 1.0))
 
-    @patch('agent.llm_client._call_gemini')
-    def test_gemini_estimate_fallback_never_logs_zero(self, mock_gemini):
+    @patch('core.services.ollama_client.requests.post')
+    def test_ollama_estimate_fallback_never_logs_zero(self, mock_post):
         """
-        When _call_gemini falls back to estimate (usageMetadata absent),
-        it must never return {input:0, output:0}.
-        The fallback in llm_client._call_gemini uses estimate_input_tokens + quota //4.
-        Verify the propagated values are > 0.
+        When the /api/chat response carries no token counts, the real
+        _call_ollama falls back to estimate_input_tokens + max_output // 4.
+        It must never record {input:0, output:0}.
         """
         from agent.llm_client import call_llm
 
-        # Simulate the fallback path inside _call_gemini returning non-zero estimate
-        mock_gemini.return_value = {
-            'text': 'answer',
-            'usage': {'input': 15, 'output': 64},   # estimate fallback values
-        }
+        mock_post.return_value = _ollama_response('answer')
         call_llm(
             agent_session=self.session,
-            provider='gemini',
-            model='gemini-2.5-flash-lite',
             system_prompt='sys',
             user_prompt='usr',
             max_output_tokens=256,
         )
 
-        log = LLMCallLog.objects.get(organization=self.org, provider='gemini')
+        log = LLMCallLog.objects.get(organization=self.org, provider='ollama')
         self.assertGreater(log.input_tokens, 0)
-        self.assertGreater(log.output_tokens, 0)
+        self.assertEqual(log.output_tokens, 64)
         self.assertGreater(log.normalized_tokens, 0)
 
 
@@ -266,8 +264,6 @@ class CallLLMQuotaEnforcementTests(_LLMBase):
             with self.assertRaises(QuotaError) as cm:
                 call_llm(
                     agent_session=self.session,
-                    provider='anthropic',
-                    model='claude-sonnet-4-20250514',
                     system_prompt='system prompt',
                     user_prompt='user prompt exceeding cap',
                     max_output_tokens=4096,

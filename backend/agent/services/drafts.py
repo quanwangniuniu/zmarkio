@@ -29,7 +29,7 @@ class DraftMixin:
         from types import SimpleNamespace
         from notion_editor.views import DraftViewSet
         from notion_editor.services import _html_to_plain_text
-        from core.services.gemini_client import call_gemini, _get_api_key as _gemini_key
+        from core.services.ollama_client import call_ollama, _get_base_url as _ollama_base_url
 
         draft_ref = None
         if isinstance(draft_context, dict):
@@ -58,8 +58,8 @@ class DraftMixin:
             }
             return
 
-        if not _gemini_key():
-            yield {"type": "error", "content": "Agent AI is not configured. Please set GEMINI_API_KEY."}
+        if not _ollama_base_url():
+            yield {"type": "error", "content": "Agent AI is not configured. Please set OLLAMA_BASE_URL."}
             return
 
         # Render blocks to text by reusing notion_editor's HTML extractor; the
@@ -96,7 +96,7 @@ class DraftMixin:
         )
 
         try:
-            answer = call_gemini(
+            answer = call_ollama(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=0.3,

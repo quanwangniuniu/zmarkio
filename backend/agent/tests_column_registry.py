@@ -176,7 +176,7 @@ class RuleBasedDetectionTests(SimpleTestCase):
 # LLM fallback
 # ---------------------------------------------------------------------------
 
-_GEMINI_SETTINGS = dict(GEMINI_API_KEY='test-key')
+_LLM_SETTINGS = dict(OLLAMA_BASE_URL='http://ollama.test')
 
 
 class LLMFallbackTests(TestCase):
@@ -230,8 +230,8 @@ class LLMFallbackTests(TestCase):
             'usage': {'input': 10, 'output': 20},
         }
 
-    @override_settings(**_GEMINI_SETTINGS)
-    @patch('agent.llm_client._call_gemini')
+    @override_settings(**_LLM_SETTINGS)
+    @patch('agent.llm_client._call_ollama')
     def test_llm_fallback_success(self, mock_run):
         headers = ['Revenue', 'Sessions', 'Bounce Rate']
         mock_run.return_value = self._make_gemini_response([
@@ -250,8 +250,8 @@ class LLMFallbackTests(TestCase):
         self.assertEqual(result.column_confidences['Sessions'], 0.9)
         self.assertEqual(result.column_confidences['Bounce Rate'], 0.8)
 
-    @override_settings(**_GEMINI_SETTINGS)
-    @patch('agent.llm_client._call_gemini')
+    @override_settings(**_LLM_SETTINGS)
+    @patch('agent.llm_client._call_ollama')
     def test_llm_fallback_includes_sample_rows_in_prompt(self, mock_run):
         headers = ['Revenue']
         sample_rows = [{'Revenue': 1000}, {'Revenue': 2000}]
@@ -266,9 +266,9 @@ class LLMFallbackTests(TestCase):
         # Sample rows must be serialised into the user prompt sent to Gemini
         self.assertIn('1000', user_prompt)
 
-    @override_settings(**_GEMINI_SETTINGS)
+    @override_settings(**_LLM_SETTINGS)
     @patch('agent.column_registry._try_db_template_match', return_value=None)
-    @patch('agent.llm_client._call_gemini')
+    @patch('agent.llm_client._call_ollama')
     def test_llm_fallback_strips_markdown_fences(self, mock_run, _mock_db):
         headers = ['xyzUnknownMetric999']
         mock_run.return_value = {
@@ -283,8 +283,8 @@ class LLMFallbackTests(TestCase):
         self.assertEqual(result.source, 'llm')
         self.assertEqual(result.mappings['xyzUnknownMetric999'], 'xyz_metric')
 
-    @override_settings(**_GEMINI_SETTINGS)
-    @patch('agent.llm_client._call_gemini')
+    @override_settings(**_LLM_SETTINGS)
+    @patch('agent.llm_client._call_ollama')
     def test_llm_unknown_columns_labeled_unknown(self, mock_run):
         headers = ['WeirdCol1', 'WeirdCol2']
         mock_run.return_value = self._make_gemini_response([
@@ -300,8 +300,8 @@ class LLMFallbackTests(TestCase):
         self.assertEqual(result.column_confidences['WeirdCol1'], 0.0)
         self.assertEqual(result.column_confidences['WeirdCol2'], 0.0)
 
-    @override_settings(**_GEMINI_SETTINGS)
-    @patch('agent.llm_client._call_gemini')
+    @override_settings(**_LLM_SETTINGS)
+    @patch('agent.llm_client._call_ollama')
     def test_llm_exception_falls_back_to_all_unknown(self, mock_run):
         headers = ['ColA', 'ColB']
         mock_run.side_effect = Exception('network error')
@@ -311,10 +311,9 @@ class LLMFallbackTests(TestCase):
         self.assertEqual(result.confidence, 0.0)
         self.assertTrue(all(v == CAT_UNKNOWN for v in result.mappings.values()))
 
-    @patch.dict('os.environ', {'GEMINI_API_KEY': ''})
     def test_llm_skipped_when_no_api_key(self):
         headers = ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon']
-        with override_settings(GEMINI_API_KEY=''):
+        with override_settings(OLLAMA_BASE_URL=''):
             result = detect_columns(headers, agent_session=self.session)
         # Should return unknown result (no LLM, no rule match)
         self.assertIn(result.source, ('none', 'rule'))
@@ -505,7 +504,7 @@ class LearnedTemplateTests(SimpleTestCase):
 
 
 class LLMQuotaPropagationTests(SimpleTestCase):
-    @patch('core.services.gemini_client._get_api_key', return_value='test-key')
+    @patch('core.services.ollama_client._get_base_url', return_value='test-key')
     @patch('agent.llm_client.call_llm')
     def test_quota_error_is_not_converted_to_unknown_result(self, mock_call_llm, _mock_key):
         from stripe_meta.exceptions import QuotaError

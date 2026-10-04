@@ -18,7 +18,7 @@ def _call_gemini_calendar_from_analysis(
     agent_session=None,
 ):
     """Suggest calendar events from spreadsheet + analysis context."""
-    from core.services.gemini_client import call_gemini_json
+    from core.services.ollama_client import call_ollama_json
     from ..generation_registry import (
         build_calendar_from_analysis_user_prompt,
         calendar_from_analysis_system_prompt,
@@ -33,7 +33,7 @@ def _call_gemini_calendar_from_analysis(
         column_summary, cleaned_data, analysis_result
     )
     if agent_session is None:
-        raw = call_gemini_json(
+        raw = call_ollama_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.3,
@@ -44,8 +44,6 @@ def _call_gemini_calendar_from_analysis(
 
         result = _call_llm_unified(
             agent_session=agent_session,
-            provider='gemini',
-            model='gemini-2.5-flash-lite',
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.3,
@@ -237,9 +235,9 @@ class CalendarMixin:
         calendar_data_str = json.dumps(calendar_payload, ensure_ascii=False)
 
         # Call Gemini Calendar Assistant
-        from core.services.gemini_client import call_gemini, _get_api_key as _gemini_key
-        if not _gemini_key():
-            yield {"type": "error", "content": "Calendar AI is not configured. Please set GEMINI_API_KEY."}
+        from core.services.ollama_client import call_ollama, _get_base_url as _ollama_base_url
+        if not _ollama_base_url():
+            yield {"type": "error", "content": "Calendar AI is not configured. Please set OLLAMA_BASE_URL."}
             return
 
         _calendar_system_prompt = (
@@ -268,7 +266,7 @@ class CalendarMixin:
         )
 
         try:
-            raw_answer = call_gemini(
+            raw_answer = call_ollama(
                 system_prompt=_calendar_system_prompt,
                 user_prompt=(
                     f"Calendar data:\n{calendar_data_str}\n\n"
@@ -400,11 +398,11 @@ class CalendarMixin:
             return
 
         try:
-            from core.services.gemini_client import _get_api_key as _gemini_key
-            if not _gemini_key():
+            from core.services.ollama_client import _get_base_url as _ollama_base_url
+            if not _ollama_base_url():
                 yield {
                     'type': 'error',
-                    'content': 'Calendar AI is not configured. Please set GEMINI_API_KEY.',
+                    'content': 'Calendar AI is not configured. Please set OLLAMA_BASE_URL.',
                 }
                 return
             result = _call_gemini_calendar_from_analysis(

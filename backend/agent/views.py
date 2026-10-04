@@ -751,8 +751,8 @@ class FileUploadAnalyzeView(EnglishResponseMixin, APIView):
                     'row_count': result.get('row_count'),
                     'column_count': result.get('column_count'),
                     'original_filename': result.get('original_filename'),
-                    'provider': 'gemini',
-                    'model': 'gemini-2.5-flash-lite',
+                    'provider': 'ollama',
+                    'model': django_settings.OLLAMA_MODEL,
                 },
                 request=request,
             )

@@ -1,12 +1,12 @@
-"""Exercise analysis through the real billed LLM caller with a mocked Anthropic SDK."""
+"""Exercise analysis through the real billed LLM caller with a mocked Ollama server."""
 import json
 from datetime import timedelta
 from decimal import Decimal
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from core.models import Organization, Project
@@ -17,7 +17,7 @@ from .models import AgentSession
 from .services.analysis import _run_analysis
 
 
-@patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-anthropic-key"})
+@override_settings(OLLAMA_BASE_URL="http://ollama.test", OLLAMA_MODEL="qwen3:4b")
 class AnalysisLLMContractTests(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -43,23 +43,26 @@ class AnalysisLLMContractTests(TestCase):
             is_active=True, is_internal=False,
         )
 
-    def _mock_response(self, mock_anthropic):
-        create_message = mock_anthropic.return_value.messages.create
-        create_message.return_value = SimpleNamespace(
-            content=[SimpleNamespace(text=json.dumps({
+    def _mock_response(self, mock_post):
+        response = MagicMock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "message": {"role": "assistant", "content": json.dumps({
                 "anomalies": [],
                 "recommended_tasks": [{
                     "type": "execution", "summary": "Review campaign performance",
                     "priority": "MEDIUM",
                 }],
-            }))],
-            usage=SimpleNamespace(input_tokens=12, output_tokens=5),
-        )
-        return create_message
+            })},
+            "prompt_eval_count": 12,
+            "eval_count": 5,
+        }
+        mock_post.return_value = response
+        return mock_post
 
-    @patch("anthropic.Anthropic")
-    def test_executor_serializes_prompt_and_returns_parsed_analysis(self, mock_anthropic):
-        create_message = self._mock_response(mock_anthropic)
+    @patch("core.services.ollama_client.requests.post")
+    def test_executor_serializes_prompt_and_returns_parsed_analysis(self, mock_post):
+        post = self._mock_response(mock_post)
         spreadsheet_data = {"rows": [{"spend": Decimal("10.50")}]}
         executor = CallLLMExecutor(
             SimpleNamespace(config={}), None, SimpleNamespace(session=self.session)
@@ -76,27 +79,21 @@ class AnalysisLLMContractTests(TestCase):
             }],
         })
         self.assertIs(result.output_data["spreadsheet_data"], spreadsheet_data)
-        prompt = create_message.call_args.kwargs["messages"][0]["content"]
-        self.assertEqual(json.loads(prompt), {"rows": [{"spend": "10.50"}]})
-        self.assertTrue(LLMCallLog.objects.get(agent_session=self.session).success)
-
-    @patch("core.services.gemini_client._get_api_key", return_value="")
-    @patch("anthropic.Anthropic")
-    def test_claude_fallback_parses_text_before_validating_tasks(self, mock_anthropic, _mock_key):
-        create_message = self._mock_response(mock_anthropic)
-
-        result = _run_analysis(
-            {"rows": [{"spend": Decimal("10.50")}]},
-            generation_outputs=["recommended_tasks"], agent_session=self.session,
-        )
-
-        self.assertEqual(result["recommended_tasks"], [{
-            "type": "execution", "summary": "Review campaign performance",
-            "priority": "MEDIUM",
-        }])
-        self.assertTrue(result["anomalies_confirmed"])
-        prompt = create_message.call_args.kwargs["messages"][0]["content"]
+        self.assertEqual(post.call_args.args[0], "http://ollama.test/api/chat")
+        prompt = post.call_args.kwargs["json"]["messages"][1]["content"]
         self.assertEqual(json.loads(prompt), {"rows": [{"spend": "10.50"}]})
         log = LLMCallLog.objects.get(agent_session=self.session)
         self.assertTrue(log.success)
+        self.assertEqual((log.provider, log.model_name), ("ollama", "qwen3:4b"))
         self.assertEqual((log.input_tokens, log.output_tokens), (12, 5))
+
+    @override_settings(OLLAMA_BASE_URL="")
+    @patch("core.services.ollama_client.requests.post")
+    def test_run_analysis_without_llm_raises_and_calls_nothing(self, mock_post):
+        with self.assertRaisesMessage(RuntimeError, "No analysis provider available."):
+            _run_analysis(
+                {"rows": [{"spend": Decimal("10.50")}]},
+                generation_outputs=["recommended_tasks"], agent_session=self.session,
+            )
+        mock_post.assert_not_called()
+        self.assertFalse(LLMCallLog.objects.filter(agent_session=self.session).exists())

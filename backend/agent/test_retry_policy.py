@@ -1,5 +1,3 @@
-import anthropic
-import httpx
 import requests
 from unittest.mock import MagicMock, call, patch
 from agent.executors import AnalyzeDataExecutor, CallLLMExecutor, DetectColumnsExecutor, GenerateCriteriaExecutor
@@ -124,9 +122,9 @@ class LLMRetryPolicyTests(TestCase):
     
     # The executor now uses the unified caller; patch its local import alias.
     @patch('agent.executors._call_llm_unified', autospec=True)
-    @patch('agent.services.analysis._get_llm_client')
-    def test_call_llm_success_unused_retries(self, mock_get_client, mock_call_llm):
-        mock_get_client.return_value = MagicMock()
+    @patch('core.services.ollama_client._get_base_url')
+    def test_call_llm_success_unused_retries(self, mock_get_base_url, mock_call_llm):
+        mock_get_base_url.return_value = 'http://ollama.test'
         mock_call_llm.return_value = {
             "text": '{"anomalies": [], "recommended_tasks": []}',
             "usage": {"input": 10, "output": 2},
@@ -141,27 +139,27 @@ class LLMRetryPolicyTests(TestCase):
         self.assertEqual(mock_call_llm.call_count, 1)
 
 
-    @patch('core.services.gemini_client.time.sleep')
-    @patch('core.services.gemini_client._get_api_key')
-    @patch('core.services.gemini_client.requests.post')
+    @patch('core.services.ollama_client.time.sleep')
+    @patch('core.services.ollama_client._get_base_url')
+    @patch('core.services.ollama_client.requests.post')
     @patch('agent.llm_client.call_llm')
-    def test_generate_criteria_gemini_429_exhausted_skips_without_extra_retries(
-        self, mock_call_llm, mock_post, mock_gemini_key, mock_sleep,
+    def test_generate_criteria_ollama_busy_exhausted_skips_without_extra_retries(
+        self, mock_call_llm, mock_post, mock_get_base_url, mock_sleep,
     ):
-        from core.services.gemini_client import _gemini_request_with_retry
+        from core.services.ollama_client import _ollama_request_with_retry
 
-        mock_gemini_key.return_value = 'fake-key'
+        mock_get_base_url.return_value = 'http://ollama.test'
 
         mock_response = MagicMock()
-        mock_response.status_code = 429
+        mock_response.status_code = 503
         mock_response.raise_for_status.side_effect = requests.exceptions.HTTPError(
             response=mock_response
         )
         mock_post.return_value = mock_response
 
         def call_llm_side_effect(*args, **kwargs):
-            # Runs the real global retry/backoff loop against the mocked 429 response.
-            _gemini_request_with_retry('https://example.invalid', {})
+            # Runs the real global retry/backoff loop against the mocked 503 response.
+            _ollama_request_with_retry('https://example.invalid', {})
 
         mock_call_llm.side_effect = call_llm_side_effect
 
@@ -185,14 +183,14 @@ class LLMRetryPolicyTests(TestCase):
 
     @patch('agent.executors.time.sleep')
     @patch('agent.executors._call_llm_unified', autospec=True)
-    @patch('agent.services.analysis._get_llm_client')
-    def test_call_llm_anthropic_timeout_no_extra_retries(
-        self, mock_get_client, mock_call_llm, mock_sleep,
+    @patch('core.services.ollama_client._get_base_url')
+    def test_call_llm_ollama_timeout_no_extra_retries(
+        self, mock_get_base_url, mock_call_llm, mock_sleep,
     ):
-        mock_get_client.return_value = MagicMock()
-        mock_call_llm.side_effect = anthropic.APITimeoutError(
-            request=httpx.Request('POST', 'https://api.anthropic.com/v1/messages')
-        )
+        from core.services.ollama_client import OllamaUnavailable
+
+        mock_get_base_url.return_value = 'http://ollama.test'
+        mock_call_llm.side_effect = OllamaUnavailable('Ollama deadline exceeded.')
 
         step = _StepStub('call_llm')
         orchestrator = _OrchestratorStub()

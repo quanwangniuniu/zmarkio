@@ -649,18 +649,16 @@ def _try_llm_fallback(headers: list, sample_rows: list = None, agent_session=Non
     """
     from stripe_meta.exceptions import QuotaError
     from agent.llm_client import call_llm as _call_llm_unified
-    from core.services.gemini_client import _get_api_key as _gemini_key
+    from core.services.ollama_client import _get_base_url as _ollama_base_url
 
-    if not _gemini_key():
-        logger.warning("GEMINI_API_KEY not set; skipping LLM column detection")
+    if not _ollama_base_url():
+        logger.warning("OLLAMA_BASE_URL not set; skipping LLM column detection")
         return _unknown_result(headers)
 
     try:
         rows_to_send = (sample_rows or [])[:_LLM_SAMPLE_ROW_LIMIT]
         result = _call_llm_unified(
             agent_session=agent_session,
-            provider='gemini',
-            model='gemini-2.5-flash-lite',
             system_prompt=_COLUMN_DETECTION_SYSTEM_PROMPT,
             user_prompt=(
                 f"Column headers: {', '.join(headers)}\n"

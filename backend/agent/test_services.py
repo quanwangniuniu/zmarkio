@@ -177,7 +177,7 @@ class ChatOutputNormalizationTests(SimpleTestCase):
 
 
 class GeminiChatBoundaryTests(SimpleTestCase):
-    @patch("core.services.gemini_client.call_gemini_json")
+    @patch("core.services.ollama_client.call_ollama_json")
     def test_call_gemini_chat_normalizes_mocked_response(self, mock_call_gemini):
         mock_call_gemini.return_value = {
             "status": "completed",
@@ -217,12 +217,12 @@ class GeminiChatBoundaryTests(SimpleTestCase):
         self.assertIs(mock_call_llm.call_args.kwargs["agent_session"], session)
         self.assertEqual(mock_call_llm.call_args.kwargs["call_purpose"], "follow_up_chat")
 
-    @patch("core.services.gemini_client.call_gemini_json", side_effect=RuntimeError("offline"))
+    @patch("core.services.ollama_client.call_ollama_json", side_effect=RuntimeError("offline"))
     def test_call_gemini_chat_converts_provider_failure_to_runtime_error(self, _mock_call):
         with self.assertRaisesRegex(RuntimeError, "Gemini chat failed: offline"):
             followup._call_gemini_chat("history")
 
-    @patch("core.services.gemini_client.call_gemini_json", return_value={"text": ""})
+    @patch("core.services.ollama_client.call_ollama_json", return_value={"text": ""})
     def test_call_gemini_chat_rejects_unexpected_output(self, _mock_call):
         with self.assertRaisesRegex(RuntimeError, "unexpected output format"):
             followup._call_gemini_chat("history")
