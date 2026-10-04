@@ -1,5 +1,3 @@
-'use client';
-
 import { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '@/lib/authStore';
