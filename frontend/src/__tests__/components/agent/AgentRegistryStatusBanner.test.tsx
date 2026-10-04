@@ -14,20 +14,20 @@ describe('AgentRegistryStatusBanner', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.clearAllMocks();
-    auth.mockImplementation((select) => select({ user: { is_staff: true } }));
+    auth.mockImplementation((select) => select({ user: { is_staff: false, is_org_admin: false } }));
     status.mockResolvedValue({ column_registry: { ok: true } });
   });
   afterEach(() => { jest.useRealTimers(); });
 
-  it('does not request diagnostics for non-admins', async () => {
-    auth.mockImplementation((select) => select({ user: { is_staff: false } }));
+  it('does not request diagnostics without a logged-in user', async () => {
+    auth.mockImplementation((select) => select({ user: null }));
     render(<AgentRegistryStatusBanner />);
     await flush();
     expect(status).not.toHaveBeenCalled();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('detects a later collision and clears it after recovery', async () => {
+  it('reports collisions and recovery for a logged-in user without an admin role', async () => {
     const { unmount } = render(<AgentRegistryStatusBanner />);
     await flush();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
@@ -51,8 +51,7 @@ describe('AgentRegistryStatusBanner', () => {
     expect(screen.getByRole('alert')).not.toHaveTextContent('startup is blocked');
   });
 
-  it('supports organisation admins and ignores late responses after unmount', async () => {
-    auth.mockImplementation((select) => select({ user: { is_org_admin: true } }));
+  it('ignores late responses after unmount', async () => {
     let resolve!: (value: unknown) => void;
     status.mockReturnValue(new Promise((done) => { resolve = done; }));
     const { unmount } = render(<AgentRegistryStatusBanner />);

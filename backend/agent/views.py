@@ -31,7 +31,6 @@ class EventStreamRenderer(BaseRenderer):
             return b''
         return json.dumps(data).encode('utf-8')
 
-from core.admin_utils import is_org_admin
 from core.models import Project
 from core.slug_mixins import resolve_project_pk, SlugLookupViewSetMixin, resolve_lookup_kwargs
 from core.services.file_parser import parse_file_to_json, FileParseError
@@ -1339,7 +1338,7 @@ class GenerationOutputsCatalogView(EnglishResponseMixin, APIView):
 
 
 class AgentConfigStatusView(EnglishResponseMixin, APIView):
-    """GET /api/agent/config/status/ — configured API keys and admin registry diagnostics."""
+    """GET /api/agent/config/status/ — configured API keys and registry diagnostics."""
     permission_classes = [IsAuthenticated]
 
     # Mapping of response key -> (settings attr, env var fallback)
@@ -1353,9 +1352,6 @@ class AgentConfigStatusView(EnglishResponseMixin, APIView):
         for key, (settings_attr, env_var) in self.KEY_MAP.items():
             val = getattr(django_settings, settings_attr, None) or os.environ.get(env_var, '')
             result[key] = bool(val and val.strip())
-
-        if not (request.user.is_staff or is_org_admin(request.user)):
-            return Response(result)
 
         try:
             validate_registry()

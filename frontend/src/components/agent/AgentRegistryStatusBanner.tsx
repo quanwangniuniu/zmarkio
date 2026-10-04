@@ -5,14 +5,14 @@ import { AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '@/lib/authStore';
 import { AgentAPI } from '@/lib/api/agentApi';
 
-/** Shows actionable registry boot failures to staff and organisation admins. */
+/** Shows actionable registry boot failures to authenticated users. */
 export function AgentRegistryStatusBanner() {
   const user = useAuthStore((state) => state.user);
   const [error, setError] = useState<string | null>(null);
   const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
-    if (!user || (!user.is_staff && !user.is_org_admin)) {
+    if (!user) {
       setError(null);
       setUnavailable(false);
       return;
@@ -49,7 +49,7 @@ export function AgentRegistryStatusBanner() {
     };
   }, [user]);
 
-  if (!user || (!user.is_staff && !user.is_org_admin) || (!error && !unavailable)) {
+  if (!user || (!error && !unavailable)) {
     return null;
   }
 

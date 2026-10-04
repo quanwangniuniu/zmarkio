@@ -1,4 +1,4 @@
-"""Registration, boot validation and admin diagnostics for the column registry."""
+"""Registration, boot validation and diagnostics for the column registry."""
 import importlib
 import sys
 from copy import deepcopy
@@ -163,36 +163,34 @@ def test_boot_collision_leaves_diagnostics_importable(caplog):
         module.validate_registry()
 
 
-def config_status(*, is_staff=False):
+def config_status():
     request = APIRequestFactory().get('/api/agent/config/status/')
-    force_authenticate(request, user=SimpleNamespace(is_authenticated=True, is_staff=is_staff))
+    force_authenticate(request, user=SimpleNamespace(is_authenticated=True, is_staff=False))
     return AgentConfigStatusView.as_view()(request)
 
 
-@pytest.mark.parametrize('is_staff,is_org_admin', [(True, False), (False, True)])
-def test_admin_diagnostics_reports_current_collision_and_recovery(is_staff, is_org_admin):
+def test_authenticated_user_gets_current_collision_and_recovery():
     columns = registry.SCHEMA_REGISTRY['test']['columns']
     columns['other'] = {'aliases': ['Total Sales']}
-    with patch('agent.views.is_org_admin', return_value=is_org_admin):
-        response = config_status(is_staff=is_staff)
-        assert response.status_code == 200
-        assert response.data['column_registry']['ok'] is False
-        assert 'other' in response.data['column_registry']['error']
-        del columns['other']
-        assert config_status(is_staff=is_staff).data['column_registry'] == {'ok': True}
+    response = config_status()
+    assert response.status_code == 200
+    assert response.data['column_registry']['ok'] is False
+    assert 'other' in response.data['column_registry']['error']
+    del columns['other']
+    assert config_status().data['column_registry'] == {'ok': True}
 
 
 def test_diagnostics_does_not_query_database_templates():
     with patch('agent.models.DataSchemaTemplate.objects') as manager:
-        response = config_status(is_staff=True)
+        response = config_status()
     assert response.data['column_registry'] == {'ok': True}
     manager.filter.assert_not_called()
 
 
-def test_registry_details_are_omitted_for_non_admins():
+def test_registry_diagnostics_preserve_existing_config_flags():
     registry.SCHEMA_REGISTRY['test']['columns']['other'] = {'aliases': ['Total Sales']}
-    with patch('agent.views.is_org_admin', return_value=False):
-        response = config_status()
+    response = config_status()
     assert response.status_code == 200
-    assert 'column_registry' not in response.data
+    assert response.data['column_registry']['ok'] is False
     assert 'gemini' in response.data
+    assert 'anthropic' in response.data
