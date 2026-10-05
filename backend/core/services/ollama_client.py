@@ -110,9 +110,12 @@ def _chat_body(
 ) -> dict:
     """Build a non-streaming ``/api/chat`` request body.
 
-    ``think`` is off because thinking models (qwen3) otherwise spend most of
-    the budget on a reasoning trace. ``num_ctx`` is explicit because Ollama
-    silently truncates prompts longer than its 4096-token default.
+    ``think`` is false: instruct models ignore it and hybrid models skip the
+    reasoning trace. Thinking-only models cannot disable reasoning; with
+    think=false Ollama returns the trace (ending in ``</think>``) inside
+    ``message.content``, so OLLAMA_MODEL must not be one of them.
+    ``num_ctx`` is explicit because Ollama silently truncates prompts longer
+    than its 4096-token default.
     """
     options: dict = {
         "temperature": temperature,

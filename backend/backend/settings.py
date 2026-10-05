@@ -416,6 +416,10 @@ SPREADSHEET_AI_MAX_CELL_CHARS = config(
 # Ollama LLM server (core.services.ollama_client). An empty OLLAMA_BASE_URL means
 # the LLM is not configured and AI features report themselves unavailable.
 OLLAMA_BASE_URL = config('OLLAMA_BASE_URL', default='')
+# Must be a non-thinking (instruct) or hybrid model, e.g. qwen3:4b-instruct.
+# Requests send think=false. A thinking-only model such as qwen3:4b (currently
+# Qwen3-4B-Thinking-2507) cannot turn reasoning off, and Ollama then returns the
+# reasoning trace inside the answer text.
 OLLAMA_MODEL = config('OLLAMA_MODEL', default='qwen3:4b-instruct')
 # Context window sent with every request; Ollama's own default (4096) silently
 # truncates longer prompts.
