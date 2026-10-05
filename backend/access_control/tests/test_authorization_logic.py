@@ -209,5 +209,3 @@ class TeamPermissionDecoratorTest(TestCase):
         resp = view(req, team_id=None)
         self.assertEqual(resp.status_code, 400)
         self.assertIn(b'team_id required', resp.content)
-
-

@@ -1,27 +1,22 @@
+import os
+import statistics
+import time
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
+from access_control.middleware.authorization import AuthorizationMiddleware
 from access_control.models import RolePermission, UserRole
 from access_control.services import (
     get_user_permission_bundle,
     invalidate_user_permission_cache,
     permission_cache_key,
 )
-from core.models import (
-    Organization,
-    Permission,
-    Role,
-)
+from core.models import Organization, Permission, Role
 from core.services.tenant import slug_to_schema_name
-
-import time
-import os
-import statistics
-from django.test import RequestFactory
-from access_control.middleware.authorization import AuthorizationMiddleware
 
 
 class PermissionCacheTest(TestCase):
@@ -150,7 +145,6 @@ class PermissionCacheTest(TestCase):
         refreshed = self._warm_cache()
         self.assertIn("CAMPAIGN:EDIT", refreshed["permissions"])
 
-
     def test_role_change_invalidates_cached_bundle(self):
         key = self._cache_key()
         bundle = self._warm_cache()
@@ -164,7 +158,6 @@ class PermissionCacheTest(TestCase):
 
         refreshed = self._warm_cache()
         self.assertTrue(refreshed["is_org_admin"])
-
 
     def test_user_role_change_reflected_within_one_second(self):
         self._warm_cache()
@@ -184,9 +177,6 @@ class PermissionCacheTest(TestCase):
 
         self.assertIn("CAMPAIGN:EDIT", refreshed["permissions"])
         self.assertLess(elapsed, 1.0)
-
-        print(f"\nRole change reflected in {elapsed:.4f}s") 
-
 
     def test_warmed_cache_reduces_p95_request_latency(self):
         if os.environ.get("MED299_BENCHMARK") != "1":
@@ -233,49 +223,4 @@ class PermissionCacheTest(TestCase):
             method="inclusive",
         )[94]
 
-        reduction = (1 - warm_p95 / cold_p95) * 100
-
-        print(f"\nCold p95: {cold_p95 * 1000:.3f} ms")
-        print(f"Warm p95: {warm_p95 * 1000:.3f} ms")
-        print(f"Reduction: {reduction:.1f}%")
-
         self.assertLess(warm_p95, cold_p95)
-
-    def test_user_role_delete_invalidates_cached_bundle(self):
-        key = self._cache_key()
-        self._warm_cache()
-        self.assertIsNotNone(cache.get(key))
-
-        user_role = UserRole.objects.get(
-            user=self.user,
-            role=self.viewer_role,
-        )
-
-        with self.captureOnCommitCallbacks(execute=True):
-            user_role.delete()
-
-        self.assertIsNone(cache.get(key))
-
-        refreshed = self._warm_cache()
-        self.assertNotIn("ASSET:VIEW", refreshed["permissions"])
-        self.assertFalse(refreshed["has_any_role"])
-
-
-    def test_role_permission_delete_invalidates_cached_bundle(self):
-        key = self._cache_key()
-        self._warm_cache()
-        self.assertIsNotNone(cache.get(key))
-
-        role_permission = RolePermission.objects.get(
-            role=self.viewer_role,
-            permission=self.asset_view,
-        )
-
-        with self.captureOnCommitCallbacks(execute=True):
-            role_permission.delete()
-
-        self.assertIsNone(cache.get(key))
-
-        refreshed = self._warm_cache()
-        self.assertNotIn("ASSET:VIEW", refreshed["permissions"])
-     

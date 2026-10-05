@@ -2,6 +2,9 @@ import math
 from typing import Dict, List, Optional, TypedDict
 
 from django.core.cache import cache
+from django.db import connection, transaction
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 from django.utils import timezone
 
 from core.models import Permission, Project, ProjectMember, Role
@@ -129,9 +132,75 @@ def get_user_permission_bundle(
         cache.set(key, bundle, timeout)
     except Exception:
         # PostgreSQL remains the source of truth if Redis is unavailable.
-        pass 
+        pass
 
     return bundle
+
+
+def _current_schema_name() -> str:
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW search_path")
+        search_path = cursor.fetchone()[0]
+    return search_path.split(",")[0].strip().strip('"')
+
+
+def _invalidate_user_after_commit(user_id: int) -> None:
+    try:
+        schema_name = _current_schema_name()
+    except Exception:
+        return
+
+    transaction.on_commit(
+        lambda: invalidate_user_permission_cache(schema_name, user_id)
+    )
+
+
+def _invalidate_role_users_after_commit(role_id: int) -> None:
+    try:
+        schema_name = _current_schema_name()
+        user_ids = list(
+            UserRole.objects.filter(role_id=role_id)
+            .values_list("user_id", flat=True)
+            .distinct()
+        )
+    except Exception:
+        return
+
+    def invalidate():
+        for user_id in user_ids:
+            invalidate_user_permission_cache(schema_name, user_id)
+
+    transaction.on_commit(invalidate)
+
+
+@receiver(post_save, sender=UserRole)
+@receiver(post_delete, sender=UserRole)
+def invalidate_permission_cache_on_user_role_change(
+    sender,
+    instance,
+    **kwargs,
+):
+    _invalidate_user_after_commit(instance.user_id)
+
+
+@receiver(post_save, sender=RolePermission)
+@receiver(post_delete, sender=RolePermission)
+def invalidate_permission_cache_on_role_permission_change(
+    sender,
+    instance,
+    **kwargs,
+):
+    _invalidate_role_users_after_commit(instance.role_id)
+
+
+@receiver(post_save, sender=Role)
+def invalidate_permission_cache_on_role_change(
+    sender,
+    instance,
+    **kwargs,
+):
+    _invalidate_role_users_after_commit(instance.id)
+
 
 MODULE_LABELS = {
     "ASSET": "Asset Management",
