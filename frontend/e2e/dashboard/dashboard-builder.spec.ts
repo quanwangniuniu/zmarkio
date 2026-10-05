@@ -174,6 +174,43 @@ test('does not keep a removed widget visible in an interrupted resize preview', 
   await expect.poll(() => layout.saved().some((widget) => widget.id === 'task-types')).toBe(false);
 });
 
+test('keeps the widget picker open while adding multiple widgets until manually collapsed', async ({ page }) => {
+  const layout = await openDashboard(page, [{ id: 'audit', x: 0, y: 0, w: 6, h: 5 }]);
+  const toggle = page.getByRole('button', { name: 'Add widget' });
+  const picker = page.getByLabel('Widget picker');
+  await toggle.click();
+  await picker.getByRole('button', { name: 'Type breakdown', exact: true }).click();
+  await expect(picker).toBeVisible();
+  await expect(picker.getByRole('button', { name: 'Type breakdown', exact: true })).toHaveCount(0);
+  await picker.getByRole('button', { name: 'Overall Progress', exact: true }).click();
+  await expect(picker).toBeVisible();
+  await expect(page.getByTestId('dashboard-widget-task-types')).toBeVisible();
+  await expect(page.getByTestId('dashboard-widget-overall-progress')).toBeVisible();
+  await expect.poll(() => layout.saved().filter((widget) => ['task-types', 'overall-progress'].includes(widget.id)).length).toBe(2);
+  await toggle.click();
+  await expect(picker).toHaveCount(0);
+});
+
+test('closes the widget picker after the last available widget is added', async ({ page }) => {
+  const placedIds = [
+    'overall-progress', 'tasks-completed', 'task-completion-rate', 'overdue-tasks',
+    'needs-attention', 'decisions', 'tasks', 'operations', 'task-status',
+    'task-priority', 'task-trend', 'custom-kpis', 'meetings', 'activity', 'audit',
+    'project-team',
+  ];
+  const layout = await openDashboard(page, placedIds.map((id, index) => ({
+    id, x: (index % 3) * 4, y: Math.floor(index / 3) * 8, w: 4, h: 8,
+  })));
+  const toggle = page.getByRole('button', { name: 'Add widget' });
+  const picker = page.getByLabel('Widget picker');
+  await toggle.click();
+  await expect(picker.getByRole('button')).toHaveCount(1);
+  await picker.getByRole('button', { name: 'Type breakdown', exact: true }).click();
+  await expect(picker).toHaveCount(0);
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect.poll(() => layout.saved().some((widget) => widget.id === 'task-types')).toBe(true);
+});
+
 test('shows the drag grip over a card icon without shifting its title', async ({ page }) => {
   await openDashboard(page);
   const tile = page.getByTestId('dashboard-widget-activity');

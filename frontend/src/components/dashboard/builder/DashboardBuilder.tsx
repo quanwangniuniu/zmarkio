@@ -312,7 +312,10 @@ export default function DashboardBuilder(context: WidgetContext) {
         </div>
       </div>
       {pickerOpen && <div className="mb-3 flex flex-wrap gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2" aria-label="Widget picker">
-        {widgetRegistry.filter((definition) => !widgets.some((widget) => widget.id === definition.id)).map((definition) => <button type="button" key={definition.id} onClick={() => { commit((current) => addWidget(current, definition.defaultPosition)); setPickerOpen(false); }} className="rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:border-cyan-400">{definition.title}</button>)}
+        {widgetRegistry.filter((definition) => !widgets.some((widget) => widget.id === definition.id)).map((definition) => <button type="button" key={definition.id} onClick={() => {
+          commit((current) => addWidget(current, definition.defaultPosition));
+          if (widgetRegistry.every((item) => widgetsRef.current.some((widget) => widget.id === item.id))) setPickerOpen(false);
+        }} className="rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:border-cyan-400">{definition.title}</button>)}
         {widgetRegistry.every((definition) => widgets.some((widget) => widget.id === definition.id)) && <span className="text-xs text-gray-500">All widgets are on your dashboard.</span>}
       </div>}
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onDragCancel={() => { setDragPreview(null); setActiveDragId(null); endGesture(); }}>
