@@ -11,7 +11,8 @@ Covers:
 """
 from unittest.mock import patch, MagicMock
 
-from django.test import TestCase, override_settings
+from django.conf import settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 
@@ -272,3 +273,10 @@ class CallLLMQuotaEnforcementTests(_LLMBase):
         self.assertEqual(cm.exception.code, 'SINGLE_CALL_TOO_LARGE')
         # Most critical assertion: reserve was never called
         mock_reserve.assert_not_called()
+
+
+class ModelMultiplierConfigTests(SimpleTestCase):
+    def test_configured_model_has_a_multiplier(self):
+        """call_llm looks multipliers up by exact model name and silently falls
+        back to 1.0, so the configured model must have its own row."""
+        self.assertIn(settings.OLLAMA_MODEL, settings.MODEL_TOKEN_MULTIPLIER)

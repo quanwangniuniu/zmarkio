@@ -416,7 +416,7 @@ SPREADSHEET_AI_MAX_CELL_CHARS = config(
 # Ollama LLM server (core.services.ollama_client). An empty OLLAMA_BASE_URL means
 # the LLM is not configured and AI features report themselves unavailable.
 OLLAMA_BASE_URL = config('OLLAMA_BASE_URL', default='')
-OLLAMA_MODEL = config('OLLAMA_MODEL', default='qwen3:4b')
+OLLAMA_MODEL = config('OLLAMA_MODEL', default='qwen3:4b-instruct')
 # Context window sent with every request; Ollama's own default (4096) silently
 # truncates longer prompts.
 OLLAMA_NUM_CTX = config('OLLAMA_NUM_CTX', default=16384, cast=int)
@@ -969,6 +969,8 @@ MODEL_TOKEN_MULTIPLIER = {
     # 'gemini-2.5-flash-lite': 0.15,
     # Temporary: copies the previous agent model's multiplier so quota usage is
     # unchanged by the switch to Ollama. Revisit once local-model pricing is decided.
+    # Keyed by exact model name, so every model OLLAMA_MODEL may point at needs a row.
+    'qwen3:4b-instruct': 0.15,
     'qwen3:4b': 0.15,
 }
 # Actual API cost table in cents per 1M tokens (for LLMCallLog cost_cents)
