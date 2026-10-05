@@ -91,7 +91,7 @@ def _get_base_url() -> str:
 
 
 def _get_model() -> str:
-    return getattr(settings, "OLLAMA_MODEL", "qwen3:4b")
+    return settings.OLLAMA_MODEL
 
 
 def _chat_url() -> str:
