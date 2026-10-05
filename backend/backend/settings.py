@@ -960,22 +960,26 @@ STRIPE_TEAM_EXTRA_SEAT_PRICE_ID = os.environ.get('STRIPE_TEAM_EXTRA_SEAT_PRICE_I
 STRIPE_TEAM_OVERAGE_PRICE_ID = os.environ.get('STRIPE_TEAM_OVERAGE_PRICE_ID', '')
 # Per-model token multipliers (relative to sonnet baseline = 1.0)
 MODEL_TOKEN_MULTIPLIER = {
-    'claude-sonnet-4-20250514': 1.0,
-    'claude-sonnet-4-5': 1.0,
-    'claude-haiku-4-5': 0.2,
-    'claude-opus-4-6': 5.0,
-    'gemini-2.5-flash-lite': 0.15,
+    # Deprecated Gemini and Claude rates: these providers are no longer called,
+    # so nothing looks them up. Kept commented out for reference.
+    # 'claude-sonnet-4-20250514': 1.0,
+    # 'claude-sonnet-4-5': 1.0,
+    # 'claude-haiku-4-5': 0.2,
+    # 'claude-opus-4-6': 5.0,
+    # 'gemini-2.5-flash-lite': 0.15,
     # Temporary: copies the previous agent model's multiplier so quota usage is
     # unchanged by the switch to Ollama. Revisit once local-model pricing is decided.
     'qwen3:4b': 0.15,
 }
 # Actual API cost table in cents per 1M tokens (for LLMCallLog cost_cents)
 LLM_PRICE_TABLE = {
-    'claude-sonnet-4-20250514': {'input': 300, 'output': 1500},
-    'claude-sonnet-4-5': {'input': 300, 'output': 1500},
-    'claude-haiku-4-5': {'input': 80, 'output': 400},
-    'claude-opus-4-6': {'input': 1500, 'output': 7500},
-    'gemini-2.5-flash-lite': {'input': 10, 'output': 40},
+    # Deprecated Gemini and Claude rates: these providers are no longer called,
+    # so nothing looks them up. Kept commented out for reference.
+    # 'claude-sonnet-4-20250514': {'input': 300, 'output': 1500},
+    # 'claude-sonnet-4-5': {'input': 300, 'output': 1500},
+    # 'claude-haiku-4-5': {'input': 80, 'output': 400},
+    # 'claude-opus-4-6': {'input': 1500, 'output': 7500},
+    # 'gemini-2.5-flash-lite': {'input': 10, 'output': 40},
 }
 FAIR_USE_THRESHOLD_RATIO = 0.30   # alert when user > 30% of org quota
 FREE_USER_MAX_COST_CENTS = 200    # safety cap for fair-use alert on Free tier
