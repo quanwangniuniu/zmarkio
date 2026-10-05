@@ -390,6 +390,79 @@ test('inserts a whole group between two groups with a line preview and keeps its
   expect(saved.items.find((item: any) => item.id === 'group-new').children[0].id).toBe('audit');
 });
 
+test('inserts a whole group between two independent widgets with a line preview', async ({ page }) => {
+  await setup(page);
+  let saved: any = { version: 3, items: [
+    { kind: 'widget', id: 'activity', x: 0, y: 0, w: 6, h: 4 },
+    { kind: 'widget', id: 'audit', x: 6, y: 0, w: 6, h: 4 },
+    { kind: 'group', id: 'group-new', title: 'New group', x: 0, y: 4, w: 12, h: 5, children: [
+      { kind: 'widget', id: 'overdue-tasks', x: 0, y: 0, w: 6, h: 4 },
+    ] },
+  ] };
+  await page.route('**/api/dashboard/layout/**', async (route) => {
+    if (route.request().method() === 'PUT') saved = route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(saved) });
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/dashboard-test-org/med-287/overview', { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await waitForLayoutMain(page);
+  await page.getByRole('button', { name: 'Edit dashboard layout' }).click();
+  const palette = page.getByLabel('Dashboard widget palette');
+  const audit = palette.getByTestId('widget-panel-item-audit');
+  const groupHandle = palette.getByRole('button', { name: 'Move group New group in Widgets' });
+  await groupHandle.scrollIntoViewIfNeeded();
+  await audit.scrollIntoViewIfNeeded();
+  const from = await groupHandle.boundingBox();
+  const to = await audit.boundingBox();
+  expect(from && to).toBeTruthy();
+  await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to!.x + to!.width / 2, to!.y + 4, { steps: 12 });
+  await expect(palette.getByTestId('group-insert-indicator')).toHaveAttribute('data-side', 'before');
+  await page.mouse.up();
+  await expect.poll(() => saved.items.map((item: any) => item.id)).toEqual(['activity', 'group-new', 'audit']);
+  expect(saved.items.map((item: any) => item.y)).toEqual([0, 4, 9]);
+  expect(saved.items[1].children.map((item: any) => item.id)).toEqual(['overdue-tasks']);
+});
+
+test('inserts an independent widget between two top-level groups at the blue line', async ({ page }) => {
+  await setup(page);
+  let saved: any = { version: 3, items: [
+    { kind: 'group', id: 'group-overview', title: 'Project Overview', x: 0, y: 0, w: 12, h: 5, children: [
+      { kind: 'widget', id: 'overall-progress', x: 0, y: 0, w: 6, h: 4 },
+    ] },
+    { kind: 'group', id: 'group-summary', title: 'Module Summary', x: 0, y: 5, w: 12, h: 5, children: [
+      { kind: 'widget', id: 'tasks-completed', x: 0, y: 0, w: 6, h: 4 },
+    ] },
+    { kind: 'widget', id: 'audit', x: 0, y: 10, w: 6, h: 4 },
+  ] };
+  await page.route('**/api/dashboard/layout/**', async (route) => {
+    if (route.request().method() === 'PUT') saved = route.request().postDataJSON();
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(saved) });
+  });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/dashboard-test-org/med-287/overview', { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await waitForLayoutMain(page);
+  await page.getByRole('button', { name: 'Edit dashboard layout' }).click();
+  const palette = page.getByLabel('Dashboard widget palette');
+  const source = palette.getByRole('button', { name: 'Move Audit in Widgets' });
+  const summary = palette.getByTestId('widget-panel-group-group-summary');
+  await summary.scrollIntoViewIfNeeded();
+  await source.scrollIntoViewIfNeeded();
+  const from = await source.boundingBox();
+  const to = await summary.boundingBox();
+  expect(from && to).toBeTruthy();
+  await page.mouse.move(from!.x + from!.width / 2, from!.y + from!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to!.x + to!.width / 2, to!.y - 3, { steps: 12 });
+  await expect(summary.getByTestId('widget-insert-indicator')).toHaveAttribute('data-side', 'before');
+  await page.mouse.up();
+  await expect.poll(() => saved.items.map((item: any) => item.id)).toEqual(['group-overview', 'audit', 'group-summary']);
+  expect(saved.items.map((item: any) => item.y)).toEqual([0, 5, 9]);
+  expect(saved.items[0].children.map((item: any) => item.id)).toEqual(['overall-progress']);
+  expect(saved.items[2].children.map((item: any) => item.id)).toEqual(['tasks-completed']);
+});
+
 test('opens and closes Layout, moves cards into a group, and persists edits', async ({ page }) => {
   test.setTimeout(120_000);
   await setup(page);

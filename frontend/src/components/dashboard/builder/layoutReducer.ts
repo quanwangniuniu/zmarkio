@@ -266,14 +266,43 @@ export function moveLayoutItem(document: DashboardLayoutDocument, id: string, dx
   return { ...document, items: insertAt(remaining, edited as DashboardItem) };
 }
 
-/** Insert a whole group beside another group in the hierarchy, preserving its children. */
+/** Insert a whole group beside another top-level item, preserving its children. */
 export function reorderLayoutGroup(document: DashboardLayoutDocument, sourceId: string, targetId: string, side: 'before' | 'after'): DashboardLayoutDocument {
   const source = document.items.find((item): item is DashboardGroup => item.kind === 'group' && item.id === sourceId);
-  if (!source || sourceId === targetId || !document.items.some((item) => item.kind === 'group' && item.id === targetId)) return document;
+  if (!source || sourceId === targetId || !document.items.some((item) => item.id === targetId)) return document;
   const remaining = closeVacatedSpace(document.items.filter((item) => item.id !== sourceId), source);
   const target = remaining.find((item) => item.id === targetId)!;
+  if (target.kind === 'widget') {
+    const index = remaining.findIndex((item) => item.id === targetId) + (side === 'after' ? 1 : 0);
+    const before = remaining.slice(0, index);
+    const after = remaining.slice(index);
+    const precedingBottom = Math.max(0, ...before.map((item) => item.y + item.h));
+    const y = Math.max(precedingBottom, after[0]?.y ?? 0);
+    const shiftedBottom = y + source.h;
+    const shift = Math.max(0, shiftedBottom - (after[0]?.y ?? shiftedBottom));
+    return { ...document, items: [...before, { ...source, x: 0, y }, ...after.map((item) => ({ ...item, y: item.y + shift }))] };
+  }
   const y = target.y + (side === 'after' ? target.h : 0);
   return { ...document, items: insertAt(remaining, { ...source, x: target.x, y }) };
+}
+
+/** Insert a widget at the edge shown in the hierarchy, including across group boundaries. */
+export function insertWidgetBeside(document: DashboardLayoutDocument, widget: DashboardWidget, targetId: string, side: 'before' | 'after'): DashboardLayoutDocument {
+  const target = findLocation(document, targetId);
+  if (widget.id === targetId || !target) return document;
+  const source = findLocation(document, widget.id);
+  if (source?.item.kind === 'group') return document;
+  const withoutSource = source ? removeLayoutItem(document, widget.id) : document;
+  const destination = findLocation(withoutSource, targetId);
+  if (!destination) return document;
+  const peers = destination.groupId
+    ? (withoutSource.items.find((item): item is DashboardGroup => item.kind === 'group' && item.id === destination.groupId)?.children ?? [])
+    : withoutSource.items;
+  const next = side === 'after' ? peers[peers.findIndex((item) => item.id === targetId) + 1] : null;
+  return placeWidgetInContainer(withoutSource, (source?.item as DashboardWidget | undefined) ?? widget, destination.groupId, {
+    x: next?.x ?? (destination.item.kind === 'group' ? widget.x : destination.item.x),
+    y: next?.y ?? destination.item.y + (side === 'after' ? destination.item.h : 0),
+  });
 }
 
 export function resizeLayoutItem(document: DashboardLayoutDocument, id: string, dw: number, dh: number): DashboardLayoutDocument {

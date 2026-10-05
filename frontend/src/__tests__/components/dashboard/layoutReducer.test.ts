@@ -1,4 +1,4 @@
-import { ROW_STEP, addGroup, addWidget, expandLegacyWorkspace, fitWidgetToVacancy, legacyDocument, moveLayoutItem, moveWidget, placeWidgetInContainer, removeLayoutItem, removeWidget, reorderLayoutGroup, resizeLayoutItem, resizeWidget, snapNearPrevious, updateLayoutItem } from '@/components/dashboard/builder/layoutReducer';
+import { ROW_STEP, addGroup, addWidget, expandLegacyWorkspace, fitWidgetToVacancy, insertWidgetBeside, legacyDocument, moveLayoutItem, moveWidget, placeWidgetInContainer, removeLayoutItem, removeWidget, reorderLayoutGroup, resizeLayoutItem, resizeWidget, snapNearPrevious, updateLayoutItem } from '@/components/dashboard/builder/layoutReducer';
 import type { DashboardWidgetPosition as Widget } from '@/types/dashboardLayout';
 import type { DashboardLayoutDocument } from '@/types/dashboardLayout';
 
@@ -121,6 +121,83 @@ it('inserts a whole group between two groups without losing its children', () =>
   const after = reorderLayoutGroup(document, 'overview', 'data', 'after');
   expect(after.items.map((item) => [item.id, item.y])).toEqual([['data', 0], ['overview', 7], ['new', 13]]);
   expect(reorderLayoutGroup(document, 'data', 'data', 'before')).toBe(document);
+});
+
+it('inserts a whole group between two ungrouped widgets on the same grid row', () => {
+  const document: DashboardLayoutDocument = { version: 3, items: [
+    { kind: 'widget', id: 'audit', x: 0, y: 0, w: 6, h: 4 },
+    { kind: 'widget', id: 'activity', x: 6, y: 0, w: 6, h: 4 },
+    { kind: 'group', id: 'group-new', title: 'New group', x: 0, y: 4, w: 12, h: 5, children: [
+      { kind: 'widget', id: 'overdue-tasks', x: 0, y: 0, w: 6, h: 4 },
+    ] },
+  ] };
+  const moved = reorderLayoutGroup(document, 'group-new', 'activity', 'before');
+  expect(moved.items.map((item) => [item.id, item.y])).toEqual([['audit', 0], ['group-new', 4], ['activity', 9]]);
+  expect(moved.items[1]).toMatchObject({ id: 'group-new', children: [{ id: 'overdue-tasks' }] });
+});
+
+it('inserts Audit between two grouped widgets and preserves the other widgets', () => {
+  const document: DashboardLayoutDocument = { version: 3, items: [
+    { kind: 'group', id: 'tasks', title: 'Tasks', x: 0, y: 0, w: 12, h: 15, children: [
+      { kind: 'widget', id: 'task-status', x: 0, y: 0, w: 12, h: 4 },
+      { kind: 'widget', id: 'overdue-tasks', x: 0, y: 4, w: 12, h: 4 },
+      { kind: 'widget', id: 'audit', x: 0, y: 8, w: 12, h: 4 },
+    ] },
+  ] };
+  const audit = document.items[0].kind === 'group' && document.items[0].children[2];
+  if (!audit) throw new Error('Missing Audit widget');
+  const moved = insertWidgetBeside(document, audit, 'overdue-tasks', 'before');
+  expect(moved.items[0].kind === 'group' && moved.items[0].children.map((item) => [item.id, item.y]))
+    .toEqual([['task-status', 0], ['audit', 4], ['overdue-tasks', 8]]);
+  expect(insertWidgetBeside(document, audit, 'audit', 'before')).toBe(document);
+});
+
+it('moves a widget from outside into a group and positions it after the target', () => {
+  const document: DashboardLayoutDocument = { version: 3, items: [
+    { kind: 'group', id: 'tasks', title: 'Tasks', x: 0, y: 0, w: 12, h: 9, children: [
+      { kind: 'widget', id: 'task-status', x: 0, y: 0, w: 6, h: 4 },
+      { kind: 'widget', id: 'overdue-tasks', x: 0, y: 4, w: 6, h: 4 },
+    ] },
+    { kind: 'widget', id: 'audit', x: 0, y: 9, w: 6, h: 4 },
+  ] };
+  const audit = document.items[1];
+  if (audit.kind !== 'widget') throw new Error('Missing Audit widget');
+  const moved = insertWidgetBeside(document, audit, 'task-status', 'after');
+  expect(moved.items[0].kind === 'group' && moved.items[0].children.map((item) => [item.id, item.y]))
+    .toEqual([['task-status', 0], ['audit', 4], ['overdue-tasks', 8]]);
+  expect(moved.items.filter((item) => item.id === 'audit')).toHaveLength(0);
+});
+
+it('inserts after a widget that shares its grid row with the next widget', () => {
+  const document: DashboardLayoutDocument = { version: 3, items: [
+    { kind: 'group', id: 'tasks', title: 'Tasks', x: 0, y: 0, w: 12, h: 10, children: [
+      { kind: 'widget', id: 'task-status', x: 0, y: 0, w: 6, h: 4 },
+      { kind: 'widget', id: 'overdue-tasks', x: 6, y: 0, w: 6, h: 4 },
+      { kind: 'widget', id: 'audit', x: 0, y: 5, w: 6, h: 4 },
+    ] },
+  ] };
+  const audit = document.items[0].kind === 'group' && document.items[0].children[2];
+  if (!audit) throw new Error('Missing Audit widget');
+  const moved = insertWidgetBeside(document, audit, 'task-status', 'after');
+  expect(moved.items[0].kind === 'group' && moved.items[0].children.map((item) => item.id))
+    .toEqual(['task-status', 'audit', 'overdue-tasks']);
+});
+
+it('inserts an independent widget between two top-level groups without nesting it', () => {
+  const document: DashboardLayoutDocument = { version: 3, items: [
+    { kind: 'group', id: 'group-overview', title: 'Overview', x: 0, y: 0, w: 12, h: 5, children: [] },
+    { kind: 'group', id: 'group-summary', title: 'Summary', x: 0, y: 5, w: 12, h: 5, children: [] },
+    { kind: 'widget', id: 'audit', x: 0, y: 10, w: 6, h: 4 },
+  ] };
+  const audit = document.items[2];
+  if (audit.kind !== 'widget') throw new Error('Missing Audit widget');
+  const moved = insertWidgetBeside(document, audit, 'group-summary', 'before');
+  expect(moved.items.map((item) => [item.id, item.y])).toEqual([
+    ['group-overview', 0], ['audit', 5], ['group-summary', 9],
+  ]);
+  expect(moved.items[1].kind).toBe('widget');
+  expect(moved.items[0].kind === 'group' && moved.items[0].children).toEqual([]);
+  expect(moved.items[2].kind === 'group' && moved.items[2].children).toEqual([]);
 });
 
 it('resizes children and their group, edits settings, and ungrouping keeps business cards', () => {

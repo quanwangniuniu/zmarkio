@@ -11,9 +11,11 @@ import { DashboardAPI } from '@/lib/api/dashboardApi';
 import type { DashboardGroup, DashboardItem, DashboardLayoutDocument, DashboardWidget } from '@/types/dashboardLayout';
 import {
   GRID_COLUMNS, ROW_GAP, ROW_HEIGHT, ROW_STEP, addGroup, allWidgetIds, findLocation, fitWidgetToVacancy, legacyDocument,
-  moveLayoutItem, placeWidgetInContainer, removeLayoutItem, reorderLayoutGroup, resizeLayoutItem, snapNearPrevious, updateLayoutItem,
+  insertWidgetBeside, moveLayoutItem, placeWidgetInContainer, removeLayoutItem, reorderLayoutGroup, resizeLayoutItem, snapNearPrevious, updateLayoutItem,
 } from './layoutReducer';
 import { widgetById, widgetRegistry, type WidgetContext } from './widgetRegistry';
+import { groupInsertionAtY } from './groupInsertion';
+import { widgetInsertionAtY } from './widgetInsertion';
 import { WorkspaceDashboardProvider } from '@/components/projects/WorkspaceDashboard';
 import { DashboardTileControlsProvider } from './DashboardTileControls';
 
@@ -252,12 +254,14 @@ function NewGroupButton({ onAdd }: { onAdd: () => void }) {
   </button>;
 }
 
-function LayerWidgetRow({ widget, dropTarget, onRemove }: { widget: DashboardWidget; dropTarget: boolean; onRemove: () => void }) {
+function LayerWidgetRow({ widget, dropTarget, insertionSide, onRemove }: { widget: DashboardWidget; dropTarget: boolean; insertionSide: 'before' | 'after' | null; onRemove: () => void }) {
   const title = widget.title ?? widgetById[widget.id]?.title ?? widget.id;
   const { setNodeRef: setDropRef } = useDroppable({ id: layerItemDropId(widget.id) });
   const { attributes, listeners, setNodeRef: setDragRef, setActivatorNodeRef, isDragging } = useDraggable({ id: layerDragId(widget.id) });
-  return <li ref={setDropRef} data-testid={`widget-panel-item-${widget.id}`}
-    className={`flex min-w-0 items-center gap-1 rounded-md py-1 pr-1 text-xs text-gray-600 ${dropTarget ? 'bg-cyan-100 ring-1 ring-cyan-400' : ''} ${isDragging ? 'opacity-40' : ''}`}>
+  return <li ref={setDropRef} data-testid={`widget-panel-item-${widget.id}`} data-layer-item-id={widget.id}
+    className={`relative flex min-w-0 items-center gap-1 rounded-md py-1 pr-1 text-xs text-gray-600 ${dropTarget ? 'bg-cyan-100 ring-1 ring-cyan-400' : ''} ${isDragging ? 'opacity-40' : ''}`}>
+    {insertionSide && <div data-testid="widget-insert-indicator" data-side={insertionSide}
+      className={`pointer-events-none absolute inset-x-0 z-10 h-1 rounded-full bg-cyan-400 shadow-sm ${insertionSide === 'before' ? '-top-0.5' : '-bottom-0.5'}`} />}
     <button ref={(node) => { setDragRef(node); setActivatorNodeRef(node); }} type="button" aria-label={`Move ${title} in Widgets`}
       className="shrink-0 touch-none cursor-grab rounded p-0.5 text-gray-400 hover:text-cyan-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500"
       {...attributes} {...listeners}><GripVertical className="h-3.5 w-3.5" /></button>
@@ -267,11 +271,12 @@ function LayerWidgetRow({ widget, dropTarget, onRemove }: { widget: DashboardWid
   </li>;
 }
 
-function LayerGroupRow({ group, collapsed, dropTarget, insertionSide, itemDropTarget, showAdd, availableWidgets, onToggle, onEdit, onAdd, onAddWidget, onRemoveWidget }: {
+function LayerGroupRow({ group, collapsed, dropTarget, insertionSide, widgetInsertion, itemDropTarget, showAdd, availableWidgets, onToggle, onEdit, onAdd, onAddWidget, onRemoveWidget }: {
   group: DashboardGroup;
   collapsed: boolean;
   dropTarget: boolean;
   insertionSide: 'before' | 'after' | null;
+  widgetInsertion: { targetId: string; side: 'before' | 'after' } | null;
   itemDropTarget: string | null;
   showAdd: boolean;
   availableWidgets: { id: string; title: string }[];
@@ -283,10 +288,12 @@ function LayerGroupRow({ group, collapsed, dropTarget, insertionSide, itemDropTa
 }) {
   const { setNodeRef } = useDroppable({ id: layerGroupDropId(group.id) });
   const { attributes, listeners, setNodeRef: setDragRef, setActivatorNodeRef, isDragging } = useDraggable({ id: layerGroupDragId(group.id) });
-  return <div ref={setNodeRef} data-testid={`widget-panel-group-${group.id}`}
+  return <div ref={setNodeRef} data-testid={`widget-panel-group-${group.id}`} data-layer-group-id={group.id}
     className={`relative rounded-lg border bg-white ${dropTarget ? 'border-cyan-400 bg-cyan-50 ring-1 ring-cyan-400' : 'border-gray-200'} ${isDragging ? 'opacity-40' : ''}`}>
     {insertionSide && <div data-testid="group-insert-indicator" data-side={insertionSide}
       className={`pointer-events-none absolute inset-x-1 z-10 h-1 rounded-full bg-cyan-400 shadow-sm ${insertionSide === 'before' ? '-top-1' : '-bottom-1'}`} />}
+    {widgetInsertion?.targetId === group.id && <div data-testid="widget-insert-indicator" data-side={widgetInsertion.side}
+      className={`pointer-events-none absolute inset-x-1 z-10 h-1 rounded-full bg-cyan-400 shadow-sm ${widgetInsertion.side === 'before' ? '-top-1' : '-bottom-1'}`} />}
     <div className="flex min-w-0 items-center gap-1 px-2 py-1.5">
       <button ref={(node) => { setDragRef(node); setActivatorNodeRef(node); }} type="button" aria-label={`Move group ${group.title} in Widgets`}
         className="shrink-0 touch-none cursor-grab rounded p-0.5 text-gray-400 hover:text-cyan-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500"
@@ -307,8 +314,9 @@ function LayerGroupRow({ group, collapsed, dropTarget, insertionSide, itemDropTa
         className="block w-full rounded px-2 py-1.5 text-left text-xs text-gray-700 hover:bg-white hover:text-cyan-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-500">+ {widget.title}</button>)}
       {availableWidgets.length === 0 && <p className="px-2 py-1 text-xs text-gray-500">All widgets are already on the dashboard.</p>}
     </div>}
-    {!collapsed && <ul aria-label={`Widgets in ${group.title}`} className="mb-2 ml-5 mr-2 border-l border-cyan-200 pl-2">
-      {group.children.map((child) => <LayerWidgetRow key={child.id} widget={child} dropTarget={itemDropTarget === child.id} onRemove={() => onRemoveWidget(child.id)} />)}
+    {!collapsed && <ul aria-label={`Widgets in ${group.title}`} data-layer-group-children className="mb-2 ml-5 mr-2 border-l border-cyan-200 pl-2">
+      {group.children.map((child) => <LayerWidgetRow key={child.id} widget={child} dropTarget={itemDropTarget === child.id}
+        insertionSide={widgetInsertion?.targetId === child.id ? widgetInsertion.side : null} onRemove={() => onRemoveWidget(child.id)} />)}
       {group.children.length === 0 && <li className="py-1 text-xs text-gray-400">Empty group</li>}
     </ul>}
   </div>;
@@ -318,7 +326,7 @@ function LayerRoot({ children, dropTarget }: { children: ReactNode; dropTarget: 
   const { setNodeRef } = useDroppable({ id: LAYER_ROOT_DROP_ID });
   return <section ref={setNodeRef} aria-label="Widgets on dashboard" className={`mt-5 border-t border-gray-100 pt-4 ${dropTarget ? 'rounded-md bg-cyan-50' : ''}`}>
     <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">On dashboard</h3>
-    <div className="space-y-1.5">{children}</div>
+    <div data-layer-root-list className="space-y-1.5">{children}</div>
     <div data-testid="widget-panel-ungroup-drop" className={`mt-2 rounded-md border border-dashed px-2 py-2 text-center text-xs ${dropTarget ? 'border-cyan-400 text-cyan-700' : 'border-gray-200 text-gray-400'}`}>
       Drop here to move outside groups
     </div>
@@ -352,6 +360,7 @@ export default function DashboardBuilder(context: WidgetContext) {
   const [addingToGroupId, setAddingToGroupId] = useState<string | null>(null);
   const [layerDropTarget, setLayerDropTarget] = useState<string | null>(null);
   const [groupInsertion, setGroupInsertion] = useState<{ targetId: string; side: 'before' | 'after' } | null>(null);
+  const [widgetInsertion, setWidgetInsertion] = useState<{ targetId: string; side: 'before' | 'after' } | null>(null);
   const [titleDraft, setTitleDraft] = useState('');
   const [gestureGridMinHeight, setGestureGridMinHeight] = useState<number | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
@@ -528,6 +537,51 @@ export default function DashboardBuilder(context: WidgetContext) {
     const pointerY = 'clientY' in origin ? Number(origin.clientY) + event.delta.y : null;
     return { targetId, side: (rect && pointerY !== null && pointerY >= rect.top + rect.height / 2 ? 'after' : 'before') as 'before' | 'after' };
   };
+  const panelGroupInsertionAtPointer = (event: DragMoveEvent | DragEndEvent, sourceId: string) => {
+    const origin = event.activatorEvent;
+    if (!('clientX' in origin) || !('clientY' in origin)) return null;
+    const x = Number(origin.clientX) + event.delta.x;
+    const y = Number(origin.clientY) + event.delta.y;
+    const panel = panelRef.current?.getBoundingClientRect();
+    if (!panel || x < panel.left || x > panel.right || y < panel.top || y > panel.bottom) return null;
+    const root = panelRef.current?.querySelector<HTMLElement>('[data-layer-root-list]');
+    const rootRect = root?.getBoundingClientRect();
+    if (!root || !rootRect || y < rootRect.top || y > rootRect.bottom) return null;
+    const rows = [...root.children].map((row) => {
+      const rect = row.getBoundingClientRect();
+      const element = row as HTMLElement;
+      return { id: element.dataset.layerGroupId ?? element.dataset.layerRootWidgetId ?? '', top: rect.top, bottom: rect.bottom };
+    });
+    return groupInsertionAtY(rows, y, sourceId);
+  };
+  const panelWidgetInsertionAtPointer = (event: DragMoveEvent | DragEndEvent, sourceId: string) => {
+    const origin = event.activatorEvent;
+    if (!('clientX' in origin) || !('clientY' in origin)) return null;
+    const x = Number(origin.clientX) + event.delta.x;
+    const y = Number(origin.clientY) + event.delta.y;
+    const root = panelRef.current?.querySelector<HTMLElement>('[data-layer-root-list]');
+    const rootRect = root?.getBoundingClientRect();
+    if (!root || !rootRect || x < rootRect.left || x > rootRect.right || y < rootRect.top || y > rootRect.bottom) return null;
+    const bounds = (row: HTMLElement) => {
+      const rect = row.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom };
+    };
+    const group = [...root.children].find((child) => child instanceof HTMLElement && child.hasAttribute('data-layer-group-id')
+      && y >= child.getBoundingClientRect().top && y <= child.getBoundingClientRect().bottom) as HTMLElement | undefined;
+    if (group) {
+      const children = group.querySelector<HTMLElement>('[data-layer-group-children]');
+      const childRect = children?.getBoundingClientRect();
+      if (!children || !childRect || y < childRect.top || y > childRect.bottom) return null;
+      return widgetInsertionAtY([...children.querySelectorAll<HTMLElement>('[data-layer-item-id]')].map((row) => ({
+        id: row.dataset.layerItemId!, ...bounds(row),
+      })), y, sourceId);
+    }
+    return widgetInsertionAtY([...root.children].map((row) => ({
+      id: (row as HTMLElement).dataset.layerRootWidgetId ?? null,
+      groupId: (row as HTMLElement).dataset.layerGroupId,
+      ...bounds(row as HTMLElement),
+    })), y, sourceId);
+  };
   const onDragStart = (event: DragStartEvent) => {
     beginGesture();
     const id = String(event.active.id);
@@ -535,15 +589,16 @@ export default function DashboardBuilder(context: WidgetContext) {
     setDropIndicator(null);
     setLayerDropTarget(null);
     setGroupInsertion(null);
+    setWidgetInsertion(null);
   };
   const onDragMove = (event: DragMoveEvent) => {
     const active = String(event.active.id);
     if (active.startsWith('layer-group-drag:')) {
       const source = findLocation(documentRef.current, active.slice(layerGroupDragId('').length));
       const target = targetAtPointer(event, true);
-      const insertion = insertionAtPointer(event, target);
+      const insertion = panelGroupInsertionAtPointer(event, source?.item.id ?? '') ?? insertionAtPointer(event, target);
       setGroupInsertion(insertion?.targetId === source?.item.id ? null : insertion);
-      setLayerDropTarget(target === LAYER_ROOT_DROP_ID ? target : null);
+      setLayerDropTarget(!insertion && target === LAYER_ROOT_DROP_ID ? target : null);
       const cell = target === CANVAS_DROP_ID ? dropCell(event, target) : null;
       setDropIndicator(source?.item.kind === 'group' && cell
         ? { groupId: null, x: 0, y: cell.y, w: source.item.w, h: source.item.h } : null);
@@ -551,7 +606,9 @@ export default function DashboardBuilder(context: WidgetContext) {
     }
     if (active.startsWith('layer:')) {
       const target = targetAtPointer(event);
-      setLayerDropTarget(target.startsWith('layer-') ? target : null);
+      const insertion = panelWidgetInsertionAtPointer(event, active.slice(layerDragId('').length));
+      setWidgetInsertion(insertion);
+      setLayerDropTarget(!insertion && target.startsWith('layer-') ? target : null);
       setPreview(null);
       const source = findLocation(documentRef.current, active.slice(6));
       const cell = dropCell(event, target);
@@ -565,7 +622,9 @@ export default function DashboardBuilder(context: WidgetContext) {
     const group = active === paletteDragId('group') || findLocation(documentRef.current, id)?.item.kind === 'group';
     const target = targetAtPointer(event, group);
     if (active.startsWith('palette:')) {
-      setLayerDropTarget(target.startsWith('layer-') ? target : null);
+      const insertion = active === paletteDragId('group') ? null : panelWidgetInsertionAtPointer(event, active.slice(paletteDragId('').length));
+      setWidgetInsertion(insertion);
+      setLayerDropTarget(!insertion && target.startsWith('layer-') ? target : null);
       const definition = widgetById[active.slice(8)];
       const cell = dropCell(event, target);
       const position = active === paletteDragId('group') ? { w: 12, h: 3 } : definition?.defaultPosition;
@@ -631,16 +690,16 @@ export default function DashboardBuilder(context: WidgetContext) {
     setDropIndicator(null);
     setLayerDropTarget(null);
     setGroupInsertion(null);
+    setWidgetInsertion(null);
     endGesture();
-    if (!target) return;
+    if (!target && !active.startsWith('layer-group-drag:') && !active.startsWith('layer:') && !active.startsWith('palette:')) return;
     if (active.startsWith('layer-group-drag:')) {
       const sourceId = active.slice(layerGroupDragId('').length);
       const source = findLocation(documentRef.current, sourceId)?.item;
       if (source?.kind !== 'group') return;
-      if (target.startsWith('layer-group:')) {
-        const insertion = insertionAtPointer(event, target);
-        if (insertion && insertion.targetId !== source.id)
-          commit((current) => reorderLayoutGroup(current, source.id, insertion.targetId, insertion.side));
+      const insertion = panelGroupInsertionAtPointer(event, sourceId) ?? insertionAtPointer(event, target);
+      if (insertion && insertion.targetId !== source.id) {
+        commit((current) => reorderLayoutGroup(current, source.id, insertion.targetId, insertion.side));
       } else if (target === LAYER_ROOT_DROP_ID) {
         const bottom = Math.max(0, ...documentRef.current.items.filter((item) => item.id !== source.id).map((item) => item.y + item.h));
         commit((current) => moveLayoutItem(current, source.id, 0, bottom - source.y));
@@ -653,7 +712,10 @@ export default function DashboardBuilder(context: WidgetContext) {
     if (active.startsWith('layer:')) {
       const source = findLocation(documentRef.current, active.slice(6));
       if (source?.item.kind !== 'widget') return;
-      if (target.startsWith('layer-item:')) {
+      const insertion = panelWidgetInsertionAtPointer(event, source.item.id);
+      if (insertion) {
+        commit((current) => insertWidgetBeside(current, source.item as DashboardWidget, insertion.targetId, insertion.side));
+      } else if (target.startsWith('layer-item:')) {
         const destination = findLocation(documentRef.current, target.slice(layerItemDropId('').length));
         if (!destination || destination.item.id === source.item.id) return;
         commit((current) => placeWidgetInContainer(current, source.item as DashboardWidget, destination.groupId,
@@ -674,7 +736,10 @@ export default function DashboardBuilder(context: WidgetContext) {
         if (target === CANVAS_DROP_ID || target === LAYER_ROOT_DROP_ID) addFromPalette(id, null, dropCell(event, target));
         return;
       }
-      if (target.startsWith('layer-item:')) {
+      const insertion = panelWidgetInsertionAtPointer(event, id);
+      if (insertion && widgetById[id] && !widgetById[id].legacy) {
+        commit((current) => insertWidgetBeside(current, { kind: 'widget', ...widgetById[id].defaultPosition }, insertion.targetId, insertion.side));
+      } else if (target.startsWith('layer-item:')) {
         const destination = findLocation(documentRef.current, target.slice(layerItemDropId('').length));
         if (destination) addFromPalette(id, destination.groupId, { x: destination.item.x, y: destination.item.y });
       } else if (target.startsWith('layer-group:')) {
@@ -730,7 +795,7 @@ export default function DashboardBuilder(context: WidgetContext) {
 
   return <WorkspaceDashboardProvider projectId={projectId}>
     <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd}
-      onDragCancel={() => { setActiveDragId(null); setPreview(null); setDropIndicator(null); setGroupInsertion(null); setLayerDropTarget(null); endGesture(); }}>
+      onDragCancel={() => { setActiveDragId(null); setPreview(null); setDropIndicator(null); setGroupInsertion(null); setWidgetInsertion(null); setLayerDropTarget(null); endGesture(); }}>
       <div ref={builderRef} className="min-w-0">
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -825,6 +890,7 @@ export default function DashboardBuilder(context: WidgetContext) {
                   ? <LayerGroupRow key={item.id} group={item} collapsed={collapsedGroupIds.has(item.id)}
                     dropTarget={layerDropTarget === layerGroupDropId(item.id)}
                     insertionSide={groupInsertion?.targetId === item.id ? groupInsertion.side : null}
+                    widgetInsertion={widgetInsertion}
                     itemDropTarget={layerDropTarget?.startsWith('layer-item:') ? layerDropTarget.slice(layerItemDropId('').length) : null}
                     showAdd={addingToGroupId === item.id}
                     availableWidgets={widgetRegistry.filter((definition) => !definition.legacy && !usedIds.has(definition.id))}
@@ -841,8 +907,12 @@ export default function DashboardBuilder(context: WidgetContext) {
                       setCollapsedGroupIds((current) => { const next = new Set(current); next.delete(item.id); return next; });
                     }}
                     onRemoveWidget={(id) => actions.onRemove(id)} />
-                  : <ul key={item.id} aria-label={`Ungrouped widget ${item.title ?? widgetById[item.id]?.title ?? item.id}`} className="rounded-lg border border-gray-200 bg-white px-2 py-1">
-                    <LayerWidgetRow widget={item} dropTarget={layerDropTarget === layerItemDropId(item.id)} onRemove={() => actions.onRemove(item.id)} />
+                  : <ul key={item.id} data-layer-root-widget-id={item.id} aria-label={`Ungrouped widget ${item.title ?? widgetById[item.id]?.title ?? item.id}`} className="relative rounded-lg border border-gray-200 bg-white px-2 py-1">
+                    {groupInsertion?.targetId === item.id && <div data-testid="group-insert-indicator" data-side={groupInsertion.side}
+                      className={`pointer-events-none absolute inset-x-1 z-10 h-1 rounded-full bg-cyan-400 shadow-sm ${groupInsertion.side === 'before' ? '-top-1' : '-bottom-1'}`} />}
+                    {widgetInsertion?.targetId === item.id && <div data-testid="widget-insert-indicator" data-side={widgetInsertion.side}
+                      className={`pointer-events-none absolute inset-x-1 z-10 h-1 rounded-full bg-cyan-400 shadow-sm ${widgetInsertion.side === 'before' ? '-top-1' : '-bottom-1'}`} />}
+                    <LayerWidgetRow widget={item} dropTarget={layerDropTarget === layerItemDropId(item.id)} insertionSide={null} onRemove={() => actions.onRemove(item.id)} />
                   </ul>)}
                 {document.items.length === 0 && <p className="text-xs text-gray-400">No widgets on the dashboard yet.</p>}
               </LayerRoot>
