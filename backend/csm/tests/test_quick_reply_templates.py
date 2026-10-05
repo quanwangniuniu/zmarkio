@@ -461,7 +461,7 @@ def test_queue_agent_can_read_but_not_change_that_organisations_templates(
     org = foreign_template.organisation
     assert _ids(api_client, org) == {foreign_template.id}
     detail = f'{URL}{foreign_template.slug}/'
-    assert api_client.get(detail).status_code == 200
+    assert api_client.get(f'{detail}?organisation={org.id}').status_code == 200
     assert api_client.patch(detail, {'title': 'Hacked'}, format='json').status_code == 404
     assert api_client.delete(detail).status_code == 404
     assert api_client.patch(f'{detail}?organisation={org.id}', {'title': 'Hacked'}, format='json').status_code == 403

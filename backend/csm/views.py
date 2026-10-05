@@ -860,23 +860,31 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
     READ_ACTIONS = ('list', 'retrieve', 'history')
 
     def get_queryset(self):
+        from core.admin_utils import get_csm_admin_org_ids
+
         qs = QuickReplyTemplate.objects.filter(is_active=True).select_related('created_by', 'team')
 
-        user = self.request.user
-        read_only = self.action in self.READ_ACTIONS
-        accessible_org_ids = self._template_org_ids(user, read_only=read_only)
-        # ?organisation= narrows to one organisation the user may use; it must never
-        # reach another organisation's templates (this queryset also backs
-        # retrieve, history, update and delete). Staff can work every queue
-        # (csm.services.scope), so they may read any organisation's templates.
-        org_id = _organisation_param(self.request.query_params.get('organisation'))
-        if org_id is not None:
+        org_id = self.request.query_params.get('organisation')
+        if org_id:
+            # ?organisation= must be an organisation the user may use: this queryset
+            # also backs retrieve, history, update and delete. Staff can work every
+            # queue (csm.services.scope), so they may read any organisation's templates.
+            org_id = _organisation_param(org_id)
+            user = self.request.user
+            read_only = self.action in self.READ_ACTIONS
             staff_read = read_only and (user.is_staff or user.is_superuser)
-            if org_id not in accessible_org_ids and not staff_read:
+            if org_id not in self._template_org_ids(user, read_only=read_only) and not staff_read:
                 raise PermissionDenied('You are not a member of this organisation.')
             qs = qs.filter(organisation_id=org_id)
         else:
-            qs = qs.filter(organisation_id__in=accessible_org_ids)
+            # Fall back to all orgs the user has access to
+            accessible_org_ids = get_csm_admin_org_ids(self.request.user)
+            # Also include orgs the user is an agent of
+            agent_org_ids = CustomerUser.objects.filter(
+                user=self.request.user, is_active=True,
+            ).values_list('organisation_id', flat=True)
+            all_org_ids = set(list(accessible_org_ids) + list(agent_org_ids))
+            qs = qs.filter(organisation_id__in=all_org_ids)
 
         # Team scoping: show workspace-wide templates (no team) OR templates whose
         # team the user belongs to. In CSM a user's team membership is recorded on
@@ -939,7 +947,7 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         from core.admin_utils import get_csm_admin_org_ids
         from customer.models import CustomerOrganisation
 
-        if org_id is None:
+        if not org_id:
             raise ValidationError({'organisation': 'This query parameter is required.'})
         if org_id not in set(get_csm_admin_org_ids(self.request.user)):
             raise PermissionDenied('Only CSM admins of this organisation can preview team views.')
