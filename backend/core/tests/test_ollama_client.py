@@ -12,9 +12,13 @@ _LOCMEM = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache
                        "LOCATION": "oc-test"}}
 
 
-def _http_error(status_code):
+def _http_error(status_code, json_body=None):
     resp = MagicMock()
     resp.status_code = status_code
+    if json_body is None:
+        resp.json.side_effect = ValueError("not JSON")
+    else:
+        resp.json.return_value = json_body
     err = requests.exceptions.HTTPError(response=resp)
     m = MagicMock()
     m.raise_for_status.side_effect = err
@@ -74,11 +78,23 @@ class OllamaRetryTests(SimpleTestCase):
     @patch("core.services.ollama_client.time.sleep")
     @patch("core.services.ollama_client.requests.post")
     def test_missing_model_raises_immediately_with_pull_hint(self, mock_post, mock_sleep):
+        mock_post.return_value = _http_error(
+            404, {"error": "model 'qwen3:4b-instruct' not found"})
+        with self.assertRaises(RuntimeError) as ctx:
+            oc._ollama_request_with_retry("http://x", {"model": "qwen3:4b-instruct"})
+        self.assertNotIsInstance(ctx.exception, oc.OllamaUnavailable)
+        self.assertIn("ollama pull qwen3:4b-instruct", str(ctx.exception))
+        self.assertEqual(mock_post.call_count, 1)
+
+    @patch("core.services.ollama_client.time.sleep")
+    @patch("core.services.ollama_client.requests.post")
+    def test_wrong_path_404_points_at_base_url_not_pull(self, mock_post, mock_sleep):
+        # A wrong OLLAMA_BASE_URL path returns a plain-text "404 page not found".
         mock_post.return_value = _http_error(404)
         with self.assertRaises(RuntimeError) as ctx:
-            oc._ollama_request_with_retry("http://x", {"model": "qwen3:4b"})
-        self.assertNotIsInstance(ctx.exception, oc.OllamaUnavailable)
-        self.assertIn("ollama pull qwen3:4b", str(ctx.exception))
+            oc._ollama_request_with_retry("http://x/v1", {"model": "qwen3:4b-instruct"})
+        self.assertIn("OLLAMA_BASE_URL", str(ctx.exception))
+        self.assertNotIn("ollama pull", str(ctx.exception))
         self.assertEqual(mock_post.call_count, 1)
 
     @patch("core.services.ollama_client.time.sleep")

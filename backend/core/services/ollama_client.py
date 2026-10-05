@@ -181,10 +181,14 @@ def _ollama_request_with_retry(
             last_exc = exc
             status_code = exc.response.status_code if exc.response is not None else None
             if status_code == 404:
-                model = body.get("model", "")
+                if _is_missing_model(exc.response):
+                    model = body.get("model", "")
+                    raise RuntimeError(
+                        f"Ollama model {model!r} is not available. "
+                        f"Run `ollama pull {model}` on the Ollama host."
+                    ) from exc
                 raise RuntimeError(
-                    f"Ollama model {model!r} is not available. "
-                    f"Run `ollama pull {model}` on the Ollama host."
+                    "Ollama endpoint not found (HTTP 404). Check OLLAMA_BASE_URL."
                 ) from exc
             if status_code not in _TRANSIENT_STATUS:
                 raise RuntimeError(
@@ -224,6 +228,19 @@ def _ollama_request_with_retry(
     raise OllamaUnavailable(
         redact_string("Ollama unavailable after retries.")
     ) from last_exc
+
+
+def _is_missing_model(response) -> bool:
+    """True when a 404 body is Ollama's "model 'x' not found" error.
+
+    A wrong OLLAMA_BASE_URL path also answers 404, but with a plain-text
+    "404 page not found" body instead of a JSON ``error``.
+    """
+    try:
+        error = response.json().get("error")
+    except (ValueError, AttributeError):
+        return False
+    return isinstance(error, str) and "model" in error and "not found" in error
 
 
 def _extract_text(data: dict) -> str:
