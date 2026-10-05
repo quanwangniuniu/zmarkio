@@ -15,6 +15,12 @@ from core.services.quick_start import (
     get_quick_start_config,
 )
 from core.services.quick_start.blueprint import empty_blueprint, normalize_selected_modules
+from core.services.quick_start.config import QuickStartConfig
+from core.services.quick_start.exceptions import QuickStartConfigurationError
+from core.services.quick_start.user_messages import (
+    LLM_ERROR_CONFIGURATION,
+    user_message_for_runtime_error,
+)
 from core.services.quick_start.constants import BLUEPRINT_VERSION, MVP_MODULES
 
 
@@ -33,6 +39,31 @@ class TestQuickStartImports:
         config = get_quick_start_config()
         assert config.system_prompt_path.is_file()
         assert config.system_prompt_path.read_text(encoding='utf-8').strip()
+
+
+class TestQuickStartLLMConfiguredCheck:
+    # Built directly: get_quick_start_config() is lru_cached per process.
+    def _config(self, base_url):
+        return QuickStartConfig(
+            ollama_base_url=base_url,
+            llm_timeout_seconds=120,
+            prompts_dir=get_quick_start_config().prompts_dir,
+        )
+
+    def test_configured_when_base_url_is_set(self):
+        config = self._config('http://ollama.test:11434')
+        assert config.is_llm_configured
+        config.require_llm_configured()  # does not raise
+
+    @pytest.mark.parametrize('base_url', ['', '   '])
+    def test_not_configured_when_base_url_is_blank(self, base_url):
+        config = self._config(base_url)
+        assert not config.is_llm_configured
+        with pytest.raises(QuickStartConfigurationError) as exc_info:
+            config.require_llm_configured()
+        # user_messages maps this text to the "AI setup is not complete" message.
+        code, _message, _retry = user_message_for_runtime_error(exc_info.value)
+        assert code == LLM_ERROR_CONFIGURATION
 
 
 class TestQuickStartBlueprintStub:
