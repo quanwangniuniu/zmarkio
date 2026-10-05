@@ -79,7 +79,7 @@ class TestQuickStartPreviewAPI:
 
     @patch('core.quick_start_views.QuickStartPreviewService.generate_preview')
     def test_llm_error_returns_502(self, mock_generate, authenticated_client):
-        mock_generate.side_effect = QuickStartLLMError('Gemini unavailable')
+        mock_generate.side_effect = QuickStartLLMError('Ollama unavailable')
         url = reverse(PREVIEW_URL)
         response = authenticated_client.post(url, _preview_payload(), format='json')
 
@@ -89,7 +89,7 @@ class TestQuickStartPreviewAPI:
     @patch('core.quick_start_views.QuickStartPreviewService.generate_preview')
     def test_rate_limited_returns_friendly_payload(self, mock_generate, authenticated_client):
         mock_generate.side_effect = QuickStartLLMError(
-            'Gemini rate limited (HTTP 429).',
+            'Ollama rate limited (HTTP 429).',
             error_code='rate_limited',
             user_message='AI requests are coming in too quickly. Please wait 30 seconds, then try again.',
             retry_after_seconds=30,

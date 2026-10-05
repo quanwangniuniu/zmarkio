@@ -37,8 +37,8 @@ export function resolveApiBaseUrl(): string {
  * one, since the class of request you're timing has probably shown up
  * before.
  *
- * - LLM_TIMEOUT_MS: a single LLM-backed generation call (e.g. one Gemini/
- *   Vertex request analyzing an existing sheet/instruction).
+ * - LLM_TIMEOUT_MS: a single LLM-backed generation call (e.g. one Ollama
+ *   request analyzing an existing sheet/instruction).
  * - LLM_BATCH_TIMEOUT_MS: heavier or multi-item LLM generation (batch content
  *   generation, multi-step previews).
  * - SYNC_TIMEOUT_MS: a request that synchronously calls out to an external

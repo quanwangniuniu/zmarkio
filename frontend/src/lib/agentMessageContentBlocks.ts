@@ -52,7 +52,7 @@ function isBlankLine(line: string): boolean {
   return line.trim().length === 0
 }
 
-/** GFM list marker or Unicode bullet dot at line start (Gemini often uses •). */
+/** GFM list marker or Unicode bullet dot at line start (the model often uses •). */
 function isListLine(line: string): boolean {
   return /^\s*(?:[-*+]\s+|\d+\.\s+|•\s*)/.test(line)
 }

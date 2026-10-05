@@ -2,7 +2,7 @@ from unittest.mock import patch, Mock
 
 from agent.executors import CreateMiroBoardExecutor, GenerateMiroSnapshotExecutor
 from agent.miro_generation import (
-    call_gemini_miro_generator,
+    call_ollama_miro_generator,
     deserialize_miro_generation_context,
     normalize_miro_snapshot_layout,
     serialize_miro_generation_context,
@@ -192,15 +192,15 @@ def test_miro_generation_context_payload_round_trips():
     assert rehydrated["analysis"] is not context["analysis"]
 
 
-@patch("agent.miro_generation.call_gemini_miro_generator")
+@patch("agent.miro_generation.call_ollama_miro_generator")
 @patch("agent.miro_generation.build_miro_generation_context_from_run")
-def test_generate_miro_snapshot_executor_saves_snapshot(mock_build_context, mock_call_gemini):
+def test_generate_miro_snapshot_executor_saves_snapshot(mock_build_context, mock_call_ollama):
     workflow_run = _WorkflowRunStub()
     orchestrator = _OrchestratorStub()
     executor = GenerateMiroSnapshotExecutor(_StepStub("generate_miro_snapshot"), workflow_run, orchestrator)
 
     mock_build_context.return_value = {"chat_context": "[user]: Analyze this"}
-    mock_call_gemini.return_value = _test_snapshot()
+    mock_call_ollama.return_value = _test_snapshot()
 
     result = executor.execute({"analysis_result": workflow_run.analysis_result})
 
@@ -234,18 +234,18 @@ def test_create_miro_board_executor_persists_board_and_snapshot(mock_create_boar
 
 @patch("agent.models.AgentPendingExternalApproval.objects.filter")
 @patch("agent.miro_board_service.create_board_from_snapshot")
-@patch("agent.miro_generation.call_gemini_miro_generator")
+@patch("agent.miro_generation.call_ollama_miro_generator")
 @patch("agent.miro_generation.build_miro_generation_context_from_run")
 def test_generate_miro_board_for_workflow_run_updates_run(
     mock_build_context,
-    mock_call_gemini,
+    mock_call_ollama,
     mock_create_board,
     mock_pending_filter,
 ):
     workflow_run = _WorkflowRunStub()
     orchestrator = _OrchestratorStub()
     mock_build_context.return_value = {"analysis": {"anomalies": []}}
-    mock_call_gemini.return_value = _test_snapshot()
+    mock_call_ollama.return_value = _test_snapshot()
     board = type("BoardStub", (), {"id": "board-legacy-1", "title": "Agent Miro - Analysis session"})()
     persisted_snapshot = _materialize_snapshot_ids(_test_snapshot(), _persisted_id_map())
     mock_create_board.return_value = (board, persisted_snapshot)
@@ -262,11 +262,11 @@ def test_generate_miro_board_for_workflow_run_updates_run(
 
 @patch("agent.models.AgentPendingExternalApproval.objects.filter")
 @patch("agent.miro_board_service.create_board_from_snapshot")
-@patch("agent.miro_generation.call_gemini_miro_generator")
+@patch("agent.miro_generation.call_ollama_miro_generator")
 @patch("agent.miro_generation.build_miro_generation_context_from_run")
 def test_generate_miro_board_for_workflow_run_uses_context_payload(
     mock_build_context,
-    mock_call_gemini,
+    mock_call_ollama,
     mock_create_board,
     mock_pending_filter,
 ):
@@ -277,7 +277,7 @@ def test_generate_miro_board_for_workflow_run_uses_context_payload(
         "workflow_run": {"id": "run-1", "status": "creating_tasks"},
         "analysis": {"recommended_tasks": [{"summary": "Payload task"}]},
     })
-    mock_call_gemini.return_value = _test_snapshot()
+    mock_call_ollama.return_value = _test_snapshot()
     board = type("BoardStub", (), {"id": "board-legacy-1", "title": "Agent Miro - Analysis session"})()
     persisted_snapshot = _materialize_snapshot_ids(_test_snapshot(), _persisted_id_map())
     mock_create_board.return_value = (board, persisted_snapshot)
@@ -290,8 +290,8 @@ def test_generate_miro_board_for_workflow_run_uses_context_payload(
     )
 
     mock_build_context.assert_not_called()
-    mock_call_gemini.assert_called_once()
-    assert mock_call_gemini.call_args.args[0] == context_payload
+    mock_call_ollama.assert_called_once()
+    assert mock_call_ollama.call_args.args[0] == context_payload
 
 
 @patch("agent.tasks.generate_miro_board_for_workflow_run_task.delay")
@@ -403,11 +403,11 @@ def test_normalize_miro_snapshot_layout_pushes_overlapping_items_down():
 
 
 @patch("agent.llm_client.call_llm")
-def test_call_gemini_miro_generator_normalizes_layout_before_validation(mock_call_llm):
+def test_call_ollama_miro_generator_normalizes_layout_before_validation(mock_call_llm):
     import json as _json
     mock_call_llm.return_value = {'text': _json.dumps(_overlapping_snapshot()), 'usage': {'input': 10, 'output': 20}}
 
-    snapshot = call_gemini_miro_generator({"analysis": {"anomalies": []}}, user_id=1)
+    snapshot = call_ollama_miro_generator({"analysis": {"anomalies": []}}, user_id=1)
     title = snapshot["items"][1]
     reason = snapshot["items"][2]
     action = snapshot["items"][3]

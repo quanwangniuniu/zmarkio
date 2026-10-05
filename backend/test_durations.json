@@ -128,7 +128,7 @@
   "core/tests/test_crypto.py": 0.8,
   "core/tests/test_database_concurrency_middleware.py": 0.2,
   "core/tests/test_file_parser_limits.py": 0.3,
-  "core/tests/test_gemini_client.py": 0.3,
+  "core/tests/test_ollama_client.py": 0.3,
   "core/tests/test_kpi_suggestions.py": 17.1,
   "core/tests/test_log_redaction.py": 0.4,
   "core/tests/test_membership.py": 69.4,

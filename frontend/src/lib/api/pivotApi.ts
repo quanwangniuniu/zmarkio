@@ -18,7 +18,7 @@ export interface GeneratedPivotConfig {
 
 export const PivotAPI = {
   /**
-   * Send a natural-language pivot table description to Gemini and get back a
+   * Send a natural-language pivot table description to the LLM and get back a
    * validated PivotConfig. Throws PivotAgentError when the instruction cannot
    * be fulfilled (unknown column, ambiguous request, etc).
    */
@@ -28,7 +28,7 @@ export const PivotAPI = {
       response = await api.post<{ config?: GeneratedPivotConfig; error?: string }>(
         `/api/spreadsheet/sheets/${sheetId}/generate-pivot-config/`,
         { instruction },
-        { timeout: LLM_TIMEOUT_MS } // Gemini can take 15-30s; override the global 10s default
+        { timeout: LLM_TIMEOUT_MS } // LLM calls can take 15-30s or more; override the global 10s default
       );
     } catch (err) {
       if (isAiConsentRequired(err)) throw new AiConsentRequiredError(aiConsentSpreadsheetId(err));

@@ -49,7 +49,7 @@ TASK_TYPES = frozenset(
 
 TASK_PRIORITIES = frozenset({'HIGHEST', 'HIGH', 'MEDIUM', 'LOW', 'LOWEST'})
 
-# Common Gemini aliases → canonical task types (avoid hard failures on stage-2 blueprint).
+# Common model aliases → canonical task types (avoid hard failures on stage-2 blueprint).
 _TASK_TYPE_ALIASES: dict[str, str] = {
     'planning': 'execution',
     'plan': 'execution',

@@ -175,7 +175,7 @@ class AnalyzeDataExecutor(BaseStepExecutor):
             logger.warning("AnalyzeDataExecutor validation failed: %s", e)
             return StepResult(success=False, error=str(e))
         except OllamaRetriesExhausted as e:
-            logger.warning("AnalyzeDataExecutor: Gemini 429 retries exhausted: %s", e)
+            logger.warning("AnalyzeDataExecutor: Ollama busy, retries exhausted: %s", e)
             return StepResult(success=False, error=str(e))
         except Exception as e:
             logger.exception("AnalyzeDataExecutor failed")
@@ -372,13 +372,13 @@ class CreateTasksExecutor(BaseStepExecutor):
 
 
 class GenerateMiroSnapshotExecutor(BaseStepExecutor):
-    """Generate a validated Miro snapshot from workflow context via Gemini."""
+    """Generate a validated Miro snapshot from workflow context via Ollama."""
 
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='fail')
     def execute(self, input_data):
         from .miro_generation import (
             build_miro_generation_context_from_run,
-            call_gemini_miro_generator,
+            call_ollama_miro_generator,
         )
 
         try:
@@ -386,7 +386,7 @@ class GenerateMiroSnapshotExecutor(BaseStepExecutor):
                 session=self.orchestrator.session,
                 workflow_run=self.workflow_run,
             )
-            snapshot = call_gemini_miro_generator(
+            snapshot = call_ollama_miro_generator(
                 context,
                 user_id=str(self.orchestrator.user.id),
                 agent_session=self.orchestrator.session,
@@ -405,10 +405,10 @@ class GenerateMiroSnapshotExecutor(BaseStepExecutor):
                 }],
             )
         except RuntimeError as e:
-            logger.warning("Gemini API Timeout Error: %s", e)
+            logger.warning("Ollama API Timeout Error: %s", e)
             raise
         except OllamaRetriesExhausted as e:
-            logger.warning("GenerateMiroSnapshotExecutor: Gemini 429 retries exhausted: %s", e)
+            logger.warning("GenerateMiroSnapshotExecutor: Ollama busy, retries exhausted: %s", e)
             return StepResult(success=False, error=str(e))
         except Exception as e:
             logger.exception("GenerateMiroSnapshotExecutor failed")
@@ -581,7 +581,7 @@ class DetectColumnsExecutor(BaseStepExecutor):
     Also emits a column_mapping SSE event so the frontend can render a
     confirmation UI for the user to review or correct the mappings.
     """
-    #If the Gemini API call fails, we retry a few times before skipping the step. This is non-fatal because workflow can run without column detection.
+    #If the Ollama API call fails, we retry a few times before skipping the step. This is non-fatal because workflow can run without column detection.
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='skip')
     def execute(self, input_data):
         from .column_registry import detect_columns
@@ -622,10 +622,10 @@ class DetectColumnsExecutor(BaseStepExecutor):
                 }],
             )
         except RuntimeError as e:
-            logger.warning("Gemini API Timeout Error: %s", e)
+            logger.warning("Ollama API Timeout Error: %s", e)
             raise
         except OllamaRetriesExhausted as e:
-            logger.warning("DetectColumnsExecutor: Gemini 429 retries exhausted: %s", e)
+            logger.warning("DetectColumnsExecutor: Ollama busy, retries exhausted: %s", e)
             return StepResult(success=False, error=str(e), skipped=True)
         except Exception as e:
             logger.exception("DetectColumnsExecutor failed")
@@ -914,16 +914,16 @@ Rules:
 
 
 class GenerateCriteriaExecutor(BaseStepExecutor):
-    """Call Gemini to generate per-column success criteria.
+    """Call Ollama to generate per-column success criteria.
 
-    Sends the column names extracted from the uploaded file to Gemini and
+    Sends the column names extracted from the uploaded file to Ollama and
     receives a structured success_criteria JSON that tells the downstream
     analysis step what to look for and how to judge the data.
 
     The criteria are stored on workflow_run.success_criteria so they persist
     across step boundaries and are forwarded in output_data for the next step.
     """
-    #If the Gemini API call fails, we retry a few times before skipping the step. This is non-fatal because analysis can still run without criteria.
+    #If the Ollama API call fails, we retry a few times before skipping the step. This is non-fatal because analysis can still run without criteria.
     @retry_policy(max_retries=3, retry_delay=5, on_exhausted='skip')
     def execute(self, input_data):
         import json
@@ -1011,7 +1011,7 @@ class GenerateCriteriaExecutor(BaseStepExecutor):
             logger.warning("GenerateCriteriaExecutor: LLM API Timeout error: %s", e)
             raise
         except OllamaRetriesExhausted as e:
-            logger.warning("GenerateCriteriaExecutor: Gemini 429 retries exhausted: %s", e)
+            logger.warning("GenerateCriteriaExecutor: Ollama busy, retries exhausted: %s", e)
             return StepResult(success=False, error=str(e), skipped=True)
         except Exception as e:
             # Non-fatal: analysis can still run without criteria

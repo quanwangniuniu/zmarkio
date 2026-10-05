@@ -53,7 +53,7 @@ Rules:
 """
 
 
-# Max data rows handed to Gemini for in-sheet insights. Anomaly locations are
+# Max data rows handed to the LLM for in-sheet insights. Anomaly locations are
 # validated against this window (see _spreadsheet_insights_sample_bounds).
 _SPREADSHEET_INSIGHTS_SAMPLE_ROWS = 50
 
@@ -89,7 +89,7 @@ def _preprocess_spreadsheet_insights(spreadsheet_data):
 
 
 def _spreadsheet_insights_sample_bounds(spreadsheet_data):
-    """Row/column extent of the data sample handed to Gemini for insights.
+    """Row/column extent of the data sample handed to the LLM for insights.
 
     The system prompt tells the model to reference only cells inside the sample
     it was shown, using 0-based indices. A location outside that window points
@@ -115,10 +115,10 @@ def _spreadsheet_insights_sample_bounds(spreadsheet_data):
 def _normalize_spreadsheet_insights_result(
     raw, sheet_id=None, row_count=None, col_count=None
 ):
-    """Validate and normalize Gemini spreadsheet insights JSON.
+    """Validate and normalize the model's spreadsheet insights JSON.
 
     ``row_count`` / ``col_count`` are the dimensions of the data sample shown to
-    Gemini (see :func:`_spreadsheet_insights_sample_bounds`). When set, anomaly
+    the LLM (see :func:`_spreadsheet_insights_sample_bounds`). When set, anomaly
     locations that fall outside that window are rejected so the sheet-highlight
     UI is never handed a non-existent cell.
     """
@@ -127,10 +127,10 @@ def _normalize_spreadsheet_insights_result(
 
     summary_raw = raw.get('summary')
     if summary_raw is not None and not isinstance(summary_raw, str):
-        raise ValueError('Gemini insights summary must be a string.')
+        raise ValueError('LLM insights summary must be a string.')
     summary = (summary_raw or '').strip()
     if not summary:
-        raise ValueError('Gemini insights summary is empty or missing.')
+        raise ValueError('LLM insights summary is empty or missing.')
     recommendations = raw.get('recommendations') or []
     if not isinstance(recommendations, list):
         recommendations = []
@@ -221,19 +221,19 @@ def _normalize_spreadsheet_insights_result(
     }
 
 
-def _call_gemini_spreadsheet_insights(
+def _call_ollama_spreadsheet_insights(
     spreadsheet_data,
     user_id=None,
     sheet_id=None,
     validation_feedback=None,
     agent_session=None,
 ):
-    """Call Gemini for in-sheet summarization and anomaly detection.
+    """Call Ollama for in-sheet summarization and anomaly detection.
 
     When *agent_session* is set the call is routed through the unified
     ``llm_client.call_llm`` so it is quota-checked and written to ``LLMCallLog``
-    (mirrors ``_call_gemini_analysis``); otherwise it falls back to a direct
-    ``call_gemini_json``.
+    (mirrors ``_call_ollama_analysis``); otherwise it falls back to a direct
+    ``call_ollama_json``.
     """
     from core.services.ollama_client import call_ollama_json
     from ..llm_client import call_llm as _call_llm_unified
@@ -250,7 +250,7 @@ def _call_gemini_spreadsheet_insights(
         )
 
     logger.info(
-        "Calling Gemini for spreadsheet insights user_id=%s sheet_id=%s attempt=%s",
+        "Calling Ollama for spreadsheet insights user_id=%s sheet_id=%s attempt=%s",
         user_id,
         sheet_id,
         'retry' if validation_feedback else 'initial',
@@ -276,7 +276,7 @@ def _call_gemini_spreadsheet_insights(
 def _run_spreadsheet_insights(
     spreadsheet_data, user_id=None, sheet_id=None, agent_session=None
 ):
-    """Run in-sheet insights using Gemini.
+    """Run in-sheet insights using Ollama.
 
     Raises RuntimeError if no provider is configured or the call fails.
     Raises GenerationValidationError if recommended_tasks fail validation after retries.
@@ -293,7 +293,7 @@ def _run_spreadsheet_insights(
     validation_feedback = None
     for attempt in range(1, _ANALYSIS_VALIDATION_MAX_ATTEMPTS + 1):
         try:
-            raw = _call_gemini_spreadsheet_insights(
+            raw = _call_ollama_spreadsheet_insights(
                 spreadsheet_data,
                 user_id=user_id,
                 sheet_id=sheet_id,
@@ -317,13 +317,13 @@ def _run_spreadsheet_insights(
                 raise
             validation_feedback = str(exc)
             logger.warning(
-                "Gemini spreadsheet insights validation failed (attempt %s/%s): %s; retrying",
+                "LLM spreadsheet insights validation failed (attempt %s/%s): %s; retrying",
                 attempt,
                 _ANALYSIS_VALIDATION_MAX_ATTEMPTS,
                 exc,
             )
         except Exception as e:
-            logger.error("Gemini spreadsheet insights failed: %s", e)
+            logger.error("Ollama spreadsheet insights failed: %s", e)
             raise RuntimeError("Spreadsheet insights analysis failed.") from e
 
     raise RuntimeError("Spreadsheet insights analysis failed.")

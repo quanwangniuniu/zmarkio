@@ -1,4 +1,4 @@
-"""Independent Gemini chain for Quick Start (no Agent workflow orchestration)."""
+"""Independent Ollama chain for Quick Start (no Agent workflow orchestration)."""
 
 from __future__ import annotations
 
@@ -23,18 +23,18 @@ from core.services.quick_start.prompt_builder import (
     build_blueprint_user_prompt,
     build_plan_user_prompt,
 )
-from core.services.quick_start.json_coercion import coerce_gemini_json_object
+from core.services.quick_start.json_coercion import coerce_ollama_json_object
 from core.services.quick_start.user_messages import user_message_for_runtime_error
 from core.services.quick_start.validation import validate_and_normalize_blueprint, validate_prompt_text
 
 logger = logging.getLogger(__name__)
 
-GeminiJsonCaller = Callable[..., dict[str, Any]]
+OllamaJsonCaller = Callable[..., dict[str, Any]]
 
 
 class QuickStartLLMChain:
     """
-    Generates a ProjectBlueprint via two Gemini calls:
+    Generates a ProjectBlueprint via two Ollama calls:
     1) CampaignPlan from user input
     2) ProjectBlueprint expanded from the plan
     """
@@ -43,10 +43,10 @@ class QuickStartLLMChain:
         self,
         config: QuickStartConfig | None = None,
         *,
-        call_json: GeminiJsonCaller | None = None,
+        call_json: OllamaJsonCaller | None = None,
     ) -> None:
         self.config = config or get_quick_start_config()
-        self._uses_live_gemini = call_json is None
+        self._uses_live_ollama = call_json is None
         self._call_json = call_json or call_ollama_json
 
     def _read_prompt_file(self, filename: str) -> str:
@@ -82,7 +82,7 @@ class QuickStartLLMChain:
                     timeout=self.config.llm_timeout_seconds,
                 )
             except RuntimeError as exc:
-                logger.warning('Quick Start Gemini call failed (%s): %s', stage, exc)
+                logger.warning('Quick Start Ollama call failed (%s): %s', stage, exc)
                 error_code, user_message, retry_after = user_message_for_runtime_error(exc)
                 if attempt == 0 and error_code in ('rate_limited', 'network_error'):
                     time.sleep(2.0 if error_code == 'rate_limited' else 1.5)
@@ -95,7 +95,7 @@ class QuickStartLLMChain:
                 ) from exc
 
             try:
-                return coerce_gemini_json_object(
+                return coerce_ollama_json_object(
                     raw,
                     stage=stage,
                     expect_plan=expect_plan,
@@ -191,8 +191,8 @@ class QuickStartLLMChain:
         selected_modules: Mapping[str, bool] | None = None,
         locale: str | None = None,
     ) -> dict[str, Any]:
-        """Call Gemini (plan then blueprint) and return a validated blueprint dict."""
-        if self._uses_live_gemini:
+        """Call Ollama (plan then blueprint) and return a validated blueprint dict."""
+        if self._uses_live_ollama:
             self.config.require_llm_configured()
         cleaned_prompt = validate_prompt_text(prompt)
         modules = normalize_selected_modules(selected_modules)

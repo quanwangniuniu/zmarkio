@@ -1488,7 +1488,7 @@ def _audit_nl_generation(request, sheet, event_type, *, instruction, cols, rows)
 
 
 class GeneratePatternStepsView(APIView):
-    """Convert a natural-language instruction into PatternStep[] via Gemini."""
+    """Convert a natural-language instruction into PatternStep[] via Ollama."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, sheet_id):
@@ -1558,7 +1558,7 @@ class GeneratePatternStepsView(APIView):
 
 
 class GeneratePivotConfigView(APIView):
-    """Convert a natural-language pivot description into a PivotConfig via Gemini."""
+    """Convert a natural-language pivot description into a PivotConfig via Ollama."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, sheet_id):
@@ -1586,7 +1586,7 @@ class GeneratePivotConfigView(APIView):
             return Response({'error': 'instruction is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Use the same header derivation as the pivot engine (row-0 cell content),
-        # not SheetColumn.name, so field names Gemini picks match what pivot_engine.py
+        # not SheetColumn.name, so field names the model picks match what pivot_engine.py
         # will resolve against when the pivot sheet is recomputed.
         source_columns = _get_source_columns(sheet)
 

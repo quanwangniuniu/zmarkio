@@ -40,8 +40,8 @@ class GeneratePivotConfigServiceTests(TestCase):
     """Unit tests for spreadsheet.nl_pivot_service.generate_pivot_config."""
 
     @patch('spreadsheet.nl_pivot_service.call_ollama_json')
-    def test_valid_generation(self, mock_gemini):
-        mock_gemini.return_value = {
+    def test_valid_generation(self, mock_ollama):
+        mock_ollama.return_value = {
             'config': {
                 'rows_config': ['Region'],
                 'columns_config': [],
@@ -56,8 +56,8 @@ class GeneratePivotConfigServiceTests(TestCase):
         self.assertTrue(config['show_grand_total_row'])
 
     @patch('spreadsheet.nl_pivot_service.call_ollama_json')
-    def test_unknown_field_raises(self, mock_gemini):
-        mock_gemini.return_value = {
+    def test_unknown_field_raises(self, mock_ollama):
+        mock_ollama.return_value = {
             'config': {
                 'rows_config': ['Department'],
                 'columns_config': [],
@@ -69,8 +69,8 @@ class GeneratePivotConfigServiceTests(TestCase):
             generate_pivot_config('pivot by department', SHEET_SCHEMA)
 
     @patch('spreadsheet.nl_pivot_service.call_ollama_json')
-    def test_empty_values_config_raises(self, mock_gemini):
-        mock_gemini.return_value = {
+    def test_empty_values_config_raises(self, mock_ollama):
+        mock_ollama.return_value = {
             'config': {
                 'rows_config': ['Region'],
                 'columns_config': [],
@@ -82,15 +82,15 @@ class GeneratePivotConfigServiceTests(TestCase):
             generate_pivot_config('group by region', SHEET_SCHEMA)
 
     @patch('spreadsheet.nl_pivot_service.call_ollama_json')
-    def test_gemini_error_response_raises(self, mock_gemini):
-        mock_gemini.return_value = {'error': 'Column "Department" does not exist in this sheet.'}
+    def test_ollama_error_response_raises(self, mock_ollama):
+        mock_ollama.return_value = {'error': 'Column "Department" does not exist in this sheet.'}
         with self.assertRaises(ValueError) as ctx:
             generate_pivot_config('pivot by department', SHEET_SCHEMA)
         self.assertIn('Department', str(ctx.exception))
 
     @patch('spreadsheet.nl_pivot_service.call_ollama_json')
-    def test_invalid_aggregation_raises(self, mock_gemini):
-        mock_gemini.return_value = {
+    def test_invalid_aggregation_raises(self, mock_ollama):
+        mock_ollama.return_value = {
             'config': {
                 'rows_config': ['Region'],
                 'columns_config': [],
@@ -124,8 +124,8 @@ class GeneratePivotConfigViewTests(TestCase):
         Cell.objects.create(sheet=self.sheet, row=data_row, column=revenue_col, raw_input='100')
 
     @patch('spreadsheet.nl_pivot_service.call_ollama_json')
-    def test_generate_pivot_config_success(self, mock_gemini):
-        mock_gemini.return_value = {
+    def test_generate_pivot_config_success(self, mock_ollama):
+        mock_ollama.return_value = {
             'config': {
                 'rows_config': ['Region'],
                 'columns_config': [],
@@ -150,8 +150,8 @@ class GeneratePivotConfigViewTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     @patch('spreadsheet.nl_pivot_service.call_ollama_json')
-    def test_invalid_instruction_returns_422(self, mock_gemini):
-        mock_gemini.return_value = {'error': 'Column "Department" does not exist in this sheet.'}
+    def test_invalid_instruction_returns_422(self, mock_ollama):
+        mock_ollama.return_value = {'error': 'Column "Department" does not exist in this sheet.'}
         response = self.client.post(
             f'/api/spreadsheet/sheets/{self.sheet.id}/generate-pivot-config/',
             {'instruction': 'pivot by department'},

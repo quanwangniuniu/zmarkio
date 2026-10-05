@@ -47,61 +47,61 @@ class AnswerDraftQuestionTest(TestCase):
 
     @patch('core.services.ollama_client._get_base_url', return_value='key')
     @patch('core.services.ollama_client.call_ollama')
-    def test_user_can_read_own_draft(self, mock_gemini, _mock_key):
-        mock_gemini.return_value = "Your draft focuses on the EU region."
+    def test_user_can_read_own_draft(self, mock_ollama, _mock_key):
+        mock_ollama.return_value = "Your draft focuses on the EU region."
         chunks = list(self.orch.answer_draft_question(
             "What is this draft about?", {"draftId": self.draft.slug},
         ))
         self.assertIn('text', [c['type'] for c in chunks])
         self.assertNotIn('error', [c['type'] for c in chunks])
         # Real draft content (rendered via notion_editor) reached the LLM prompt.
-        user_prompt = mock_gemini.call_args.kwargs['user_prompt']
+        user_prompt = mock_ollama.call_args.kwargs['user_prompt']
         self.assertIn("Target EU region", user_prompt)
         self.assertIn("Q3 Campaign Plan", user_prompt)
 
     @patch('core.services.ollama_client._get_base_url', return_value='key')
     @patch('core.services.ollama_client.call_ollama')
-    def test_resolves_draft_by_numeric_pk(self, mock_gemini, _mock_key):
-        mock_gemini.return_value = "ok"
+    def test_resolves_draft_by_numeric_pk(self, mock_ollama, _mock_key):
+        mock_ollama.return_value = "ok"
         chunks = list(self.orch.answer_draft_question(
             "Summarize", {"draftId": str(self.draft.pk)},
         ))
         self.assertIn('text', [c['type'] for c in chunks])
 
     @patch('core.services.ollama_client.call_ollama')
-    def test_cannot_read_other_users_draft_and_llm_never_called(self, mock_gemini):
+    def test_cannot_read_other_users_draft_and_llm_never_called(self, mock_ollama):
         # Owned by another user -> DraftViewSet.get_queryset() excludes it.
         foreign = _draft(self.other, "Secret", "top secret content")
         chunks = list(self.orch.answer_draft_question(
             "Read it", {"draftId": foreign.slug},
         ))
         self.assertEqual(chunks[0]['type'], 'error')
-        mock_gemini.assert_not_called()
+        mock_ollama.assert_not_called()
 
     @patch('core.services.ollama_client.call_ollama')
-    def test_soft_deleted_draft_is_inaccessible(self, mock_gemini):
+    def test_soft_deleted_draft_is_inaccessible(self, mock_ollama):
         self.draft.is_deleted = True
         self.draft.save(update_fields=['is_deleted'])
         chunks = list(self.orch.answer_draft_question("read it", {"draftId": self.draft.slug}))
         self.assertEqual(chunks[0]['type'], 'error')
-        mock_gemini.assert_not_called()
+        mock_ollama.assert_not_called()
 
     @patch('core.services.ollama_client.call_ollama')
-    def test_nonexistent_slug_yields_clean_error(self, mock_gemini):
+    def test_nonexistent_slug_yields_clean_error(self, mock_ollama):
         chunks = list(self.orch.answer_draft_question("read it", {"draftId": "does-not-exist"}))
         self.assertEqual(chunks[0]['type'], 'error')
-        mock_gemini.assert_not_called()
+        mock_ollama.assert_not_called()
 
     @patch('core.services.ollama_client.call_ollama')
-    def test_missing_draft_ref_yields_error(self, mock_gemini):
+    def test_missing_draft_ref_yields_error(self, mock_ollama):
         chunks = list(self.orch.answer_draft_question("hi", {}))
         self.assertEqual(chunks[0]['type'], 'error')
-        mock_gemini.assert_not_called()
+        mock_ollama.assert_not_called()
 
     @patch('core.services.ollama_client._get_base_url', return_value='key')
     @patch('core.services.ollama_client.call_ollama')
-    def test_handle_message_routes_draft_context(self, mock_gemini, _mock_key):
-        mock_gemini.return_value = "answer"
+    def test_handle_message_routes_draft_context(self, mock_ollama, _mock_key):
+        mock_ollama.return_value = "answer"
         chunks = list(self.orch.handle_message(
             "What's here?", draft_context={"draftId": self.draft.slug},
         ))

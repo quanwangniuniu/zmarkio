@@ -14,7 +14,7 @@ class QuickStartValidationError(QuickStartError):
 
 
 class QuickStartLLMError(QuickStartError):
-    """Gemini call failed or returned unusable output."""
+    """LLM call failed or returned unusable output."""
 
     def __init__(
         self,

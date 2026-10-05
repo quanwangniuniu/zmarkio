@@ -40,7 +40,7 @@ export function msPerCharForBacklogDrain(backlog: number): number {
 export type AdaptiveTypingSpeedInput = {
   /** Characters waiting in the render queue (target minus displayed). */
   backlog: number
-  /** True when more content is likely to arrive soon (e.g. Gemini still streaming). */
+  /** True when more content is likely to arrive soon (e.g. the LLM still streaming). */
   expectMoreContent: boolean
 }
 

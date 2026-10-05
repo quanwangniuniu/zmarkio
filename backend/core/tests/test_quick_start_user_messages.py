@@ -14,7 +14,7 @@ from core.services.quick_start.user_messages import (
 class TestQuickStartUserMessages:
     def test_maps_429_to_rate_limited(self):
         code, message, retry = user_message_for_runtime_error(
-            RuntimeError('Gemini rate limited (HTTP 429).')
+            RuntimeError('Ollama rate limited (HTTP 429).')
         )
         assert code == LLM_ERROR_RATE_LIMITED
         assert message == USER_MESSAGE_RATE_LIMITED

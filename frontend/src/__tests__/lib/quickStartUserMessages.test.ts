@@ -14,7 +14,7 @@ describe('resolveQuickStartError', () => {
       config: { headers: new AxiosHeaders() },
       data: {
         error: 'rate_limited',
-        detail: 'Gemini rate limited (HTTP 429).',
+        detail: 'Ollama rate limited (HTTP 429).',
         retry_after_seconds: 30,
       },
     };

@@ -1,5 +1,5 @@
 """
-Natural-language → PivotConfig generation via Gemini.
+Natural-language → PivotConfig generation via Ollama.
 
 Usage:
     from spreadsheet.nl_pivot_service import generate_pivot_config
@@ -27,15 +27,15 @@ logger = logging.getLogger(__name__)
 
 def generate_pivot_config(instruction: str, sheet_schema: dict) -> dict:
     """
-    Call Gemini with the user instruction + sheet column schema and return a
+    Call Ollama with the user instruction + sheet column schema and return a
     validated PivotConfig dict.
 
-    Raises ValueError with a human-readable message if Gemini returns output
+    Raises ValueError with a human-readable message if the model returns output
     that cannot be parsed or fails validation.
     """
     user_prompt = _build_user_prompt(instruction, sheet_schema)
     logger.info(
-        "NL pivot generation: sending to Gemini. instruction=%r schema_cols=%d",
+        "NL pivot generation: sending to Ollama. instruction=%r schema_cols=%d",
         instruction,
         len(sheet_schema.get("columns", [])),
     )
@@ -46,21 +46,21 @@ def generate_pivot_config(instruction: str, sheet_schema: dict) -> dict:
             temperature=0.1,
         )
     except Exception as exc:
-        logger.error("NL pivot generation: Gemini call failed. error=%s", exc)
-        raise ValueError(f"Gemini request failed: {exc}") from exc
+        logger.error("NL pivot generation: Ollama call failed. error=%s", exc)
+        raise ValueError(f"Ollama request failed: {exc}") from exc
 
     if not isinstance(raw, dict):
-        raise ValueError(f"Gemini response is not a JSON object. Got: {str(raw)[:300]}")
+        raise ValueError(f"LLM response is not a JSON object. Got: {str(raw)[:300]}")
 
     if "error" in raw:
         message = raw.get("error")
         if not isinstance(message, str) or not message.strip():
-            raise ValueError("Gemini returned an error response without a message.")
+            raise ValueError("LLM returned an error response without a message.")
         raise ValueError(message.strip())
 
     if "config" not in raw or not isinstance(raw["config"], dict):
         raise ValueError(
-            f"Gemini response is missing the 'config' object. Got: {str(raw)[:300]}"
+            f"LLM response is missing the 'config' object. Got: {str(raw)[:300]}"
         )
 
     return _validate_config(raw["config"], sheet_schema)

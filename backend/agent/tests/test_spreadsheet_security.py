@@ -66,9 +66,9 @@ class SpreadsheetInsightsSecurityTests(TestCase):
 
     def test_insights_allowed_after_per_spreadsheet_consent(self):
         grant_ai_consent(self.user, self.spreadsheet)
-        # Stub the key check so CI without GEMINI_API_KEY still reaches the mocked LLM.
+        # Stub the config check so CI without OLLAMA_BASE_URL still reaches the mocked LLM.
         with patch("core.services.ollama_client._get_base_url", return_value="test-key"), patch(
-            "agent.services.insights._call_gemini_spreadsheet_insights"
+            "agent.services.insights._call_ollama_spreadsheet_insights"
         ) as mock_call:
             mock_call.return_value = {
                 "summary": "ok", "recommendations": [], "anomalies": [],
@@ -78,7 +78,7 @@ class SpreadsheetInsightsSecurityTests(TestCase):
         self.assertFalse([c for c in chunks if c["type"] == "error"])
 
     @patch("core.services.ollama_client._get_base_url", return_value="test-key")
-    @patch("agent.services.insights._call_gemini_spreadsheet_insights")
+    @patch("agent.services.insights._call_ollama_spreadsheet_insights")
     def test_insights_routes_through_call_llm_and_audits(self, mock_call, _mock_key):
         grant_ai_consent(self.user, self.spreadsheet)
         mock_call.return_value = {

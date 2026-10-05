@@ -9,7 +9,7 @@ GENERATION_OUTPUT_KEYS = frozenset({
     'miro_board',
 })
 
-# Keys produced by the spreadsheet analysis Gemini call (not Miro/calendar dedicated calls).
+# Keys produced by the spreadsheet analysis LLM call (not Miro/calendar dedicated calls).
 ANALYSIS_JSON_KEYS = frozenset({'recommended_tasks', 'recommended_decision_tree'})
 
 DEFAULT_GENERATION_OUTPUTS = [
@@ -43,7 +43,7 @@ _TASK_TYPES = frozenset({
 _TASK_PRIORITIES = frozenset({'HIGH', 'MEDIUM', 'LOW'})
 _TASK_SUMMARY_MAX_LENGTH = 255
 
-# Common Gemini aliases → canonical task types.
+# Common model aliases → canonical task types.
 _TASK_TYPE_ALIASES: dict[str, str] = {
     'planning': 'execution',
     'plan': 'execution',
@@ -130,7 +130,7 @@ Rules:
 
 
 class GenerationValidationError(ValueError):
-    """Raised when Gemini JSON does not match the requested generation contract."""
+    """Raised when the model's JSON does not match the requested generation contract."""
 
 
 def get_catalog() -> list[dict[str, str]]:
@@ -172,7 +172,7 @@ def analysis_keys_for_request(requested: frozenset[str]) -> frozenset[str]:
 
 
 def build_analysis_prompt(requested: frozenset[str], criteria_block: str) -> str:
-    """Build Gemini system prompt for spreadsheet analysis (subset of keys)."""
+    """Build the LLM system prompt for spreadsheet analysis (subset of keys)."""
     analysis_keys = analysis_keys_for_request(requested)
     if not analysis_keys:
         return (

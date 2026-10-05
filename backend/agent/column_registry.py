@@ -5,7 +5,7 @@ Detection pipeline:
   1. DB-template match against DataSchemaTemplate records (instant, no LLM cost).
      Falls back to the hard-coded SCHEMA_REGISTRY if the DB is unavailable.
   2. Rule-based match against the hard-coded SCHEMA_REGISTRY (instant fallback).
-  3. LLM fallback (Dify / Gemini) for files that do not match any known schema.
+  3. LLM fallback (Ollama) for files that do not match any known schema.
      On success the result is optionally saved as a new learned DataSchemaTemplate.
   4. Keyword-based auto-categorisation for columns that remain 'unknown' after
      all detection paths, so results are never silently lost.
@@ -637,7 +637,7 @@ Rules:
 
 def _try_llm_fallback(headers: list, sample_rows: list = None, agent_session=None) -> ColumnDetectionResult:
     """
-    Use Gemini to identify unknown columns.
+    Use Ollama to identify unknown columns.
 
     Args:
         headers:       list of column header strings.
@@ -746,7 +746,7 @@ def detect_columns(headers: list, sample_rows: list = None,
     Detection pipeline (stops at the first successful match):
       1. DB-template match against DataSchemaTemplate records.
       2. Rule-based match against the hard-coded SCHEMA_REGISTRY.
-      3. LLM fallback (Dify / Gemini) for unrecognised formats.
+      3. LLM fallback (Ollama) for unrecognised formats.
          On success with confidence >= 0.6 the result is saved as a learned
          DataSchemaTemplate so future uploads of the same format skip the LLM.
       4. Keyword-based auto-categorisation applied to any remaining 'unknown'

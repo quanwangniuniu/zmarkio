@@ -9,7 +9,7 @@ from .analysis import _preprocess_spreadsheet
 logger = logging.getLogger(__name__)
 
 
-def _call_gemini_calendar_from_analysis(
+def _call_ollama_calendar_from_analysis(
     spreadsheet_data,
     analysis_result,
     user_id=None,
@@ -52,7 +52,7 @@ def _call_gemini_calendar_from_analysis(
             call_purpose='calendar_suggestion',
         )
         raw = json.loads(result['text'])
-    logger.info("Calling Gemini for calendar events user_id=%s", user_id)
+    logger.info("Calling Ollama for calendar events user_id=%s", user_id)
     return validate_calendar_events_response(raw)
 
 
@@ -234,7 +234,7 @@ class CalendarMixin:
         }
         calendar_data_str = json.dumps(calendar_payload, ensure_ascii=False)
 
-        # Call Gemini Calendar Assistant
+        # Call Ollama Calendar Assistant
         from core.services.ollama_client import call_ollama, _get_base_url as _ollama_base_url
         if not _ollama_base_url():
             yield {"type": "error", "content": "Calendar AI is not configured. Please set OLLAMA_BASE_URL."}
@@ -277,7 +277,7 @@ class CalendarMixin:
                 timeout=90,
             )
         except Exception as e:
-            logger.error(f"Gemini calendar workflow error: {e}")
+            logger.error(f"Ollama calendar workflow error: {e}")
             yield {"type": "error", "content": "Failed to get AI response. Please try again."}
             return
 
@@ -369,7 +369,7 @@ class CalendarMixin:
             }
 
     def _emit_calendar_events_if_requested(self, workflow_run, input_data):
-        """After workflow steps, optionally call Gemini for calendar_events."""
+        """After workflow steps, optionally call Ollama for calendar_events."""
         from ..generation_registry import (
             GenerationValidationError,
             normalize_generation_outputs,
@@ -405,7 +405,7 @@ class CalendarMixin:
                     'content': 'Calendar AI is not configured. Please set OLLAMA_BASE_URL.',
                 }
                 return
-            result = _call_gemini_calendar_from_analysis(
+            result = _call_ollama_calendar_from_analysis(
                 spreadsheet_data,
                 workflow_run.analysis_result or {},
                 user_id=str(self.user.id),

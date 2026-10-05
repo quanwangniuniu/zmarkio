@@ -87,7 +87,7 @@ class TestQuickStartTwoStageLLMChain:
         assert blueprint['project']['name'] == 'Q1 Meta Launch'
         assert len(blueprint['tasks']) == 5
 
-    def test_gemini_failure_wrapped_on_plan_stage(self):
+    def test_ollama_failure_wrapped_on_plan_stage(self):
         def _fail(**kwargs):
             raise RuntimeError('upstream error')
 

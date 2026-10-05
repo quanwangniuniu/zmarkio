@@ -1,7 +1,7 @@
 """
 Canonical PivotConfig JSON schema used for:
-  1. Building the Gemini system prompt.
-  2. Validating Gemini's response in nl_pivot_service.py.
+  1. Building the LLM system prompt.
+  2. Validating the model's response in nl_pivot_service.py.
 """
 
 VALID_AGGREGATIONS = {'SUM', 'COUNT', 'AVG', 'MIN', 'MAX', 'MEDIAN'}

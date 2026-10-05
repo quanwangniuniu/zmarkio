@@ -103,7 +103,7 @@ class DraftMixin:
                 timeout=90,
             )
         except Exception as e:
-            logger.error(f"Gemini draft Q&A error: {e}")
+            logger.error(f"Ollama draft Q&A error: {e}")
             yield {"type": "error", "content": "Failed to get AI response. Please try again."}
             return
 

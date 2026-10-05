@@ -55,7 +55,7 @@ def _parse_number(value: Any, default: float = 0.0) -> float:
 
 
 def _sanitize_snapshot_numbers(snapshot: dict[str, Any]) -> dict[str, Any]:
-    """Strip CSS units from all numeric fields in a Gemini-generated snapshot."""
+    """Strip CSS units from all numeric fields in a model-generated snapshot."""
     numeric_item_fields = ("x", "y", "width", "height", "z_index")
     numeric_style_fields = ("fontSize", "strokeWidth", "borderRadius")
 
@@ -495,7 +495,7 @@ Create a practical draft board with concise labels and reasonable initial positi
 """
 
 
-def call_gemini_miro_generator(
+def call_ollama_miro_generator(
     context: dict[str, Any],
     *,
     user_id: str | int | None = None,
@@ -507,7 +507,7 @@ def call_gemini_miro_generator(
     context_json = json_input(context)
     rules_json = json_input(load_miro_snapshot_rules())
     logger.info(
-        "Calling Gemini Miro generator user_id=%s context_chars=%s rules_chars=%s",
+        "Calling Ollama Miro generator user_id=%s context_chars=%s rules_chars=%s",
         user_id,
         len(context_json),
         len(rules_json),

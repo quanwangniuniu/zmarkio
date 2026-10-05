@@ -1,4 +1,4 @@
-"""User-facing Quick Start / Gemini error messages (no technical jargon)."""
+"""User-facing Quick Start / Ollama error messages (no technical jargon)."""
 
 from __future__ import annotations
 
@@ -83,7 +83,7 @@ def user_message_for_validation_error(detail: str) -> tuple[str, str]:
 
 def user_message_for_runtime_error(exc: BaseException) -> tuple[str, str, int | None]:
     """
-    Map a Gemini RuntimeError (or similar) to (error_code, user_message, retry_after_seconds).
+    Map an Ollama RuntimeError (or similar) to (error_code, user_message, retry_after_seconds).
     """
     text = str(exc).lower()
 

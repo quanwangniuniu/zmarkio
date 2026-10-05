@@ -219,8 +219,8 @@ class LLMFallbackTests(TestCase):
         )
         self.session = AgentSession.objects.create(user=self.user, project=self.project)
 
-    def _make_gemini_response(self, columns_list, schema_name='Custom Report', confidence=0.8):
-        """Return the dict that _call_gemini would return for a successful call."""
+    def _make_ollama_response(self, columns_list, schema_name='Custom Report', confidence=0.8):
+        """Return the dict that _call_ollama would return for a successful call."""
         return {
             'text': json.dumps({
                 'schema_name': schema_name,
@@ -234,7 +234,7 @@ class LLMFallbackTests(TestCase):
     @patch('agent.llm_client._call_ollama')
     def test_llm_fallback_success(self, mock_run):
         headers = ['Revenue', 'Sessions', 'Bounce Rate']
-        mock_run.return_value = self._make_gemini_response([
+        mock_run.return_value = self._make_ollama_response([
             {'original': 'Revenue', 'canonical': 'revenue', 'category': 'financial', 'confidence': 0.95},
             {'original': 'Sessions', 'canonical': 'sessions', 'category': 'engagement', 'confidence': 0.9},
             {'original': 'Bounce Rate', 'canonical': 'bounce_rate', 'category': 'performance_ratio', 'confidence': 0.8},
@@ -255,15 +255,15 @@ class LLMFallbackTests(TestCase):
     def test_llm_fallback_includes_sample_rows_in_prompt(self, mock_run):
         headers = ['Revenue']
         sample_rows = [{'Revenue': 1000}, {'Revenue': 2000}]
-        mock_run.return_value = self._make_gemini_response([
+        mock_run.return_value = self._make_ollama_response([
             {'original': 'Revenue', 'canonical': 'revenue', 'category': 'financial', 'confidence': 0.9},
         ])
 
         detect_columns(headers, sample_rows=sample_rows, agent_session=self.session)
 
-        # _call_gemini is called positionally: (model, system_prompt, user_prompt, ...)
+        # _call_ollama is called positionally: (model, system_prompt, user_prompt, ...)
         user_prompt = mock_run.call_args[0][2]
-        # Sample rows must be serialised into the user prompt sent to Gemini
+        # Sample rows must be serialised into the user prompt sent to Ollama
         self.assertIn('1000', user_prompt)
 
     @override_settings(**_LLM_SETTINGS)
@@ -287,7 +287,7 @@ class LLMFallbackTests(TestCase):
     @patch('agent.llm_client._call_ollama')
     def test_llm_unknown_columns_labeled_unknown(self, mock_run):
         headers = ['WeirdCol1', 'WeirdCol2']
-        mock_run.return_value = self._make_gemini_response([
+        mock_run.return_value = self._make_ollama_response([
             {'original': 'WeirdCol1', 'canonical': 'unknown', 'category': 'unknown', 'confidence': 0.0},
             {'original': 'WeirdCol2', 'canonical': 'unknown', 'category': 'unknown', 'confidence': 0.0},
         ])

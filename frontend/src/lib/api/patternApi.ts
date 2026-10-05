@@ -73,8 +73,8 @@ export const PatternAPI = {
   },
 
   /**
-   * Send a natural-language instruction to Gemini and get back TimelineItems.
-   * Throws PatternAgentError when Gemini returns an ERROR_REQUEST step.
+   * Send a natural-language instruction to the LLM and get back TimelineItems.
+   * Throws PatternAgentError when the LLM returns an ERROR_REQUEST step.
    * Throws a generic Error on network / server failure.
    */
   generatePatternSteps: async (sheetId: number, instruction: string): Promise<TimelineItem[]> => {
@@ -83,7 +83,7 @@ export const PatternAPI = {
       response = await api.post<{ steps: Array<Record<string, any>>; error?: string }>(
         `/api/spreadsheet/sheets/${sheetId}/generate-pattern-steps/`,
         { instruction },
-        { timeout: LLM_TIMEOUT_MS }  // Gemini can take 15-30s; override the global 10s default
+        { timeout: LLM_TIMEOUT_MS }  // LLM calls can take 15-30s or more; override the global 10s default
       );
     } catch (err) {
       if (isAiConsentRequired(err)) throw new AiConsentRequiredError(aiConsentSpreadsheetId(err));
@@ -92,7 +92,7 @@ export const PatternAPI = {
     const { steps, error } = response.data;
     if (error) throw new Error(error);
 
-    // Surface ERROR_REQUEST from Gemini as a typed error
+    // Surface ERROR_REQUEST from the LLM as a typed error
     if (steps.length === 1 && steps[0].type === 'ERROR_REQUEST') {
       throw new PatternAgentError(steps[0].params?.message ?? 'Unable to generate steps for this instruction.');
     }

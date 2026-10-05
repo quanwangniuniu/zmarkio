@@ -136,7 +136,7 @@ Output rules:
 """
 
 
-def _call_gemini_chat(
+def _call_ollama_chat(
     chat_messages,
     user_id=None,
     analysis_result=None,
@@ -144,7 +144,7 @@ def _call_gemini_chat(
     current_username='',
     agent_session=None,
 ):
-    """Call Gemini for post-analysis follow-up. Replaces _call_dify_chat."""
+    """Call Ollama for post-analysis follow-up. Replaces _call_dify_chat."""
     from core.services.ollama_client import call_ollama_json
 
     user_prompt = (
@@ -177,14 +177,14 @@ def _call_gemini_chat(
             )
             parsed = json.loads(result['text'])
     except Exception as e:
-        logger.error("Gemini chat call failed: %s", e)
-        raise RuntimeError(f"Gemini chat failed: {e}") from e
+        logger.error("Ollama chat call failed: %s", e)
+        raise RuntimeError(f"Ollama chat failed: {e}") from e
 
     normalized = _normalize_llm_chat_output(parsed)
     if normalized:
         return normalized
 
-    raise RuntimeError("Gemini chat returned unexpected output format")
+    raise RuntimeError("LLM chat returned unexpected output format")
 
 
 class FollowUpMixin:

@@ -13,7 +13,7 @@ from .analysis import (
     _ANALYSIS_VALIDATION_MAX_ATTEMPTS,
     _assign_anomaly_ids,
     _build_criteria_text,
-    _call_gemini_analysis,
+    _call_ollama_analysis,
     _preprocess_spreadsheet,
     _resolve_analysis_columns,
     _run_analysis,
@@ -25,18 +25,18 @@ from .analysis_prompts import (
     _CRITERIA_WITH_BLOCK,
     _NO_CRITERIA_BLOCK,
 )
-from .calendar import _call_gemini_calendar_from_analysis
+from .calendar import _call_ollama_calendar_from_analysis
 from .common import _coerce_json, _create_agent_status_message
 from .followup import (
     _FOLLOWUP_SYSTEM_PROMPT,
-    _call_gemini_chat,
+    _call_ollama_chat,
     _normalize_llm_chat_output,
     _serialize_project_members,
 )
 from .insights import (
     _SPREADSHEET_INSIGHTS_SAMPLE_ROWS,
     _SPREADSHEET_INSIGHTS_SYSTEM_PROMPT,
-    _call_gemini_spreadsheet_insights,
+    _call_ollama_spreadsheet_insights,
     _normalize_spreadsheet_insights_result,
     _preprocess_spreadsheet_insights,
     _run_spreadsheet_insights,
@@ -63,10 +63,10 @@ __all__ = [
     "_SPREADSHEET_INSIGHTS_SYSTEM_PROMPT",
     "_assign_anomaly_ids",
     "_build_criteria_text",
-    "_call_gemini_analysis",
-    "_call_gemini_calendar_from_analysis",
-    "_call_gemini_chat",
-    "_call_gemini_spreadsheet_insights",
+    "_call_ollama_analysis",
+    "_call_ollama_calendar_from_analysis",
+    "_call_ollama_chat",
+    "_call_ollama_spreadsheet_insights",
     "_coerce_json",
     "_create_agent_status_message",
     "_enqueue_miro_generation_for_workflow_run",

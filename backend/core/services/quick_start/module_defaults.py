@@ -26,7 +26,7 @@ def ensure_quick_start_module_minimums(
     """
     Ensure enabled decisions/miro modules meet minimum counts.
 
-    Used when Gemini returns empty arrays for optional modules that were enabled.
+    Used when the model returns empty arrays for optional modules that were enabled.
     """
     project = blueprint.get('project') or {}
     project_name = str(project.get('name') or 'Campaign').strip() or 'Campaign'

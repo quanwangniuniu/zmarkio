@@ -1,5 +1,5 @@
 """
-Natural-language → PatternStep generation via Gemini.
+Natural-language → PatternStep generation via Ollama.
 
 Usage:
     from spreadsheet.nl_pattern_service import generate_pattern_steps
@@ -27,15 +27,15 @@ logger = logging.getLogger(__name__)
 
 def generate_pattern_steps(instruction: str, sheet_schema: dict) -> list[dict]:
     """
-    Call Gemini with the user instruction + sheet column schema and return a
+    Call Ollama with the user instruction + sheet column schema and return a
     validated list of PatternStep dicts.
 
-    Raises ValueError with a human-readable message if Gemini returns output
+    Raises ValueError with a human-readable message if the model returns output
     that cannot be parsed or fails validation.
     """
     user_prompt = _build_user_prompt(instruction, sheet_schema)
     logger.info(
-        "NL pattern generation: sending to Gemini. instruction=%r schema_cols=%d",
+        "NL pattern generation: sending to Ollama. instruction=%r schema_cols=%d",
         instruction,
         len(sheet_schema.get("columns", [])),
     )
@@ -46,23 +46,23 @@ def generate_pattern_steps(instruction: str, sheet_schema: dict) -> list[dict]:
             temperature=0.1,
         )
     except Exception as exc:
-        logger.error("NL pattern generation: Gemini call failed. error=%s", exc)
-        raise ValueError(f"Gemini request failed: {exc}") from exc
+        logger.error("NL pattern generation: Ollama call failed. error=%s", exc)
+        raise ValueError(f"Ollama request failed: {exc}") from exc
 
     logger.info(
-        "NL pattern generation: Gemini responded. raw_keys=%s steps_count=%s",
+        "NL pattern generation: Ollama responded. raw_keys=%s steps_count=%s",
         list(raw.keys()) if isinstance(raw, dict) else type(raw).__name__,
         len(raw.get("steps", [])) if isinstance(raw, dict) else "n/a",
     )
 
     if not isinstance(raw, dict) or "steps" not in raw:
         raise ValueError(
-            f"Gemini response is missing the 'steps' key. Got: {str(raw)[:300]}"
+            f"LLM response is missing the 'steps' key. Got: {str(raw)[:300]}"
         )
 
     steps = raw["steps"]
     if not isinstance(steps, list):
-        raise ValueError("Gemini 'steps' field is not a list.")
+        raise ValueError("LLM 'steps' field is not a list.")
 
     # Surface ERROR_REQUEST immediately — skip all further processing.
     if steps and isinstance(steps[0], dict) and steps[0].get("type") == "ERROR_REQUEST":
@@ -186,7 +186,7 @@ def _validate_step(step: dict, position: int, sheet_schema: dict) -> dict:
 
 def _to_executor_convention(step_type: str, params: dict) -> dict:
     """
-    Gemini (per SYSTEM_PROMPT) emits 0-based row/col/index values. The
+    The model (per SYSTEM_PROMPT) emits 0-based row/col/index values. The
     execution engine (WorkflowPatternService._execute_one_step in
     services.py) was built for the legacy grid-edit-recording flow, which
     always converts 0-based grid coordinates to 1-based before building a
@@ -263,7 +263,7 @@ def _check_formula_target_column(
 ) -> None:
     """Verify an APPLY_FORMULA target column resolves to a real column.
 
-    The instruction may reference a column that Gemini hallucinated (e.g.
+    The instruction may reference a column that the model hallucinated (e.g.
     "column D" on a sheet that only has A–C). Rather than a vague "index out of
     range", name the column and list what is actually available. One brand-new
     column immediately after the last one is allowed (``=I+J`` into a fresh
@@ -309,7 +309,7 @@ def _check_col_index(index, col_count: int, step_type: str, position: int) -> No
 
 def _collapse_repeated_formulas(steps: list, sheet_schema: dict) -> list:
     """
-    Detect when Gemini emitted one APPLY_FORMULA per row for the same column
+    Detect when the model emitted one APPLY_FORMULA per row for the same column
     (ignoring the rule) and collapse them into one seed APPLY_FORMULA at row 1
     followed by a FILL_SERIES that covers the full range.
     """

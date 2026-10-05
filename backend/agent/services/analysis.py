@@ -3,6 +3,8 @@ import json
 import logging
 import os
 
+from django.conf import settings
+
 from spreadsheet.providers import (
     SpreadsheetAccessError,
     AiAnalysisDisabled,
@@ -67,7 +69,7 @@ def _resolve_analysis_columns(key_cols, sheet_columns, column_mapping=None):
     """Map success_criteria key_columns onto normalized spreadsheet column keys.
 
     After normalize_data, row keys are canonical names (e.g. amount_spent) while
-    Gemini criteria often reference display headers (e.g. Amount Spent (USD)).
+    Model-generated criteria often reference display headers (e.g. Amount Spent (USD)).
     """
     if not sheet_columns:
         return list(key_cols or [])
@@ -159,7 +161,7 @@ def _preprocess_spreadsheet(spreadsheet_data, success_criteria=None, column_mapp
 _ANALYSIS_VALIDATION_MAX_ATTEMPTS = 3
 
 
-def _call_gemini_analysis(
+def _call_ollama_analysis(
     spreadsheet_data,
     user_id=None,
     success_criteria=None,
@@ -169,7 +171,7 @@ def _call_gemini_analysis(
     validation_feedback=None,
     agent_session=None,
 ):
-    """Call Gemini to analyze spreadsheet data."""
+    """Call Ollama to analyze spreadsheet data."""
     from core.services.ollama_client import call_ollama_json
     from ..generation_registry import (
         build_analysis_prompt,
@@ -200,7 +202,7 @@ def _call_gemini_analysis(
         )
 
     logger.info(
-        "Calling Gemini for spreadsheet analysis user_id=%s outputs=%s attempt=%s",
+        "Calling Ollama for spreadsheet analysis user_id=%s outputs=%s attempt=%s",
         user_id,
         sorted(requested),
         'retry' if validation_feedback else 'initial',
@@ -273,13 +275,13 @@ def _run_analysis(
 
     requested = frozenset(normalize_generation_outputs(generation_outputs))
 
-    # 1. Try Gemini (primary)
+    # 1. Call the LLM
     from core.services.ollama_client import _get_base_url as _ollama_base_url
     if _ollama_base_url():
         validation_feedback = None
         for attempt in range(1, _ANALYSIS_VALIDATION_MAX_ATTEMPTS + 1):
             try:
-                raw = _call_gemini_analysis(
+                raw = _call_ollama_analysis(
                     spreadsheet_data,
                     user_id,
                     success_criteria=success_criteria,
@@ -295,7 +297,7 @@ def _run_analysis(
                     raise
                 validation_feedback = str(exc)
                 logger.warning(
-                    "Gemini analysis validation failed (attempt %s/%s): %s; retrying",
+                    "LLM analysis validation failed (attempt %s/%s): %s; retrying",
                     attempt,
                     _ANALYSIS_VALIDATION_MAX_ATTEMPTS,
                     exc,
@@ -303,7 +305,7 @@ def _run_analysis(
             except QuotaError:
                 raise
             except Exception as e:
-                logger.error(f"Gemini analysis failed: {e}")
+                logger.error(f"Ollama analysis failed: {e}")
                 break
 
     # 2. No LLM available
@@ -336,8 +338,8 @@ class AnalysisMixin:
                     s.get('window', {}).get('cells_returned', 0) for s in sheets
                 ),
                 'truncated': bool(spreadsheet_data.get('truncated')),
-                'provider': 'gemini',
-                'model': 'gemini-2.5-flash-lite',
+                'provider': 'ollama',
+                'model': settings.OLLAMA_MODEL,
             },
         )
 

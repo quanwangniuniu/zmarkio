@@ -691,10 +691,10 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
 
     @patch("agent.executors.cache.get", return_value=None)
     @patch("agent.services.analysis._run_analysis")
-    def test_gemini_retry_exhaustion_returns_failure(
+    def test_ollama_retry_exhaustion_returns_failure(
         self, mock_run_analysis, mock_cache_get
     ):
-        mock_run_analysis.side_effect = OllamaRetriesExhausted("Gemini rate limited")
+        mock_run_analysis.side_effect = OllamaRetriesExhausted("Ollama is busy")
         executor = AnalyzeDataExecutor(
             _StepStub(), _WorkflowRunStub(), _OrchestratorStub()
         )
@@ -702,7 +702,7 @@ class AnalyzeDataExecutorTests(SimpleTestCase):
         result = executor.execute({"spreadsheet_data": {"sheets": []}})
 
         self.assertFalse(result.success)
-        self.assertEqual(result.error, "Gemini rate limited")
+        self.assertEqual(result.error, "Ollama is busy")
         mock_cache_get.assert_called_once()
 
     @patch("agent.executors.cache.get", return_value=None)
@@ -1215,10 +1215,10 @@ class GenerateCriteriaExecutorTests(SimpleTestCase):
 
     @patch(
         "agent.llm_client.call_llm",
-        side_effect=OllamaRetriesExhausted("Gemini rate limited"),
+        side_effect=OllamaRetriesExhausted("Ollama is busy"),
     )
     @patch("core.services.ollama_client._get_base_url", return_value="test-key")
-    def test_gemini_retry_exhaustion_marks_step_skipped(
+    def test_ollama_retry_exhaustion_marks_step_skipped(
         self, mock_get_key, mock_call_llm
     ):
         executor = GenerateCriteriaExecutor(
@@ -1231,13 +1231,13 @@ class GenerateCriteriaExecutorTests(SimpleTestCase):
 
         self.assertFalse(result.success)
         self.assertTrue(result.skipped)
-        self.assertEqual(result.error, "Gemini rate limited")
+        self.assertEqual(result.error, "Ollama is busy")
         mock_get_key.assert_called_once()
         mock_call_llm.assert_called_once()
 
     @patch(
         "agent.llm_client.call_llm",
-        side_effect=RuntimeError("Gemini request timed out"),
+        side_effect=RuntimeError("Ollama request timed out"),
     )
     @patch("core.services.ollama_client._get_base_url", return_value="test-key")
     def test_runtime_error_is_handled_by_retry_policy(
@@ -1256,7 +1256,7 @@ class GenerateCriteriaExecutorTests(SimpleTestCase):
 
         self.assertFalse(result.success)
         self.assertTrue(result.skipped)
-        self.assertEqual(result.error, "Gemini request timed out")
+        self.assertEqual(result.error, "Ollama request timed out")
         mock_get_key.assert_called_once()
         mock_call_llm.assert_called_once()
 
@@ -1363,9 +1363,9 @@ class DetectColumnsExecutorTests(SimpleTestCase):
 
     @patch(
         "agent.column_registry.detect_columns",
-        side_effect=OllamaRetriesExhausted("Gemini rate limited"),
+        side_effect=OllamaRetriesExhausted("Ollama is busy"),
     )
-    def test_gemini_retry_exhaustion_marks_step_skipped(self, mock_detect_columns):
+    def test_ollama_retry_exhaustion_marks_step_skipped(self, mock_detect_columns):
         executor = DetectColumnsExecutor(
             _StepStub(), _WorkflowRunStub(), _OrchestratorStub()
         )
@@ -1374,7 +1374,7 @@ class DetectColumnsExecutorTests(SimpleTestCase):
 
         self.assertFalse(result.success)
         self.assertTrue(result.skipped)
-        self.assertEqual(result.error, "Gemini rate limited")
+        self.assertEqual(result.error, "Ollama is busy")
         mock_detect_columns.assert_called_once()
 
     @patch(
@@ -1624,7 +1624,7 @@ class PersistMetadataTests(SimpleTestCase):
 
 
 class GenerateMiroSnapshotExecutorTests(SimpleTestCase):
-    @patch("agent.miro_generation.call_gemini_miro_generator")
+    @patch("agent.miro_generation.call_ollama_miro_generator")
     @patch("agent.miro_generation.build_miro_generation_context_from_run")
     def test_success_saves_snapshot_and_reports_item_count(
         self, mock_build_context, mock_generate_snapshot
@@ -1658,11 +1658,11 @@ class GenerateMiroSnapshotExecutorTests(SimpleTestCase):
         )
 
     @patch(
-        "agent.miro_generation.call_gemini_miro_generator",
-        side_effect=OllamaRetriesExhausted("Gemini rate limited"),
+        "agent.miro_generation.call_ollama_miro_generator",
+        side_effect=OllamaRetriesExhausted("Ollama is busy"),
     )
     @patch("agent.miro_generation.build_miro_generation_context_from_run")
-    def test_gemini_retry_exhaustion_returns_failure(
+    def test_ollama_retry_exhaustion_returns_failure(
         self, mock_build_context, mock_generate_snapshot
     ):
         context = {"analysis": {"recommended_tasks": []}}
@@ -1676,7 +1676,7 @@ class GenerateMiroSnapshotExecutorTests(SimpleTestCase):
         result = executor.execute({})
 
         self.assertFalse(result.success)
-        self.assertEqual(result.error, "Gemini rate limited")
+        self.assertEqual(result.error, "Ollama is busy")
         mock_build_context.assert_called_once_with(
             session=orchestrator.session,
             workflow_run=workflow_run,
@@ -1704,7 +1704,7 @@ class GenerateMiroSnapshotExecutorTests(SimpleTestCase):
 
     @patch(
         "agent.miro_generation.build_miro_generation_context_from_run",
-        side_effect=RuntimeError("Gemini request timed out"),
+        side_effect=RuntimeError("Ollama request timed out"),
     )
     def test_runtime_error_is_handled_by_retry_policy(self, mock_build_context):
         # The production decorator normally retries three times. One attempt is
@@ -1718,7 +1718,7 @@ class GenerateMiroSnapshotExecutorTests(SimpleTestCase):
 
         self.assertFalse(result.success)
         self.assertFalse(result.skipped)
-        self.assertEqual(result.error, "Gemini request timed out")
+        self.assertEqual(result.error, "Ollama request timed out")
         mock_build_context.assert_called_once()
 
 
