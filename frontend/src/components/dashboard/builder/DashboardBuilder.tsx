@@ -225,11 +225,6 @@ export default function DashboardBuilder(context: WidgetContext) {
 
   const commit = (update: (current: Widget[]) => Widget[]) => {
     const next = update(widgetsRef.current);
-    setResizePreview(null);
-    setDragPreview(null);
-    setActiveResizeId(null);
-    setActiveDragId(null);
-    endGesture();
     if (JSON.stringify(next) === JSON.stringify(widgetsRef.current)) return;
     widgetsRef.current = next;
     setWidgets(next);
@@ -289,11 +284,6 @@ export default function DashboardBuilder(context: WidgetContext) {
     setActiveResizeId(null);
     endGesture();
   };
-  const visibleWidgets = activeResizeId !== null && resizePreview
-    ? resizePreview
-    : activeDragId !== null && dragPreview
-      ? dragPreview
-      : widgets;
 
   if (loadError) return <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">Dashboard layout could not be loaded. <button type="button" onClick={() => void load()} className="underline">Retry</button></div>;
   if (!loaded) return <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-500">Loading dashboard layout…</div>;
@@ -312,16 +302,13 @@ export default function DashboardBuilder(context: WidgetContext) {
         </div>
       </div>
       {pickerOpen && <div className="mb-3 flex flex-wrap gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2" aria-label="Widget picker">
-        {widgetRegistry.filter((definition) => !widgets.some((widget) => widget.id === definition.id)).map((definition) => <button type="button" key={definition.id} onClick={() => {
-          commit((current) => addWidget(current, definition.defaultPosition));
-          if (widgetRegistry.every((item) => widgetsRef.current.some((widget) => widget.id === item.id))) setPickerOpen(false);
-        }} className="rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:border-cyan-400">{definition.title}</button>)}
+        {widgetRegistry.filter((definition) => !widgets.some((widget) => widget.id === definition.id)).map((definition) => <button type="button" key={definition.id} onClick={() => { commit((current) => addWidget(current, definition.defaultPosition)); setPickerOpen(false); }} className="rounded border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:border-cyan-400">{definition.title}</button>)}
         {widgetRegistry.every((definition) => widgets.some((widget) => widget.id === definition.id)) && <span className="text-xs text-gray-500">All widgets are on your dashboard.</span>}
       </div>}
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onDragCancel={() => { setDragPreview(null); setActiveDragId(null); endGesture(); }}>
         <div style={{ minHeight: gestureGridMinHeight ?? undefined }}>
           <div ref={gridRef} className="dashboard-builder-grid grid grid-cols-12 gap-3" style={{ gridAutoRows: `${ROW_HEIGHT}px` }}>
-            {visibleWidgets.map((widget) => <WidgetTile key={widget.id} widget={widget} context={context} columnStep={columnStep} dragging={activeDragId === widget.id} resizing={activeResizeId === widget.id} onResizeStart={startResize} onResizePreview={(id, dw, dh) => setResizePreview(resizeWidget(widgetsRef.current, id, dw, dh))} onResizeEnd={endResize} onResize={(id, dw, dh) => commit((current) => resizeWidget(current, id, dw, dh))} onRemove={(id) => commit((current) => removeWidget(current, id))} />)}
+            {(resizePreview ?? dragPreview ?? widgets).map((widget) => <WidgetTile key={widget.id} widget={widget} context={context} columnStep={columnStep} dragging={activeDragId === widget.id} resizing={activeResizeId === widget.id} onResizeStart={startResize} onResizePreview={(id, dw, dh) => setResizePreview(resizeWidget(widgetsRef.current, id, dw, dh))} onResizeEnd={endResize} onResize={(id, dw, dh) => commit((current) => resizeWidget(current, id, dw, dh))} onRemove={(id) => commit((current) => removeWidget(current, id))} />)}
           </div>
         </div>
         <DragOverlay dropAnimation={null}>
