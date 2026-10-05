@@ -395,7 +395,7 @@ AGENT_CSV_DIR = config(
     default=os.path.join(BASE_DIR, 'agent_data')
 )
 
-# Gemini API (replaces Dify for all LLM workflow calls)
+# Hosted-LLM key read only by the legacy ad_copy_variation client.
 GEMINI_API_KEY = config('GEMINI_API_KEY', default='')
 
 # AI-assisted spreadsheet analysis (agent <-> spreadsheet integration).
@@ -413,15 +413,6 @@ SPREADSHEET_AI_MAX_CELLS = config('SPREADSHEET_AI_MAX_CELLS', default=20000, cas
 SPREADSHEET_AI_MAX_CELL_CHARS = config(
     'SPREADSHEET_AI_MAX_CELL_CHARS', default=2000, cast=int
 )
-# Gemini HTTP guardrails (core.services.gemini_client).
-GEMINI_TIMEOUT_SECONDS = config('GEMINI_TIMEOUT_SECONDS', default=75, cast=int)
-GEMINI_TOTAL_DEADLINE_SECONDS = config(
-    'GEMINI_TOTAL_DEADLINE_SECONDS', default=150, cast=int
-)
-GEMINI_CB_THRESHOLD = config('GEMINI_CB_THRESHOLD', default=5, cast=int)
-GEMINI_CB_WINDOW_SECONDS = config('GEMINI_CB_WINDOW_SECONDS', default=60, cast=int)
-GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, cast=int)
-
 # Ollama LLM server (core.services.ollama_client). An empty OLLAMA_BASE_URL means
 # the LLM is not configured and AI features report themselves unavailable.
 OLLAMA_BASE_URL = config('OLLAMA_BASE_URL', default='')
@@ -431,7 +422,7 @@ OLLAMA_MODEL = config('OLLAMA_MODEL', default='qwen3:4b')
 OLLAMA_NUM_CTX = config('OLLAMA_NUM_CTX', default=16384, cast=int)
 # How long the model stays loaded after a request (Ollama duration string).
 OLLAMA_KEEP_ALIVE = config('OLLAMA_KEEP_ALIVE', default='30m')
-# Ollama HTTP guardrails, same values as the previous hosted-LLM client.
+# Ollama HTTP guardrails (retry deadline and circuit breaker).
 OLLAMA_TIMEOUT_SECONDS = config('OLLAMA_TIMEOUT_SECONDS', default=75, cast=int)
 OLLAMA_TOTAL_DEADLINE_SECONDS = config(
     'OLLAMA_TOTAL_DEADLINE_SECONDS', default=150, cast=int

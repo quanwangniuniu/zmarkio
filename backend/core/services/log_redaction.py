@@ -1,7 +1,7 @@
 """
 Central log redaction for the agent app.
 
-Provider clients (llm_client.py, gemini_client.py) embed API keys in request
+LLM provider clients can embed API keys in request
 URLs and headers. The `requests`/`urllib3` libraries can log full URLs and
 headers at DEBUG level, and raw exception text can leak keys into tracebacks.
 This module scrubs both structured logging args and free-text log messages

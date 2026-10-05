@@ -1338,12 +1338,12 @@ class GenerationOutputsCatalogView(EnglishResponseMixin, APIView):
 
 
 class AgentConfigStatusView(EnglishResponseMixin, APIView):
-    """GET /api/agent/config/status/ — configured API keys and registry diagnostics."""
+    """GET /api/agent/config/status/ — configured LLM settings and registry diagnostics."""
     permission_classes = [IsAuthenticated]
 
     # Mapping of response key -> (settings attr, env var fallback)
     KEY_MAP = {
-        'gemini': ('GEMINI_API_KEY', 'GEMINI_API_KEY'),
+        'ollama': ('OLLAMA_BASE_URL', 'OLLAMA_BASE_URL'),
     }
 
     def get(self, request):

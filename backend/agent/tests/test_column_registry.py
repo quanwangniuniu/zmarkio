@@ -192,5 +192,6 @@ def test_registry_diagnostics_preserve_existing_config_flags():
     response = config_status()
     assert response.status_code == 200
     assert response.data['column_registry']['ok'] is False
-    assert 'gemini' in response.data
+    assert 'ollama' in response.data
+    assert 'gemini' not in response.data
     assert 'anthropic' not in response.data

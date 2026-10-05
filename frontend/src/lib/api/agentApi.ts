@@ -350,7 +350,7 @@ export const AgentAPI = {
   },
 
   getConfigStatus: async (): Promise<{
-    gemini: boolean;
+    ollama: boolean;
     column_registry?: {
       ok: boolean;
       error?: string;
