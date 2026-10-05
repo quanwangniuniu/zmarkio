@@ -99,6 +99,19 @@ describe('POST /variations/', () => {
     });
   });
 
+  it('rejects a creative linked to the same project id in another schema', async () => {
+    // Fixtures mirror the project in public, so this is a distinct project
+    // with the same numeric id as the active tenant's project.
+    await prisma.$executeRaw`UPDATE public.meta_ad_accounts SET project_schema = 'public' WHERE id = ${fixture.accountA}`;
+    try {
+      const response = await create(payload({ creative: Number(fixture.creativeA) }));
+      expect(response.status).toBe(400);
+      await expect(readJson(response)).resolves.toEqual({ error: 'creative does not belong to project' });
+    } finally {
+      await prisma.$executeRaw`UPDATE public.meta_ad_accounts SET project_schema = ${fixture.schema} WHERE id = ${fixture.accountA}`;
+    }
+  });
+
   it('returns 404 for a creative that does not exist', async () => {
     const response = await create(payload({ creative: 999_999_999 }));
 

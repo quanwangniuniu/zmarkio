@@ -22,6 +22,7 @@ datasource db {
 model MetaAdAccount {
   id        BigInt  @id
   projectId BigInt? @map("project_id")
+  projectSchema String @map("project_schema") @db.VarChar(255)
 
   @@map("meta_ad_accounts")
 }

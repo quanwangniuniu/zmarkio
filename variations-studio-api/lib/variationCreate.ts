@@ -53,7 +53,8 @@ function optionalBatchPosition(raw: unknown): number | null {
 
 async function resolveCreativeId(
   raw: unknown,
-  projectId: bigint
+  projectId: bigint,
+  projectSchema: string
 ): Promise<bigint | null> {
   if (raw === undefined || raw === null || raw === '') return null;
 
@@ -77,9 +78,9 @@ async function resolveCreativeId(
 
   const account = await prisma.metaAdAccount.findFirst({
     where: { id: creative.adAccountId },
-    select: { projectId: true },
+    select: { projectId: true, projectSchema: true },
   });
-  if (account?.projectId && account.projectId !== projectId) {
+  if (account?.projectId && (account.projectId !== projectId || account.projectSchema !== projectSchema)) {
     throw new ApiError(400, 'creative does not belong to project');
   }
 
@@ -109,7 +110,7 @@ export async function createVariation(args: {
     TEXT_FIELDS.map((field) => [field, optionalText(args.body, field)])
   ) as Record<(typeof TEXT_FIELDS)[number], string>;
 
-  const creativeId = await resolveCreativeId(args.body.creative, args.projectId);
+  const creativeId = await resolveCreativeId(args.body.creative, args.projectId, args.schema);
   const [slug] = allocateSlugs([text.headline]);
 
   return insertVariation(args.schema, {

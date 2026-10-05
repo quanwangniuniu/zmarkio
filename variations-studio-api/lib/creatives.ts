@@ -32,7 +32,8 @@ export function creativeToTemplate(row: {
 
 export async function loadCreativeForProject(
   creativeId: bigint,
-  projectId: bigint
+  projectId: bigint,
+  projectSchema: string
 ) {
   const creative = await prisma.metaAdCreative.findFirst({
     where: { id: creativeId },
@@ -50,9 +51,9 @@ export async function loadCreativeForProject(
 
   const account = await prisma.metaAdAccount.findFirst({
     where: { id: creative.adAccountId },
-    select: { projectId: true },
+    select: { projectId: true, projectSchema: true },
   });
-  if (account?.projectId && account.projectId !== projectId) {
+  if (account?.projectId && (account.projectId !== projectId || account.projectSchema !== projectSchema)) {
     throw new ApiError(400, 'creative_id does not belong to project_id');
   }
 

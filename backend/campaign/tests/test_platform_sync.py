@@ -326,3 +326,16 @@ def test_relinked_account_no_longer_exposes_old_campaign_warning(account, campai
     account.save()
     response = member_client.get(f'/api/campaigns/{campaign.slug}/')
     assert response.data['platform_integrations'] == []
+
+
+@pytest.mark.django_db
+def test_admin_does_not_edit_or_resolve_a_bare_cross_schema_project(account):
+    from django.contrib.admin import AdminSite
+    from facebook_integration.admin import MetaAdAccountAdmin
+
+    model_admin = MetaAdAccountAdmin(MetaAdAccount, AdminSite())
+    account.project_schema = 'org_another_tenant'
+    form = model_admin.get_form(None, account)
+    assert 'project' not in form.base_fields
+    assert 'project_schema' not in form.base_fields
+    assert model_admin.project_link(account) == f'org_another_tenant / {account.project_id}'
