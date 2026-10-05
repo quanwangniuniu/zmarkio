@@ -225,6 +225,11 @@ export default function DashboardBuilder(context: WidgetContext) {
 
   const commit = (update: (current: Widget[]) => Widget[]) => {
     const next = update(widgetsRef.current);
+    setResizePreview(null);
+    setDragPreview(null);
+    setActiveResizeId(null);
+    setActiveDragId(null);
+    endGesture();
     if (JSON.stringify(next) === JSON.stringify(widgetsRef.current)) return;
     widgetsRef.current = next;
     setWidgets(next);
@@ -284,6 +289,11 @@ export default function DashboardBuilder(context: WidgetContext) {
     setActiveResizeId(null);
     endGesture();
   };
+  const visibleWidgets = activeResizeId !== null && resizePreview
+    ? resizePreview
+    : activeDragId !== null && dragPreview
+      ? dragPreview
+      : widgets;
 
   if (loadError) return <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">Dashboard layout could not be loaded. <button type="button" onClick={() => void load()} className="underline">Retry</button></div>;
   if (!loaded) return <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-500">Loading dashboard layout…</div>;
@@ -308,7 +318,7 @@ export default function DashboardBuilder(context: WidgetContext) {
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onDragCancel={() => { setDragPreview(null); setActiveDragId(null); endGesture(); }}>
         <div style={{ minHeight: gestureGridMinHeight ?? undefined }}>
           <div ref={gridRef} className="dashboard-builder-grid grid grid-cols-12 gap-3" style={{ gridAutoRows: `${ROW_HEIGHT}px` }}>
-            {(resizePreview ?? dragPreview ?? widgets).map((widget) => <WidgetTile key={widget.id} widget={widget} context={context} columnStep={columnStep} dragging={activeDragId === widget.id} resizing={activeResizeId === widget.id} onResizeStart={startResize} onResizePreview={(id, dw, dh) => setResizePreview(resizeWidget(widgetsRef.current, id, dw, dh))} onResizeEnd={endResize} onResize={(id, dw, dh) => commit((current) => resizeWidget(current, id, dw, dh))} onRemove={(id) => commit((current) => removeWidget(current, id))} />)}
+            {visibleWidgets.map((widget) => <WidgetTile key={widget.id} widget={widget} context={context} columnStep={columnStep} dragging={activeDragId === widget.id} resizing={activeResizeId === widget.id} onResizeStart={startResize} onResizePreview={(id, dw, dh) => setResizePreview(resizeWidget(widgetsRef.current, id, dw, dh))} onResizeEnd={endResize} onResize={(id, dw, dh) => commit((current) => resizeWidget(current, id, dw, dh))} onRemove={(id) => commit((current) => removeWidget(current, id))} />)}
           </div>
         </div>
         <DragOverlay dropAnimation={null}>

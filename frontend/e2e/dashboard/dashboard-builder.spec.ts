@@ -128,6 +128,52 @@ test('resizes Type breakdown repeatedly while its handle moves with the preview'
   await expect.poll(() => tile.evaluate((element) => getComputedStyle(element).gridColumnEnd)).toBe('span 4');
 });
 
+test('removes a widget from the canvas after resizing and keeps it removed after reload', async ({ page }) => {
+  const layout = await openDashboard(page, [
+    { id: 'task-types', x: 0, y: 0, w: 4, h: 8 },
+    { id: 'task-status', x: 4, y: 0, w: 4, h: 8 },
+  ]);
+  const tile = page.getByTestId('dashboard-widget-task-types');
+  const handle = tile.getByRole('button', { name: 'Resize Type breakdown' });
+  const box = await handle.boundingBox();
+  const columnStep = ((await page.locator('.dashboard-builder-grid').boundingBox())!.width + 12) / 12;
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2 + columnStep, box!.y + box!.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => layout.saved().find((widget) => widget.id === 'task-types')?.w).toBe(5);
+
+  await tile.hover();
+  await tile.getByRole('button', { name: 'Remove Type breakdown' }).click();
+  await expect(tile).toHaveCount(0);
+  await expect(page.getByTestId('dashboard-widget-task-status')).toBeVisible();
+  await page.getByRole('button', { name: 'Add widget' }).click();
+  await expect(page.getByRole('button', { name: 'Type breakdown', exact: true })).toBeVisible();
+  await expect.poll(() => layout.saved().some((widget) => widget.id === 'task-types')).toBe(false);
+  await page.reload();
+  await expect(tile).toHaveCount(0);
+});
+
+test('does not keep a removed widget visible in an interrupted resize preview', async ({ page }) => {
+  const layout = await openDashboard(page, [
+    { id: 'task-types', x: 0, y: 0, w: 4, h: 8 },
+    { id: 'task-status', x: 4, y: 0, w: 4, h: 8 },
+  ]);
+  const tile = page.getByTestId('dashboard-widget-task-types');
+  const box = await tile.getByRole('button', { name: 'Resize Type breakdown' }).boundingBox();
+  const columnStep = ((await page.locator('.dashboard-builder-grid').boundingBox())!.width + 12) / 12;
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box!.x + box!.width / 2 + columnStep, box!.y + box!.height / 2, { steps: 8 });
+  await tile.getByRole('button', { name: 'Remove Type breakdown' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(tile).toHaveCount(0);
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Add widget' }).click();
+  await expect(page.getByRole('button', { name: 'Type breakdown', exact: true })).toBeVisible();
+  await expect.poll(() => layout.saved().some((widget) => widget.id === 'task-types')).toBe(false);
+});
+
 test('shows the drag grip over a card icon without shifting its title', async ({ page }) => {
   await openDashboard(page);
   const tile = page.getByTestId('dashboard-widget-activity');
