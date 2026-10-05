@@ -10,7 +10,7 @@ interface TileControls {
 
 const Context = createContext<TileControls | null>(null);
 
-export function DashboardTileControlsProvider({ value, children }: { value: TileControls; children: ReactNode }) {
+export function DashboardTileControlsProvider({ value, children }: { value: TileControls | null; children: ReactNode }) {
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

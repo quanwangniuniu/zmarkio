@@ -4,6 +4,8 @@ export interface DashboardWidgetPosition {
   y: number;
   w: number;
   h: number;
+  /** Editable text for standalone section titles. */
+  title?: string;
 }
 
 export interface DashboardLayoutResponse {

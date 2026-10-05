@@ -77,6 +77,41 @@ class DashboardLayoutTest(TestCase):
         ])
         self.assertEqual(DashboardLayout.objects.get(project=self.project, user=self.owner).widgets, document)
 
+    def test_multiple_section_titles_are_editable_and_scoped_to_user_and_project(self):
+        self.client.force_authenticate(user=self.owner)
+        widgets = [
+            {'id': 'section-title-first', 'title': 'Project overview', 'x': 0, 'y': 0, 'w': 12, 'h': 1},
+            {'id': 'audit', 'x': 0, 'y': 1, 'w': 6, 'h': 4},
+            {'id': 'section-title-second', 'title': 'Recent updates', 'x': 0, 'y': 5, 'w': 12, 'h': 1},
+        ]
+        self.assertEqual(self.client.put(self.url(), {'widgets': widgets}, format='json').status_code, 200)
+        widgets[0]['title'] = 'Updated overview'
+        widgets[0]['w'] = 8
+        self.assertEqual(self.client.put(self.url(), {'widgets': widgets}, format='json').status_code, 200)
+        self.assertEqual(self.client.get(self.url()).data['widgets'], widgets)
+        self.assertEqual(self.client.get(self.url(self.other_project)).data['widgets'], DEFAULT_WIDGETS)
+        self.client.force_authenticate(user=self.member)
+        self.assertEqual(self.client.get(self.url()).data['widgets'], DEFAULT_WIDGETS)
+        self.client.force_authenticate(user=self.owner)
+        widgets.pop(0)
+        self.assertEqual(self.client.put(self.url(), {'widgets': widgets}, format='json').status_code, 200)
+        self.assertEqual(self.client.get(self.url()).data['widgets'], widgets)
+
+    def test_rejects_invalid_section_titles_and_preserves_normal_widget_minimum_height(self):
+        self.client.force_authenticate(user=self.owner)
+        title = {'id': 'section-title-first', 'title': 'Overview', 'x': 0, 'y': 0, 'w': 12, 'h': 1}
+        invalid = [
+            {**title, 'title': ''}, {**title, 'title': ' '}, {**title, 'title': 'x' * 81},
+            {key: value for key, value in title.items() if key != 'title'},
+            {**title, 'id': 'section-title-'}, {**title, 'h': 0},
+            {'id': 'audit', 'x': 0, 'y': 0, 'w': 6, 'h': 1},
+            {**title, 'id': 'audit', 'h': 4},
+        ]
+        for widget in invalid:
+            with self.subTest(widget=widget):
+                self.assertEqual(self.client.put(self.url(), {'widgets': [widget]}, format='json').status_code, 400)
+        self.assertFalse(DashboardLayout.objects.exists())
+
     def test_membership_and_organization_boundary(self):
         self.assertEqual(self.client.get(self.url()).status_code, 401)
         self.client.force_authenticate(user=self.stranger)
@@ -102,3 +137,30 @@ class DashboardLayoutTest(TestCase):
             with self.subTest(widgets=widgets):
                 self.assertEqual(self.client.put(self.url(), {'widgets': widgets}, format='json').status_code, 400)
         self.assertFalse(DashboardLayout.objects.exists())
+
+    def test_fractional_resize_dimensions_round_trip_without_rounding(self):
+        self.client.force_authenticate(user=self.owner)
+        widgets = [
+            {'id': 'audit', 'x': 0, 'y': 0, 'w': 6.125, 'h': 5 + 10 / 60},
+            {'id': 'activity', 'x': 6, 'y': 5 + 10 / 60, 'w': 6, 'h': 5},
+        ]
+        self.assertEqual(self.client.put(self.url(), {'widgets': widgets}, format='json').status_code, 200)
+        self.assertEqual(self.client.get(self.url()).data['widgets'], widgets)
+        self.assertEqual(DashboardLayout.objects.get(project=self.project, user=self.owner).widgets, widgets)
+        for key in ('x', 'y', 'w', 'h'):
+            invalid = {**widgets[0], key: 'NaN'}
+            self.assertEqual(self.client.put(self.url(), {'widgets': [invalid]}, format='json').status_code, 400)
+        self.assertEqual(self.client.get(self.url()).data['widgets'], widgets)
+
+    def test_compacted_title_can_be_saved_despite_floating_point_noise(self):
+        self.client.force_authenticate(user=self.owner)
+        height = 3 + 10 / 60
+        widgets = [
+            {'id': 'tasks', 'x': 0, 'y': 0, 'w': 6, 'h': height},
+            {'id': 'section-title-next', 'title': 'Next', 'x': 0, 'y': 12 - (12 - height), 'w': 12, 'h': 1},
+        ]
+        self.assertEqual(self.client.put(self.url(), {'widgets': widgets}, format='json').status_code, 200)
+        self.assertEqual(self.client.get(self.url()).data['widgets'], widgets)
+        invalid = [widgets[0], {**widgets[1], 'y': height - 0.01}]
+        self.assertEqual(self.client.put(self.url(), {'widgets': invalid}, format='json').status_code, 400)
+        self.assertEqual(DashboardLayout.objects.get(project=self.project, user=self.owner).widgets, widgets)

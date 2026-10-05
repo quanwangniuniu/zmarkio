@@ -364,12 +364,12 @@ export default function DashboardLayout({
               onClick={() => setIsPanelOpen(false)}
             />
           )}
-          <UpcomingMeetingsPanel
+          {isPanelOpen && <UpcomingMeetingsPanel
             meetings={meetingsForPanel}
             isOpen={isPanelOpen}
             loading={meetingsLoading}
             onClose={() => setIsPanelOpen(false)}
-          />
+          />}
         </>
       )}
       <AgentSidePanel />

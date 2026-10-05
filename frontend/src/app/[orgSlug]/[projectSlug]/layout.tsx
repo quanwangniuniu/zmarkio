@@ -8,6 +8,7 @@ import { useProjectStore } from '@/lib/projectStore';
 import { useAuthStore } from '@/lib/authStore';
 import { ChatWebSocketProvider } from '@/hooks/useChatWebSocket';
 import { ProjectRouteContext } from '@/lib/projectRouteContext';
+import { DashboardPanelPreferenceProvider } from '@/components/dashboard/DashboardPanelPreferenceContext';
 import type { ProjectData } from '@/lib/api/projectApi';
 
 /**
@@ -104,9 +105,11 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
 
   return (
     <ProjectRouteContext.Provider value={resolved.project}>
+      <DashboardPanelPreferenceProvider initialUpcomingMeetingsPanelOpen>
       <ChatWebSocketProvider userId={user?.id ? Number(user.id) : null}>
         {children}
       </ChatWebSocketProvider>
+      </DashboardPanelPreferenceProvider>
     </ProjectRouteContext.Provider>
   );
 }

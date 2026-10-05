@@ -1,5 +1,8 @@
 """Validated, project-scoped dashboard layout persistence."""
 
+import re
+import math
+
 from django.db import transaction
 from rest_framework import serializers
 
@@ -26,6 +29,11 @@ DEFAULT_WIDGETS = [
     {'id': 'project-team', 'x': 6, 'y': 50, 'w': 6, 'h': 10},
 ]
 WIDGET_IDS = {widget['id'] for widget in DEFAULT_WIDGETS}
+POSITION_EPSILON = 1e-7  # Ignore floating-point noise from 10px moves/resizes.
+
+
+def is_section_title(widget_id):
+    return isinstance(widget_id, str) and re.fullmatch(r'section-title-[a-zA-Z0-9_-]{1,48}', widget_id) is not None
 
 
 def widgets_for_response(raw):
@@ -62,15 +70,28 @@ def widgets_for_response(raw):
 
 
 class WidgetPositionSerializer(serializers.Serializer):
-    id = serializers.ChoiceField(choices=sorted(WIDGET_IDS))
-    x = serializers.IntegerField(min_value=0, max_value=11)
-    y = serializers.IntegerField(min_value=0, max_value=999)
-    w = serializers.IntegerField(min_value=1, max_value=12)
-    h = serializers.IntegerField(min_value=3, max_value=30)
+    id = serializers.CharField(max_length=64)
+    x = serializers.FloatField(min_value=0, max_value=11)
+    y = serializers.FloatField(min_value=0, max_value=999)
+    w = serializers.FloatField(min_value=1, max_value=12)
+    h = serializers.FloatField(min_value=1, max_value=30)
+    title = serializers.CharField(max_length=80, required=False, allow_blank=False)
+
+    def validate_id(self, value):
+        if value not in WIDGET_IDS and not is_section_title(value):
+            raise serializers.ValidationError('Unknown widget type.')
+        return value
 
     def validate(self, attrs):
-        if attrs['x'] + attrs['w'] > 12:
+        if not all(math.isfinite(attrs[key]) for key in ('x', 'y', 'w', 'h')):
+            raise serializers.ValidationError('Widget dimensions must be finite.')
+        if attrs['x'] + attrs['w'] > 12 + POSITION_EPSILON:
             raise serializers.ValidationError('Widget extends beyond the grid.')
+        if is_section_title(attrs['id']):
+            if 'title' not in attrs:
+                raise serializers.ValidationError('Section titles need text.')
+        elif attrs['h'] < 3 or 'title' in attrs:
+            raise serializers.ValidationError('Invalid widget height or title.')
         return attrs
 
 
@@ -78,7 +99,7 @@ class DashboardLayoutSerializer(serializers.Serializer):
     widgets = WidgetPositionSerializer(many=True, allow_empty=True)
 
     def validate_widgets(self, widgets):
-        if len(widgets) > len(WIDGET_IDS):
+        if len(widgets) > 100:
             raise serializers.ValidationError('Too many widgets.')
         seen = set()
         for widget in widgets:
@@ -87,7 +108,7 @@ class DashboardLayoutSerializer(serializers.Serializer):
             seen.add(widget['id'])
         for index, a in enumerate(widgets):
             for b in widgets[index + 1:]:
-                if a['x'] < b['x'] + b['w'] and b['x'] < a['x'] + a['w'] and a['y'] < b['y'] + b['h'] and b['y'] < a['y'] + a['h']:
+                if a['x'] < b['x'] + b['w'] - POSITION_EPSILON and b['x'] < a['x'] + a['w'] - POSITION_EPSILON and a['y'] < b['y'] + b['h'] - POSITION_EPSILON and b['y'] < a['y'] + a['h'] - POSITION_EPSILON:
                     raise serializers.ValidationError('Widgets may not overlap.')
         return widgets
 

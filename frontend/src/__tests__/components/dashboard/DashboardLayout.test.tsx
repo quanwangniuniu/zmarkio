@@ -19,6 +19,8 @@ jest.mock('@/components/agent/AgentSidePanel', () => ({
   default: () => <div data-testid="agent-side-panel" />,
 }));
 
+jest.mock('@/lib/api/authApi', () => ({ authApi: { getCurrentUser: jest.fn().mockRejectedValue(new Error('No user in layout test')) } }));
+
 jest.mock('@/lib/projectStore', () => ({
   useProjectStore: (selector: (state: { activeProject: null; hasHydrated: boolean }) => unknown) =>
     selector({ activeProject: null, hasHydrated: true }),
@@ -60,14 +62,13 @@ describe('DashboardLayout upcoming meetings panel preference', () => {
       </DashboardPanelPreferenceProvider>
     );
 
-    const panel = container.querySelector('[data-upcoming-meetings-panel]');
-    await waitFor(() => expect(panel).toHaveClass('sm:w-0'));
+    await waitFor(() => expect(container.querySelector('[data-upcoming-meetings-panel]')).toBeNull());
     expect(screen.getByRole('button', { name: /show panel/i })).toBeInTheDocument();
     expect(screen.queryByText('Upcoming Meetings')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /show panel/i }));
 
-    expect(panel).toHaveClass('sm:w-[320px]');
+    expect(container.querySelector('[data-upcoming-meetings-panel]')).toHaveClass('sm:w-[320px]');
     expect(localStorage.getItem('dashboard-upcoming-meetings-panel-open')).toBe('true');
     expect(screen.getByRole('button', { name: /hide panel/i })).toBeInTheDocument();
     expect(screen.getByText('Upcoming Meetings')).toBeInTheDocument();
@@ -85,19 +86,27 @@ describe('DashboardLayout upcoming meetings panel preference', () => {
       </DashboardPanelPreferenceProvider>
     );
 
-    const panel = container.querySelector('[data-upcoming-meetings-panel]');
-
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /show panel/i })).toBeInTheDocument();
     });
 
-    expect(panel).toHaveClass('translate-x-full');
+    expect(container.querySelector('[data-upcoming-meetings-panel]')).toBeNull();
     expect(screen.queryByText('Upcoming Meetings')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /show panel/i }));
 
-    expect(panel).toHaveClass('translate-x-0');
+    expect(container.querySelector('[data-upcoming-meetings-panel]')).toHaveClass('translate-x-0');
     expect(screen.getByText('Upcoming Meetings')).toBeInTheDocument();
     expect(localStorage.getItem('dashboard-upcoming-meetings-panel-open')).toBe('true');
   });
+  it('hides and reopens the panel even on routes without a preference provider', async () => {
+    const { container } = render(<DashboardLayout><div>Page content</div></DashboardLayout>);
+    await waitFor(() => expect(screen.getByRole('button', { name: /hide panel/i })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /hide panel/i }));
+    expect(container.querySelector('[data-upcoming-meetings-panel]')).toBeNull();
+    expect(localStorage.getItem('dashboard-upcoming-meetings-panel-open')).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: /show panel/i }));
+    expect(screen.getByText('Upcoming Meetings')).toBeInTheDocument();
+  });
+
 });
