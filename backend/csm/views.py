@@ -1306,7 +1306,7 @@ class TicketFormViewSet(SlugLookupViewSetMixin, ProjectScopedViewSetMixin, views
 
 class SupportProjectViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     """
-    Support project CRUD (CSM-S01-08).
+    Support project CRUD.
 
     List/create require ?project={id}. DELETE soft-archives the row.
     """
@@ -1380,7 +1380,7 @@ class SupportProjectViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
 
 class CsmWorkTypeViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     """
-    Work type CRUD (CSM-S01-08).
+    Work type CRUD.
 
     List/create require ?project={id}. DELETE deactivates the row.
     """
@@ -1452,7 +1452,7 @@ class CsmWorkTypeViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
 
 class GuidanceEntryViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     """
-    Guidance entry configuration (CSM-S03-02).
+    Guidance entry configuration.
 
     List/create/reorder/capabilities require ?project={id}. Any project member
     can read; writes are limited to the project owner or an org admin.
@@ -1719,7 +1719,7 @@ class RoutingSandboxViewSet(ProjectScopedViewSetMixin, viewsets.ViewSet):
 
 class SupportChannelViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     """
-    Support channel CRUD (CSM-S01-02).
+    Support channel CRUD.
 
     List/create require ?project={id}. DELETE soft-deactivates the row.
     """
@@ -1835,7 +1835,7 @@ class SupportChannelViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
 
 
 # ---------------------------------------------------------------------------
-# SLA Policy (MED-218)
+# SLA Policy
 # ---------------------------------------------------------------------------
 
 _SLA_DEFAULT_TARGETS = [
@@ -1848,7 +1848,7 @@ _SLA_DEFAULT_TARGETS = [
 
 class SLAPolicyViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     """
-    SLA Policy admin API (MED-218).
+    SLA Policy admin API.
 
     - GET   /sla-policy/?project={id}  retrieve the project's SLA policy
     - PUT   /sla-policy/{id}/          full update (replaces all priority targets)
@@ -1952,7 +1952,7 @@ class BusinessHoursCalendarViewSet(ProjectScopedViewSetMixin, viewsets.ModelView
 # --- Status machine admin config ------------------------------------------
 
 class TicketStatusViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
-    """CRUD for a project's ticket statuses (CSM-S02-03).
+    """CRUD for a project's ticket statuses.
 
     - GET    /ticket-statuses/?project={id}   list (seeds built-ins on first read)
     - POST   /ticket-statuses/?project={id}   create custom status at a position

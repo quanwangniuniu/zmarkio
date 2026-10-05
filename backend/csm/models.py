@@ -224,7 +224,7 @@ class Ticket(TimeStampedModel):
     # Drives the auto-resolution rule (resolve after N days with no customer reply).
     pending_since = models.DateTimeField(null=True, blank=True)
 
-    # --- CSM-S01-07: form submission context ---
+    # --- Form submission context ---
     form = models.ForeignKey(
         'TicketForm', on_delete=models.SET_NULL,
         null=True, blank=True,
@@ -511,11 +511,11 @@ class TemplateTag(TimeStampedModel):
 
 
 # ---------------------------------------------------------------------------
-# CSM-S01-07 — Ticket form builder (Phase 1)
+# Ticket form builder
 # ---------------------------------------------------------------------------
 
 class SupportProject(TimeStampedModel):
-    """Stub for CSM-S01-08. Tables only in S01-07; no CRUD API yet."""
+    """A support project tickets are filed under, with an optional default queue."""
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name='support_projects',
@@ -542,7 +542,7 @@ class SupportProject(TimeStampedModel):
 
 
 class CsmWorkType(TimeStampedModel):
-    """Stub for CSM-S01-08. Tables only in S01-07; no CRUD API yet."""
+    """A work type tickets can be classified by."""
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name='csm_work_types',
@@ -565,7 +565,7 @@ class CsmWorkType(TimeStampedModel):
 
 
 class GuidanceEntry(TimeStampedModel):
-    """Agent guidance shown in the conversation workspace (CSM-S03-02)."""
+    """Agent guidance shown in the conversation workspace."""
 
     class GuidanceType(models.TextChoices):
         HANDOFF = 'handoff', 'Handoff'

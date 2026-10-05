@@ -1,4 +1,4 @@
-"""Quick reply template library (MED-213) — targeted API tests.
+"""Quick reply template library — targeted API tests.
 
 Covers the acceptance criteria most at risk plus the cross-tenant create check:
 - AC1: creating requires at least one tag
