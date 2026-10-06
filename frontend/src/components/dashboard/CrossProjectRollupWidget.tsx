@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
+  Download,
   Loader2,
   RefreshCw,
 } from 'lucide-react';
@@ -14,6 +15,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { DashboardAPI } from '@/lib/api/dashboardApi';
 import type { RollupProjectResult } from '@/lib/api/dashboardApi';
 import type { ProjectData } from '@/lib/api/projectApi';
+import { exportMatrixToXLSX } from '@/components/spreadsheets/spreadsheetImportExport';
 
 const PAGE_SIZE = 5;
 
@@ -368,6 +370,51 @@ export default function CrossProjectRollupWidget({ projects, onSelectProject }: 
 
   const handleRefresh = () => doFetch(selectedProjectIds.map(Number));
 
+  const handleExport = async () => {
+    if (filteredData.length === 0) return;
+
+    const headers = [
+      'Project',
+      'Overall Progress (%)', 'Tasks Done', 'Total Tasks',
+      'Task Completion Rate (%)', 'Completed Last 7d',
+      'Overdue Tasks', '% of Active Tasks Overdue',
+      'Needs Attention', 'High Risk Decisions', 'Blocked Tasks',
+      'Active Decisions', 'Awaiting Approval', 'High Risk Decisions',
+      'Under Review', 'Rejected', 'Due Soon (7d)', 'Created Last 7d', 'Completed Last 7d',
+      'Active Spreadsheets', 'Active Campaigns', 'Upcoming Meetings',
+    ];
+
+    const rows = filteredData.map((row) => {
+      const taskTotal = val(row, 'task_total');
+      const taskDone = val(row, 'task_done');
+      const taskOverdue = val(row, 'task_overdue');
+      const taskBlocked = val(row, 'task_blocked');
+      const completionPct = pct(taskDone, taskTotal);
+      const overduePct = pct(taskOverdue, taskTotal);
+      const needsAttention = taskOverdue + taskBlocked;
+      return [
+        row.project_name,
+        completionPct, taskDone, taskTotal,
+        completionPct, val(row, 'task_completed_7d'),
+        taskOverdue, overduePct,
+        needsAttention, val(row, 'decision_high_risk'), taskBlocked,
+        val(row, 'decision_total'), val(row, 'decision_pending'), val(row, 'decision_high_risk'),
+        val(row, 'task_under_review'), val(row, 'task_rejected'), val(row, 'task_due_soon'),
+        val(row, 'task_created_7d'), val(row, 'task_completed_7d'),
+        val(row, 'spreadsheet_total'), val(row, 'campaign_active'), val(row, 'meeting_upcoming'),
+      ];
+    });
+
+    const matrix: (string | number)[][] = [headers, ...rows];
+    const blob = await exportMatrixToXLSX(matrix as string[][], 'Project Comparison');
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `project-comparison-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const toggleExpand = (projectId: number) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
@@ -412,6 +459,15 @@ export default function CrossProjectRollupWidget({ projects, onSelectProject }: 
               className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white hover:border-gray-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-gray-500 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={loading || filteredData.length === 0}
+              title="Export to Excel"
+              className="flex items-center justify-center w-8 h-8 rounded-lg border border-gray-200 bg-white hover:border-gray-300 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Download className="w-3.5 h-3.5 text-gray-500" />
             </button>
           </div>
         </div>
