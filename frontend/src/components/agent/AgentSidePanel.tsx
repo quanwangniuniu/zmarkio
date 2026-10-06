@@ -9,6 +9,7 @@ import { useAgentSidePanelStore } from '@/lib/agentSidePanelStore';
 import { GenerationOutputsSettings } from './chat/GenerationOutputsSettings';
 import { AgentAPI } from '@/lib/api/agentApi';
 import { AgentMessageBoardRail } from './AgentMessageBoardRail';
+import { AgentRegistryStatusBanner } from './AgentRegistryStatusBanner';
 import { AgentPanelToggleIcon } from './AgentPanelToggleIcon';
 import { useProjectStore } from '@/lib/projectStore';
 import TokenBadge from '@/components/plans/TokenBadge';
@@ -198,6 +199,14 @@ export default function AgentSidePanel() {
             </button>
           </div>
         </div>
+
+        {(function () {
+          if (isOpen) {
+            return <AgentRegistryStatusBanner />;
+          } else {
+            return null;
+          }
+        })()}
 
         {/* Message boards (left) + chat (right) */}
         <div className="flex min-h-0 flex-1 flex-row overflow-hidden">
