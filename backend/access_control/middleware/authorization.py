@@ -110,6 +110,32 @@ class AuthorizationMiddleware:
         if not has_permission_gate:
             return None
 
+        # MED-299: use the cached permission bundle as a fast path.
+        # If cache resolution fails, continue through the existing PostgreSQL path below.
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SHOW search_path")
+                search_path = cursor.fetchone()[0]
+
+            schema_name = search_path.split(",")[0].strip().strip('"')
+            bundle = get_user_permission_bundle(
+                request.user.id,
+                schema_name,
+            )
+
+            required_permission = f"{module_key}:{action_key}"
+
+            if required_permission in bundle["permissions"]:
+                return None
+
+            if bundle["has_any_role"]:
+                return JsonResponse({'detail': 'Permission denied'}, status=403)
+
+            return None
+
+        except Exception:
+            pass
+
         # CRITICAL: After multi-organization restructuring, UserRole and RolePermission
         # tables now live in TENANT schemas, not public schema. TenantSchemaMiddleware
         # has already set the correct search_path, so we query directly without switching.
@@ -118,45 +144,26 @@ class AuthorizationMiddleware:
         # 1. Tables don't exist yet (new organizations)
         # 2. No roles/permissions have been set up yet
         try:
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute("SHOW search_path")
-                    search_path = cursor.fetchone()[0]
+            # Only consider roles that are currently valid
+            now = timezone.now()
+            role_ids = UserRole.objects.filter(
+                user=request.user,
+                valid_from__lte=now
+            ).filter(Q(valid_to__gte=now) | Q(valid_to__isnull=True)).values_list('role_id', flat=True)
 
-                schema_name = search_path.split(",")[0].strip().strip('"')
-
-                bundle = get_user_permission_bundle(
-                    request.user.id,
-                    schema_name,
-                )
-
-                required_permission = f"{module_key}:{action_key}"
-                has = required_permission in bundle["permissions"]
-                any_role = bundle["has_any_role"]
-
-            except Exception:
-                # Preserve the existing PostgreSQL authorization path as fallback.
-                now = timezone.now()
-                role_ids = UserRole.objects.filter(
-                    user=request.user,
-                    valid_from__lte=now
-                ).filter(
-                    Q(valid_to__gte=now) | Q(valid_to__isnull=True)
-                ).values_list('role_id', flat=True)
-
-                has = RolePermission.objects.filter(
-                    role_id__in=role_ids,
-                    permission__module=module_key,
-                    permission__action=action_key
-                ).exists()
-
-                any_role = UserRole.objects.filter(user=request.user).exists()
+            # Check if any of the user's roles grants the required permission
+            has = RolePermission.objects.filter(
+                role_id__in=role_ids,
+                permission__module=module_key,
+                permission__action=action_key
+            ).exists()
 
             if not has:
                 # Only enforce denial if the user has been assigned at least one role.
                 # If no roles exist (new org / no RBAC configured), allow through as a
                 # grace period.  Users with roles that are all expired or lack the
                 # required permission are still denied.
+                any_role = UserRole.objects.filter(user=request.user).exists()
                 if not any_role:
                     return None
 

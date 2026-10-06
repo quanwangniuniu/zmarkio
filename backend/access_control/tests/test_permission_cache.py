@@ -1,6 +1,7 @@
 import os
 import statistics
 import time
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -25,7 +26,6 @@ class PermissionCacheTest(TestCase):
         cls.org = Organization.objects.create(name="PermissionCacheOrg")
         cls.schema = slug_to_schema_name(cls.org.slug)
 
-        # Permission data is tenant-scoped.
         with connection.cursor() as cursor:
             cursor.execute(f"SET search_path TO {cls.schema}, public")
 
@@ -65,7 +65,7 @@ class PermissionCacheTest(TestCase):
             password="pw",
         )
 
-        UserRole.objects.create(
+        cls.viewer_user_role = UserRole.objects.create(
             user=cls.user,
             role=cls.viewer_role,
             valid_from=timezone.now(),
@@ -78,45 +78,69 @@ class PermissionCacheTest(TestCase):
         with connection.cursor() as cursor:
             cursor.execute(f"SET search_path TO {self.schema}, public")
 
-        # Each test starts without a permission bundle left by another test.
-        invalidate_user_permission_cache(self.schema, self.user.id)
+        invalidate_user_permission_cache(
+            self.schema,
+            self.user.id,
+        )
 
     def tearDown(self):
-        invalidate_user_permission_cache(self.schema, self.user.id)
+        invalidate_user_permission_cache(
+            self.schema,
+            self.user.id,
+        )
+
         with connection.cursor() as cursor:
             cursor.execute("SET search_path TO public")
+
         super().tearDown()
 
     def _cache_key(self):
-        return permission_cache_key(self.schema, self.user.id)
+        return permission_cache_key(
+            self.schema,
+            self.user.id,
+        )
 
     def _warm_cache(self):
-        return get_user_permission_bundle(self.user.id, self.schema)
+        with self.captureOnCommitCallbacks(execute=True):
+            bundle = get_user_permission_bundle(
+                self.user.id,
+                self.schema,
+            )
+        return bundle
 
     def test_cache_miss_populates_bundle_and_cache_hit_avoids_db_queries(self):
         key = self._cache_key()
+
         self.assertIsNone(cache.get(key))
 
         bundle = self._warm_cache()
 
-        self.assertIn("ASSET:VIEW", bundle["permissions"])
-        self.assertEqual(cache.get(key), bundle)
+        self.assertIn(
+            "ASSET:VIEW",
+            bundle["permissions"],
+        )
+        self.assertEqual(
+            cache.get(key),
+            bundle,
+        )
 
-        # A warmed permission bundle should be served without permission DB queries.
         with self.assertNumQueries(0):
             cached_bundle = get_user_permission_bundle(
                 self.user.id,
                 self.schema,
             )
 
-        self.assertEqual(cached_bundle, bundle)
+        self.assertEqual(
+            cached_bundle,
+            bundle,
+        )
 
     def test_user_role_change_invalidates_cached_bundle(self):
         key = self._cache_key()
+
         self._warm_cache()
         self.assertIsNotNone(cache.get(key))
 
-        # TestCase does not commit normally, so execute the on_commit callback here.
         with self.captureOnCommitCallbacks(execute=True):
             UserRole.objects.create(
                 user=self.user,
@@ -127,10 +151,15 @@ class PermissionCacheTest(TestCase):
         self.assertIsNone(cache.get(key))
 
         refreshed = self._warm_cache()
-        self.assertIn("CAMPAIGN:EDIT", refreshed["permissions"])
+
+        self.assertIn(
+            "CAMPAIGN:EDIT",
+            refreshed["permissions"],
+        )
 
     def test_role_permission_change_invalidates_cached_bundle(self):
         key = self._cache_key()
+
         self._warm_cache()
         self.assertIsNotNone(cache.get(key))
 
@@ -143,28 +172,70 @@ class PermissionCacheTest(TestCase):
         self.assertIsNone(cache.get(key))
 
         refreshed = self._warm_cache()
-        self.assertIn("CAMPAIGN:EDIT", refreshed["permissions"])
+
+        self.assertIn(
+            "CAMPAIGN:EDIT",
+            refreshed["permissions"],
+        )
 
     def test_role_change_invalidates_cached_bundle(self):
         key = self._cache_key()
-        bundle = self._warm_cache()
-        self.assertFalse(bundle["is_org_admin"])
+
+        self._warm_cache()
+        self.assertIsNotNone(cache.get(key))
 
         with self.captureOnCommitCallbacks(execute=True):
-            self.viewer_role.level = 2
-            self.viewer_role.save(update_fields=["level"])
+            self.viewer_role.name = "CacheViewerUpdated"
+            self.viewer_role.save(update_fields=["name"])
+
+        self.assertIsNone(cache.get(key))
+
+    def test_user_role_delete_invalidates_cached_bundle(self):
+        key = self._cache_key()
+
+        self._warm_cache()
+        self.assertIsNotNone(cache.get(key))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.viewer_user_role.delete()
 
         self.assertIsNone(cache.get(key))
 
         refreshed = self._warm_cache()
-        self.assertTrue(refreshed["is_org_admin"])
+
+        self.assertNotIn(
+            "ASSET:VIEW",
+            refreshed["permissions"],
+        )
+
+    def test_role_permission_delete_invalidates_cached_bundle(self):
+        key = self._cache_key()
+
+        self._warm_cache()
+        self.assertIsNotNone(cache.get(key))
+
+        role_permission = RolePermission.objects.get(
+            role=self.viewer_role,
+            permission=self.asset_view,
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            role_permission.delete()
+
+        self.assertIsNone(cache.get(key))
+
+        refreshed = self._warm_cache()
+
+        self.assertNotIn(
+            "ASSET:VIEW",
+            refreshed["permissions"],
+        )
 
     def test_user_role_change_reflected_within_one_second(self):
         self._warm_cache()
 
         start = time.perf_counter()
 
-        # Execute the production on_commit invalidation during TestCase.
         with self.captureOnCommitCallbacks(execute=True):
             UserRole.objects.create(
                 user=self.user,
@@ -175,12 +246,38 @@ class PermissionCacheTest(TestCase):
         refreshed = self._warm_cache()
         elapsed = time.perf_counter() - start
 
-        self.assertIn("CAMPAIGN:EDIT", refreshed["permissions"])
-        self.assertLess(elapsed, 1.0)
+        self.assertIn(
+            "CAMPAIGN:EDIT",
+            refreshed["permissions"],
+        )
+        self.assertLess(
+            elapsed,
+            1.0,
+        )
+
+    def test_cache_failure_falls_back_to_postgresql_resolution(self):
+        with patch(
+            "access_control.services.cache.get",
+            side_effect=RuntimeError("cache unavailable"),
+        ), patch(
+            "access_control.services.cache.set",
+            side_effect=RuntimeError("cache unavailable"),
+        ):
+            bundle = get_user_permission_bundle(
+                self.user.id,
+                self.schema,
+            )
+
+        self.assertIn(
+            "ASSET:VIEW",
+            bundle["permissions"],
+        )
 
     def test_warmed_cache_reduces_p95_request_latency(self):
         if os.environ.get("MED299_BENCHMARK") != "1":
-            self.skipTest("Set MED299_BENCHMARK=1 to run the p95 benchmark.")
+            self.skipTest(
+                "Set MED299_BENCHMARK=1 to run the p95 benchmark."
+            )
 
         factory = RequestFactory()
         middleware = AuthorizationMiddleware()
@@ -189,38 +286,54 @@ class PermissionCacheTest(TestCase):
             request = factory.get("/api/assets/list/")
             request.user = self.user
 
-            start = time.perf_counter()
-            response = middleware.process_view(
-                request,
-                lambda request: None,
-                (),
-                {},
-            )
-            elapsed = time.perf_counter() - start
+            with self.captureOnCommitCallbacks(execute=True):
+                start = time.perf_counter()
+
+                response = middleware.process_view(
+                    request,
+                    lambda request: None,
+                    (),
+                    {},
+                )
+
+                elapsed = time.perf_counter() - start
 
             self.assertIsNone(response)
             return elapsed
 
-        # Cold requests must resolve permissions from the database.
         cold_times = []
+
         for _ in range(100):
-            invalidate_user_permission_cache(self.schema, self.user.id)
+            invalidate_user_permission_cache(
+                self.schema,
+                self.user.id,
+            )
             cold_times.append(run_request())
 
-        # Warm the bundle once, then measure Redis-backed requests.
-        invalidate_user_permission_cache(self.schema, self.user.id)
+        invalidate_user_permission_cache(
+            self.schema,
+            self.user.id,
+        )
         run_request()
-        warm_times = [run_request() for _ in range(100)]
+
+        warm_times = [
+            run_request()
+            for _ in range(100)
+        ]
 
         cold_p95 = statistics.quantiles(
             cold_times,
             n=100,
             method="inclusive",
         )[94]
+
         warm_p95 = statistics.quantiles(
             warm_times,
             n=100,
             method="inclusive",
         )[94]
 
-        self.assertLess(warm_p95, cold_p95)
+        self.assertLess(
+            warm_p95,
+            cold_p95,
+        )

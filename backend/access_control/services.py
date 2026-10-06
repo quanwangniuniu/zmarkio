@@ -14,7 +14,6 @@ from access_control.models import RolePermission, UserRole
 class PermissionBundle(TypedDict):
     permissions: List[str]
     has_any_role: bool
-    is_org_admin: bool
 
 
 def permission_cache_key(schema_name: str, user_id: int) -> str:
@@ -22,11 +21,20 @@ def permission_cache_key(schema_name: str, user_id: int) -> str:
 
 
 def invalidate_user_permission_cache(schema_name: str, user_id: int) -> None:
-    """Remove one user's cached permission bundle for the current tenant."""
     try:
         cache.delete(permission_cache_key(schema_name, user_id))
     except Exception:
-        # Cache failure must not break authorization or role-management flows.
+        pass
+
+
+def _set_permission_cache(
+    key: str,
+    bundle: PermissionBundle,
+    timeout,
+) -> None:
+    try:
+        cache.set(key, bundle, timeout)
+    except Exception:
         pass
 
 
@@ -34,14 +42,6 @@ def get_user_permission_bundle(
     user_id: int,
     schema_name: str,
 ) -> PermissionBundle:
-    """
-    Return the user's resolved RBAC permissions for one tenant.
-
-    Cache misses are resolved from UserRole -> RolePermission and then stored
-    in Redis. The cached bundle preserves the existing authorization behavior:
-    users with no UserRole records receive the existing RBAC grace period,
-    while users with roles but without a required permission are denied.
-    """
     key = permission_cache_key(schema_name, user_id)
 
     try:
@@ -57,7 +57,6 @@ def get_user_permission_bundle(
     user_roles = list(
         UserRole.objects.filter(user_id=user_id).values(
             "role_id",
-            "role__level",
             "valid_from",
             "valid_to",
         )
@@ -70,12 +69,9 @@ def get_user_permission_bundle(
         valid_from = user_role["valid_from"]
         valid_to = user_role["valid_to"]
 
-        is_active = (
-            valid_from <= now
-            and (valid_to is None or valid_to >= now)
-        )
-
-        if is_active:
+        if valid_from <= now and (
+            valid_to is None or valid_to >= now
+        ):
             active_role_ids.append(user_role["role_id"])
 
             if valid_to is not None:
@@ -113,11 +109,6 @@ def get_user_permission_bundle(
             for module, action in permission_pairs
         ),
         "has_any_role": bool(user_roles),
-        "is_org_admin": any(
-            user_role["role_id"] in active_role_ids
-            and user_role["role__level"] == 2
-            for user_role in user_roles
-        ),
     }
 
     timeout = cache.default_timeout
@@ -128,11 +119,20 @@ def get_user_permission_bundle(
             else min(timeout, next_transition_seconds)
         )
 
-    try:
-        cache.set(key, bundle, timeout)
-    except Exception:
-        # PostgreSQL remains the source of truth if Redis is unavailable.
-        pass
+    if connection.in_atomic_block:
+        transaction.on_commit(
+            lambda: _set_permission_cache(
+                key,
+                bundle,
+                timeout,
+            )
+        )
+    else:
+        _set_permission_cache(
+            key,
+            bundle,
+            timeout,
+        )
 
     return bundle
 
@@ -141,6 +141,7 @@ def _current_schema_name() -> str:
     with connection.cursor() as cursor:
         cursor.execute("SHOW search_path")
         search_path = cursor.fetchone()[0]
+
     return search_path.split(",")[0].strip().strip('"')
 
 
@@ -151,7 +152,10 @@ def _invalidate_user_after_commit(user_id: int) -> None:
         return
 
     transaction.on_commit(
-        lambda: invalidate_user_permission_cache(schema_name, user_id)
+        lambda: invalidate_user_permission_cache(
+            schema_name,
+            user_id,
+        )
     )
 
 
@@ -168,7 +172,10 @@ def _invalidate_role_users_after_commit(role_id: int) -> None:
 
     def invalidate():
         for user_id in user_ids:
-            invalidate_user_permission_cache(schema_name, user_id)
+            invalidate_user_permission_cache(
+                schema_name,
+                user_id,
+            )
 
     transaction.on_commit(invalidate)
 
