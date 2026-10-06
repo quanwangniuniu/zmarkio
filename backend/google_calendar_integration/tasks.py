@@ -8,7 +8,7 @@ from .services import import_events_for_connection
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True, ignore_result=True, time_limit=90)
+@shared_task(bind=True, ignore_result=True)
 def import_for_connection_task(self, connection_id: int):
     conn = GoogleCalendarConnection.objects.filter(id=connection_id, is_active=True).first()
     if not conn:
@@ -19,7 +19,7 @@ def import_for_connection_task(self, connection_id: int):
         logger.exception("google_calendar import_for_connection failed id=%s", connection_id)
 
 
-@shared_task(bind=True, ignore_result=True, time_limit=300)
+@shared_task(bind=True, ignore_result=True)
 def sync_all_google_calendar_imports(self):
     qs = GoogleCalendarConnection.objects.filter(is_active=True)
     for conn in qs.iterator():
@@ -29,7 +29,7 @@ def sync_all_google_calendar_imports(self):
             logger.exception("google_calendar beat sync failed user=%s", conn.user_id)
 
 
-@shared_task(bind=True, ignore_result=True, max_retries=5, time_limit=60)
+@shared_task(bind=True, ignore_result=True, max_retries=5)
 def export_event_to_google_task(self, event_id: str, tenant_schema: str = 'public'):
     """
     Export one event to the owner's Google Calendar.

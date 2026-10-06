@@ -10,7 +10,7 @@ from .models import PublicPreview
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True, time_limit=30)
+@shared_task(bind=True)
 def scan_tiktok_creative_for_virus(self, creative_id):
     """Scan TikTok creative file for viruses using generic scanner."""
     return scan_file_for_virus_generic.delay(
@@ -21,7 +21,7 @@ def scan_tiktok_creative_for_virus(self, creative_id):
     )
 
 
-@shared_task(time_limit=60)
+@shared_task
 def cleanup_expired_previews():
     """
     Clean up expired preview records from the database

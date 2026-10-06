@@ -34,7 +34,7 @@ _CALENDAR_REMINDER_LOOKBACK_MINUTES = 5
 
 # ── Calendar reminders ────────────────────────────────────────────────────────
 
-@shared_task(name="notifications.tasks.fire_calendar_reminders", time_limit=60)
+@shared_task(name="notifications.tasks.fire_calendar_reminders")
 def fire_calendar_reminders() -> int:
     """
     Send in-app notifications for EventReminder records whose scheduled_time
@@ -111,7 +111,7 @@ def fire_calendar_reminders() -> int:
 
 # ── Task overdue ──────────────────────────────────────────────────────────────
 
-@shared_task(name="notifications.tasks.fire_task_overdue_notifications", time_limit=60)
+@shared_task(name="notifications.tasks.fire_task_overdue_notifications")
 def fire_task_overdue_notifications() -> int:
     """
     Notify task owners when a task is past its due_date and still active.
@@ -182,7 +182,7 @@ def fire_task_overdue_notifications() -> int:
 
 # ── Decision deadline ─────────────────────────────────────────────────────────
 
-@shared_task(name="notifications.tasks.fire_decision_deadline_notifications", time_limit=60)
+@shared_task(name="notifications.tasks.fire_decision_deadline_notifications")
 def fire_decision_deadline_notifications() -> int:
     """
     Remind decision authors when their decision has been stuck in
@@ -261,7 +261,7 @@ def fire_decision_deadline_notifications() -> int:
 
 # ── Meeting starting soon ─────────────────────────────────────────────────────
 
-@shared_task(name="notifications.tasks.fire_meeting_starting_soon_notifications", time_limit=60)
+@shared_task(name="notifications.tasks.fire_meeting_starting_soon_notifications")
 def fire_meeting_starting_soon_notifications() -> int:
     """
     Notify all meeting participants when their meeting starts within
@@ -355,7 +355,7 @@ def fire_meeting_starting_soon_notifications() -> int:
 
 _MESSAGE_REMINDER_LOOKBACK_MINUTES = 5
 
-@shared_task(name="notifications.tasks.fire_message_reminders", time_limit=60)
+@shared_task(name="notifications.tasks.fire_message_reminders")
 def fire_message_reminders() -> int:
     """
     Send in-app notifications for MessageReminder records whose remind_at time

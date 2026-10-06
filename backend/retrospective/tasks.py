@@ -18,7 +18,7 @@ User = get_user_model()
 logger = get_task_logger(__name__)
 
 
-@shared_task(bind=True, max_retries=3, time_limit=120)
+@shared_task(bind=True, max_retries=3)
 def generate_retrospective(self, campaign_id: str, created_by_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Main Celery task to generate retrospective for a completed campaign
@@ -106,7 +106,7 @@ def generate_retrospective(self, campaign_id: str, created_by_id: Optional[str] 
         }
 
 
-@shared_task(bind=True, time_limit=30)
+@shared_task(bind=True)
 def generate_mock_kpi_data(self, retrospective_id: str) -> Dict[str, Any]:
     """
     Generate mock KPI data for testing and demonstration using CampaignMetric
@@ -175,7 +175,7 @@ def generate_mock_kpi_data(self, retrospective_id: str) -> Dict[str, Any]:
         }
 
 
-@shared_task(bind=True, time_limit=90)
+@shared_task(bind=True)
 def generate_insights_for_retrospective(self, retrospective_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Generate insights for a retrospective using rule engine
@@ -228,7 +228,7 @@ def generate_insights_for_retrospective(self, retrospective_id: str, user_id: Op
         }
 
 
-@shared_task(bind=True, time_limit=90)
+@shared_task(bind=True)
 def generate_report_for_retrospective(self, retrospective_id: str) -> Dict[str, Any]:
     """
     Generate PDF report for a retrospective
@@ -262,7 +262,7 @@ def generate_report_for_retrospective(self, retrospective_id: str) -> Dict[str, 
         }
 
 
-@shared_task(bind=True, time_limit=90)
+@shared_task(bind=True)
 def cleanup_old_retrospectives(self, days_old: int = 90) -> Dict[str, Any]:
     """
     Clean up old retrospective data
@@ -305,7 +305,7 @@ def cleanup_old_retrospectives(self, days_old: int = 90) -> Dict[str, Any]:
         }
 
 
-@shared_task(bind=True, time_limit=90)
+@shared_task(bind=True)
 def update_kpi_data_from_external_sources(self, retrospective_id: str) -> Dict[str, Any]:
     """
     Update KPI data from external sources (Google Ads, Facebook, TikTok)
