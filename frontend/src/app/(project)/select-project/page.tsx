@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { Search, Loader2, AlertCircle, Mail, BarChart2 } from 'lucide-react';
+import { Search, Loader2, AlertCircle, Mail } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import ProjectCard from '@/components/select-project/ProjectCard';
 import CreateProjectCard from '@/components/select-project/CreateProjectCard';
@@ -40,7 +40,6 @@ export default function SelectProjectPage() {
   const [acceptingInviteId, setAcceptingInviteId] = useState<number | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: Id; name: string } | null>(null);
   const [createFlow, setCreateFlow] = useState<CreateProjectFlow>('closed');
-  const [compareOpen, setCompareOpen] = useState(false);
 
   useEffect(() => {
     if (searchParams.get('create') !== 'chooser') return;
@@ -246,7 +245,7 @@ export default function SelectProjectPage() {
 
         {renderPendingInvites()}
 
-        <div className="mb-6 flex items-center justify-between gap-3">
+        <div className="mb-6">
           <div className="max-w-sm w-full relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input
@@ -256,16 +255,6 @@ export default function SelectProjectPage() {
               className="pl-9 h-9 text-sm border-gray-200 focus:border-[#3CCED7] focus:ring-[#3CCED7]/20"
             />
           </div>
-          {projects.length > 1 && (
-            <button
-              type="button"
-              onClick={() => setCompareOpen(true)}
-              className="flex items-center gap-2 h-9 px-4 rounded-lg text-sm font-medium text-white bg-gradient-to-r from-[#3CCED7] to-[#A6E661] hover:opacity-90 transition-opacity whitespace-nowrap flex-shrink-0"
-            >
-              <BarChart2 className="w-4 h-4" />
-              Compare projects
-            </button>
-          )}
         </div>
 
         {loading && projects.length === 0 ? (
@@ -307,18 +296,15 @@ export default function SelectProjectPage() {
           </div>
         )}
 
-        {compareOpen && (
-          <Modal isOpen={compareOpen} onClose={() => setCompareOpen(false)}>
-            <div className="w-[min(1100px,calc(100vw-2rem))] max-h-[calc(100vh-4rem)] overflow-y-auto rounded-2xl bg-white shadow-2xl ring-1 ring-gray-100">
-              <CrossProjectRollupWidget
-                projects={projects}
-                onSelectProject={async (id) => {
-                  setCompareOpen(false);
-                  await handleSelect(id);
-                }}
-              />
-            </div>
-          </Modal>
+        {projects.length > 1 && (
+          <div className="mt-8">
+            <CrossProjectRollupWidget
+              projects={projects}
+              onSelectProject={async (id) => {
+                await handleSelect(id);
+              }}
+            />
+          </div>
         )}
       </div>
 
