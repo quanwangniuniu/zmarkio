@@ -8,11 +8,20 @@ from .views import (
     TicketFormViewSet,
     SupportProjectViewSet,
     CsmWorkTypeViewSet,
+    GuidanceEntryViewSet,
     SupportChannelViewSet,
     SLAPolicyViewSet,
     BusinessHoursCalendarViewSet,
     TicketStatusViewSet,
     StatusMachineView,
+    RoutingRuleViewSet,
+    RoutingSandboxViewSet,
+)
+from .views_quality import (
+    QualityConversationViewSet,
+    QualityFilterOptionsView,
+    QualityReportCsvView,
+    QualityReportView,
 )
 
 router = DefaultRouter()
@@ -26,14 +35,37 @@ router.register(r'tickets', TicketViewSet, basename='ticket')
 router.register(r'ticket-forms', TicketFormViewSet, basename='ticket-form')
 router.register(r'support-projects', SupportProjectViewSet, basename='support-project')
 router.register(r'work-types', CsmWorkTypeViewSet, basename='csm-work-type')
+router.register(r'guidance', GuidanceEntryViewSet, basename='csm-guidance')
 router.register(r'support-channels', SupportChannelViewSet, basename='support-channel')
 router.register(r'sla-policy', SLAPolicyViewSet, basename='sla-policy')
 router.register(r'business-hours-calendars', BusinessHoursCalendarViewSet, basename='business-hours-calendar')
 router.register(r'ticket-statuses', TicketStatusViewSet, basename='ticket-status')
+router.register(
+    r'quality/conversations', QualityConversationViewSet, basename='quality-conversation')
+router.register(r'routing-rules', RoutingRuleViewSet, basename='routing-rule')
+router.register(r'routing-sandbox', RoutingSandboxViewSet, basename='routing-sandbox')
 
 urlpatterns = [
     # Standard routes
     path('', include(router.urls)),
+
+    # Quality inspection aggregates. Not router actions: they are collection
+    # level and filter-driven, with no pk.
+    path(
+        'quality/filter-options/',
+        QualityFilterOptionsView.as_view(),
+        name='csm-quality-filter-options',
+    ),
+    path(
+        'quality/report/',
+        QualityReportView.as_view(),
+        name='csm-quality-report',
+    ),
+    path(
+        'quality/report/export.csv/',
+        QualityReportCsvView.as_view(),
+        name='csm-quality-report-export-csv',
+    ),
 
     # Status machine: whole-machine GET + transition-set PUT + auto-resolve PATCH.
     # Operates per-project (?project=), so it is not a pk-detail resource.

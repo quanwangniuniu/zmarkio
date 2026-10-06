@@ -8,21 +8,25 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Q, Case, When, IntegerField, Value
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 from django_filters.rest_framework import DjangoFilterBackend
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 
 from core.admin_permissions import IsCsmAccessAllowed
-from core.permissions import IsProjectMember
+from core.models import Team
+from core.permissions import IsProjectMember, IsProjectOwner
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from core.slug_mixins import SlugLookupViewSetMixin
+from csm.services.scope import accessible_queues_for
 
 from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, Ticket, CsmNotification,
     Conversation, ConversationMessage, QuickReplyTemplate, QuickReplyTemplateHistory,
     TemplateTag,
-    TicketForm, TicketFormAssignment, SupportProject, CsmWorkType,
+    TicketForm, TicketFormAssignment, SupportProject, CsmWorkType, GuidanceEntry,
     SupportChannel, SLAPolicy, SLAPriorityTarget, BusinessHoursCalendar,
+    RoutingRule,
 )
 from .serializers import (
     QueueSerializer, QueueAgentSerializer,
@@ -41,6 +45,9 @@ from .serializers import (
     SupportProjectSerializer,
     CsmWorkTypeSerializer,
     WorkTypeReorderSerializer,
+    GuidanceEntrySerializer,
+    GuidanceReorderSerializer,
+    WorkspaceGuidanceEntrySerializer,
     SLAPolicySerializer,
     BusinessHoursCalendarSerializer,
     SupportChannelListSerializer,
@@ -52,6 +59,10 @@ from .serializers import (
     TicketAutoResolveConfigSerializer,
     StatusMachineSerializer,
     ReplaceTransitionsSerializer,
+    RoutingRuleSerializer,
+    RoutingRuleWriteSerializer,
+    RoutingRuleReorderSerializer,
+    RoutingSandboxRequestSerializer,
 )
 from .models import (
     TicketStatus, TicketStatusTransition, TicketAutoResolveConfig,
@@ -76,6 +87,16 @@ from .services.work_types import (
     deactivate_work_type,
     reorder_work_types,
 )
+from .services.guidance import (
+    GuidanceConflict,
+    guidance_queryset,
+    list_guidance,
+    create_guidance,
+    update_guidance,
+    delete_guidance,
+    reorder_guidance,
+    get_guidance_for_conversation,
+)
 from .services.support_channels import (
     list_channels_for_project,
     channel_detail_queryset,
@@ -85,6 +106,15 @@ from .services.support_channels import (
     replace_experience_group_assignments,
     build_embed_snippet,
 )
+from .services.routing_rules import (
+    vocabulary_payload,
+    list_rules,
+    create_rule,
+    update_rule,
+    reorder_rules,
+    rules_in_projects,
+)
+from .services.routing_sandbox import run_sandbox
 
 
 def _raise_drf_validation(exc):
@@ -366,29 +396,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
     pagination_class = ConversationPagination
 
     def _accessible_queues(self):
-        user = self.request.user
-        qs = Queue.objects.filter(is_active=True)
-        if user.is_staff or user.is_superuser:
-            return qs
-
-        admin_org_ids = CustomerUser.objects.filter(
-            user=user,
-            is_active=True,
-            user_type__in=('supervisor', 'admin'),
-            organisation__isnull=False,
-        ).values_list('organisation_id', flat=True)
-        agent_queue_ids = QueueAgent.objects.filter(user=user).values_list('queue_id', flat=True)
-        profile_queue_ids = CustomerUser.objects.filter(
-            user=user,
-            is_active=True,
-            queue__isnull=False,
-        ).values_list('queue_id', flat=True)
-
-        return qs.filter(
-            Q(organisation_id__in=admin_org_ids)
-            | Q(id__in=agent_queue_ids)
-            | Q(id__in=profile_queue_ids)
-        ).distinct()
+        return accessible_queues_for(self.request.user)
 
     def get_queryset(self):
         user = self.request.user
@@ -438,6 +446,36 @@ class ConversationViewSet(viewsets.ModelViewSet):
         if org_id:
             qs = qs.filter(organisation_id=org_id)
         return Response(QueueSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=['get'])
+    def guidance(self, request, pk=None):
+        """
+        GET /conversations/{id}/guidance/
+        Guidance entries for the conversation's matched Experience Group (the
+        customer's EG), in configured display order. get_object enforces
+        queue-based visibility, so agents need no project membership.
+        """
+        conversation = self.get_object()
+        group, entries = get_guidance_for_conversation(conversation)
+        return Response({
+            'experience_group': (
+                {'id': group.id, 'name': group.name} if group is not None else None
+            ),
+            'entries': WorkspaceGuidanceEntrySerializer(
+                [
+                    {
+                        'id': entry.id,
+                        'guidance_type': entry.guidance_type,
+                        'guidance_type_display': entry.get_guidance_type_display(),
+                        'trigger_description': entry.trigger_description,
+                        'recommended_response': entry.recommended_response,
+                        'display_order': display_order,
+                    }
+                    for entry, display_order in entries
+                ],
+                many=True,
+            ).data,
+        })
 
     @action(detail=True, methods=['get'])
     def assignable_agents(self, request, pk=None):
@@ -795,6 +833,15 @@ class CsmNotificationViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(CsmNotificationSerializer(notification).data)
 
 
+def _organisation_param(value):
+    """?organisation= as an int, None if absent; 400 for anything but ASCII digits."""
+    if not value:
+        return None
+    if not (value.isascii() and value.isdigit()):
+        raise ValidationError({'organisation': 'Must be an organisation id.'})
+    return int(value)
+
+
 class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
     """
     CRUD for quick-reply templates scoped to a CSM organisation.
@@ -810,6 +857,7 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
     serializer_class = QuickReplyTemplateSerializer
     permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+    READ_ACTIONS = ('list', 'retrieve', 'history')
 
     def get_queryset(self):
         from core.admin_utils import get_csm_admin_org_ids
@@ -818,6 +866,15 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
 
         org_id = self.request.query_params.get('organisation')
         if org_id:
+            # ?organisation= must be an organisation the user may use: this queryset
+            # also backs retrieve, history, update and delete. Staff can work every
+            # queue (csm.services.scope), so they may read any organisation's templates.
+            org_id = _organisation_param(org_id)
+            user = self.request.user
+            read_only = self.action in self.READ_ACTIONS
+            staff_read = read_only and (user.is_staff or user.is_superuser)
+            if org_id not in self._template_org_ids(user, read_only=read_only) and not staff_read:
+                raise PermissionDenied('You are not a member of this organisation.')
             qs = qs.filter(organisation_id=org_id)
         else:
             # Fall back to all orgs the user has access to
@@ -836,6 +893,10 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         user_team_ids = CustomerUser.objects.filter(
             user=self.request.user, is_active=True, team__isnull=False,
         ).values_list('team_id', flat=True)
+        # CSM admins may preview another team's view (routing & template sandbox).
+        view_as_team = self.request.query_params.get('view_as_team')
+        if view_as_team is not None:
+            user_team_ids = self._preview_team_ids(org_id, view_as_team)
         qs = qs.filter(Q(team__isnull=True) | Q(team_id__in=list(user_team_ids)))
 
         # Support filtering by tag
@@ -851,6 +912,79 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
             )
 
         return qs
+
+    @staticmethod
+    def _template_org_ids(user, *, read_only):
+        """
+        Organisations whose templates `user` may use: the ones they are an active
+        member of (any role). For reading, also the organisations whose queues
+        they can work (direct queue assignment, or a member row with only a
+        queue), since the reply composer needs those templates. Editing and
+        deleting need membership, as creating does (see validate_organisation).
+        """
+        from core.admin_utils import get_csm_admin_org_ids
+
+        org_ids = set(get_csm_admin_org_ids(user)) | set(
+            CustomerUser.objects.filter(
+                user=user, is_active=True, organisation__isnull=False,
+            ).values_list('organisation_id', flat=True)
+        )
+        if read_only:
+            org_ids |= set(
+                QueueAgent.objects.filter(
+                    user=user, queue__is_active=True, queue__organisation__isnull=False,
+                ).values_list('queue__organisation_id', flat=True)
+            )
+            org_ids |= set(
+                CustomerUser.objects.filter(
+                    user=user, is_active=True, queue__is_active=True, queue__organisation__isnull=False,
+                ).values_list('queue__organisation_id', flat=True)
+            )
+        return org_ids
+
+    def _admin_organisation(self, org_id):
+        """The CustomerOrganisation `org_id` (parsed ?organisation=), if the user is its CSM admin."""
+        from core.admin_utils import get_csm_admin_org_ids
+        from customer.models import CustomerOrganisation
+
+        if not org_id:
+            raise ValidationError({'organisation': 'This query parameter is required.'})
+        if org_id not in set(get_csm_admin_org_ids(self.request.user)):
+            raise PermissionDenied('Only CSM admins of this organisation can preview team views.')
+        return CustomerOrganisation.objects.get(pk=org_id)
+
+    @staticmethod
+    def _previewable_teams(organisation):
+        """
+        Teams an admin may preview for `organisation`: its agents' teams plus
+        teams its templates target. Both the picker (preview-teams) and the
+        ?view_as_team= check use this, so they can't disagree.
+        """
+        agent_team_ids = CustomerUser.objects.filter(
+            organisation=organisation, is_active=True, team__isnull=False,
+        ).values_list('team_id', flat=True)
+        template_team_ids = QuickReplyTemplate.objects.filter(
+            organisation=organisation, is_active=True, team__isnull=False,
+        ).values_list('team_id', flat=True)
+        return Team.objects.filter(Q(pk__in=agent_team_ids) | Q(pk__in=template_team_ids))
+
+    def _preview_team_ids(self, org_id, view_as_team):
+        """Team ids for ?view_as_team=<team id>|none, checked against the previewable teams."""
+        organisation = self._admin_organisation(org_id)
+        if view_as_team == 'none':
+            return []
+        if not (view_as_team.isascii() and view_as_team.isdigit()) or not self._previewable_teams(organisation).filter(
+            pk=int(view_as_team),
+        ).exists():
+            raise ValidationError({'view_as_team': 'Team not found for this organisation.'})
+        return [int(view_as_team)]
+
+    @action(detail=False, methods=['get'], url_path='preview-teams')
+    def preview_teams(self, request):
+        """Teams an admin can preview: agents' teams plus teams used by templates."""
+        organisation = self._admin_organisation(_organisation_param(request.query_params.get('organisation')))
+        teams = self._previewable_teams(organisation).order_by('name').values('id', 'name')
+        return Response(list(teams))
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -1180,7 +1314,7 @@ class TicketFormViewSet(SlugLookupViewSetMixin, ProjectScopedViewSetMixin, views
 
 class SupportProjectViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     """
-    Support project CRUD (CSM-S01-08).
+    Support project CRUD.
 
     List/create require ?project={id}. DELETE soft-archives the row.
     """
@@ -1254,7 +1388,7 @@ class SupportProjectViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
 
 class CsmWorkTypeViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     """
-    Work type CRUD (CSM-S01-08).
+    Work type CRUD.
 
     List/create require ?project={id}. DELETE deactivates the row.
     """
@@ -1324,9 +1458,276 @@ class CsmWorkTypeViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
         return Response(CsmWorkTypeSerializer(rows, many=True).data)
 
 
+class GuidanceEntryViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
+    """
+    Guidance entry configuration.
+
+    List/create/reorder/capabilities require ?project={id}. Any project member
+    can read; writes are limited to the project owner or an org admin.
+    ``?experience_group={id}`` on list returns that group's entries in display order;
+    ``?unassigned=true`` returns entries whose groups were all deleted.
+
+    Edits are optimistically versioned: PATCH may send ``expected_updated_at``,
+    DELETE may pass it as a query param, and reorder may send ``expected_ids``.
+    A stale value returns 409 instead of silently overwriting another admin.
+    """
+    serializer_class = GuidanceEntrySerializer
+    permission_classes = [IsAuthenticated, IsProjectMember]
+    http_method_names = ['get', 'post', 'patch', 'put', 'delete', 'head', 'options']
+
+    def get_permissions(self):
+        permissions = super().get_permissions()
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            # Object-level check for update/destroy; create/reorder call
+            # _require_manage explicitly because they have no object.
+            permissions.append(IsProjectOwner())
+        return permissions
+
+    def get_queryset(self):
+        return self.filter_by_accessible_projects(guidance_queryset())
+
+    def _can_manage(self, project_id):
+        from core.models import Project
+        project = Project.objects.filter(pk=project_id).first()
+        return project is not None and IsProjectOwner().has_object_permission(
+            self.request, self, project,
+        )
+
+    def _require_manage(self, project_id):
+        if not self._can_manage(project_id):
+            raise PermissionDenied('Only the project owner or an org admin can manage guidance.')
+
+    @staticmethod
+    def _conflict(exc):
+        return Response({'detail': str(exc)}, status=status.HTTP_409_CONFLICT)
+
+    def list(self, request, *args, **kwargs):
+        project_id = self.get_required_project_id()
+        unassigned = request.query_params.get('unassigned', '').lower() in ('1', 'true')
+        raw_group = request.query_params.get('experience_group')
+        experience_group_id = None
+        if raw_group:
+            try:
+                experience_group_id = int(raw_group)
+            except (TypeError, ValueError):
+                raise ValidationError({'experience_group': 'Must be an integer id.'})
+        try:
+            rows = list_guidance(
+                project_id, experience_group_id=experience_group_id, unassigned=unassigned,
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        return Response(GuidanceEntrySerializer(rows, many=True).data)
+
+    def create(self, request, *args, **kwargs):
+        project_id = self.get_required_project_id()
+        self._require_manage(project_id)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            instance = create_guidance(
+                project_id,
+                user=request.user,
+                guidance_type=data['guidance_type'],
+                trigger_description=data['trigger_description'],
+                recommended_response=data['recommended_response'],
+                experience_group_ids=data['experience_group_ids'],
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        return Response(
+            GuidanceEntrySerializer(instance).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        # PUT stays in http_method_names for the reorder action only.
+        return Response(
+            {'detail': 'Use PATCH to update a guidance entry.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        fields = (
+            'guidance_type', 'trigger_description',
+            'recommended_response', 'experience_group_ids', 'expected_updated_at',
+        )
+        try:
+            instance = update_guidance(
+                instance, **{key: data[key] for key in fields if key in data},
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        except GuidanceConflict as exc:
+            return self._conflict(exc)
+        return Response(GuidanceEntrySerializer(instance).data)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        expected = None
+        raw_expected = request.query_params.get('expected_updated_at')
+        if raw_expected:
+            expected = parse_datetime(raw_expected)
+            if expected is None:
+                raise ValidationError({'expected_updated_at': 'Must be an ISO 8601 datetime.'})
+        try:
+            delete_guidance(instance, expected_updated_at=expected)
+        except GuidanceConflict as exc:
+            return self._conflict(exc)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['put'], url_path='reorder')
+    def reorder(self, request):
+        project_id = self.get_required_project_id()
+        self._require_manage(project_id)
+        serializer = GuidanceReorderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            rows = reorder_guidance(
+                project_id,
+                serializer.validated_data['experience_group'],
+                serializer.validated_data['ids'],
+                expected_ids=serializer.validated_data.get('expected_ids'),
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        except GuidanceConflict as exc:
+            return self._conflict(exc)
+        return Response(GuidanceEntrySerializer(rows, many=True).data)
+
+    @action(detail=False, methods=['get'], url_path='capabilities')
+    def capabilities(self, request):
+        project_id = self.get_required_project_id()
+        return Response({'can_manage': self._can_manage(project_id)})
+
+
+class RoutingRuleViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
+    """
+    Routing rule CRUD per experience group.
+
+    - GET    /routing-rules/?project={id}&experience_group={id}   ordered list
+    - POST   /routing-rules/?project={id}                          create (appended)
+    - PATCH  /routing-rules/{id}/                                  update
+    - DELETE /routing-rules/{id}/                                  delete
+    - PUT    /routing-rules/reorder/?project={id}                  reorder a group
+    - GET    /routing-rules/vocabulary/                            condition vocabulary
+    """
+    serializer_class = RoutingRuleSerializer
+    permission_classes = [IsAuthenticated, IsProjectMember, IsCsmAccessAllowed]
+    http_method_names = ['get', 'post', 'patch', 'put', 'delete', 'head', 'options']
+    pagination_class = None
+
+    def get_queryset(self):
+        if self.action == 'list':
+            project_id = self.get_required_project_id()
+            raw_group = self.request.query_params.get('experience_group')
+            group_id = None
+            if raw_group:
+                try:
+                    group_id = int(raw_group)
+                except (TypeError, ValueError):
+                    raise ValidationError({'experience_group': 'Must be an integer id.'})
+            try:
+                return list_rules(project_id, group_id)
+            except DjangoValidationError as exc:
+                _raise_drf_validation(exc)
+        return rules_in_projects(self._accessible_project_ids())
+
+    def get_serializer_class(self):
+        if self.action in ('create', 'partial_update'):
+            return RoutingRuleWriteSerializer
+        return RoutingRuleSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            rule = create_rule(
+                self.get_required_project_id(),
+                user=request.user,
+                experience_group=data['experience_group'],
+                name=data['name'],
+                target_queue=data['target_queue'],
+                conditions=data.get('conditions', []),
+                match_mode=data.get('match_mode', RoutingRule.MatchMode.ALL),
+                is_enabled=data.get('is_enabled', True),
+                add_tags=data.get('add_tags', []),
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        return Response(RoutingRuleSerializer(rule).data, status=status.HTTP_201_CREATED)
+
+    def partial_update(self, request, *args, **kwargs):
+        rule = self.get_object()
+        serializer = self.get_serializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        data = dict(serializer.validated_data)
+        data.pop('experience_group', None)  # a rule never moves between groups
+        try:
+            rule = update_rule(rule, **data)
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        return Response(RoutingRuleSerializer(rule).data)
+
+    @action(detail=False, methods=['put'], url_path='reorder')
+    def reorder(self, request):
+        project_id = self.get_required_project_id()
+        serializer = RoutingRuleReorderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            rules = reorder_rules(
+                project_id,
+                serializer.validated_data['experience_group'],
+                serializer.validated_data['ids'],
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        return Response(RoutingRuleSerializer(rules, many=True).data)
+
+    @action(detail=False, methods=['get'], url_path='vocabulary')
+    def vocabulary(self, request):
+        return Response(vocabulary_payload())
+
+
+class RoutingSandboxViewSet(ProjectScopedViewSetMixin, viewsets.ViewSet):
+    """
+    POST /routing-sandbox/evaluate/?project={id}
+
+    Evaluates the experience group's current routing rules against a simulated
+    conversation and returns the trace. Stateless and read-only: the client
+    holds the simulated conversation, and nothing is persisted or broadcast.
+    """
+    permission_classes = [IsAuthenticated, IsProjectMember, IsCsmAccessAllowed]
+
+    @action(detail=False, methods=['post'], url_path='evaluate')
+    def evaluate(self, request):
+        serializer = RoutingSandboxRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            result = run_sandbox(
+                self.get_required_project_id(),
+                experience_group_id=data['experience_group'],
+                messages=data['messages'],
+                subject=data.get('subject', ''),
+                support_channel_id=data.get('support_channel'),
+                customer_organisation_id=data.get('customer_organisation'),
+                simulated_at=data.get('simulated_at'),
+            )
+        except DjangoValidationError as exc:
+            _raise_drf_validation(exc)
+        return Response(result)
+
+
 class SupportChannelViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     """
-    Support channel CRUD (CSM-S01-02).
+    Support channel CRUD.
 
     List/create require ?project={id}. DELETE soft-deactivates the row.
     """
@@ -1442,7 +1843,7 @@ class SupportChannelViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
 
 
 # ---------------------------------------------------------------------------
-# SLA Policy (MED-218)
+# SLA Policy
 # ---------------------------------------------------------------------------
 
 _SLA_DEFAULT_TARGETS = [
@@ -1455,7 +1856,7 @@ _SLA_DEFAULT_TARGETS = [
 
 class SLAPolicyViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     """
-    SLA Policy admin API (MED-218).
+    SLA Policy admin API.
 
     - GET   /sla-policy/?project={id}  retrieve the project's SLA policy
     - PUT   /sla-policy/{id}/          full update (replaces all priority targets)
@@ -1559,7 +1960,7 @@ class BusinessHoursCalendarViewSet(ProjectScopedViewSetMixin, viewsets.ModelView
 # --- Status machine admin config ------------------------------------------
 
 class TicketStatusViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
-    """CRUD for a project's ticket statuses (CSM-S02-03).
+    """CRUD for a project's ticket statuses.
 
     - GET    /ticket-statuses/?project={id}   list (seeds built-ins on first read)
     - POST   /ticket-statuses/?project={id}   create custom status at a position

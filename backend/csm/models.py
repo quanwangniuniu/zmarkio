@@ -79,7 +79,11 @@ class QueueAgent(TimeStampedModel):
 
 class QueueTeam(TimeStampedModel):
     queue = models.ForeignKey(Queue, on_delete=models.CASCADE, related_name='teams')
-    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name='queue_assignments')
+    team = models.ForeignKey(
+        Team, on_delete=models.CASCADE, related_name='queue_assignments',
+        # core.Team is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
+        db_constraint=False,
+    )
 
     class Meta:
         unique_together = ('queue', 'team')
@@ -103,6 +107,8 @@ class CustomerUser(TimeStampedModel):
         Team, on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name='customer_users',
+        # core.Team is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
+        db_constraint=False,
     )
     queue = models.ForeignKey(
         Queue, on_delete=models.SET_NULL,
@@ -218,7 +224,7 @@ class Ticket(TimeStampedModel):
     # Drives the auto-resolution rule (resolve after N days with no customer reply).
     pending_since = models.DateTimeField(null=True, blank=True)
 
-    # --- CSM-S01-07: form submission context ---
+    # --- Form submission context ---
     form = models.ForeignKey(
         'TicketForm', on_delete=models.SET_NULL,
         null=True, blank=True,
@@ -316,6 +322,11 @@ class Conversation(TimeStampedModel):
 
     class Meta:
         ordering = ['-started_at']
+        indexes = [
+            # Quality inspection filters and sorts across a whole organisation.
+            models.Index(fields=['queue', 'started_at'], name='csm_conv_queue_started_idx'),
+            models.Index(fields=['status'], name='csm_conv_status_idx'),
+        ]
 
     def __str__(self):
         customer_name = self.customer.full_name if self.customer else 'Unknown'
@@ -356,6 +367,68 @@ class ConversationMessage(models.Model):
         return f"[{self.sender_type}] {self.content[:50]}"
 
 
+class ConversationQualityReview(TimeStampedModel):
+    """A supervisor's quality annotation on one conversation.
+
+    One row per (conversation, reviewer): re-rating updates the row rather
+    than appending, so report counts stay truthful without having to
+    de-duplicate to latest-per-reviewer in every aggregate.
+
+    The agent is a SNAPSHOT taken at review time. ``Conversation.assigned_to``
+    is mutable and nullable, so joining through it live would let a later
+    reassignment retroactively move a rating onto an agent who never handled
+    the conversation. Queue and organisation are read through ``conversation``.
+    """
+
+    class Rating(models.TextChoices):
+        GOOD = 'good', 'Good'
+        NEEDS_IMPROVEMENT = 'needs_improvement', 'Needs Improvement'
+        POOR = 'poor', 'Poor'
+
+    conversation = models.ForeignKey(
+        Conversation, on_delete=models.CASCADE,
+        related_name='quality_reviews',
+    )
+    # Keyed on the auth user, not CustomerUser: one person may hold several
+    # CustomerUser rows (unique_together is ('user', 'queue')), so a
+    # CustomerUser-keyed constraint would permit duplicate reviews.
+    reviewer = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='csm_quality_reviews_given',
+    )
+    reviewer_name = models.CharField(max_length=200, blank=True, default='')
+    rating = models.CharField(max_length=32, choices=Rating.choices)
+    comment = models.TextField(blank=True, default='')
+    # Not auto_now_add: with upsert semantics the "as of" date must move when a
+    # rating is revised, or a stale bucket keeps counting a rewritten rating.
+    reviewed_at = models.DateTimeField(default=timezone.now)
+
+    # Snapshot, resolved once at review time; the name is read live from it.
+    agent_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='csm_quality_reviews_received',
+    )
+
+    class Meta:
+        ordering = ['-reviewed_at', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=('conversation', 'reviewer'),
+                name='csm_cqr_uniq_conversation_reviewer',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['reviewed_at'], name='csm_cqr_reviewed_idx'),
+            models.Index(fields=['agent_user', 'reviewed_at'], name='csm_cqr_agent_reviewed_idx'),
+            models.Index(fields=['rating'], name='csm_cqr_rating_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.get_rating_display()} - conversation {self.conversation_id}"
+
+
 class QuickReplyTemplate(SluggedResourceModelMixin, TimeStampedModel):
     """Pre-written reply templates that agents can insert into the conversation composer."""
     slug_source_field = 'title'
@@ -370,6 +443,8 @@ class QuickReplyTemplate(SluggedResourceModelMixin, TimeStampedModel):
         null=True, blank=True,
         related_name='quick_reply_templates',
         help_text="If set, only members of this team can see the template",
+        # core.Team is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
+        db_constraint=False,
     )
     title = models.CharField(max_length=200, help_text="Short label shown in the template picker")
     content = models.TextField(help_text="Plain-text content inserted into the composer")
@@ -436,11 +511,11 @@ class TemplateTag(TimeStampedModel):
 
 
 # ---------------------------------------------------------------------------
-# CSM-S01-07 — Ticket form builder (Phase 1)
+# Ticket form builder
 # ---------------------------------------------------------------------------
 
 class SupportProject(TimeStampedModel):
-    """Stub for CSM-S01-08. Tables only in S01-07; no CRUD API yet."""
+    """A support project tickets are filed under, with an optional default queue."""
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name='support_projects',
@@ -467,7 +542,7 @@ class SupportProject(TimeStampedModel):
 
 
 class CsmWorkType(TimeStampedModel):
-    """Stub for CSM-S01-08. Tables only in S01-07; no CRUD API yet."""
+    """A work type tickets can be classified by."""
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name='csm_work_types',
@@ -487,6 +562,66 @@ class CsmWorkType(TimeStampedModel):
 
     def __str__(self):
         return self.name
+
+
+class GuidanceEntry(TimeStampedModel):
+    """Agent guidance shown in the conversation workspace."""
+
+    class GuidanceType(models.TextChoices):
+        HANDOFF = 'handoff', 'Handoff'
+        SUGGESTED_REPLY = 'suggested_reply', 'Suggested Reply'
+        ESCALATION_PROCEDURE = 'escalation_procedure', 'Escalation Procedure'
+        PROCESS_NOTE = 'process_note', 'Process Note'
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name='csm_guidance_entries',
+    )
+    guidance_type = models.CharField(max_length=32, choices=GuidanceType.choices)
+    trigger_description = models.TextField()
+    recommended_response = models.TextField()
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='csm_guidance_entries',
+    )
+
+    class Meta:
+        ordering = ['-updated_at', '-id']
+
+    def __str__(self):
+        return f"{self.get_guidance_type_display()}: {self.trigger_description[:50]}"
+
+
+class GuidanceEntryExperienceGroup(models.Model):
+    """Links a guidance entry to an Experience Group with a per-group display order."""
+
+    entry = models.ForeignKey(
+        GuidanceEntry, on_delete=models.CASCADE, related_name='experience_group_links',
+    )
+    experience_group = models.ForeignKey(
+        'experience_group.ExperienceGroup', on_delete=models.CASCADE,
+        related_name='guidance_links',
+    )
+    display_order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['display_order', 'id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['entry', 'experience_group'],
+                name='csm_geg_unique_entry_eg',
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=['experience_group', 'display_order'],
+                name='csm_geg_eg_order_idx',
+            ),
+        ]
+
+    def __str__(self):
+        return f"Guidance {self.entry_id} → EG {self.experience_group_id} (#{self.display_order})"
 
 
 class TicketForm(SluggedResourceModelMixin, TimeStampedModel):
@@ -844,12 +979,90 @@ class SupportChannelExperienceGroup(models.Model):
         return f"Channel {self.channel_id} → EG {self.experience_group_id}"
 
 
+class RoutingRule(TimeStampedModel):
+    """
+    Ordered routing rule for an Experience Group.
+
+    Rules are evaluated top-down by `position`; the first enabled rule whose
+    conditions match decides the queue. `conditions` is a list of
+    {"field", "operator", "value"} dicts validated by
+    csm.services.routing_rules.validate_conditions. Live intake applies the
+    winning rule's queue; `add_tags` are shown in the sandbox only.
+    """
+
+    class MatchMode(models.TextChoices):
+        ALL = 'all', 'All conditions'
+        ANY = 'any', 'Any condition'
+
+    # Project ids are numbered per organisation schema, so project_id alone is
+    # ambiguous in this public table; every query also filters by organization.
+    organization = models.ForeignKey(
+        'core.Organization', on_delete=models.CASCADE, related_name='routing_rules',
+    )
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name='routing_rules',
+        # core.Project is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
+        db_constraint=False,
+    )
+    experience_group = models.ForeignKey(
+        'experience_group.ExperienceGroup', on_delete=models.CASCADE,
+        related_name='routing_rules',
+    )
+    name = models.CharField(max_length=200)
+    position = models.PositiveIntegerField(default=0)
+    is_enabled = models.BooleanField(default=True)
+    match_mode = models.CharField(
+        max_length=8, choices=MatchMode.choices, default=MatchMode.ALL,
+    )
+    conditions = models.JSONField(default=list, blank=True)
+    target_queue = models.ForeignKey(
+        Queue, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='routing_rules',
+    )
+    add_tags = models.JSONField(default=list, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='+',
+    )
+
+    class Meta:
+        ordering = ['experience_group', 'position', 'id']
+        constraints = [
+            # Per organisation as well as group: experience group ids are not
+            # organisation-scoped yet, so another organisation's rows must never
+            # collide with (or reveal) these names and positions.
+            models.UniqueConstraint(
+                fields=['organization', 'experience_group', 'name'],
+                name='csm_rr_unique_name_per_org_eg',
+            ),
+            # Deferred so a reorder can swap positions inside one transaction;
+            # it is checked at commit. Also serves the position lookups.
+            models.UniqueConstraint(
+                fields=['organization', 'experience_group', 'position'],
+                name='csm_rr_unique_position_per_org_eg',
+                deferrable=models.Deferrable.DEFERRED,
+            ),
+        ]
+
+    @property
+    def can_route(self):
+        """False when the target queue was deleted or deactivated; the rule is then skipped."""
+        return self.target_queue is not None and self.target_queue.is_active
+
+    def __str__(self):
+        return f"RoutingRule '{self.name}' (EG {self.experience_group_id}, #{self.position})"
+
+
 class CSMInvitation(TimeStampedModel):
     email = models.EmailField()
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name='csm_invitations')
     team = models.ForeignKey(
         Team, on_delete=models.SET_NULL,
-        null=True, blank=True, related_name='csm_invitations'
+        null=True, blank=True, related_name='csm_invitations',
+        # core.Team is tenant-scoped and this table is public: no DB FK (see test_tenant_team_fks).
+        db_constraint=False,
     )
     invited_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,

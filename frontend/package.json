@@ -127,7 +127,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
     "@lhci/cli": "^0.15.1",
-    "@playwright/test": "^1.58.2",
+    "@playwright/test": "1.60.0",
     "@storybook/addon-essentials": "^7.6.17",
     "@storybook/addon-interactions": "^7.6.17",
     "@storybook/addon-links": "^7.6.17",

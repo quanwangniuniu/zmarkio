@@ -464,6 +464,13 @@ function AdsInset({
   const [previewCreativeId, setPreviewCreativeId] = useState<number | null>(null);
   const [previewTitle, setPreviewTitle] = useState<string>('');
 
+  // Close any open preview when the ad account changes so a prior account's
+  // modal / creative id cannot linger on the new account's UI.
+  useEffect(() => {
+    setPreviewCreativeId(null);
+    setPreviewTitle('');
+  }, [adAccountId]);
+
   useEffect(() => {
     let active = true;
     setLoading(true);

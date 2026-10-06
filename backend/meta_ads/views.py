@@ -40,7 +40,6 @@ from spreadsheet.models import (
 )
 from spreadsheet.services import SheetService, SpreadsheetService
 
-from .meta_client import MetaApiError, graph_get
 from .models import (
     MetaAd,
     MetaAdCreative,
@@ -55,6 +54,7 @@ from .serializers import (
     MetaInsightDailySerializer,
     MetaSyncRunSerializer,
 )
+from .services import CreativePreviewError, get_creative_preview
 from .tasks import sync_all_active_ad_accounts, sync_single_ad_account
 
 
@@ -2088,71 +2088,24 @@ class MetaCreativeVideoSourceView(APIView):
 
     def get(self, request, creative_id: int):
         creative = get_object_or_404(
-            MetaAdCreative,
+            MetaAdCreative.objects.select_related("ad_account__connection"),
             pk=resolve_pk_for(MetaAdCreative, creative_id),
             ad_account_id__in=_accessible_ad_accounts_for_user(request.user),
         )
-        ad = creative.ads.order_by("-updated_at").first()
-        if ad is None:
-            return Response(
-                {
-                    "detail": (
-                        "No ad references this creative in the synced data, "
-                        "so no preview can be rendered. Try re-running sync."
-                    ),
-                    "code": "no_linked_ad",
-                },
-                status=400,
-            )
-        token = creative.ad_account.connection.get_access_token()
-        if not token:
-            return Response(
-                {"detail": "Meta connection is missing its access token."},
-                status=400,
-            )
 
         requested_format = request.query_params.get("ad_format", "MOBILE_FEED_STANDARD")
         if requested_format not in self.VALID_FORMATS:
             requested_format = "MOBILE_FEED_STANDARD"
 
         try:
-            payload = graph_get(
-                f"/{ad.meta_ad_id}/previews",
-                token,
-                params={"ad_format": requested_format},
-            )
-        except MetaApiError as err:
-            return Response(
-                {
-                    "detail": f"Graph API error: {err}",
-                    "status_code": err.status_code,
-                },
-                status=502,
-            )
+            payload = get_creative_preview(creative, requested_format)
+        except CreativePreviewError as err:
+            body = {"detail": err.detail, **err.extra}
+            if err.code:
+                body["code"] = err.code
+            return Response(body, status=err.status)
 
-        previews = payload.get("data") or []
-        if not previews:
-            return Response(
-                {"detail": "Meta returned no preview for this ad."},
-                status=502,
-            )
-
-        body = previews[0].get("body", "")
-        import re as _re
-        match = _re.search(r'src="([^"]+)"', body)
-        iframe_src = match.group(1).replace("&amp;", "&") if match else ""
-
-        return Response({
-            "creative_id": creative.id,
-            "video_id": creative.video_id,
-            "meta_ad_id": ad.meta_ad_id,
-            "ad_name": ad.name,
-            "ad_format": requested_format,
-            "iframe_src": iframe_src,
-            "iframe_html": body,
-            "thumbnail_url": creative.thumbnail_url,
-            "permalink_url": "",
-        })
+        return Response(payload)
 
 
 class MetaCreativeInsightTimeseriesView(APIView):

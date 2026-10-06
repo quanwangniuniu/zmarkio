@@ -83,3 +83,107 @@ export interface ReportKeyActionUpdateRequest {
   order_index?: number;
   action_text?: string;
 }
+
+// Custom KPI types matching backend /api/report/kpis/
+
+export type KPIDisplayFormat = "number" | "currency" | "percent";
+
+/** A warehouse metric a formula may reference by name. */
+export interface KPIMetric {
+  key: string;
+  label: string;
+  unit: "currency" | "count";
+}
+
+export interface KPIFormulaError {
+  /** Spreadsheet-style code, e.g. "#DIV/0!" or "#NAME?". */
+  code: string;
+  message: string;
+}
+
+export interface CustomKPI {
+  id: number;
+  /** Project slug. */
+  project: string;
+  project_id: number;
+  name: string;
+  description: string;
+  formula: string;
+  display_format: KPIDisplayFormat;
+  /** Decimal serialized as a string; null when `error` is set, or when the
+   * request did not ask for values. */
+  value: string | null;
+  error: KPIFormulaError | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomKPICreateRequest {
+  /** Project slug or numeric id. */
+  project: string;
+  name: string;
+  formula: string;
+  description?: string;
+  display_format?: KPIDisplayFormat;
+}
+
+export interface CustomKPIUpdateRequest {
+  name?: string;
+  formula?: string;
+  description?: string;
+  display_format?: KPIDisplayFormat;
+}
+
+export interface KPIPreviewRequest {
+  project: string;
+  formula: string;
+  start_date?: string;
+  end_date?: string;
+}
+
+/** A formula error is a successful response, not a failed request. */
+export interface KPIPreviewResponse {
+  value: string | null;
+  error: KPIFormulaError | null;
+}
+
+/** Lifetime choices accepted by POST /api/report/kpis/share/. */
+export type ShareLinkDays = 7 | 14 | 30;
+
+/** Authenticated share-link record. `project` is the project slug. */
+export interface ReportShareLink {
+  id: number;
+  token: string;
+  expires_at: string;
+  project: string;
+}
+
+export interface ReportShareLinkCreateRequest {
+  project: string;
+  days: ShareLinkDays;
+}
+
+/** POST reuses a live link (`reused: true`, 200) or inserts one (`reused: false`, 201). */
+export interface ReportShareLinkCreateResponse extends ReportShareLink {
+  reused: boolean;
+}
+
+/** GET current link. `days_left` is whole days until `expires_at`, or 0 when expired. */
+export interface ReportShareLinkCurrent {
+  link: (ReportShareLink & { days_left: number }) | null;
+}
+
+/** One KPI card on the public share page. */
+export interface PublicCustomKPI {
+  name: string;
+  formula: string;
+  display_format: KPIDisplayFormat;
+  value: string | null;
+  error: KPIFormulaError | null;
+}
+
+/** GET /api/report/share/<token>/. Expired links are HTTP 410, not this body. */
+export interface PublicKPIShare {
+  expires_at: string;
+  kpis: PublicCustomKPI[];
+}

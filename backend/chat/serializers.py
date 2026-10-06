@@ -9,7 +9,6 @@ import os
 import subprocess
 import tempfile
 from .models import Chat, ChatParticipant, ChatStar, Message, MessageMention, MessageStatus, ChatType, ChannelVisibility, MessageAttachment, MessageReaction, PinnedMessage, SavedMessage, ScheduledMessage
-from .services import ChatService
 from core.models import ProjectMember, Project
 from core.slug_mixins import resolve_project_pk
 
@@ -1005,24 +1004,28 @@ class ChatCreateSerializer(serializers.ModelSerializer):
         # Create chat — set created_by to the requesting user
         chat = Chat.objects.create(created_by=request.user, **validated_data)
         
-        # Add current user as participant
-        ChatParticipant.objects.create(
-            chat=chat,
-            user=request.user,
-            is_active=True,
-            is_manager=validated_data.get('type') == ChatType.GROUP,
-        )
-        
-        # Add other participants
-        for user_id in participant_ids:
-            ChatParticipant.objects.create(
+        # Create the initial membership set in one query. Individual model saves
+        # would fire the membership signal once per participant, with each
+        # receiver re-querying the growing room and registering another
+        # on-commit fan-out (quadratic work for large channels).
+        ChatParticipant.objects.bulk_create([
+            ChatParticipant(
                 chat=chat,
-                user_id=user_id,
-                is_active=True
-            )
+                user=request.user,
+                is_active=True,
+                is_manager=validated_data.get('type') == ChatType.GROUP,
+            ),
+            *[
+                ChatParticipant(chat=chat, user_id=user_id, is_active=True)
+                for user_id in participant_ids
+            ],
+        ])
 
+        # bulk_create intentionally skips model signals; invalidate and notify
+        # once at the completed operation boundary.
+        from .services import ChatService
         ChatService.invalidate_presence_recipients_for_chat(chat)
-        
+
         return chat
 
 

@@ -13,9 +13,57 @@ ForeignKey joins; passing a literal Value avoids the restriction.
 """
 
 from django.db.models import Value
-from django.db.models.signals import post_save, pre_delete
+from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 from django.dispatch import receiver
 from django.contrib.postgres.search import SearchVector
+
+
+@receiver(pre_save, sender='chat.ChatParticipant')
+def remember_chat_participant_membership(sender, instance, update_fields=None, **kwargs):
+    """Remember persisted membership state for the post-save receiver."""
+    if not instance.pk:
+        instance._previous_is_active = None
+        return
+    if update_fields is not None and 'is_active' not in update_fields:
+        return
+    instance._previous_is_active = (
+        sender.objects.filter(pk=instance.pk)
+        .values_list('is_active', flat=True)
+        .first()
+    )
+
+
+@receiver(post_save, sender='chat.ChatParticipant')
+def invalidate_visibility_cache_on_participant_save(
+    sender, instance, created, update_fields=None, **kwargs
+):
+    """Invalidate cached and live visibility when membership changes."""
+    if not created:
+        if update_fields is not None and 'is_active' not in update_fields:
+            return
+        if getattr(instance, '_previous_is_active', instance.is_active) == instance.is_active:
+            return
+
+    from .services import ChatService
+
+    chat_model = sender._meta.get_field('chat').remote_field.model
+    ChatService.invalidate_presence_recipients_for_chat(
+        chat_model(pk=instance.chat_id),
+        extra_user_ids=[instance.user_id],
+    )
+
+
+@receiver(post_delete, sender='chat.ChatParticipant')
+def invalidate_visibility_cache_on_participant_delete(sender, instance, **kwargs):
+    """Hard-deleted participants must lose cached and live visibility too."""
+    from .services import ChatService
+
+    # Avoid dereferencing instance.chat during a parent Chat cascade.
+    chat_model = sender._meta.get_field('chat').remote_field.model
+    ChatService.invalidate_presence_recipients_for_chat(
+        chat_model(pk=instance.chat_id),
+        extra_user_ids=[instance.user_id],
+    )
 
 
 @receiver(post_save, sender='chat.Message')

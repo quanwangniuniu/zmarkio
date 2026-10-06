@@ -685,6 +685,56 @@ class SharePreviewViewTest(TestCase):
             status=AdCreative.STATUS_ACTIVE
         )
 
+    def test_create_share_preview_by_slug(self):
+        url = f'/api/facebook_meta/{self.ad_creative.slug}/'
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_200_OK)
+
+        response = self.client.post(f'{url}share-preview/', {'days': 7}, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        preview = AdCreativePreview.objects.get(ad_creative=self.ad_creative)
+        self.assertEqual(response.data['link'], preview.link)
+        self.assertEqual(preview.days_active, 7)
+
+    def test_get_share_preview_by_slug(self):
+        created = self.client.post(
+            f'/api/facebook_meta/{self.ad_creative.id}/share-preview/',
+            {'days': 7}, format='json',
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.get(f'/api/facebook_meta/{self.ad_creative.slug}/share-preview/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['link'], created.data['link'])
+
+    def test_delete_share_preview_by_slug(self):
+        created = self.client.post(
+            f'/api/facebook_meta/{self.ad_creative.id}/share-preview/',
+            {'days': 7}, format='json',
+        )
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.delete(f'/api/facebook_meta/{self.ad_creative.slug}/share-preview/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(AdCreativePreview.objects.filter(ad_creative=self.ad_creative).exists())
+
+    def test_share_preview_requires_owner_for_slug_and_id(self):
+        other_user = User.objects.create_user(username='other', email='other@example.com')
+        self.client.force_authenticate(user=other_user)
+
+        for identifier in (self.ad_creative.slug, self.ad_creative.id):
+            for method in ('post', 'get', 'delete'):
+                with self.subTest(identifier=identifier, method=method):
+                    response = getattr(self.client, method)(
+                        f'/api/facebook_meta/{identifier}/share-preview/',
+                        {'days': 7}, format='json',
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+                    self.assertEqual(response.data['code'], 'AD_CREATIVE_NOT_FOUND')
+        self.assertFalse(AdCreativePreview.objects.filter(ad_creative=self.ad_creative).exists())
+
     def test_create_share_preview_success(self):
         """Test successful share preview creation"""
         data = {

@@ -182,6 +182,12 @@ export interface TemplateTag {
   created_at: string;
 }
 
+/** A team a CSM admin can preview the template list as (sandbox). */
+export interface TemplatePreviewTeam {
+  id: number;
+  name: string;
+}
+
 // WebSocket event types
 export type CsmWsEvent =
   | { type: 'new_message'; message: ConversationMessage }
@@ -189,4 +195,5 @@ export type CsmWsEvent =
   | { type: 'conversation_updated'; conversation: Conversation }
   | { type: 'typing_indicator'; conversation_id: number; user_id: number; is_typing: boolean }
   | { type: 'joined'; conversation_id: number }
+  | { type: 'guidance_updated'; experience_group_ids: number[] }
   | { type: 'error'; detail: string };

@@ -8,7 +8,7 @@ import { useProjectStore } from '@/lib/projectStore';
 import { useAuthStore } from '@/lib/authStore';
 import { DashboardPanelPreferenceProvider } from '@/components/dashboard/DashboardPanelPreferenceContext';
 import { readUpcomingMeetingsPanelOpen } from '@/lib/dashboardPanelPreferences';
-
+import { ChatWebSocketProvider } from '@/hooks/useChatWebSocket';
 
 /**
  * Resolves [orgSlug]/[projectSlug] from the URL and syncs org + project
@@ -99,14 +99,14 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
     return null;
   }
 
-  // return <>{children}</>;
 
   return (
     <DashboardPanelPreferenceProvider
       initialUpcomingMeetingsPanelOpen={readUpcomingMeetingsPanelOpen()}
     >
-    {children}
+      <ChatWebSocketProvider userId={user?.id ? Number(user.id) : null}>
+        {children}
+      </ChatWebSocketProvider>
     </DashboardPanelPreferenceProvider>
   )
-
 }

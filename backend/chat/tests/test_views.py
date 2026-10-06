@@ -224,6 +224,8 @@ class TestChatAPI:
         names = {row['name'] for row in response.data}
         assert 'Public Group' in names
         assert 'Hidden Group' not in names
+        public_row = next(row for row in response.data if row['name'] == 'Public Group')
+        assert public_row['slug'] == public_chat.slug
         self.client.force_authenticate(user=self.user3)
         forbidden = self.client.get(url, {'project_id': self.project.slug})
         assert forbidden.status_code == status.HTTP_403_FORBIDDEN

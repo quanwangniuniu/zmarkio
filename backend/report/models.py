@@ -1,3 +1,5 @@
+import secrets
+
 from django.db import models
 from django.core.exceptions import ValidationError
 
@@ -120,6 +122,89 @@ class ReportTask(models.Model):
         return 1 <= action_count <= 6
 
 
+class CustomKPI(models.Model):
+    """A project-scoped KPI defined as a formula over warehouse metrics.
+
+    `save()` runs `full_clean()`, so the formula is validated at every
+    persistence boundary -- the API, the admin, a shell session or a data
+    migration alike -- and a KPI that cannot be evaluated never reaches the
+    database. See `report.kpi_registry`.
+    """
+
+    class DisplayFormat(models.TextChoices):
+        NUMBER = "number", "Number"
+        CURRENCY = "currency", "Currency"
+        PERCENT = "percent", "Percent"
+
+    project = models.ForeignKey(
+        "core.Project",
+        on_delete=models.CASCADE,
+        related_name="custom_kpis",
+        help_text="Project this KPI belongs to",
+    )
+    name = models.CharField(
+        max_length=120,
+        help_text="Display name, unique within the project",
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional explanation of what this KPI measures",
+    )
+    formula = models.TextField(
+        help_text="Formula over metric names, e.g. 'revenue / spend'",
+    )
+    display_format = models.CharField(
+        max_length=20,
+        choices=DisplayFormat.choices,
+        default=DisplayFormat.NUMBER,
+        help_text="How the computed value should be rendered",
+    )
+    created_by = models.ForeignKey(
+        "core.CustomUser",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_custom_kpis",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "report_custom_kpi"
+        ordering = ["name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "name"],
+                name="uniq_custom_kpi_name_per_project",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"CustomKPI(project={self.project_id}, name={self.name})"
+
+    def clean(self):
+        super().clean()
+        # Imported here so loading this models module does not pull in the
+        # spreadsheet and meta_ads apps before the registry is ready.
+        from report.kpi_registry import KPIFormulaError, validate_formula
+
+        if not (self.name or "").strip():
+            raise ValidationError({"name": "Name cannot be blank."})
+        try:
+            validate_formula(self.formula)
+        except KPIFormulaError as exc:
+            raise ValidationError({"formula": exc.message}) from exc
+
+    def save(self, *args, **kwargs):
+        # Django does not call full_clean() on save, so without this a KPI
+        # created through the ORM, a shell or a data migration could persist a
+        # formula that can never be evaluated. The serializers validate too;
+        # this closes every other path.
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+
 class ReportTaskKeyAction(models.Model):
     report_task = models.ForeignKey(
         ReportTask,
@@ -150,3 +235,74 @@ class ReportTaskKeyAction(models.Model):
 
     def __str__(self) -> str:
         return f"ReportTaskKeyAction(report_task={self.report_task_id}, order={self.order_index})"
+
+
+class ReportShareLink(models.Model):
+    """A tokenized, read-only link to one project's Custom KPIs.
+
+    The project foreign key is the scope: a link for project A can never be
+    used to read project B. The partial unique constraint only sees
+    ``revoked_at IS NULL``, because a constraint cannot compare ``expires_at``
+    to the moving clock. The create path releases an already-expired row by
+    setting ``revoked_at`` (later than ``expires_at``) before inserting the
+    replacement. A user revoke sets ``revoked_at`` while the link is still
+    unexpired. Public reads check ``expires_at`` first, so a released expired
+    link still reports as expired.
+    """
+
+    project = models.ForeignKey(
+        "core.Project",
+        on_delete=models.CASCADE,
+        related_name="report_share_links",
+        help_text="Project whose Custom KPIs this link may show. This is the scope.",
+    )
+    token = models.CharField(
+        max_length=64,
+        unique=True,
+        help_text="Unguessable token placed in the public URL. Generated on save when blank.",
+    )
+    expires_at = models.DateTimeField(
+        help_text="When the link stops working. The public read path compares this to the server clock.",
+    )
+    revoked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the link was revoked. Null means it has not been revoked.",
+    )
+    created_by = models.ForeignKey(
+        "core.CustomUser",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_report_share_links",
+        help_text="User who created the link",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "report_share_link"
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="uniq_active_report_share_link_per_project",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"ReportShareLink(project={self.project_id})"
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = self._generate_unique_token()
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def _generate_unique_token(cls) -> str:
+        # token_urlsafe(32) is 43 characters. The column allows 64.
+        token = secrets.token_urlsafe(32)
+        while cls.objects.filter(token=token).exists():
+            token = secrets.token_urlsafe(32)
+        return token

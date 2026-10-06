@@ -1,4 +1,3 @@
-import { StepExecutionStatus } from "@/types/agent"
 import { expect, test } from "@playwright/test"
 
 // No real browser navigation — this test only exercises the status-derivation
@@ -91,41 +90,3 @@ test("Skipped step shows partial-success UI after retries out", async ({ page })
   // ...while the workflow still reaches a normal completion state for the rest.
   await expect(page.locator('[title*="Analyze Data"][title*="completed"]')).toBeVisible()
 })
-
-
-
-const {step_order, step_progress, step_name, total_steps, status } = event?.data
-
-setStepProgress((prev) => {
-  const updated = [..prev]
-
-  for (const s of updated) {
-    if (s.order < step_name && s.status == 'Running') {
-      s.status = 'completed'
-
-    }
-
-    const existing = updated.find((s) => s.order == step_order)
-
-    if (existing) {
-      existing.status == (status as StepExecutionStatus) || "Running"
-      existing.name == step_name
-    }
-    else {
-      while(updated.length < step_order) {
-        const order = updated.length + 1
-        updated.push({
-          order: order
-          name: order == step_order ? step_name || `Step ${order}`
-          status: order == step_order ? status || "completed"
-        })
-      }
-
-    }
-  }
-  return updated
-
-
-
-})
-
