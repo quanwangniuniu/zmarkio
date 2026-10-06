@@ -123,72 +123,63 @@ async function readErrorMessage(response: Response): Promise<string | null> {
     }
 }
 
-async function postChat(
-    config: OllamaConfig,
-    systemPrompt: string,
-    userPrompt: string
-): Promise<Response> {
-    for (let attempt = 0; ; attempt += 1) {
-        let response: Response;
-
-        try {
-            response = await fetch(`${config.baseUrl}/api/chat`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    model: config.model,
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: userPrompt },
-                    ],
-                    stream: false,
-                    think: false,
-                    format: COPY_SCHEMA,
-                    options: {
-                        temperature: 0.7,
-                    },
-                }),
-                signal: AbortSignal.timeout(config.timeoutMs),
-            });
-        } catch (error) {
-            if (
-                error instanceof Error &&
-                (error.name === 'TimeoutError' || error.name === 'AbortError')
-            ) {
-                throw new OllamaError(
-                    `Ollama request timed out after ${config.timeoutMs} ms.`,
-                    'timeout'
-                );
-            }
-
-            throw new OllamaError(
-                `Unable to connect to Ollama at ${config.baseUrl}.`,
-                'connection'
-            );
-        }
-
-        if (
-            !BUSY_STATUSES.includes(response.status) ||
-            attempt >= BUSY_BACKOFF_MS.length
-        ) {
-            return response;
-        }
-
-        await new Promise((resolve) => {
-            setTimeout(resolve, BUSY_BACKOFF_MS[attempt]);
-        });
-    }
-}
-
 export async function callOllamaJson(
     systemPrompt: string,
     userPrompt: string,
-    retryParse = true
+    retryParse = true,
+    busyAttempt = 0
 ): Promise<CopyJson> {
     const config = getOllamaConfig();
-    const response = await postChat(config, systemPrompt, userPrompt);
+
+    let response: Response;
+
+    try {
+        response = await fetch(`${config.baseUrl}/api/chat`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: config.model,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: userPrompt },
+                ],
+                stream: false,
+                think: false,
+                format: COPY_SCHEMA,
+                options: {
+                    temperature: 0.7,
+                },
+            }),
+            signal: AbortSignal.timeout(config.timeoutMs),
+        });
+    } catch (error) {
+        if (
+            error instanceof Error &&
+            (error.name === 'TimeoutError' || error.name === 'AbortError')
+        ) {
+            throw new OllamaError(
+                `Ollama request timed out after ${config.timeoutMs} ms.`,
+                'timeout'
+            );
+        }
+
+        throw new OllamaError(
+            `Unable to connect to Ollama at ${config.baseUrl}.`,
+            'connection'
+        );
+    }
+
+    if (
+        BUSY_STATUSES.includes(response.status) &&
+        busyAttempt < BUSY_BACKOFF_MS.length
+    ) {
+        await new Promise((resolve) => {
+            setTimeout(resolve, BUSY_BACKOFF_MS[busyAttempt]);
+        });
+        return callOllamaJson(systemPrompt, userPrompt, retryParse, busyAttempt + 1);
+    }
 
     if (!response.ok) {
         const detail = await readErrorMessage(response);

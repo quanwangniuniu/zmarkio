@@ -24,6 +24,17 @@ def _http_error(status_code: int) -> requests.HTTPError:
     return exc
 
 
+def _ollama_response(status_code: int, body: dict) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = json.dumps(body).encode()
+    return response
+
+
+def _ollama_chat(content: str) -> requests.Response:
+    return _ollama_response(200, {'message': {'content': content}})
+
+
 def _make_user(username='copy_user', email='copy_user@example.com'):
     User = get_user_model()
     return User.objects.create_user(username=username, email=email, password='x')
@@ -1003,17 +1014,6 @@ class TenantRegistrationTests(SimpleTestCase):
         from core.tenant_config import get_tenant_models
 
         self.assertIn(AdCopyVariation, get_tenant_models())
-
-
-def _ollama_response(status_code: int, body: dict) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status_code
-    response._content = json.dumps(body).encode()
-    return response
-
-
-def _ollama_chat(content: str) -> requests.Response:
-    return _ollama_response(200, {'message': {'content': content}})
 
 
 @override_settings(
