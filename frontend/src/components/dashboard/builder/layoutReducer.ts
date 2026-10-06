@@ -1,5 +1,5 @@
 import type { DashboardWidgetPosition as Widget } from '@/types/dashboardLayout';
-import { isSectionTitle } from './sectionTitle';
+import { hasMaxSectionTitles, isSectionTitle } from './sectionTitle';
 
 export const GRID_COLUMNS = 12;
 export const ROW_HEIGHT = 48;
@@ -97,6 +97,7 @@ export function resizeWidget(widgets: Widget[], id: string, dw: number, dh: numb
 
 export function addWidget(widgets: Widget[], definition: Widget): Widget[] {
   if (widgets.some((widget) => widget.id === definition.id)) return widgets;
+  if (isSectionTitle(definition.id) && hasMaxSectionTitles(widgets)) return widgets;
   const y = widgets.reduce((bottom, widget) => Math.max(bottom, widget.y + widget.h), 0);
   return compactWidgets([...widgets, { ...definition, y }]);
 }
@@ -104,6 +105,7 @@ export function addWidget(widgets: Widget[], definition: Widget): Widget[] {
 /** Preview and commit a new widget at the same cell, keeping its preset size. */
 export function dropWidget(widgets: Widget[], definition: Widget, x: number, y: number): Widget[] {
   if (widgets.some((widget) => widget.id === definition.id)) return widgets;
+  if (isSectionTitle(definition.id) && hasMaxSectionTitles(widgets)) return widgets;
   return compactWidgets(placeWidget(widgets, {
     ...definition,
     x: Math.max(0, Math.min(GRID_COLUMNS - definition.w, x)),

@@ -10,6 +10,7 @@ import { ChatWebSocketProvider } from '@/hooks/useChatWebSocket';
 import { ProjectRouteContext } from '@/lib/projectRouteContext';
 import { DashboardPanelPreferenceProvider } from '@/components/dashboard/DashboardPanelPreferenceContext';
 import type { ProjectData } from '@/lib/api/projectApi';
+import { readStoredUpcomingMeetingsPanelOpen } from '@/lib/dashboardPanelPreferences';
 
 /**
  * Resolves [orgSlug]/[projectSlug] from the URL and syncs org + project
@@ -105,7 +106,8 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
 
   return (
     <ProjectRouteContext.Provider value={resolved.project}>
-      <DashboardPanelPreferenceProvider initialUpcomingMeetingsPanelOpen>
+      {/* Mounted only in the browser once the project resolves, so reading storage here is safe. */}
+      <DashboardPanelPreferenceProvider initialUpcomingMeetingsPanelOpen={readStoredUpcomingMeetingsPanelOpen()}>
       <ChatWebSocketProvider userId={user?.id ? Number(user.id) : null}>
         {children}
       </ChatWebSocketProvider>

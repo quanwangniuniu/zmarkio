@@ -1,6 +1,4 @@
 from django.db.models import Q
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -12,7 +10,6 @@ from .layout import DEFAULT_WIDGETS, DashboardLayoutSerializer, save_layout, wid
 from .models import DashboardLayout
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class DashboardLayoutView(APIView):
     permission_classes = [IsAuthenticated]
 

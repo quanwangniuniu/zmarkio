@@ -71,11 +71,36 @@ class DashboardLayoutTest(TestCase):
         response = self.client.get(self.url())
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data['widgets'], [
-            {'id': 'task-priority', 'x': 0, 'y': 7, 'w': 6, 'h': 4},
-            {'id': 'task-types', 'x': 6, 'y': 7, 'w': 6, 'h': 4},
+            {'id': 'section-title-group-older', 'title': 'Tasks', 'x': 0, 'y': 7, 'w': 12, 'h': 1},
+            {'id': 'task-priority', 'x': 0, 'y': 8, 'w': 6, 'h': 4},
+            {'id': 'task-types', 'x': 6, 'y': 8, 'w': 6, 'h': 4},
             {'id': 'audit', 'x': 0, 'y': 15, 'w': 6, 'h': 4},
         ])
         self.assertEqual(DashboardLayout.objects.get(project=self.project, user=self.owner).widgets, document)
+        # The converted layout must be accepted when the user next saves it.
+        self.assertEqual(self.client.put(self.url(), {'widgets': response.data['widgets']}, format='json').status_code, 200)
+
+    def test_group_titles_push_following_widgets_down_instead_of_overlapping(self):
+        self.client.force_authenticate(user=self.owner)
+        document = {
+            'version': 3,
+            'items': [
+                {'kind': 'group', 'id': 'group one!', 'title': '  Charts  ', 'x': 0, 'y': 0, 'w': 12, 'h': 4,
+                 'children': [{'kind': 'widget', 'id': 'task-status', 'x': 0, 'y': 0, 'w': 6, 'h': 4}]},
+                {'kind': 'group', 'id': 'untitled', 'title': ' ', 'x': 0, 'y': 4, 'w': 12, 'h': 4,
+                 'children': [{'kind': 'widget', 'id': 'audit', 'x': 0, 'y': 0, 'w': 6, 'h': 4}]},
+                {'kind': 'widget', 'id': 'activity', 'x': 6, 'y': 4, 'w': 6, 'h': 4},
+            ],
+        }
+        DashboardLayout.objects.create(project=self.project, user=self.owner, widgets=document)
+        widgets = self.client.get(self.url()).data['widgets']
+        self.assertEqual(widgets, [
+            {'id': 'section-title-groupone', 'title': 'Charts', 'x': 0, 'y': 0, 'w': 12, 'h': 1},
+            {'id': 'task-status', 'x': 0, 'y': 1, 'w': 6, 'h': 4},
+            {'id': 'activity', 'x': 6, 'y': 4, 'w': 6, 'h': 4},
+            {'id': 'audit', 'x': 0, 'y': 5, 'w': 6, 'h': 4},
+        ])
+        self.assertEqual(self.client.put(self.url(), {'widgets': widgets}, format='json').status_code, 200)
 
     def test_multiple_section_titles_are_editable_and_scoped_to_user_and_project(self):
         self.client.force_authenticate(user=self.owner)
@@ -164,3 +189,14 @@ class DashboardLayoutTest(TestCase):
         invalid = [widgets[0], {**widgets[1], 'y': height - 0.01}]
         self.assertEqual(self.client.put(self.url(), {'widgets': invalid}, format='json').status_code, 400)
         self.assertEqual(DashboardLayout.objects.get(project=self.project, user=self.owner).widgets, widgets)
+
+    def test_section_titles_are_capped(self):
+        from dashboard.layout import MAX_SECTION_TITLES
+        self.client.force_authenticate(user=self.owner)
+        titles = [
+            {'id': f'section-title-{index}', 'title': f'Section {index}', 'x': 0, 'y': index, 'w': 12, 'h': 1}
+            for index in range(MAX_SECTION_TITLES + 1)
+        ]
+        self.assertEqual(self.client.put(self.url(), {'widgets': titles}, format='json').status_code, 400)
+        self.assertFalse(DashboardLayout.objects.exists())
+        self.assertEqual(self.client.put(self.url(), {'widgets': titles[:MAX_SECTION_TITLES]}, format='json').status_code, 200)

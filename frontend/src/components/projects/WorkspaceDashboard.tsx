@@ -8,7 +8,6 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { AlertCircle, Loader2 } from 'lucide-react';
 import { Id } from '@/types/common';
 import {
   WorkspaceAPI,
@@ -233,9 +232,10 @@ function useCountUp(target: number, duration = 600): number {
 // ── Summary card with count-up animation + click-to-expand panel ─────────────
 
 function SummaryCard({
-  label, rawValue, displayValue, valueColor = TEXT_PRIMARY,
+  widgetId, label, rawValue, displayValue, valueColor = TEXT_PRIMARY,
   sub, subColor = '#aaa', barFill, barColor = COLOR.green,
 }: {
+  widgetId: WorkspaceWidgetId;
   label: string;
   rawValue: number;
   displayValue?: string;
@@ -243,7 +243,6 @@ function SummaryCard({
   sub?: string; subColor?: string;
   barFill?: number; barColor?: string;
 }) {
-  const widgetId = ({ 'Overall Progress': 'overall-progress', 'Tasks Completed': 'tasks-completed', 'Task Completion Rate': 'task-completion-rate', 'Overdue Tasks': 'overdue-tasks', 'Needs Attention': 'needs-attention' } as Record<string, string>)[label];
   const tileControls = useDashboardTileControls(widgetId);
   const [hovered, setHovered] = useState(false);
   const animated = useCountUp(rawValue);
@@ -297,11 +296,12 @@ function SummaryCard({
 
 // ── Zone panel ───────────────────────────────────────────────────────────────
 
-function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
+function ZonePanel({ widgetId, iconSvg, iconBg, title, badge, viewAllHref, children }: {
+  widgetId: WorkspaceWidgetId;
   iconSvg: React.ReactNode; iconBg: string; title: string;
   badge: string; viewAllHref: string; children: React.ReactNode;
 }) {
-  const tileControls = useDashboardTileControls(title.toLowerCase());
+  const tileControls = useDashboardTileControls(widgetId);
   const [hovered, setHovered] = useState(false);
   const viewAll = <Link href={viewAllHref} style={{ fontSize: 12, color: OVERVIEW_PRIMARY, whiteSpace: 'nowrap', flexShrink: 0, textDecoration: 'none', fontWeight: 500 }}>View all</Link>;
   return (
@@ -344,10 +344,10 @@ function ZonePanel({ iconSvg, iconBg, title, badge, viewAllHref, children }: {
 
 // ── Chart panel ──────────────────────────────────────────────────────────────
 
-function ChartPanel({ section, title, children, right, full = false }: {
+function ChartPanel({ widgetId, section, title, children, right, full = false }: {
+  widgetId: WorkspaceWidgetId;
   section: string; title: string; children: React.ReactNode; right?: React.ReactNode; full?: boolean;
 }) {
-  const widgetId = title === 'Status breakdown' ? 'task-status' : title === 'Priority distribution' ? 'task-priority' : title === 'Type breakdown' ? 'task-types' : 'task-trend';
   const tileControls = useDashboardTileControls(widgetId);
   return (
     <div style={{ background: '#fff', borderRadius: SURFACE_RADIUS, border: `1px solid ${SURFACE_BORDER}`, padding: PANEL_PAD, gridColumn: full ? '1 / -1' : undefined, boxShadow: 'none', minWidth: 0, overflow: 'hidden', height: '100%' }}>
@@ -851,10 +851,16 @@ function deriveOpsMetrics(
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface Props { projectId: Id; }
-export type WorkspaceWidgetId =
-  | 'overall-progress' | 'tasks-completed' | 'task-completion-rate' | 'overdue-tasks' | 'needs-attention'
-  | 'decisions' | 'tasks' | 'operations'
-  | 'task-status' | 'task-priority' | 'task-types' | 'task-trend';
+export const WORKSPACE_WIDGET_IDS = [
+  'overall-progress', 'tasks-completed', 'task-completion-rate', 'overdue-tasks', 'needs-attention',
+  'decisions', 'tasks', 'operations',
+  'task-status', 'task-priority', 'task-types', 'task-trend',
+] as const;
+export type WorkspaceWidgetId = (typeof WORKSPACE_WIDGET_IDS)[number];
+
+export function isWorkspaceWidgetId(id: string): id is WorkspaceWidgetId {
+  return (WORKSPACE_WIDGET_IDS as readonly string[]).includes(id);
+}
 
 interface WorkspaceContextValue {
   workspace: WorkspaceDashboardData | null;
@@ -928,27 +934,47 @@ export function WorkspaceDashboardProvider({ projectId, children }: Props & { ch
   return <WorkspaceContext.Provider value={{ workspace, summary, loading, error, trendDays, setTrendDays, trendLoading, projectId }}>{children}</WorkspaceContext.Provider>;
 }
 
+/** One shared message for a failed workspace fetch; each tile only shows a compact placeholder. */
+export function WorkspaceDashboardError() {
+  const context = useContext(WorkspaceContext);
+  if (!context || context.loading || !context.error) return null;
+  return (
+    <div role="alert" className="mb-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      <strong className="font-semibold">Could not load workspace metrics.</strong> {context.error}
+    </div>
+  );
+}
+
+/** Compact stand-in for one workspace tile while metrics load or after they fail. */
+function WorkspaceTilePlaceholder({ section, failed = false }: { section: WorkspaceWidgetId; failed?: boolean }) {
+  // Keep the move and remove controls so a tile can still be rearranged or removed.
+  const tileControls = useDashboardTileControls(section);
+  return (
+    <div
+      data-testid={failed ? 'workspace-widget-unavailable' : 'workspace-widget-skeleton'}
+      aria-busy={!failed}
+      style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%', minWidth: 0, overflow: 'hidden', background: '#fff', borderRadius: SURFACE_RADIUS, border: `1px solid ${SURFACE_BORDER}`, padding: PANEL_PAD }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 28, minWidth: 0 }}>
+        {tileControls?.dragHandle}
+        {failed
+          ? <span style={{ fontSize: 12, color: TEXT_MUTED }}>Data unavailable</span>
+          : <span className="animate-pulse" aria-hidden="true" style={{ height: 10, width: '40%', borderRadius: 4, background: '#eef0f2' }} />}
+        {tileControls?.removeButton && <span style={{ marginLeft: 'auto' }}>{tileControls.removeButton}</span>}
+      </div>
+      {!failed && <div className="animate-pulse" aria-hidden="true" style={{ flex: 1, minHeight: 0, borderRadius: 8, background: '#f3f4f6' }} />}
+    </div>
+  );
+}
+
 export default function WorkspaceDashboardWidget({ section }: { section: WorkspaceWidgetId }) {
   const context = useContext(WorkspaceContext);
   if (!context) throw new Error('WorkspaceDashboardWidget requires WorkspaceDashboardProvider');
   const { workspace, summary, loading, error, trendDays, setTrendDays, trendLoading, projectId } = context;
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 16, border: '1px dashed #E5E7EB', background: '#fff', padding: 40 }}>
-        <Loader2 className="h-8 w-8 animate-spin text-[#3CCED7]" />
-        <p style={{ marginTop: 12, fontSize: 14, fontWeight: 500, color: TEXT_PRIMARY }}>Loading workspace…</p>
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 16, border: '1px dashed #FECACA', background: '#fff', padding: 40, textAlign: 'center' }}>
-        <AlertCircle style={{ width: 32, height: 32, color: '#fb7185' }} />
-        <p style={{ marginTop: 12, fontWeight: 600, color: '#f43f5e' }}>Could not load workspace</p>
-        <p style={{ marginTop: 4, fontSize: 13, color: '#fb7185' }}>{error}</p>
-      </div>
-    );
-  }
+  // One fetch feeds every tile, so tiles stay compact here and the shared
+  // message is shown once by WorkspaceDashboardError.
+  if (loading) return <WorkspaceTilePlaceholder section={section} />;
+  if (error) return <WorkspaceTilePlaceholder section={section} failed />;
   if (!workspace || !summary) return null;
 
   // Derived metrics
@@ -997,6 +1023,7 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
         {section === 'overall-progress' && (<>
         {/* Overall Progress */}
         <SummaryCard
+          widgetId={section}
           label="Overall Progress"
           rawValue={completionPct} displayValue={`${completionPct}%`}
           barFill={completionPct} barColor={COLOR.green}
@@ -1005,11 +1032,12 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
 
         </>)}
         {section === 'tasks-completed' && (
-          <SummaryCard label="Tasks Completed" rawValue={doneTasks} sub={`${totalTasks} total tasks`} />
+          <SummaryCard widgetId={section} label="Tasks Completed" rawValue={doneTasks} sub={`${totalTasks} total tasks`} />
         )}
         {section === 'task-completion-rate' && (<>
         {/* Task Completion Rate */}
         <SummaryCard
+          widgetId={section}
           label="Task Completion Rate"
           rawValue={completionPct} displayValue={`${completionPct}%`}
           valueColor={COLOR.green} barFill={completionPct} barColor={COLOR.green}
@@ -1020,6 +1048,7 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
         {section === 'overdue-tasks' && (<>
         {/* Overdue Tasks */}
         <SummaryCard
+          widgetId={section}
           label="Overdue Tasks"
           rawValue={task.overdueCount}
           valueColor={task.overdueCount > 0 ? COLOR.red : TEXT_PRIMARY}
@@ -1031,6 +1060,7 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
         {section === 'needs-attention' && (<>
         {/* Needs Attention */}
         <SummaryCard
+          widgetId={section}
           label="Needs Attention"
           rawValue={needsAttention}
           valueColor={needsAttention > 0 ? COLOR.orange : TEXT_PRIMARY}
@@ -1048,6 +1078,7 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
         {section === 'decisions' && (<>
         {/* DECISIONS */}
         <ZonePanel
+          widgetId={section}
           iconSvg={
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#14b8a6" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="3" x2="12" y2="20" />
@@ -1087,6 +1118,7 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
         {section === 'tasks' && (<>
         {/* TASKS */}
         <ZonePanel
+          widgetId={section}
           iconSvg={
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="9 11 12 14 22 4" />
@@ -1147,6 +1179,7 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
         {section === 'operations' && (<>
         {/* OPERATIONS */}
         <ZonePanel
+          widgetId={section}
           iconSvg={
             <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="7" height="7" rx="1" />
@@ -1176,7 +1209,7 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
 
       {/* CHART ROW */}
       {['task-status', 'task-priority', 'task-types'].includes(section) && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 12, height: '100%' }}>
-        {section === 'task-status' && <ChartPanel section="Tasks" title="Status breakdown">
+        {section === 'task-status' && <ChartPanel widgetId={section} section="Tasks" title="Status breakdown">
           <HorizontalBarChart labels={statusLabels} values={statusValues} colors={statusColors} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 10 }}>
             {summary.status_overview.breakdown.map((b) => (
@@ -1189,7 +1222,7 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
             ))}
           </div>
         </ChartPanel>}
-        {section === 'task-priority' && <ChartPanel section="Tasks" title="Priority distribution">
+        {section === 'task-priority' && <ChartPanel widgetId={section} section="Tasks" title="Priority distribution">
           <div style={{ padding: '2px 0 10px' }}>
             {PRIORITY_CONFIG.map((p) => {
               const count = summary.priority_breakdown.find((b) => b.priority === p.key)?.count ?? 0;
@@ -1197,13 +1230,14 @@ export default function WorkspaceDashboardWidget({ section }: { section: Workspa
             })}
           </div>
         </ChartPanel>}
-        {section === 'task-types' && <ChartPanel section="Tasks" title="Type breakdown">
+        {section === 'task-types' && <ChartPanel widgetId={section} section="Tasks" title="Type breakdown">
           <DonutChart labels={typeLabels} values={typeValues} colors={typeColors} />
         </ChartPanel>}
       </div>}
 
       {/* TREND */}
       {section === 'task-trend' && <ChartPanel
+        widgetId={section}
         section="Tasks" title="Created vs Completed — last 7 days" full
         right={
           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>

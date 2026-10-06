@@ -1,4 +1,5 @@
 import { addWidget, compactWidgets, dropWidget, moveWidget, removeWidget, resizeDelta, resizeWidget } from '@/components/dashboard/builder/layoutReducer';
+import { MAX_SECTION_TITLES } from '@/components/dashboard/builder/sectionTitle';
 import type { DashboardWidgetPosition as Widget } from '@/types/dashboardLayout';
 
 const widgets: Widget[] = [
@@ -208,4 +209,15 @@ it('closes the vacated column after moving a card sideways', () => {
   expect(result.find((widget) => widget.id === 'activity')).toEqual({ ...layout[1], y: 0 });
   expect(result.find((widget) => widget.id === 'meetings')).toEqual({ ...layout[2], y: 4 });
   expect(result.find((widget) => widget.id === 'audit')).toEqual({ ...layout[0], x: 6 });
+});
+
+it('stops adding section titles at the limit but still adds other widgets', () => {
+  const titles: Widget[] = Array.from({ length: MAX_SECTION_TITLES }, (_, index) => ({
+    id: `section-title-${index}`, title: `Section ${index}`, x: 0, y: index, w: 12, h: 1,
+  }));
+  const extra: Widget = { id: 'section-title-extra', title: 'Extra', x: 0, y: 0, w: 12, h: 1 };
+  expect(addWidget(titles, extra)).toBe(titles);
+  expect(dropWidget(titles, extra, 0, 0)).toBe(titles);
+  expect(addWidget(titles.slice(1), extra)).toHaveLength(MAX_SECTION_TITLES);
+  expect(addWidget(titles, { id: 'audit', x: 0, y: 0, w: 6, h: 4 })).toHaveLength(MAX_SECTION_TITLES + 1);
 });
