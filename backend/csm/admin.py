@@ -4,6 +4,7 @@ from .models import (
     SupportProject, CsmWorkType, TicketForm, TicketFormField,
     TicketFormAssignment, TicketFormSubmission, TicketAttachment,
     SupportChannel, SupportChannelExperienceGroup,
+    ConversationQualityReview,
 )
 
 
@@ -128,3 +129,11 @@ class SupportChannelAdmin(admin.ModelAdmin):
 class SupportChannelExperienceGroupAdmin(admin.ModelAdmin):
     list_display = ['channel', 'experience_group', 'created_at']
     raw_id_fields = ['channel', 'experience_group']
+
+
+@admin.register(ConversationQualityReview)
+class ConversationQualityReviewAdmin(admin.ModelAdmin):
+    list_display = ['conversation', 'rating', 'agent_user', 'reviewer_name', 'reviewed_at']
+    list_filter = ['rating']
+    search_fields = ['agent_user__email', 'reviewer_name', 'comment']
+    raw_id_fields = ['conversation', 'reviewer', 'agent_user']

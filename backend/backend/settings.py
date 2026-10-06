@@ -462,7 +462,6 @@ CSRF_TRUSTED_ORIGINS = [
 
 # Session Configuration for OAuth
 SESSION_COOKIE_SAMESITE = 'Lax'  # Allow session cookies for OAuth redirects
-SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_AGE = 3600  # 1 hour
 SESSION_SAVE_EVERY_REQUEST = True
@@ -548,6 +547,8 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 # Celery Configuration
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://redis:6379/0')
@@ -943,6 +944,7 @@ INTERNAL_WEBHOOK_ENABLED = config('INTERNAL_WEBHOOK_ENABLED', default=True, cast
 STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY', default='sk')
 STRIPE_PUBLISHABLE_KEY = config('STRIPE_PUBLISHABLE_KEY', default='pk')
 STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='wh')
+STRIPE_WEBHOOK_SECRET_NEXT = config('STRIPE_WEBHOOK_SECRET_NEXT', default='')
 # Token-billing Stripe price IDs (env-driven, no hardcoded IDs)
 STRIPE_TEAM_BASE_PRICE_ID = os.environ.get('STRIPE_TEAM_BASE_PRICE_ID', '')
 STRIPE_TEAM_EXTRA_SEAT_PRICE_ID = os.environ.get('STRIPE_TEAM_EXTRA_SEAT_PRICE_ID', '')

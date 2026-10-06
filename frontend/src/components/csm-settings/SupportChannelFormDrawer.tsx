@@ -30,11 +30,9 @@ import OperatingHoursEditor, { validateOperatingHours } from './OperatingHoursEd
 import {
   BUILDER_CONTROL_CLASS,
   DRAWER_PRIMARY_BUTTON_CLASS,
+  FORM_LABEL_CLASS,
   SECONDARY_BUTTON_CLASS,
 } from './constants';
-
-const FORM_LABEL_CLASS =
-  'mb-1.5 block text-[12px] font-medium uppercase tracking-wider text-gray-500';
 
 const FORM_LABEL_INLINE_CLASS =
   'mb-1.5 text-[13px] font-medium uppercase tracking-wider text-gray-600';

@@ -355,6 +355,10 @@ export const AgentAPI = {
     dify_calendar: boolean;
     dify_miro: boolean;
     anthropic: boolean;
+    column_registry?: {
+      ok: boolean;
+      error?: string;
+    };
   }> => {
     const response = await api.get('/api/agent/config/status/');
     return response.data;
