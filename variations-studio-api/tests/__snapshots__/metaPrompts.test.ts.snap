@@ -47,7 +47,7 @@ Preserve the source's offer, target audience, and tone. Do not invent product fe
 `;
 
 exports[`Meta prompt compatibility preserves the template user prompt 1`] = `
-"Template ad copy:
+"Source ad (reference only; every text field you return must use NEW wording):
 - Hook: Make room for your next adventure
 - Headline: Explore the weekend collection
 - Description: Discover comfortable essentials for your next weekend away.
@@ -55,5 +55,5 @@ exports[`Meta prompt compatibility preserves the template user prompt 1`] = `
 
 Instruction: Rewrite all four fields with fresh phrasing, exploring a different angle than a literal rewrite. Respect the length caps and the cta enum lock.
 
-Return JSON: {"hook": "...", "headline": "...", "description": "...", "cta": "..."}"
+Write one new variation of the source ad."
 `;
