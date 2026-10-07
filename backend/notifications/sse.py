@@ -364,17 +364,11 @@ async def sse_event_generator(
         if active_connection_counted:
             sse_active_connections.dec()
         # Teardown: the stream is already over and any real error was logged above.
-        # r.aclose() sits in its own finally so it still runs (and closes the pubsub
-        # connection with the pool) if unsubscribe raises or is cancelled.
         # RuntimeError covers "Event loop is closed" when the server shuts down.
         try:
             if subscribed:
                 await pubsub.unsubscribe(channel)
+            await r.aclose()
         except (RedisError, OSError, RuntimeError):
             pass
-        finally:
-            try:
-                await r.aclose()
-            except (RedisError, OSError, RuntimeError):
-                pass
         logger.info("SSE: connection closed for user_id=%s", user_id)
