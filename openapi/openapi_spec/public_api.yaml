@@ -1,0 +1,807 @@
+openapi: 3.1.0
+info:
+  title: Zmarkio Public CSM API
+  version: 1.0.0
+  description: |
+    REST API and outbound webhooks for external systems integrating with the CSM platform (MED-226).
+
+    ## Credentials
+    An organisation admin or CSM admin creates credentials in **CSM settings → API & Webhooks**.
+    Every credential belongs to **one workspace and one project** and carries a set of scopes.
+    The secret is shown once, when it is created.
+
+    - **API key**: send `X-API-Key: zmk_<prefix>_<secret>`.
+    - **OAuth 2.0 client credentials**: exchange `client_id` / `client_secret` at
+      `POST /api/v1/oauth/token/` (`grant_type=client_credentials`), then send
+      `Authorization: Bearer <access_token>`. Tokens expire after one hour. What a token may
+      do is decided by the client's scopes; the OAuth `scope` parameter is ignored.
+
+    A request always acts as the credential, never as the person who created it.
+
+    ## Errors
+    - `401` — missing, malformed, unknown, expired or revoked credential.
+    - `403` — valid credential without the scope the request needs.
+    - `400` — validation error, `{"<field>": ["message"]}`.
+    - `404` — the row does not exist **in the credential's workspace and project**.
+    - `429` — rate limit (default 600 requests/minute per credential).
+
+    ## Scopes
+    `<resource>:read` and `<resource>:write` for `customers`, `organisations`, `tickets`,
+    `conversations`, `templates`, `routing_rules`, `queues`, `agents`. A write scope implies read.
+
+    ## Pagination
+    Lists return `{count, next, previous, results}`; `?page=` and `?page_size=` (max 100).
+
+    ## Webhooks
+    See `webhooks` below. Each delivery is a `POST` with a JSON `WebhookEvent` body and these headers:
+
+    | Header | Value |
+    |---|---|
+    | `X-Zmarkio-Signature` | `t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>` |
+    | `X-Zmarkio-Event` | event type |
+    | `X-Zmarkio-Delivery` | event id (the same for every retry of one event) |
+    | `X-Zmarkio-Attempt` | `1`–`4` |
+
+    Verify the signature over the **raw** body with a constant-time comparison and reject old
+    timestamps (e.g. older than 5 minutes) to stop replays. Respond with any `2xx` within 10 seconds.
+    Any other outcome is retried up to 3 times, after 30 s, 2 min and 8 min. Every attempt is
+    shown in the admin console's delivery log. Use the delivery id to de-duplicate.
+
+    SLA breaches are detected by a scheduled check that runs every 15 minutes, so an
+    `sla.breached` event can follow the actual breach by up to that interval.
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+security:
+  - apiKey: []
+  - oauth2: []
+
+tags:
+  - name: Credentials
+  - name: Customers
+  - name: Organisations
+  - name: Tickets
+  - name: Conversations
+  - name: Templates
+  - name: Routing rules
+  - name: Queues
+  - name: Agents
+
+paths:
+  /oauth/token/:
+    post:
+      tags: [Credentials]
+      summary: Exchange client credentials for an access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type, client_id, client_secret]
+              properties:
+                grant_type: {type: string, enum: [client_credentials]}
+                client_id: {type: string}
+                client_secret: {type: string}
+      responses:
+        '200':
+          description: Access token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: {type: string}
+                  token_type: {type: string, example: Bearer}
+                  expires_in: {type: integer, example: 3600}
+                  scope: {type: string}
+        '401': {description: Invalid client or revoked client}
+
+  /csm/whoami/:
+    get:
+      tags: [Credentials]
+      summary: The workspace, project and scopes of the calling credential
+      responses:
+        '200':
+          description: Credential identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  credential_type: {type: string, enum: [api_key, oauth_client]}
+                  name: {type: string}
+                  organization:
+                    type: object
+                    properties:
+                      id: {type: integer}
+                      slug: {type: string}
+                  project_id: {type: integer}
+                  scopes: {type: array, items: {type: string}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+
+  /csm/customers/:
+    get:
+      tags: [Customers]
+      summary: List customers (scope customers:read)
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/PageSize'}
+        - {name: email, in: query, schema: {type: string}, description: Case-insensitive exact match}
+      responses:
+        '200': {$ref: '#/components/responses/CustomerList'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [Customers]
+      summary: Create a customer in the credential's project (scope customers:write)
+      requestBody: {$ref: '#/components/requestBodies/Customer'}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Customer'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+  /csm/customers/{id}/:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      tags: [Customers]
+      summary: Retrieve a customer
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Customer'}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
+    patch:
+      tags: [Customers]
+      summary: Update a customer
+      requestBody: {$ref: '#/components/requestBodies/Customer'}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Customer'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+    delete:
+      tags: [Customers]
+      summary: Delete a customer
+      responses:
+        '204': {description: Deleted}
+
+  /csm/organisations/:
+    get:
+      tags: [Organisations]
+      summary: List customer organisations of the workspace (scope organisations:read)
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerOrganisationPage'}}}}
+    post:
+      tags: [Organisations]
+      summary: Create a customer organisation (scope organisations:write)
+      requestBody: {$ref: '#/components/requestBodies/CustomerOrganisation'}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerOrganisation'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+  /csm/organisations/{id}/:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      tags: [Organisations]
+      summary: Retrieve a customer organisation
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerOrganisation'}}}}
+    patch:
+      tags: [Organisations]
+      summary: Update a customer organisation
+      requestBody: {$ref: '#/components/requestBodies/CustomerOrganisation'}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerOrganisation'}}}}
+    delete:
+      tags: [Organisations]
+      summary: Delete a customer organisation (refused with 400 while it still has customers)
+      responses:
+        '204': {description: Deleted}
+        '400': {$ref: '#/components/responses/ValidationError'}
+
+  /csm/tickets/:
+    get:
+      tags: [Tickets]
+      summary: List tickets (scope tickets:read)
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/PageSize'}
+        - {name: queue, in: query, schema: {type: integer}}
+        - {name: status, in: query, schema: {type: string}, description: Status slug}
+        - {$ref: '#/components/parameters/UpdatedSince'}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/TicketPage'}}}}
+    post:
+      tags: [Tickets]
+      summary: Create a ticket (scope tickets:write). Emits ticket.created.
+      requestBody: {$ref: '#/components/requestBodies/Ticket'}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Ticket'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+  /csm/tickets/{id}/:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      tags: [Tickets]
+      summary: Retrieve a ticket
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Ticket'}}}}
+    patch:
+      tags: [Tickets]
+      summary: Update a ticket
+      description: |
+        A status change must be a transition the project's status machine permits
+        (`available_next_statuses`), otherwise 400. Emits ticket.status_changed.
+        Changing the priority recalculates the SLA deadlines. Tickets cannot be deleted.
+      requestBody: {$ref: '#/components/requestBodies/Ticket'}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Ticket'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+
+  /csm/conversations/:
+    get:
+      tags: [Conversations]
+      summary: List conversations (scope conversations:read)
+      description: Conversations that have not been routed to a queue are not exposed.
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/PageSize'}
+        - {name: queue, in: query, schema: {type: integer}}
+        - {name: status, in: query, schema: {type: string, enum: [active, pending, resolved, closed]}}
+        - {$ref: '#/components/parameters/UpdatedSince'}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/ConversationPage'}}}}
+    post:
+      tags: [Conversations]
+      summary: Create a conversation (scope conversations:write)
+      requestBody: {$ref: '#/components/requestBodies/Conversation'}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Conversation'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+  /csm/conversations/{id}/:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      tags: [Conversations]
+      summary: Retrieve a conversation
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Conversation'}}}}
+    patch:
+      tags: [Conversations]
+      summary: Update status, queue, assignee or tags
+      requestBody: {$ref: '#/components/requestBodies/Conversation'}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Conversation'}}}}
+  /csm/conversations/{id}/messages/:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      tags: [Conversations]
+      summary: List a conversation's messages, oldest first (read-only)
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/MessagePage'}}}}
+
+  /csm/templates/:
+    get:
+      tags: [Templates]
+      summary: List quick reply templates (scope templates:read)
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/TemplatePage'}}}}
+    post:
+      tags: [Templates]
+      summary: Create a template (scope templates:write)
+      requestBody: {$ref: '#/components/requestBodies/Template'}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+  /csm/templates/{id}/:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      tags: [Templates]
+      summary: Retrieve a template
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}
+    patch:
+      tags: [Templates]
+      summary: Update a template (the previous version is kept in its edit history)
+      requestBody: {$ref: '#/components/requestBodies/Template'}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Template'}}}}
+    delete:
+      tags: [Templates]
+      summary: Deactivate a template (soft delete)
+      responses:
+        '204': {description: Deactivated}
+
+  /csm/routing-rules/:
+    get:
+      tags: [Routing rules]
+      summary: List routing rules in evaluation order (scope routing_rules:read)
+      parameters:
+        - {$ref: '#/components/parameters/Page'}
+        - {$ref: '#/components/parameters/PageSize'}
+        - {name: experience_group, in: query, schema: {type: integer}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/RoutingRulePage'}}}}
+    post:
+      tags: [Routing rules]
+      summary: Create a rule, appended to the end of its experience group (scope routing_rules:write)
+      requestBody: {$ref: '#/components/requestBodies/RoutingRule'}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/RoutingRule'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+  /csm/routing-rules/{id}/:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      tags: [Routing rules]
+      summary: Retrieve a rule
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/RoutingRule'}}}}
+    patch:
+      tags: [Routing rules]
+      summary: Update a rule (a rule never moves between experience groups)
+      requestBody: {$ref: '#/components/requestBodies/RoutingRule'}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/RoutingRule'}}}}
+    delete:
+      tags: [Routing rules]
+      summary: Delete a rule
+      responses:
+        '204': {description: Deleted}
+  /csm/routing-rules/reorder/:
+    put:
+      tags: [Routing rules]
+      summary: Set the evaluation order of one experience group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [experience_group, ids]
+              properties:
+                experience_group: {type: integer}
+                ids: {type: array, items: {type: integer}, description: Every rule id of the group, exactly once}
+      responses:
+        '200':
+          description: The group's rules in their new order
+          content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/RoutingRule'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+
+  /csm/queues/:
+    get:
+      tags: [Queues]
+      summary: List queues (scope queues:read)
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QueuePage'}}}}
+    post:
+      tags: [Queues]
+      summary: Create a queue in the credential's project (scope queues:write)
+      requestBody: {$ref: '#/components/requestBodies/Queue'}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Queue'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+  /csm/queues/{id}/:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      tags: [Queues]
+      summary: Retrieve a queue
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Queue'}}}}
+    patch:
+      tags: [Queues]
+      summary: Update a queue
+      requestBody: {$ref: '#/components/requestBodies/Queue'}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Queue'}}}}
+    delete:
+      tags: [Queues]
+      summary: Deactivate a queue (soft delete)
+      responses:
+        '204': {description: Deactivated}
+
+  /csm/agents/:
+    get:
+      tags: [Agents]
+      summary: List CSM profiles — agents, supervisors and admins (scope agents:read)
+      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/AgentPage'}}}}
+    post:
+      tags: [Agents]
+      summary: Give an existing workspace member a CSM profile (scope agents:write)
+      description: The API never creates user accounts; `email` must belong to an active member of the workspace.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - {$ref: '#/components/schemas/AgentWrite'}
+                - type: object
+                  required: [email, organisation]
+                  properties:
+                    email: {type: string, format: email}
+      responses:
+        '201': {description: Created, content: {application/json: {schema: {$ref: '#/components/schemas/Agent'}}}}
+        '400': {$ref: '#/components/responses/ValidationError'}
+  /csm/agents/{id}/:
+    parameters: [{$ref: '#/components/parameters/Id'}]
+    get:
+      tags: [Agents]
+      summary: Retrieve a profile
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Agent'}}}}
+    patch:
+      tags: [Agents]
+      summary: Update role, queue or active flag
+      requestBody: {content: {application/json: {schema: {$ref: '#/components/schemas/AgentWrite'}}}}
+      responses:
+        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/Agent'}}}}
+    delete:
+      tags: [Agents]
+      summary: Delete a profile (refused for the organisation's creator)
+      responses:
+        '204': {description: Deleted}
+        '400': {$ref: '#/components/responses/ValidationError'}
+
+webhooks:
+  ticket.created:
+    post:
+      summary: A ticket was created (by an agent, a portal form, the API or a conversation claim)
+      requestBody: {$ref: '#/components/requestBodies/WebhookEvent'}
+      responses: {'2XX': {description: Received}}
+  ticket.status_changed:
+    post:
+      summary: A ticket moved to another status; `data.previous_status` holds the old slug
+      requestBody: {$ref: '#/components/requestBodies/WebhookEvent'}
+      responses: {'2XX': {description: Received}}
+  sla.breached:
+    post:
+      summary: A ticket breached its first-response or resolution SLA; `data.breach_type` says which
+      requestBody: {$ref: '#/components/requestBodies/WebhookEvent'}
+      responses: {'2XX': {description: Received}}
+  ping:
+    post:
+      summary: Test event sent from the admin console
+      requestBody: {$ref: '#/components/requestBodies/WebhookEvent'}
+      responses: {'2XX': {description: Received}}
+
+components:
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    oauth2:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: /api/v1/oauth/token/
+          scopes: {}
+
+  parameters:
+    Id: {name: id, in: path, required: true, schema: {type: integer}}
+    Page: {name: page, in: query, schema: {type: integer, minimum: 1}}
+    PageSize: {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+    UpdatedSince:
+      name: updated_since
+      in: query
+      schema: {type: string, format: date-time}
+      description: Only rows updated at or after this ISO 8601 time
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid, expired or revoked credential
+      headers:
+        WWW-Authenticate: {schema: {type: string, example: 'Api-Key realm="api"'}}
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    Forbidden:
+      description: The credential lacks the required scope
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    NotFound:
+      description: Not found in the credential's workspace and project
+      content: {application/json: {schema: {$ref: '#/components/schemas/Error'}}}
+    ValidationError:
+      description: Invalid input
+      content: {application/json: {schema: {type: object, additionalProperties: true}}}
+    CustomerList:
+      description: OK
+      content: {application/json: {schema: {$ref: '#/components/schemas/CustomerPage'}}}
+
+  requestBodies:
+    Customer: {content: {application/json: {schema: {$ref: '#/components/schemas/CustomerWrite'}}}}
+    CustomerOrganisation: {content: {application/json: {schema: {$ref: '#/components/schemas/CustomerOrganisationWrite'}}}}
+    Ticket: {content: {application/json: {schema: {$ref: '#/components/schemas/TicketWrite'}}}}
+    Conversation: {content: {application/json: {schema: {$ref: '#/components/schemas/ConversationWrite'}}}}
+    Template: {content: {application/json: {schema: {$ref: '#/components/schemas/TemplateWrite'}}}}
+    RoutingRule: {content: {application/json: {schema: {$ref: '#/components/schemas/RoutingRuleWrite'}}}}
+    Queue: {content: {application/json: {schema: {$ref: '#/components/schemas/QueueWrite'}}}}
+    WebhookEvent: {content: {application/json: {schema: {$ref: '#/components/schemas/WebhookEvent'}}}}
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        detail: {type: string}
+
+    Page:
+      type: object
+      properties:
+        count: {type: integer}
+        next: {type: [string, 'null'], format: uri}
+        previous: {type: [string, 'null'], format: uri}
+
+    CustomerWrite:
+      type: object
+      required: [email, full_name]
+      properties:
+        email: {type: string, format: email}
+        full_name: {type: string}
+        company: {type: string}
+        phone: {type: string}
+        experience_group: {type: [integer, 'null']}
+        region: {type: [integer, 'null']}
+        organisation: {type: [integer, 'null'], description: Customer organisation id}
+        status_label: {type: [integer, 'null']}
+        is_active: {type: boolean}
+    Customer:
+      allOf:
+        - {$ref: '#/components/schemas/CustomerWrite'}
+        - type: object
+          properties:
+            id: {type: integer}
+            user_id: {type: [integer, 'null'], description: Portal account, if the customer has one}
+            experience_group_name: {type: [string, 'null']}
+            status_label_name: {type: [string, 'null']}
+            status_label_color: {type: [string, 'null']}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+    CustomerPage:
+      allOf:
+        - {$ref: '#/components/schemas/Page'}
+        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Customer'}}}}
+
+    CustomerOrganisationWrite:
+      type: object
+      required: [name]
+      properties:
+        name: {type: string}
+        domains: {type: array, items: {type: string}}
+        industry: {type: string}
+        plan: {type: string}
+        region: {type: [integer, 'null']}
+    CustomerOrganisation:
+      allOf:
+        - {$ref: '#/components/schemas/CustomerOrganisationWrite'}
+        - type: object
+          properties:
+            id: {type: integer}
+            organization: {type: integer, description: The workspace (always the credential's)}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+    CustomerOrganisationPage:
+      allOf:
+        - {$ref: '#/components/schemas/Page'}
+        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/CustomerOrganisation'}}}}
+
+    TicketWrite:
+      type: object
+      required: [queue, title]
+      properties:
+        queue: {type: integer}
+        title: {type: string}
+        description: {type: string}
+        status: {type: string, description: 'Status slug; defaults to "todo"'}
+        priority: {type: string, enum: [critical, high, medium, low]}
+        assigned_to: {type: [integer, 'null'], description: User id with an active CSM profile in the queue's organisation}
+        customer_email: {type: string, format: email}
+        conversation: {type: [integer, 'null']}
+    Ticket:
+      allOf:
+        - {$ref: '#/components/schemas/TicketWrite'}
+        - type: object
+          properties:
+            id: {type: integer}
+            queue_name: {type: string}
+            status_display: {type: string}
+            status_color: {type: [string, 'null']}
+            priority_display: {type: string}
+            assigned_to_name: {type: [string, 'null']}
+            created_at: {type: string, format: date-time}
+            first_response_due: {type: [string, 'null'], format: date-time}
+            resolution_due: {type: [string, 'null'], format: date-time}
+            sla: {type: object, additionalProperties: true}
+            available_next_statuses:
+              type: array
+              items:
+                type: object
+                properties:
+                  slug: {type: string}
+                  name: {type: string}
+                  color: {type: string}
+    TicketPage:
+      allOf:
+        - {$ref: '#/components/schemas/Page'}
+        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Ticket'}}}}
+
+    ConversationWrite:
+      type: object
+      required: [queue]
+      properties:
+        queue: {type: integer}
+        customer: {type: [integer, 'null']}
+        assigned_to: {type: [integer, 'null'], description: Agent profile id}
+        status: {type: string, enum: [active, pending, resolved, closed]}
+        channel: {type: string, enum: [web, email, whatsapp]}
+        tags: {type: array, items: {type: string}}
+        ended_at: {type: [string, 'null'], format: date-time}
+    Conversation:
+      allOf:
+        - {$ref: '#/components/schemas/ConversationWrite'}
+        - type: object
+          properties:
+            id: {type: integer}
+            customer_name: {type: [string, 'null']}
+            customer_email: {type: [string, 'null']}
+            queue_name: {type: [string, 'null']}
+            queue_organisation_id: {type: [integer, 'null']}
+            assigned_to_name: {type: [string, 'null']}
+            status_display: {type: string}
+            channel_display: {type: string}
+            started_at: {type: string, format: date-time}
+            elapsed_seconds: {type: integer}
+            ticket: {type: [object, 'null'], additionalProperties: true}
+            created_at: {type: string, format: date-time}
+    ConversationPage:
+      allOf:
+        - {$ref: '#/components/schemas/Page'}
+        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Conversation'}}}}
+    Message:
+      type: object
+      properties:
+        id: {type: integer}
+        conversation: {type: integer}
+        sender_type: {type: string, enum: [agent, customer, system]}
+        sender_agent: {type: [integer, 'null']}
+        sender_agent_name: {type: [string, 'null']}
+        sender_agent_email: {type: [string, 'null']}
+        content: {type: string}
+        rich_body: {type: [object, 'null'], additionalProperties: true}
+        image_url: {type: [string, 'null'], format: uri}
+        created_at: {type: string, format: date-time}
+    MessagePage:
+      allOf:
+        - {$ref: '#/components/schemas/Page'}
+        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Message'}}}}
+
+    TemplateWrite:
+      type: object
+      required: [organisation, title, content, tags]
+      properties:
+        organisation: {type: integer}
+        title: {type: string}
+        content: {type: string}
+        rich_body: {type: [object, 'null'], additionalProperties: true}
+        tags: {type: array, items: {type: string}, description: Must be tags an admin defined for the organisation}
+        is_active: {type: boolean}
+    Template:
+      allOf:
+        - {$ref: '#/components/schemas/TemplateWrite'}
+        - type: object
+          properties:
+            id: {type: integer}
+            slug: {type: string}
+            team: {type: [integer, 'null']}
+            created_by: {type: [integer, 'null']}
+            created_by_name: {type: [string, 'null']}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+    TemplatePage:
+      allOf:
+        - {$ref: '#/components/schemas/Page'}
+        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Template'}}}}
+
+    RoutingRuleWrite:
+      type: object
+      required: [experience_group, name, target_queue]
+      properties:
+        experience_group: {type: integer}
+        name: {type: string}
+        is_enabled: {type: boolean}
+        match_mode: {type: string, enum: [all, any]}
+        conditions:
+          type: array
+          items:
+            type: object
+            required: [field, operator, value]
+            properties:
+              field: {type: string}
+              operator: {type: string}
+              value: {}
+        target_queue: {type: integer}
+        add_tags: {type: array, items: {type: string}}
+    RoutingRule:
+      allOf:
+        - {$ref: '#/components/schemas/RoutingRuleWrite'}
+        - type: object
+          properties:
+            id: {type: integer}
+            position: {type: integer}
+            target_queue_name: {type: [string, 'null']}
+            can_route: {type: boolean, description: False when the target queue was deleted or deactivated}
+            created_at: {type: string, format: date-time}
+            updated_at: {type: string, format: date-time}
+    RoutingRulePage:
+      allOf:
+        - {$ref: '#/components/schemas/Page'}
+        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/RoutingRule'}}}}
+
+    QueueWrite:
+      type: object
+      required: [name, organisation]
+      properties:
+        organisation: {type: integer}
+        name: {type: string}
+        description: {type: string}
+        tier: {type: string, enum: [T1, T2, T3, T4]}
+        sla_policy: {type: [integer, 'null']}
+        display_order: {type: integer}
+        is_active: {type: boolean}
+    Queue:
+      allOf:
+        - {$ref: '#/components/schemas/QueueWrite'}
+        - type: object
+          properties:
+            id: {type: integer}
+            slug: {type: string}
+            project: {type: integer}
+            organisation_name: {type: [string, 'null']}
+            tier_display: {type: string}
+            created_at: {type: string, format: date-time}
+    QueuePage:
+      allOf:
+        - {$ref: '#/components/schemas/Page'}
+        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Queue'}}}}
+
+    AgentWrite:
+      type: object
+      properties:
+        organisation: {type: integer}
+        queue: {type: [integer, 'null']}
+        user_type: {type: string, enum: [agent, supervisor, admin]}
+        is_active: {type: boolean}
+    Agent:
+      allOf:
+        - {$ref: '#/components/schemas/AgentWrite'}
+        - type: object
+          properties:
+            id: {type: integer}
+            user: {type: integer}
+            user_email: {type: string}
+            user_name: {type: string}
+            team: {type: [integer, 'null']}
+            team_name: {type: [string, 'null']}
+            queue_name: {type: [string, 'null']}
+            organisation_name: {type: [string, 'null']}
+            user_type_display: {type: string}
+            created_at: {type: string, format: date-time}
+    AgentPage:
+      allOf:
+        - {$ref: '#/components/schemas/Page'}
+        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Agent'}}}}
+
+    WebhookEvent:
+      type: object
+      required: [id, type, created_at, organization_id, project_id, data]
+      properties:
+        id: {type: string, format: uuid, description: Event id; repeated on every retry}
+        type: {type: string, enum: [ticket.created, ticket.status_changed, sla.breached, ping]}
+        created_at: {type: string, format: date-time}
+        organization_id: {type: integer}
+        project_id: {type: integer}
+        data:
+          type: object
+          properties:
+            ticket: {$ref: '#/components/schemas/Ticket'}
+            previous_status: {type: string, description: ticket.status_changed only}
+            breach_type: {type: string, enum: [first_response, resolution], description: sla.breached only}
+            message: {type: string, description: ping only}
