@@ -53,7 +53,7 @@ function hashColorForUser(userId: number, key: string): string {
   return `#${to(r)}${to(g)}${to(b)}`;
 }
 
-export type SheetSocketStore = { 
+type SheetSocketStore = {
   sheetId: number | null;
   wsState: SheetWsState;
   closeCode: number | null;
@@ -79,24 +79,6 @@ export type SheetSocketStore = {
     is_active?: boolean;
   }) => void;
   reset: () => void;
-};
-
-
-type UseSheetSocketStore = {
-  (): SheetSocketStore;
-  <T>(selector: (state: SheetSocketStore) => T): T;
-  getState: () => SheetSocketStore;
-  setState: (
-    partial:
-      | SheetSocketStore
-      | Partial<SheetSocketStore>
-      | ((state: SheetSocketStore) => SheetSocketStore | Partial<SheetSocketStore>),
-    replace?: boolean
-  ) => void;
-  subscribe: (
-    listener: (state: SheetSocketStore, prevState: SheetSocketStore) => void
-  ) => () => void;
-  getInitialState: () => SheetSocketStore;
 };
 
 export const useSheetSocketStore = create<SheetSocketStore>((set) => ({
@@ -203,7 +185,7 @@ export const useSheetSocketStore = create<SheetSocketStore>((set) => ({
       closeCode: null,
       usersByKey: {},
     }),
-})) as unknown as UseSheetSocketStore; 
+}));
 
 export function selectRemotePresenceUsers(
   usersByKey: Record<string, SheetPresenceUser>,

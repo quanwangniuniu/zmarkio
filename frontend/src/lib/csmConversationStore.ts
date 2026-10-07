@@ -28,7 +28,7 @@ export interface ComposerInsertRequest {
   nonce: number;
 }
 
-export interface CsmConversationState {
+interface CsmConversationState {
   conversations: Conversation[];
   activeConversationId: number | null;
   selectedQueueId: number | null;
@@ -55,23 +55,6 @@ export interface CsmConversationState {
 }
 
 let composerInsertNonce = 0;
-
-type UseCsmConversationStore = {
-  (): CsmConversationState;
-  <T>(selector: (state: CsmConversationState) => T): T;
-  getState: () => CsmConversationState;
-  setState: (
-    partial:
-      | CsmConversationState
-      | Partial<CsmConversationState>
-      | ((state: CsmConversationState) => CsmConversationState | Partial<CsmConversationState>),
-    replace?: boolean
-  ) => void;
-  subscribe: (
-    listener: (state: CsmConversationState, prevState: CsmConversationState) => void
-  ) => () => void;
-  getInitialState: () => CsmConversationState;
-};
 
 export const useCsmConversationStore = create<CsmConversationState>((set) => ({
   conversations: [],
@@ -156,4 +139,4 @@ export const useCsmConversationStore = create<CsmConversationState>((set) => ({
     set((state) =>
       state.pendingComposerInsert?.nonce === nonce ? { pendingComposerInsert: null } : state
     ),
-})) as unknown as UseCsmConversationStore;
+}));
