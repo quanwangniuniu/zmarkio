@@ -7,4 +7,4 @@ class PublicApiConfig(AppConfig):
     verbose_name = 'Public API & Webhooks'
 
     def ready(self):
-        from public_api import signals  # noqa: F401  (registers ticket webhook receivers)
+        import public_api.signals  # noqa: F401

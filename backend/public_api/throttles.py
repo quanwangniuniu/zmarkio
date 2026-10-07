@@ -12,4 +12,4 @@ class ApiCredentialRateThrottle(SimpleRateThrottle):
         principal = request.user
         if not isinstance(principal, ApiPrincipal):
             return None
-        return self.cache_format % {'scope': self.scope, 'ident': principal.throttle_key}
+        return self.cache_format % {'scope': self.scope, 'ident': f'{principal.kind}:{principal.credential_id}'}

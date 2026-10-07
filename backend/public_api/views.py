@@ -1,24 +1,19 @@
 """Public REST API under /api/v1/csm/, for external systems holding an API key or OAuth client."""
 
-from datetime import timezone as dt_timezone
-
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.fields import get_error_detail
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
-from csm.models import QuickReplyTemplateHistory, RoutingRule
-from csm.serializers import RoutingRuleReorderSerializer, RoutingRuleSerializer
+from csm.models import RoutingRule
+from csm.serializers import ConversationMessageSerializer, RoutingRuleReorderSerializer, RoutingRuleSerializer
 from csm.services.routing_rules import create_rule, reorder_rules, update_rule
-from csm.services.sla import recalculate_ticket_sla
+from csm.services.sla import restart_ticket_sla, start_ticket_sla
 from csm.services.status_machine import assert_transition_allowed
-from public_api import scoping
 from public_api.authentication import ApiKeyAuthentication, OAuthClientAuthentication
 from public_api.permissions import HasApiScope
 from public_api.serializers import (
@@ -26,17 +21,13 @@ from public_api.serializers import (
     PublicConversationSerializer,
     PublicCustomerOrganisationSerializer,
     PublicCustomerSerializer,
-    PublicMessageSerializer,
     PublicQueueSerializer,
     PublicRoutingRuleWriteSerializer,
     PublicTemplateSerializer,
     PublicTicketSerializer,
 )
-from public_api.throttling import ApiCredentialRateThrottle
-
-
-def _raise_drf_validation(exc):
-    raise ValidationError(exc.message_dict if hasattr(exc, 'message_dict') else exc.messages)
+from public_api.services import scoping
+from public_api.throttles import ApiCredentialRateThrottle
 
 
 class PublicApiPagination(PageNumberPagination):
@@ -53,28 +44,10 @@ class PublicApiMixin:
     throttle_classes = [ApiCredentialRateThrottle]
     pagination_class = PublicApiPagination
 
-    @property
-    def principal(self):
-        return self.request.user
-
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context['principal'] = self.principal
+        context['principal'] = self.request.user
         return context
-
-
-class WhoAmIView(PublicApiMixin, APIView):
-    """GET /api/v1/csm/whoami/: the workspace, project and scopes of the calling credential."""
-
-    def get(self, request):
-        principal = self.principal
-        return Response({
-            'credential_type': principal.kind,
-            'name': principal.name,
-            'organization': {'id': principal.organization_id, 'slug': principal.organization_slug},
-            'project_id': principal.project_id,
-            'scopes': principal.scopes,
-        })
 
 
 class SoftDeleteMixin:
@@ -86,38 +59,45 @@ class SoftDeleteMixin:
 
 
 class QueueViewSet(PublicApiMixin, SoftDeleteMixin, viewsets.ModelViewSet):
+    """
+    - GET/POST          /api/v1/csm/queues/
+    - GET/PATCH/DELETE  /api/v1/csm/queues/{id}/      DELETE deactivates
+    """
+
     api_resource = 'queues'
     serializer_class = PublicQueueSerializer
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.queues(self.principal).select_related('organisation').order_by('display_order', 'id')
+        return scoping.queues(self.request.user).select_related('organisation').order_by('display_order', 'id')
 
     def perform_create(self, serializer):
-        serializer.save(project_id=self.principal.project_id)
+        serializer.save(project_id=self.request.user.project_id)
 
 
 class TicketViewSet(PublicApiMixin, viewsets.ModelViewSet):
-    """Filters: ?queue=, ?status=, ?updated_since=<ISO 8601>. No DELETE, as in the product."""
+    """
+    - GET/POST   /api/v1/csm/tickets/?queue=&status=
+    - GET/PATCH  /api/v1/csm/tickets/{id}/     status changes follow the status machine
+
+    No DELETE, as in the product.
+    """
 
     api_resource = 'tickets'
     serializer_class = PublicTicketSerializer
     http_method_names = ['get', 'post', 'patch', 'head', 'options']
 
     def get_queryset(self):
-        qs = scoping.tickets(self.principal).select_related('queue', 'assigned_to', 'conversation')
+        qs = scoping.tickets(self.request.user).select_related('queue', 'assigned_to', 'conversation')
         params = self.request.query_params
         if params.get('queue'):
             qs = qs.filter(queue_id=params['queue'])
         if params.get('status'):
             qs = qs.filter(status=params['status'])
-        return _updated_since(qs, params).order_by('-created_at', '-id')
+        return qs.order_by('-created_at', '-id')
 
     def perform_create(self, serializer):
-        ticket = serializer.save()
-        recalculate_ticket_sla(ticket)
-        if ticket.first_response_due is not None or ticket.resolution_due is not None:
-            ticket.save(update_fields=['first_response_due', 'resolution_due'])
+        start_ticket_sla(serializer.save())
 
     def perform_update(self, serializer):
         ticket = serializer.instance
@@ -127,28 +107,31 @@ class TicketViewSet(PublicApiMixin, viewsets.ModelViewSet):
             try:
                 assert_transition_allowed(ticket, new_status)
             except DjangoValidationError as exc:
-                _raise_drf_validation(exc)
+                raise ValidationError(get_error_detail(exc))
         ticket = serializer.save()
         if ticket.priority != old_priority:
-            recalculate_ticket_sla(ticket, base_time=timezone.now())
-            ticket.save(update_fields=['first_response_due', 'resolution_due'])
+            restart_ticket_sla(ticket)
 
 
 class ConversationViewSet(PublicApiMixin, viewsets.ModelViewSet):
-    """Filters: ?queue=, ?status=, ?updated_since=. Messages are read-only."""
+    """
+    - GET/POST   /api/v1/csm/conversations/?queue=&status=
+    - GET/PATCH  /api/v1/csm/conversations/{id}/
+    - GET        /api/v1/csm/conversations/{id}/messages/    read-only, oldest first
+    """
 
     api_resource = 'conversations'
     serializer_class = PublicConversationSerializer
     http_method_names = ['get', 'post', 'patch', 'head', 'options']
 
     def get_queryset(self):
-        qs = scoping.conversations(self.principal).select_related('customer', 'queue', 'assigned_to__user')
+        qs = scoping.conversations(self.request.user).select_related('customer', 'queue', 'assigned_to__user')
         params = self.request.query_params
         if params.get('queue'):
             qs = qs.filter(queue_id=params['queue'])
         if params.get('status'):
             qs = qs.filter(status=params['status'])
-        return _updated_since(qs, params).order_by('-started_at', '-id')
+        return qs.order_by('-started_at', '-id')
 
     @action(detail=True, methods=['get'])
     def messages(self, request, pk=None):
@@ -156,19 +139,22 @@ class ConversationViewSet(PublicApiMixin, viewsets.ModelViewSet):
         qs = conversation.messages.select_related('sender_agent__user').order_by('created_at', 'id')
         page = self.paginate_queryset(qs)
         return self.get_paginated_response(
-            PublicMessageSerializer(page, many=True, context=self.get_serializer_context()).data,
+            ConversationMessageSerializer(page, many=True, context=self.get_serializer_context()).data,
         )
 
 
 class CustomerViewSet(PublicApiMixin, viewsets.ModelViewSet):
-    """Filter: ?email=."""
+    """
+    - GET/POST          /api/v1/csm/customers/?email=
+    - GET/PATCH/DELETE  /api/v1/csm/customers/{id}/
+    """
 
     api_resource = 'customers'
     serializer_class = PublicCustomerSerializer
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        qs = scoping.customers(self.principal).select_related('experience_group', 'status_label')
+        qs = scoping.customers(self.request.user).select_related('experience_group', 'status_label')
         email = self.request.query_params.get('email')
         if email:
             qs = qs.filter(email__iexact=email)
@@ -176,23 +162,29 @@ class CustomerViewSet(PublicApiMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context['project_id'] = self.principal.project_id  # CustomerSerializer's uniqueness check
+        context['project_id'] = self.request.user.project_id  # CustomerSerializer's uniqueness check
         return context
 
     def perform_create(self, serializer):
-        serializer.save(project_id=self.principal.project_id, organization_id=self.principal.organization_id)
+        principal = self.request.user
+        serializer.save(project_id=principal.project_id, organization_id=principal.organization_id)
 
 
 class CustomerOrganisationViewSet(PublicApiMixin, viewsets.ModelViewSet):
+    """
+    - GET/POST          /api/v1/csm/organisations/
+    - GET/PATCH/DELETE  /api/v1/csm/organisations/{id}/    DELETE refused while it has customers
+    """
+
     api_resource = 'organisations'
     serializer_class = PublicCustomerOrganisationSerializer
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.customer_organisations(self.principal).order_by('name', 'id')
+        return scoping.customer_organisations(self.request.user).order_by('name', 'id')
 
     def perform_create(self, serializer):
-        serializer.save(organization_id=self.principal.organization_id)
+        serializer.save(organization_id=self.request.user.organization_id)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -206,36 +198,38 @@ class CustomerOrganisationViewSet(PublicApiMixin, viewsets.ModelViewSet):
 
 
 class TemplateViewSet(PublicApiMixin, SoftDeleteMixin, viewsets.ModelViewSet):
+    """
+    - GET/POST          /api/v1/csm/templates/
+    - GET/PATCH/DELETE  /api/v1/csm/templates/{id}/    DELETE deactivates
+    """
+
     api_resource = 'templates'
     serializer_class = PublicTemplateSerializer
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.templates(self.principal).select_related('created_by').order_by('title', 'id')
+        return scoping.templates(self.request.user).select_related('created_by').order_by('title', 'id')
 
     def perform_update(self, serializer):
-        # Same history snapshot as the product; the editor is an integration, not a person.
-        instance = serializer.instance
-        QuickReplyTemplateHistory.objects.create(
-            template=instance,
-            edited_by=None,
-            title=instance.title,
-            content=instance.content,
-            rich_body=instance.rich_body,
-            tags=instance.tags,
-        )
+        # The editor is an integration, not a person.
+        serializer.instance.record_history(edited_by=None)
         serializer.save()
 
 
 class AgentViewSet(PublicApiMixin, viewsets.ModelViewSet):
-    """CSM profiles (agent / supervisor / admin) of existing workspace members."""
+    """
+    CSM profiles (agent / supervisor / admin) of existing workspace members.
+
+    - GET/POST          /api/v1/csm/agents/
+    - GET/PATCH/DELETE  /api/v1/csm/agents/{id}/    DELETE refused for the organisation's creator
+    """
 
     api_resource = 'agents'
     serializer_class = PublicAgentSerializer
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.agents(self.principal).select_related('user', 'queue', 'organisation').order_by('id')
+        return scoping.agents(self.request.user).select_related('user', 'queue', 'organisation').order_by('id')
 
     def perform_destroy(self, instance):
         if instance.is_creator:
@@ -246,8 +240,11 @@ class AgentViewSet(PublicApiMixin, viewsets.ModelViewSet):
 class RoutingRuleViewSet(PublicApiMixin, viewsets.ModelViewSet):
     """
     Writes go through csm.services.routing_rules, which validates the group,
-    queue and conditions against the project. Filter: ?experience_group=.
-    PUT /routing-rules/reorder/ takes {"experience_group", "ids"}.
+    queue and conditions against the project.
+
+    - GET/POST          /api/v1/csm/routing-rules/?experience_group=
+    - GET/PATCH/DELETE  /api/v1/csm/routing-rules/{id}/
+    - PUT               /api/v1/csm/routing-rules/reorder/    {"experience_group", "ids"}
     """
 
     api_resource = 'routing_rules'
@@ -255,7 +252,7 @@ class RoutingRuleViewSet(PublicApiMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'put', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        qs = scoping.routing_rules(self.principal).select_related('target_queue')
+        qs = scoping.routing_rules(self.request.user).select_related('target_queue')
         group = self.request.query_params.get('experience_group')
         if group:
             qs = qs.filter(experience_group_id=group)
@@ -272,7 +269,7 @@ class RoutingRuleViewSet(PublicApiMixin, viewsets.ModelViewSet):
         data = serializer.validated_data
         try:
             rule = create_rule(
-                self.principal.project_id,
+                request.user.project_id,
                 user=None,
                 experience_group=data['experience_group'],
                 name=data['name'],
@@ -283,10 +280,12 @@ class RoutingRuleViewSet(PublicApiMixin, viewsets.ModelViewSet):
                 add_tags=data.get('add_tags', []),
             )
         except DjangoValidationError as exc:
-            _raise_drf_validation(exc)
+            raise ValidationError(get_error_detail(exc))
         return Response(RoutingRuleSerializer(rule).data, status=status.HTTP_201_CREATED)
 
-    def partial_update(self, request, *args, **kwargs):
+    def update(self, request, *args, **kwargs):
+        if not kwargs.get('partial'):
+            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
         rule = self.get_object()
         serializer = self.get_serializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -295,13 +294,8 @@ class RoutingRuleViewSet(PublicApiMixin, viewsets.ModelViewSet):
         try:
             rule = update_rule(rule, **data)
         except DjangoValidationError as exc:
-            _raise_drf_validation(exc)
+            raise ValidationError(get_error_detail(exc))
         return Response(RoutingRuleSerializer(rule).data)
-
-    def update(self, request, *args, **kwargs):
-        if not kwargs.get('partial'):
-            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
-        return super().update(request, *args, **kwargs)
 
     @action(detail=False, methods=['put'], url_path='reorder')
     def reorder(self, request):
@@ -309,35 +303,10 @@ class RoutingRuleViewSet(PublicApiMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         try:
             rules = reorder_rules(
-                self.principal.project_id,
+                request.user.project_id,
                 serializer.validated_data['experience_group'],
                 serializer.validated_data['ids'],
             )
         except DjangoValidationError as exc:
-            _raise_drf_validation(exc)
+            raise ValidationError(get_error_detail(exc))
         return Response(RoutingRuleSerializer(rules, many=True).data)
-
-
-def _updated_since(qs, params):
-    raw = params.get('updated_since')
-    if not raw:
-        return qs
-    value = parse_datetime(raw)
-    if value is None:
-        raise ValidationError({'updated_since': 'Use an ISO 8601 date-time.'})
-    if timezone.is_naive(value):
-        value = timezone.make_aware(value, dt_timezone.utc)
-    return qs.filter(updated_at__gte=value)
-
-
-# Listed for the router in public_api.urls.
-RESOURCE_VIEWSETS = (
-    ('customers', CustomerViewSet, 'public-api-customer'),
-    ('organisations', CustomerOrganisationViewSet, 'public-api-organisation'),
-    ('tickets', TicketViewSet, 'public-api-ticket'),
-    ('conversations', ConversationViewSet, 'public-api-conversation'),
-    ('templates', TemplateViewSet, 'public-api-template'),
-    ('routing-rules', RoutingRuleViewSet, 'public-api-routing-rule'),
-    ('queues', QueueViewSet, 'public-api-queue'),
-    ('agents', AgentViewSet, 'public-api-agent'),
-)

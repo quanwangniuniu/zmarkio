@@ -54,6 +54,8 @@ TASK_TIMEOUTS = {
     # csm
     'csm.tasks.auto_resolve_pending_tickets': 60,
     'csm.tasks.notify_sla_breaches': 60,
+    # public_api (outbound HTTP; the request itself times out after 10s)
+    'public_api.tasks.deliver_webhook': 15,
     # tracking
     'tracking.tasks.emit_tracking_event': 30,
     'tracking.tasks.expire_stale_sessions': 30,

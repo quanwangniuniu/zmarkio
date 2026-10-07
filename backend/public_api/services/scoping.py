@@ -11,7 +11,7 @@ from django.contrib.auth import get_user_model
 from django.db.models import Q
 
 from csm.models import (
-    Conversation, ConversationMessage, CustomerUser, Queue, QuickReplyTemplate, RoutingRule, SLAPolicy, Ticket,
+    Conversation, CustomerUser, Queue, QuickReplyTemplate, RoutingRule, SLAPolicy, Ticket,
 )
 from customer.models import Customer, CustomerOrganisation, CustomerStatusLabel, Region
 from experience_group.models import ExperienceGroup
@@ -38,10 +38,6 @@ def conversations(principal):
     # Conversations without a queue (portal intake before routing) can't be
     # attributed to a workspace and are not exposed.
     return Conversation.objects.filter(queue__in=queues(principal))
-
-
-def messages(principal):
-    return ConversationMessage.objects.filter(conversation__in=conversations(principal))
 
 
 def customers(principal):

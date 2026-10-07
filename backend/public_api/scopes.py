@@ -1,32 +1,24 @@
-"""Scope vocabulary for public API credentials."""
+"""Scope vocabulary for public API credentials. A write scope implies read."""
 
-RESOURCES = (
-    'customers',
-    'organisations',
-    'tickets',
-    'conversations',
-    'templates',
-    'routing_rules',
-    'queues',
-    'agents',
-)
+from public_api.models import WebhookEvent
 
-READ = 'read'
-WRITE = 'write'
+RESOURCES = {
+    'customers': 'Customers',
+    'organisations': 'Organisations',
+    'tickets': 'Tickets',
+    'conversations': 'Conversations',
+    'templates': 'Quick reply templates',
+    'routing_rules': 'Routing rules',
+    'queues': 'Queues',
+    'agents': 'Agents',
+}
 
-ALL_SCOPES = tuple(f'{resource}:{access}' for resource in RESOURCES for access in (READ, WRITE))
-
-
-def grants(scopes, resource, access):
-    """True when `scopes` allows `access` on `resource`. A write scope implies read."""
-    if access == READ:
-        return f'{resource}:{READ}' in scopes or f'{resource}:{WRITE}' in scopes
-    return f'{resource}:{WRITE}' in scopes
+ALL_SCOPES = tuple(f'{resource}:{access}' for resource in RESOURCES for access in ('read', 'write'))
 
 
-# Outbound webhook events. `ping` is sent only by the admin console's "Send test".
-TICKET_CREATED = 'ticket.created'
-TICKET_STATUS_CHANGED = 'ticket.status_changed'
-SLA_BREACHED = 'sla.breached'
-PING = 'ping'
-EVENT_TYPES = (TICKET_CREATED, TICKET_STATUS_CHANGED, SLA_BREACHED)
+def vocabulary_payload():
+    """What the admin console offers: resources to grant and events to subscribe to."""
+    return {
+        'resources': [{'value': value, 'label': label} for value, label in RESOURCES.items()],
+        'events': [{'value': value, 'label': label} for value, label in WebhookEvent.choices],
+    }

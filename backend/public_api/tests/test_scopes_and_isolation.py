@@ -1,19 +1,27 @@
 """
-Scopes (403) and workspace isolation for /api/v1/csm/ (MED-226).
+Scopes (403) and workspace isolation for /api/v1/csm/.
 
 The isolation cases give a second workspace a credential for the SAME project
 id: project ids repeat across organisation schemas, so scoping by project id
 alone would leak every row below.
 """
 import pytest
+from django.urls import reverse
 
 from csm.models import RoutingRule
 from public_api.tests.conftest import client_for
 
 pytestmark = pytest.mark.django_db
 
-BASE = '/api/v1/csm'
-RESOURCES = ['customers', 'organisations', 'tickets', 'conversations', 'templates', 'routing-rules', 'queues', 'agents']
+RESOURCES = ['customer', 'organisation', 'ticket', 'conversation', 'template', 'routing-rule', 'queue', 'agent']
+
+
+def _list(resource):
+    return reverse(f'public-api-{resource}-list')
+
+
+def _detail(resource, pk):
+    return reverse(f'public-api-{resource}-detail', args=[pk])
 
 
 def _ids(response):
@@ -39,72 +47,68 @@ def intruder(make_key, other_workspace, project):
 class TestScopes:
     def test_missing_resource_scope_is_403(self, make_key, workspace):
         _, raw = make_key(scopes=['queues:read'])
-        response = client_for(raw).get(f'{BASE}/tickets/')
-        assert response.status_code == 403
+        assert client_for(raw).get(_list('ticket')).status_code == 403
 
     def test_read_scope_cannot_write(self, make_key, workspace):
         _, raw = make_key(scopes=['tickets:read'])
         client = client_for(raw)
 
-        assert client.get(f'{BASE}/tickets/').status_code == 200
-        response = client.post(f'{BASE}/tickets/', {'title': 'x', 'queue': workspace['queue'].id}, format='json')
+        assert client.get(_list('ticket')).status_code == 200
+        response = client.post(_list('ticket'), {'title': 'x', 'queue': workspace['queue'].id}, format='json')
         assert response.status_code == 403
 
     def test_write_scope_implies_read(self, make_key, workspace):
         _, raw = make_key(scopes=['tickets:write'])
-        assert client_for(raw).get(f'{BASE}/tickets/').status_code == 200
+        assert client_for(raw).get(_list('ticket')).status_code == 200
 
     @pytest.mark.parametrize('resource', RESOURCES)
     def test_every_resource_requires_a_credential(self, api_client, resource):
-        response = api_client.get(f'{BASE}/{resource}/')
-        assert response.status_code == 401
+        assert api_client.get(_list(resource)).status_code == 401
 
     def test_user_jwt_is_not_a_credential(self, api_client):
         # Only API keys and toolkit tokens authenticate here; a user's JWT is just an unknown bearer.
-        response = api_client.get(f'{BASE}/tickets/', HTTP_AUTHORIZATION='Bearer some.jwt.token')
+        response = api_client.get(_list('ticket'), HTTP_AUTHORIZATION='Bearer some.jwt.token')
         assert response.status_code == 401
 
 
 class TestIsolation:
     @pytest.mark.parametrize('resource', RESOURCES)
-    def test_own_workspace_sees_its_rows(self, key_client, workspace, rule, resource):
-        assert _ids(key_client.get(f'{BASE}/{resource}/'))
-
-    @pytest.mark.parametrize('resource', RESOURCES)
     def test_other_workspace_with_same_project_id_sees_none_of_ours(
         self, key_client, intruder, workspace, rule, resource,
     ):
-        ours = set(_ids(key_client.get(f'{BASE}/{resource}/')))
+        ours = set(_ids(key_client.get(_list(resource))))
         assert ours
-        assert ours.isdisjoint(_ids(intruder.get(f'{BASE}/{resource}/')))
+        assert ours.isdisjoint(_ids(intruder.get(_list(resource))))
 
     @pytest.mark.parametrize('resource,key', [
-        ('tickets', 'ticket'), ('conversations', 'conversation'), ('customers', 'customer'),
-        ('templates', 'template'), ('queues', 'queue'), ('agents', 'agent'),
-        ('organisations', 'customer_organisation'),
+        ('ticket', 'ticket'), ('conversation', 'conversation'), ('customer', 'customer'),
+        ('template', 'template'), ('queue', 'queue'), ('agent', 'agent'),
+        ('organisation', 'customer_organisation'),
     ])
     def test_other_workspace_cannot_read_or_change_by_id(self, intruder, workspace, resource, key):
-        pk = workspace[key].id
-        assert intruder.get(f'{BASE}/{resource}/{pk}/').status_code == 404
-        assert intruder.patch(f'{BASE}/{resource}/{pk}/', {}, format='json').status_code == 404
+        url = _detail(resource, workspace[key].id)
+        assert intruder.get(url).status_code == 404
+        assert intruder.patch(url, {}, format='json').status_code == 404
 
     def test_other_workspace_cannot_reach_routing_rule(self, intruder, rule):
-        assert intruder.get(f'{BASE}/routing-rules/{rule.id}/').status_code == 404
-        assert intruder.delete(f'{BASE}/routing-rules/{rule.id}/').status_code == 404
+        assert intruder.get(_detail('routing-rule', rule.id)).status_code == 404
+        assert intruder.delete(_detail('routing-rule', rule.id)).status_code == 404
 
     def test_messages_of_other_workspace_are_404(self, intruder, workspace):
-        assert intruder.get(f"{BASE}/conversations/{workspace['conversation'].id}/messages/").status_code == 404
+        url = reverse('public-api-conversation-messages', args=[workspace['conversation'].id])
+        assert intruder.get(url).status_code == 404
 
-    def test_writes_cannot_reference_another_workspaces_rows(self, intruder, workspace, experience_group):
+    def test_writes_cannot_reference_another_workspaces_rows(self, intruder, workspace):
         queue = workspace['queue'].id
+        organisation = workspace['customer_organisation'].id
         cases = [
-            ('tickets', {'title': 'x', 'queue': queue}, 'queue'),
-            ('conversations', {'queue': queue}, 'queue'),
-            ('queues', {'name': 'Q', 'tier': 'T1', 'organisation': workspace['customer_organisation'].id}, 'organisation'),
-            ('customers', {'email': 'e@x.test', 'full_name': 'E', 'organisation': workspace['customer_organisation'].id}, 'organisation'),
-            ('templates', {'title': 't', 'content': 'c', 'tags': ['billing'], 'organisation': workspace['customer_organisation'].id}, 'organisation'),
+            ('ticket', {'title': 'x', 'queue': queue}, 'queue'),
+            ('conversation', {'queue': queue}, 'queue'),
+            ('queue', {'name': 'Q', 'tier': 'T1', 'organisation': organisation}, 'organisation'),
+            ('customer', {'email': 'e@x.test', 'full_name': 'E', 'organisation': organisation}, 'organisation'),
+            ('template', {'title': 't', 'content': 'c', 'tags': ['billing'], 'organisation': organisation}, 'organisation'),
         ]
         for resource, payload, field in cases:
-            response = intruder.post(f'{BASE}/{resource}/', payload, format='json')
+            response = intruder.post(_list(resource), payload, format='json')
             assert response.status_code == 400, (resource, response.data)
             assert field in response.data, (resource, response.data)

@@ -1,7 +1,5 @@
 """The identity a public API request runs as."""
 
-from public_api.scopes import grants
-
 
 class ApiPrincipal:
     """
@@ -20,21 +18,13 @@ class ApiPrincipal:
     pk = None
     id = None
 
-    def __init__(self, *, kind, credential_id, name, organization_id, organization_slug, project_id, scopes):
+    def __init__(self, *, kind, credential_id, name, organization_id, project_id, scopes):
         self.kind = kind
         self.credential_id = credential_id
         self.name = name
         self.organization_id = organization_id
-        self.organization_slug = organization_slug
         self.project_id = project_id
         self.scopes = list(scopes)
-
-    @property
-    def throttle_key(self):
-        return f'{self.kind}:{self.credential_id}'
-
-    def can(self, resource, access):
-        return grants(self.scopes, resource, access)
 
     def __str__(self):
         return f'{self.kind} {self.name}'

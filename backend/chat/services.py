@@ -207,7 +207,7 @@ _PINS = threading.local()
 
 
 @contextmanager
-def _pinned_address(host: str, address: str):
+def pinned_address(host: str, address: str):
     """Force connections to `host` to go to `address` for the duration of the block.
 
     urllib3 funnels every connection through `create_connection`, which is patched
@@ -256,7 +256,7 @@ def fetch_url_safely(url: str) -> str:
 
     for _ in range(LINK_PREVIEW_MAX_REDIRECTS + 1):
         host = urlparse(current).hostname
-        with _pinned_address(host, address):
+        with pinned_address(host, address):
             response = requests.get(
                 current,
                 timeout=LINK_PREVIEW_TIMEOUT_SECONDS,
@@ -320,7 +320,7 @@ def fetch_image_safely(url: str) -> Tuple[bytes, str]:
 
     for _ in range(LINK_PREVIEW_MAX_REDIRECTS + 1):
         host = urlparse(current).hostname
-        with _pinned_address(host, address):
+        with pinned_address(host, address):
             response = requests.get(
                 current,
                 timeout=LINK_PREVIEW_TIMEOUT_SECONDS,

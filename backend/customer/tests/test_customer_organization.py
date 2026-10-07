@@ -1,4 +1,4 @@
-"""Customer.organization: the workspace a customer belongs to (MED-226)."""
+"""Customer.organization: the workspace a customer belongs to."""
 import importlib
 
 import pytest

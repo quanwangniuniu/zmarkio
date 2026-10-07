@@ -513,7 +513,7 @@ REST_FRAMEWORK = {
             'SPREADSHEET_WS_TICKET_THROTTLE_RATE',
             default='60/minute',
         ),
-        # Per API key / OAuth client (public_api.throttling).
+        # Per API key / OAuth client (public_api.throttles).
         'public_api': config('PUBLIC_API_THROTTLE_RATE', default='600/minute'),
     },
 }
@@ -522,13 +522,10 @@ REST_FRAMEWORK = {
 # admin console with the client-credentials grant only; what a token may do is
 # decided by its public_api.OAuthClient scopes, not the OAuth scope parameter.
 OAUTH2_PROVIDER = {
-    'ACCESS_TOKEN_EXPIRE_SECONDS': config('PUBLIC_API_OAUTH_TOKEN_TTL_SECONDS', default=3600, cast=int),
+    'ACCESS_TOKEN_EXPIRE_SECONDS': 3600,
     'SCOPES': {'api': 'Zmarkio public API'},
     'DEFAULT_SCOPES': ['api'],
 }
-# Development only: let webhook endpoints point at localhost / private hosts
-# (and plain http) so a demo receiver can run locally. Never enable in production.
-PUBLIC_API_WEBHOOK_ALLOW_PRIVATE_HOSTS = config('PUBLIC_API_WEBHOOK_ALLOW_PRIVATE_HOSTS', default=False, cast=bool)
 # Referenced by public_api.OAuthClient; the toolkit's default model.
 OAUTH2_PROVIDER_APPLICATION_MODEL = 'oauth2_provider.Application'
 

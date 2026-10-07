@@ -22,7 +22,7 @@ from csm.services.scope import accessible_queues_for
 
 from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, Ticket, CsmNotification,
-    Conversation, ConversationMessage, QuickReplyTemplate, QuickReplyTemplateHistory,
+    Conversation, ConversationMessage, QuickReplyTemplate,
     TemplateTag,
     TicketForm, TicketFormAssignment, SupportProject, CsmWorkType, GuidanceEntry,
     SupportChannel, SLAPolicy, SLAPriorityTarget, BusinessHoursCalendar,
@@ -990,16 +990,8 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
     def perform_update(self, serializer):
-        instance = serializer.instance
         # Snapshot the current state BEFORE applying changes
-        QuickReplyTemplateHistory.objects.create(
-            template=instance,
-            edited_by=self.request.user,
-            title=instance.title,
-            content=instance.content,
-            rich_body=instance.rich_body,
-            tags=instance.tags,
-        )
+        serializer.instance.record_history(edited_by=self.request.user)
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -1142,11 +1134,8 @@ class TicketViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        from csm.services.sla import recalculate_ticket_sla
-        ticket = serializer.save()
-        recalculate_ticket_sla(ticket)
-        if ticket.first_response_due is not None or ticket.resolution_due is not None:
-            ticket.save(update_fields=['first_response_due', 'resolution_due'])
+        from csm.services.sla import start_ticket_sla
+        start_ticket_sla(serializer.save())
 
     @action(detail=True, methods=['post'])
     def claim(self, request, pk=None):
@@ -1167,7 +1156,7 @@ class TicketViewSet(viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         """Override PATCH to enforce the state machine and sync SLA on priority change."""
-        from csm.services.sla import recalculate_ticket_sla
+        from csm.services.sla import restart_ticket_sla
         from csm.services.status_machine import assert_transition_allowed
         ticket = self.get_object()
         old_priority = ticket.priority
@@ -1190,10 +1179,8 @@ class TicketViewSet(viewsets.ModelViewSet):
         # Recalculate SLA when priority changes, using now() so the countdown
         # restarts from the moment of the change rather than ticket creation.
         if new_priority and old_priority != new_priority:
-            from django.utils import timezone as tz
             ticket.refresh_from_db()
-            recalculate_ticket_sla(ticket, base_time=tz.now())
-            ticket.save(update_fields=['first_response_due', 'resolution_due'])
+            restart_ticket_sla(ticket)
             return Response(TicketSerializer(ticket).data)
 
         return response
@@ -2006,6 +1993,8 @@ class TicketStatusViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request, *args, **kwargs):
         from csm.services.status_machine import tickets_using_status
+        from public_api.models import WebhookEvent
+        from public_api.services.webhooks import emit_ticket_event
         instance = self.get_object()
         if instance.is_builtin:
             raise ValidationError(
@@ -2024,15 +2013,13 @@ class TicketStatusViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
         # Reassign any tickets still on this status to 'in_progress' (a built-in
         # that can't be deleted) so they aren't stranded on a slug that no longer
         # exists — matches what the delete warning promises.
-        # A bulk update skips Ticket.save(), so announce each move to webhooks explicitly.
-        moved = list(
-            tickets_using_status(instance.project_id, instance.slug).select_related('queue__organisation'),
-        )
-        tickets_using_status(instance.project_id, instance.slug).update(status='in_progress')
-        from public_api.services.webhooks import emit_status_changed
+        stranded = tickets_using_status(instance.project_id, instance.slug)
+        moved = list(stranded.select_related('queue__organisation'))
+        stranded.update(status='in_progress')
+        # The bulk update skips Ticket.save(), so announce each move to webhooks here.
         for ticket in moved:
             ticket.status = 'in_progress'
-            emit_status_changed(ticket, instance.slug)
+            emit_ticket_event(WebhookEvent.TICKET_STATUS_CHANGED, ticket, previous_status=instance.slug)
         # Drop transitions referencing the deleted slug so the machine stays clean.
         TicketStatusTransition.objects.filter(
             Q(project_id=instance.project_id),

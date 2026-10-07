@@ -11,8 +11,8 @@ from django.db.models.signals import post_init, post_save
 from django.dispatch import receiver
 
 from csm.models import Ticket
-from public_api.scopes import TICKET_CREATED
-from public_api.services.webhooks import emit_status_changed, emit_ticket_event
+from public_api.models import WebhookEvent
+from public_api.services.webhooks import emit_ticket_event
 
 
 @receiver(post_init, sender=Ticket, dispatch_uid='public_api_ticket_status_snapshot')
@@ -28,6 +28,6 @@ def emit_ticket_webhooks(sender, instance, created, raw=False, **kwargs):
     previous = getattr(instance, '_webhook_status', None)
     instance._webhook_status = instance.status
     if created:
-        emit_ticket_event(TICKET_CREATED, instance)
+        emit_ticket_event(WebhookEvent.TICKET_CREATED, instance)
     elif previous is not None and previous != instance.status:
-        emit_status_changed(instance, previous)
+        emit_ticket_event(WebhookEvent.TICKET_STATUS_CHANGED, instance, previous_status=previous)

@@ -3,7 +3,7 @@ Public API serializers.
 
 Each one subclasses the internal CSM serializer so the JSON matches what the
 product already returns, and swaps every writable relation for a queryset from
-public_api.scoping. The internal serializers check access through
+public_api.services.scoping. The internal serializers check access through
 `request.user`; a credential has no user, so those checks are replaced here
 rather than skipped.
 """
@@ -13,7 +13,6 @@ from rest_framework import serializers
 
 from csm.models import CustomerUser
 from csm.serializers import (
-    ConversationMessageSerializer,
     ConversationSerializer,
     CustomerUserSerializer,
     QueueSerializer,
@@ -23,7 +22,7 @@ from csm.serializers import (
 )
 from csm.services.status_machine import get_status
 from customer.serializers import CustomerOrganisationSerializer, CustomerSerializer
-from public_api import scoping
+from public_api.services import scoping
 
 User = get_user_model()
 
@@ -90,10 +89,6 @@ class PublicConversationSerializer(ScopedRelationsMixin, ConversationSerializer)
 
     def _validate_queue_access(self, queue):
         """Replaced by the scoped `queue` queryset; the base check reads request.user."""
-
-
-class PublicMessageSerializer(ConversationMessageSerializer):
-    pass
 
 
 class PublicCustomerSerializer(ScopedRelationsMixin, CustomerSerializer):

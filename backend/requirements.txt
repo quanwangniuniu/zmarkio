@@ -8,7 +8,7 @@ django-cors-headers==4.3.1
 djangorestframework==3.14.0
 django-filter==23.5 
 djangorestframework-simplejwt 
-django-oauth-toolkit==3.4.1  # public API OAuth 2.0 provider (client credentials)
+django-oauth-toolkit==3.4.1
 django-fsm==2.8.1
 channels==4.0.0
 channels-redis==4.1.0

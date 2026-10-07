@@ -232,7 +232,7 @@ class TestPinnedResolution:
         resolver = fake_getaddrinfo({'example.com': [PUBLIC_IP]})
         with patch('chat.services.socket.getaddrinfo', resolver), \
              patch('chat.services.requests.get', return_value=FakeResponse(body='<html></html>')), \
-             patch('chat.services._pinned_address') as pin:
+             patch('chat.services.pinned_address') as pin:
             fetch_url_safely('https://example.com/a')
 
         pin.assert_called_once()
@@ -247,7 +247,7 @@ class TestPinnedResolution:
         })
         with patch('chat.services.socket.getaddrinfo', resolver), \
              patch('chat.services.requests.get', side_effect=[hop, final]), \
-             patch('chat.services._pinned_address') as pin:
+             patch('chat.services.pinned_address') as pin:
             fetch_url_safely('https://first.example.com/go')
 
         pinned = [call.args[1] for call in pin.call_args_list]

@@ -5,7 +5,6 @@ Every view is bound to the requested project and its organisation, and only an
 org admin or a CSM admin of that organisation gets past `initial()`.
 """
 
-from django.db.models import OuterRef, Subquery
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import mixins, status, viewsets
@@ -18,16 +17,15 @@ from rest_framework.views import APIView
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from csm.services.routing_rules import project_organization_id
 from public_api.models import ApiKey, OAuthClient, WebhookDelivery, WebhookEndpoint
+from public_api.scopes import vocabulary_payload
 from public_api.permissions import require_integrations_admin
 from public_api.serializers_admin import (
-    ApiKeyCreateSerializer,
     ApiKeySerializer,
     CredentialWriteSerializer,
     OAuthClientSerializer,
     WebhookDeliverySerializer,
     WebhookEndpointSerializer,
     WebhookEndpointWriteSerializer,
-    vocabulary_payload,
 )
 from public_api.services.credentials import (
     create_api_key,
@@ -35,7 +33,7 @@ from public_api.services.credentials import (
     revoke_api_key,
     revoke_oauth_client,
 )
-from public_api.services.webhooks import create_endpoint, redeliver, rotate_secret, send_test
+from public_api.services.webhooks import create_endpoint, rotate_secret, send_test
 
 
 class IntegrationsAdminMixin(ProjectScopedViewSetMixin):
@@ -61,12 +59,13 @@ class ApiKeyViewSet(IntegrationsAdminMixin, mixins.ListModelMixin, viewsets.Gene
     """
 
     serializer_class = ApiKeySerializer
+    pagination_class = None
 
     def get_queryset(self):
         return self.scoped(ApiKey.objects.select_related('created_by'))
 
     def create(self, request, *args, **kwargs):
-        serializer = ApiKeyCreateSerializer(data=request.data)
+        serializer = CredentialWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         key, raw = create_api_key(
             organization_id=self.organization_id,
@@ -90,6 +89,7 @@ class OAuthClientViewSet(IntegrationsAdminMixin, mixins.ListModelMixin, viewsets
     """
 
     serializer_class = OAuthClientSerializer
+    pagination_class = None
 
     def get_queryset(self):
         return self.scoped(OAuthClient.objects.select_related('created_by'))
@@ -123,17 +123,11 @@ class WebhookEndpointViewSet(IntegrationsAdminMixin, viewsets.ModelViewSet):
     """
 
     serializer_class = WebhookEndpointSerializer
+    pagination_class = None
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        latest = WebhookDelivery.objects.filter(endpoint=OuterRef('pk')).order_by('-created_at', '-id')
-        return self.scoped(WebhookEndpoint.objects.select_related('created_by')).annotate(
-            last_delivery_status=Subquery(latest.values('status')[:1]),
-            last_delivery_at=Subquery(latest.values('created_at')[:1]),
-        )
-
-    def _read(self, endpoint):
-        return WebhookEndpointSerializer(self.get_queryset().get(pk=endpoint.pk)).data
+        return self.scoped(WebhookEndpoint.objects.all())
 
     def create(self, request, *args, **kwargs):
         serializer = WebhookEndpointWriteSerializer(data=request.data)
@@ -144,7 +138,7 @@ class WebhookEndpointViewSet(IntegrationsAdminMixin, viewsets.ModelViewSet):
             user=request.user,
             **serializer.validated_data,
         )
-        return Response({**self._read(endpoint), 'secret': secret}, status=status.HTTP_201_CREATED)
+        return Response({**WebhookEndpointSerializer(endpoint).data, 'secret': secret}, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
         endpoint = self.get_object()
@@ -153,12 +147,12 @@ class WebhookEndpointViewSet(IntegrationsAdminMixin, viewsets.ModelViewSet):
         for field, value in serializer.validated_data.items():
             setattr(endpoint, field, value)
         endpoint.save(update_fields=[*serializer.validated_data, 'updated_at'])
-        return Response(self._read(endpoint))
+        return Response(WebhookEndpointSerializer(endpoint).data)
 
     @action(detail=True, methods=['post'], url_path='rotate-secret')
     def rotate_secret(self, request, pk=None):
         endpoint = self.get_object()
-        return Response({**self._read(endpoint), 'secret': rotate_secret(endpoint)})
+        return Response({**WebhookEndpointSerializer(endpoint).data, 'secret': rotate_secret(endpoint)})
 
     @action(detail=True, methods=['post'])
     def test(self, request, pk=None):
@@ -170,12 +164,11 @@ class WebhookEndpointViewSet(IntegrationsAdminMixin, viewsets.ModelViewSet):
 
 
 @method_decorator(csrf_exempt, name='dispatch')
-class WebhookDeliveryViewSet(IntegrationsAdminMixin, viewsets.ReadOnlyModelViewSet):
+class WebhookDeliveryViewSet(IntegrationsAdminMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     """
     The delivery log: one row per attempt, newest first.
 
-    - GET  /api/csm/integrations/webhook-deliveries/?project={id}[&endpoint=&event_type=&status=]
-    - POST /api/csm/integrations/webhook-deliveries/{id}/redeliver/?project={id}
+    - GET /api/csm/integrations/webhook-deliveries/?project={id}[&endpoint={id}]
     """
 
     serializer_class = WebhookDeliverySerializer
@@ -185,24 +178,14 @@ class WebhookDeliveryViewSet(IntegrationsAdminMixin, viewsets.ReadOnlyModelViewS
             endpoint__organization_id=self.organization_id,
             endpoint__project_id=self.project_id,
         )
-        params = self.request.query_params
-        for param, lookup in (('endpoint', 'endpoint_id'), ('event_type', 'event_type'), ('status', 'status')):
-            if params.get(param):
-                qs = qs.filter(**{lookup: params[param]})
+        if self.request.query_params.get('endpoint'):
+            qs = qs.filter(endpoint_id=self.request.query_params['endpoint'])
         return qs.order_by('-created_at', '-id')
-
-    @action(detail=True, methods=['post'])
-    def redeliver(self, request, pk=None):
-        delivery = self.get_object()
-        if not WebhookEndpoint.objects.filter(pk=delivery.endpoint_id, is_active=True).exists():
-            raise ValidationError({'detail': 'The endpoint is inactive.'})
-        redeliver(delivery)
-        return Response({'event_id': str(delivery.event_id)}, status=status.HTTP_202_ACCEPTED)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
 class IntegrationsVocabularyView(IntegrationsAdminMixin, APIView):
-    """GET /api/csm/integrations/vocabulary/?project={id}: scopes and webhook events the UI offers."""
+    """GET /api/csm/integrations/vocabulary/?project={id}: resources and webhook events the UI offers."""
 
     def get(self, request):
         return Response(vocabulary_payload())

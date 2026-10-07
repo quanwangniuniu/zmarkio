@@ -29,7 +29,6 @@ class ApiKey(TimeStampedModel):
         null=True, blank=True, related_name='+',
     )
     last_used_at = models.DateTimeField(null=True, blank=True)
-    expires_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -40,9 +39,7 @@ class ApiKey(TimeStampedModel):
 
     @property
     def is_active(self):
-        if self.revoked_at is not None:
-            return False
-        return self.expires_at is None or self.expires_at > timezone.now()
+        return self.revoked_at is None
 
     def __str__(self):
         return f"ApiKey '{self.name}' (zmk_{self.prefix})"
@@ -88,6 +85,12 @@ class OAuthClient(TimeStampedModel):
         return f"OAuthClient '{self.name}' ({self.client_id})"
 
 
+class WebhookEvent(models.TextChoices):
+    TICKET_CREATED = 'ticket.created', 'Ticket created'
+    TICKET_STATUS_CHANGED = 'ticket.status_changed', 'Ticket status changed'
+    SLA_BREACHED = 'sla.breached', 'SLA breached'
+
+
 class WebhookEndpoint(TimeStampedModel):
     """An external URL that receives signed POSTs for the events it subscribes to."""
 
@@ -97,6 +100,7 @@ class WebhookEndpoint(TimeStampedModel):
     project_id = models.PositiveIntegerField()
     url = models.URLField(max_length=2000)
     description = models.CharField(max_length=200, blank=True, default='')
+    # WebhookEvent values.
     events = models.JSONField(default=list)
     # core.crypto.encrypt_token output; the plain secret is shown once, on create and rotate.
     secret_encrypted = models.TextField()
@@ -120,7 +124,6 @@ class WebhookDelivery(models.Model):
     """One delivery attempt. Retries of an event are further rows with the same event_id."""
 
     class Status(models.TextChoices):
-        PENDING = 'pending', 'Pending'
         SUCCEEDED = 'succeeded', 'Succeeded'
         RETRYING = 'retrying', 'Failed, retry scheduled'
         FAILED = 'failed', 'Failed'
@@ -130,22 +133,16 @@ class WebhookDelivery(models.Model):
     event_type = models.CharField(max_length=64)
     # Snapshot: the endpoint's URL may be edited after the attempt.
     target_url = models.URLField(max_length=2000)
-    payload = models.JSONField()
     attempt = models.PositiveSmallIntegerField(default=1)
-    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    status = models.CharField(max_length=16, choices=Status.choices)
     response_code = models.PositiveSmallIntegerField(null=True, blank=True)
     error = models.CharField(max_length=1000, blank=True, default='')
-    duration_ms = models.PositiveIntegerField(null=True, blank=True)
-    next_retry_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         ordering = ['-created_at', '-id']
         indexes = [
             models.Index(fields=['endpoint', '-created_at'], name='papi_delivery_endpoint_idx'),
-            models.Index(fields=['event_type'], name='papi_delivery_event_idx'),
-            models.Index(fields=['status'], name='papi_delivery_status_idx'),
-            models.Index(fields=['event_id'], name='papi_delivery_event_id_idx'),
         ]
 
     def __str__(self):

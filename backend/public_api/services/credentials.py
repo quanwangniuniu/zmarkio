@@ -28,7 +28,7 @@ def _new_prefix():
             return prefix
 
 
-def create_api_key(*, organization_id, project_id, name, scopes, user, expires_at=None):
+def create_api_key(*, organization_id, project_id, name, scopes, user):
     """Return (ApiKey, full key). The full key is not recoverable afterwards."""
     prefix = _new_prefix()
     secret = secrets.token_urlsafe(32)
@@ -40,7 +40,6 @@ def create_api_key(*, organization_id, project_id, name, scopes, user, expires_a
         key_hash=_hash_secret(secret),
         scopes=scopes,
         created_by=user,
-        expires_at=expires_at,
     )
     return key, f'{KEY_PREFIX}_{prefix}_{secret}'
 

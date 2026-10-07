@@ -1,9 +1,14 @@
 """
-Outbound webhooks: endpoint secrets, signing, and turning ticket events into deliveries.
+Outbound webhooks: endpoint secrets, signing, delivery, and turning ticket events into deliveries.
 
 Signature: `X-Zmarkio-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<body>")>`,
 where body is the exact request body. Receivers recompute it with their secret,
 compare in constant time, and reject stale timestamps to stop replays.
+
+A webhook URL is an SSRF surface like a chat link preview: the server POSTs
+wherever it points. The chat link-preview guard is reused, so a target is judged
+by its resolved IP, the connection is pinned to that address, and redirects are
+never followed.
 """
 
 import hashlib
@@ -14,32 +19,30 @@ import secrets
 import time
 import uuid
 from functools import partial
+from urllib.parse import urlparse
 
+import requests
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 
+from chat.services import UnsafeUrlError, pinned_address, resolve_public_url
 from core.crypto import decrypt_token, encrypt_token
 from public_api.models import WebhookEndpoint
-from public_api.scopes import PING, SLA_BREACHED, TICKET_STATUS_CHANGED
 
 logger = logging.getLogger(__name__)
 
-SECRET_PREFIX = 'whsec_'
-SIGNATURE_HEADER = 'X-Zmarkio-Signature'
-USER_AGENT = 'Zmarkio-Webhooks/1'
+# Sent only by the admin console's "Send test"; endpoints cannot subscribe to it.
+PING = 'ping'
+TIMEOUT_SECONDS = 10
 
 
 # ---------------------------------------------------------------------------
-# Secrets and signing
+# Secrets, signing and delivery
 # ---------------------------------------------------------------------------
 
-def generate_secret():
-    return f'{SECRET_PREFIX}{secrets.token_urlsafe(32)}'
-
-
-def endpoint_secret(endpoint):
-    return decrypt_token(endpoint.secret_encrypted)
+def _new_secret():
+    return f'whsec_{secrets.token_urlsafe(32)}'
 
 
 def canonical_json(payload):
@@ -47,20 +50,37 @@ def canonical_json(payload):
 
 
 def sign(secret, timestamp, body):
-    message = f'{timestamp}.'.encode() + body
-    return hmac.new(secret.encode(), message, hashlib.sha256).hexdigest()
+    return hmac.new(secret.encode(), f'{timestamp}.'.encode() + body, hashlib.sha256).hexdigest()
 
 
 def delivery_headers(endpoint, payload, body, attempt):
     timestamp = int(time.time())
+    signature = sign(decrypt_token(endpoint.secret_encrypted), timestamp, body)
     return {
         'Content-Type': 'application/json',
-        'User-Agent': USER_AGENT,
-        SIGNATURE_HEADER: f't={timestamp},v1={sign(endpoint_secret(endpoint), timestamp, body)}',
+        'User-Agent': 'Zmarkio-Webhooks/1',
+        'X-Zmarkio-Signature': f't={timestamp},v1={signature}',
         'X-Zmarkio-Event': payload['type'],
         'X-Zmarkio-Delivery': payload['id'],
         'X-Zmarkio-Attempt': str(attempt),
     }
+
+
+def validate_webhook_url(url):
+    """Return (normalized url, vetted address); raise UnsafeUrlError unless the server may deliver to `url`."""
+    if urlparse(url).scheme.lower() != 'https':
+        raise UnsafeUrlError('Webhook URLs must use https.')
+    return resolve_public_url(url)
+
+
+def post_json_safely(url, body, headers):
+    """POST `body` (bytes) to `url`; the caller must close the returned response."""
+    normalized, address = validate_webhook_url(url)
+    with pinned_address(urlparse(normalized).hostname, address):
+        return requests.post(
+            normalized, data=body, headers=headers,
+            timeout=TIMEOUT_SECONDS, allow_redirects=False, stream=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -69,7 +89,7 @@ def delivery_headers(endpoint, payload, body, attempt):
 
 def create_endpoint(*, organization_id, project_id, url, events, user, description='', is_active=True):
     """Return (endpoint, signing secret). The secret is not recoverable from the API afterwards."""
-    secret = generate_secret()
+    secret = _new_secret()
     endpoint = WebhookEndpoint.objects.create(
         organization_id=organization_id,
         project_id=project_id,
@@ -84,7 +104,7 @@ def create_endpoint(*, organization_id, project_id, url, events, user, descripti
 
 
 def rotate_secret(endpoint):
-    secret = generate_secret()
+    secret = _new_secret()
     endpoint.secret_encrypted = encrypt_token(secret)
     endpoint.save(update_fields=['secret_encrypted', 'updated_at'])
     return secret
@@ -103,7 +123,7 @@ def build_event(event_type, *, organization_id, project_id, data):
         'project_id': project_id,
         'data': data,
     }
-    # Round-trip so dates and decimals are plain JSON for Celery and the delivery log.
+    # Round-trip so dates and decimals are plain JSON for Celery.
     return json.loads(canonical_json(payload))
 
 
@@ -115,45 +135,27 @@ def _enqueue(endpoint_ids, payload):
         transaction.on_commit(partial(deliver_webhook.delay, endpoint_id, payload))
 
 
-def _ticket_workspace(ticket):
-    queue = ticket.queue
-    if queue is None or queue.organisation is None:
-        return None, None
-    return queue.organisation.organization_id, queue.project_id
-
-
-def _ticket_data(ticket):
-    from public_api.serializers import PublicTicketSerializer
-
-    return {'ticket': PublicTicketSerializer(ticket).data}
-
-
 def emit_ticket_event(event_type, ticket, **extra):
     """Queue `event_type` for every active endpoint of the ticket's workspace subscribed to it."""
-    organization_id, project_id = _ticket_workspace(ticket)
-    if organization_id is None or project_id is None:
+    from public_api.serializers import PublicTicketSerializer
+
+    queue = ticket.queue
+    if queue is None or queue.organisation is None or queue.project_id is None:
         logger.debug('Ticket %s has no workspace; %s not sent', ticket.pk, event_type)
         return
+    organization_id = queue.organisation.organization_id
     endpoint_ids = list(
         WebhookEndpoint.objects.filter(
             organization_id=organization_id,
-            project_id=project_id,
+            project_id=queue.project_id,
             is_active=True,
             events__contains=[event_type],
         ).values_list('id', flat=True)
     )
     if not endpoint_ids:
         return
-    data = {**_ticket_data(ticket), **extra}
-    _enqueue(endpoint_ids, build_event(event_type, organization_id=organization_id, project_id=project_id, data=data))
-
-
-def emit_status_changed(ticket, previous_status):
-    emit_ticket_event(TICKET_STATUS_CHANGED, ticket, previous_status=previous_status)
-
-
-def emit_sla_breach(ticket, breach_type):
-    emit_ticket_event(SLA_BREACHED, ticket, breach_type=breach_type)
+    data = {'ticket': PublicTicketSerializer(ticket).data, **extra}
+    _enqueue(endpoint_ids, build_event(event_type, organization_id=organization_id, project_id=queue.project_id, data=data))
 
 
 def send_test(endpoint):
@@ -165,8 +167,3 @@ def send_test(endpoint):
     )
     _enqueue([endpoint.id], payload)
     return payload
-
-
-def redeliver(delivery):
-    """Start a fresh attempt chain for a logged event; it keeps its event id."""
-    _enqueue([delivery.endpoint_id], delivery.payload)

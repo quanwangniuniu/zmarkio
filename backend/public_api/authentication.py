@@ -36,7 +36,6 @@ def _principal(kind, credential):
         credential_id=credential.pk,
         name=credential.name,
         organization_id=credential.organization_id,
-        organization_slug=credential.organization.slug,
         project_id=credential.project_id,
         scopes=credential.scopes,
     )

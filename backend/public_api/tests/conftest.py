@@ -26,14 +26,13 @@ def admin_client(api_client, csm_admin):
 
 @pytest.fixture
 def make_key(organization, project):
-    def _make(scopes=ALL_SCOPES, organization_id=None, project_id=None, **kwargs):
+    def _make(scopes=ALL_SCOPES, organization_id=None, project_id=None):
         return create_api_key(
             organization_id=organization_id or organization.id,
             project_id=project_id or project.id,
-            name=kwargs.pop('name', 'Integration'),
+            name='Integration',
             scopes=list(scopes),
             user=None,
-            **kwargs,
         )
     return _make
 
@@ -45,10 +44,9 @@ def api_key(make_key):
 
 
 @pytest.fixture
-def key_client(api_key):
-    client = APIClient()
-    client.credentials(HTTP_X_API_KEY=api_key[1])
-    return client
+def key_client(api_client, api_key):
+    api_client.credentials(HTTP_X_API_KEY=api_key[1])
+    return api_client
 
 
 @pytest.fixture
@@ -70,6 +68,7 @@ def other_workspace(db):
 
 
 def client_for(raw_key):
+    """A second, independent client, for tests that need two credentials at once."""
     client = APIClient()
     client.credentials(HTTP_X_API_KEY=raw_key)
     return client

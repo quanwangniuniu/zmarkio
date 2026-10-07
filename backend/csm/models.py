@@ -460,6 +460,17 @@ class QuickReplyTemplate(SluggedResourceModelMixin, TimeStampedModel):
     class Meta:
         ordering = ['title']
 
+    def record_history(self, edited_by):
+        """Snapshot the current content before an edit is applied."""
+        return QuickReplyTemplateHistory.objects.create(
+            template=self,
+            edited_by=edited_by,
+            title=self.title,
+            content=self.content,
+            rich_body=self.rich_body,
+            tags=self.tags,
+        )
+
     def __str__(self):
         return f"[Template] {self.title}"
 

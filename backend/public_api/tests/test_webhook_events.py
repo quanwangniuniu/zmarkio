@@ -1,13 +1,14 @@
-"""Which product actions emit which webhook events (MED-226)."""
+"""Which product actions emit which webhook events."""
 from datetime import timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
+from django.urls import reverse
 from django.utils import timezone
 
 from csm.models import SLAPolicy, SLAPriorityTarget, Ticket, TicketStatus
 from csm.tasks import auto_resolve_pending_tickets, notify_sla_breaches
-from public_api.scopes import EVENT_TYPES
+from public_api.models import WebhookEvent
 from public_api.services.webhooks import create_endpoint
 
 pytestmark = pytest.mark.django_db
@@ -17,7 +18,7 @@ pytestmark = pytest.mark.django_db
 def endpoint(organization, project):
     endpoint, _ = create_endpoint(
         organization_id=organization.id, project_id=project.id,
-        url='https://hooks.example.com/zmarkio', events=list(EVENT_TYPES), user=None,
+        url='https://hooks.example.com/zmarkio', events=list(WebhookEvent.values), user=None,
     )
     return endpoint
 
@@ -39,14 +40,6 @@ def _types(calls):
     return [payload['type'] for _, payload in calls]
 
 
-@pytest.fixture
-def csm_admin_client(api_client, user, customer_organisation):
-    from csm.models import CustomerUser
-    CustomerUser.objects.create(user=user, user_type='admin', organisation=customer_organisation, is_active=True)
-    api_client.force_authenticate(user=user)
-    return api_client
-
-
 class TestTicketCreated:
     def test_any_ticket_creation_emits_once(self, endpoint, csm_queue, organization, project, sent):
         ticket = Ticket.objects.create(queue=csm_queue, title='Printer on fire')
@@ -60,13 +53,13 @@ class TestTicketCreated:
         assert payload['data']['ticket']['id'] == ticket.id
         assert payload['data']['ticket']['title'] == 'Printer on fire'
 
-    def test_internal_api_create_emits(self, endpoint, csm_queue, csm_admin_client, sent):
-        response = csm_admin_client.post('/api/csm/tickets/', {'queue': csm_queue.id, 'title': 'From UI'}, format='json')
+    def test_internal_api_create_emits(self, endpoint, csm_queue, admin_client, sent):
+        response = admin_client.post(reverse('ticket-list'), {'queue': csm_queue.id, 'title': 'From UI'}, format='json')
         assert response.status_code == 201, response.data
         assert _types(sent) == ['ticket.created']
 
     def test_public_api_create_emits(self, endpoint, csm_queue, key_client, sent):
-        response = key_client.post('/api/v1/csm/tickets/', {'queue': csm_queue.id, 'title': 'From API'}, format='json')
+        response = key_client.post(reverse('public-api-ticket-list'), {'queue': csm_queue.id, 'title': 'From API'}, format='json')
         assert response.status_code == 201, response.data
         assert _types(sent) == ['ticket.created']
 
@@ -79,16 +72,16 @@ class TestStatusChanged:
     def _reload(self, ticket):
         return Ticket.objects.get(pk=ticket.pk)
 
-    def test_internal_patch(self, endpoint, ticket, csm_admin_client, sent):
-        csm_admin_client.patch(f'/api/csm/tickets/{ticket.id}/', {'status': 'in_progress'}, format='json')
+    def test_internal_patch(self, endpoint, ticket, admin_client, sent):
+        admin_client.patch(reverse('ticket-detail', args=[ticket.id]), {'status': 'in_progress'}, format='json')
         assert _types(sent) == ['ticket.status_changed']
         assert sent[0][1]['data']['previous_status'] == 'todo'
         assert sent[0][1]['data']['ticket']['status'] == 'in_progress'
 
-    def test_claim_and_close(self, endpoint, ticket, csm_admin_client, sent):
-        csm_admin_client.post(f'/api/csm/tickets/{ticket.id}/claim/')
-        csm_admin_client.patch(f'/api/csm/tickets/{ticket.id}/', {'status': 'resolved'}, format='json')
-        csm_admin_client.post(f'/api/csm/tickets/{ticket.id}/close/')
+    def test_claim_and_close(self, endpoint, ticket, admin_client, sent):
+        admin_client.post(reverse('ticket-claim', args=[ticket.id]))
+        admin_client.patch(reverse('ticket-detail', args=[ticket.id]), {'status': 'resolved'}, format='json')
+        admin_client.post(reverse('ticket-close', args=[ticket.id]))
         assert [p['data']['ticket']['status'] for _, p in sent] == ['in_progress', 'resolved', 'closed']
 
     def test_portal_reply_reopens_pending_ticket(self, endpoint, csm_queue, customer, portal_customer_client, sent):
@@ -100,7 +93,7 @@ class TestStatusChanged:
 
         with patch('portal.views.get_channel_layer', return_value=MagicMock()), patch('portal.views.async_to_sync'):
             response = portal_customer_client.post(
-                f'/api/portal/conversations/{conversation.id}/messages/', {'content': 'Still broken'}, format='json',
+                reverse('portal-conversation-messages', args=[conversation.id]), {'content': 'Still broken'}, format='json',
             )
 
         assert response.status_code == 201, response.data
@@ -122,13 +115,14 @@ class TestStatusChanged:
         assert self._reload(ticket).status == 'resolved'
         assert _types(sent) == ['ticket.status_changed']
 
-    def test_custom_status_delete_moves_tickets_and_emits(self, endpoint, ticket, project, csm_admin_client, sent):
-        from core.models import ProjectMember  # noqa: F401  (project owner membership comes from the fixture)
+    def test_custom_status_delete_moves_tickets_and_emits(self, endpoint, ticket, project, admin_client, sent):
         custom = TicketStatus.objects.create(project_id=project.id, slug='waiting-on-vendor', name='Waiting', order=9)
         Ticket.objects.filter(pk=ticket.pk).update(status=custom.slug)
         sent.clear()
 
-        response = csm_admin_client.delete(f'/api/csm/ticket-statuses/{custom.id}/?project={project.id}&confirm=true')
+        response = admin_client.delete(
+            f"{reverse('ticket-status-detail', args=[custom.id])}?project={project.id}&confirm=true",
+        )
 
         assert response.status_code == 204, getattr(response, 'data', None)
         assert self._reload(ticket).status == 'in_progress'

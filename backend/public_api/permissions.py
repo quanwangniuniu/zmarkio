@@ -4,13 +4,12 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 from core.admin_utils import get_org_admin_org_ids
 from csm.models import CustomerUser
 from public_api.principal import ApiPrincipal
-from public_api.scopes import READ, WRITE
 
 
 class HasApiScope(BasePermission):
     """
     The credential must hold `<view.api_resource>:read` for safe methods and
-    `:write` otherwise. A view without `api_resource` only needs a credential.
+    `:write` otherwise. A write scope implies read.
     """
 
     message = 'This credential does not have the scope this request needs.'
@@ -19,10 +18,10 @@ class HasApiScope(BasePermission):
         principal = request.user
         if not isinstance(principal, ApiPrincipal):
             return False
-        resource = getattr(view, 'api_resource', None)
-        if resource is None:
-            return True
-        return principal.can(resource, READ if request.method in SAFE_METHODS else WRITE)
+        write = f'{view.api_resource}:write'
+        if request.method in SAFE_METHODS:
+            return write in principal.scopes or f'{view.api_resource}:read' in principal.scopes
+        return write in principal.scopes
 
 
 def can_manage_integrations(user, organization_id):

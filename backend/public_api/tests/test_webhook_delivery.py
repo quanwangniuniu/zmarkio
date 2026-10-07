@@ -1,18 +1,17 @@
-"""Delivery, signing, retries and the SSRF guard for webhooks (MED-226)."""
+"""Delivery, signing, retries and the SSRF guard for webhooks."""
 import hashlib
 import hmac
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
-from django.test import override_settings
 
 from chat.services import UnsafeUrlError
+from core.crypto import decrypt_token
 from public_api.models import WebhookDelivery
-from public_api.services.http import validate_webhook_url
-from public_api.tests.conftest import resolving_to
-from public_api.services.webhooks import build_event, create_endpoint, endpoint_secret
+from public_api.services.webhooks import build_event, create_endpoint, post_json_safely, validate_webhook_url
 from public_api.tasks import BACKOFF_SECONDS, deliver_webhook
+from public_api.tests.conftest import resolving_to
 
 pytestmark = pytest.mark.django_db
 
@@ -45,18 +44,18 @@ class TestDelivery:
         url, body, headers = post.call_args.args
         assert url == endpoint.url
         timestamp, signature = (part.split('=', 1)[1] for part in headers['X-Zmarkio-Signature'].split(','))
-        expected = hmac.new(endpoint_secret(endpoint).encode(), f'{timestamp}.'.encode() + body, hashlib.sha256).hexdigest()
+        expected = hmac.new(decrypt_token(endpoint.secret_encrypted).encode(), f'{timestamp}.'.encode() + body, hashlib.sha256).hexdigest()
         assert hmac.compare_digest(signature, expected)
         assert headers['X-Zmarkio-Event'] == 'ticket.created'
         assert headers['X-Zmarkio-Delivery'] == payload['id']
 
         row = WebhookDelivery.objects.get()
         assert (row.target_url, row.event_type, row.response_code, row.attempt) == (endpoint.url, 'ticket.created', 204, 1)
-        assert row.created_at is not None and row.duration_ms is not None
+        assert row.created_at is not None
 
     def test_secret_is_stored_encrypted(self, endpoint):
-        assert endpoint_secret(endpoint).startswith('whsec_')
-        assert endpoint_secret(endpoint) not in endpoint.secret_encrypted
+        assert decrypt_token(endpoint.secret_encrypted).startswith('whsec_')
+        assert decrypt_token(endpoint.secret_encrypted) not in endpoint.secret_encrypted
 
     def test_failures_retry_three_times_with_backoff_then_fail(self, endpoint, payload):
         countdowns = []
@@ -113,12 +112,7 @@ class TestUrlGuard:
         with resolving_to('93.184.216.34'), pytest.raises(UnsafeUrlError):
             validate_webhook_url('http://hooks.example.com/x')
 
-    @override_settings(PUBLIC_API_WEBHOOK_ALLOW_PRIVATE_HOSTS=True)
-    def test_development_switch_allows_local_receivers(self):
-        validate_webhook_url('http://localhost:9000/hook')
-
     def test_redirects_are_not_followed(self):
-        from public_api.services.http import post_json_safely
-        with resolving_to('93.184.216.34'), patch('public_api.services.http.requests.post') as post:
+        with resolving_to('93.184.216.34'), patch('public_api.services.webhooks.requests.post') as post:
             post_json_safely('https://hooks.example.com/x', b'{}', {})
         assert post.call_args.kwargs['allow_redirects'] is False
