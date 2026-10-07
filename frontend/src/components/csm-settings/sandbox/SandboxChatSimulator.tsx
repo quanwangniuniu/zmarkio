@@ -1,0 +1,94 @@
+'use client';
+
+import { useLayoutEffect, useRef, useState } from 'react';
+import { FlaskConical, Send } from 'lucide-react';
+import { ConversationThread } from '@/components/csm/conversations/ConversationThread';
+import type { ConversationMessage } from '@/types/csmConversation';
+import { BUILDER_CONTROL_CLASS } from '@/components/csm-settings/constants';
+
+const MAX_MESSAGE_LENGTH = 5000; // matches the evaluate serializer
+const COUNTER_FROM = 4000;
+const MAX_TEXTAREA_HEIGHT = 200; // about 8 lines, then it scrolls
+
+interface Props {
+  messages: ConversationMessage[];
+  disabled: boolean;
+  disabledReason?: string;
+  onSend: (text: string) => void;
+}
+
+/**
+ * Simulated customer chat. Deliberately not the workspace ConversationComposer,
+ * which sends real messages: this composer only appends to local state.
+ */
+export default function SandboxChatSimulator({ messages, disabled, disabledReason, onSend }: Props) {
+  const [draft, setDraft] = useState('');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Grow with the text so a long message stays readable while typing.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = '';
+    if (!draft) return; // empty: keep the natural two-row height
+    // scrollHeight excludes the border, and the box is border-box sized.
+    const border = el.offsetHeight - el.clientHeight;
+    el.style.height = `${Math.min(el.scrollHeight + border, MAX_TEXTAREA_HEIGHT)}px`;
+  }, [draft]);
+
+  const submit = () => {
+    if (disabled || !draft.trim()) return;
+    onSend(draft);
+    setDraft('');
+  };
+
+  return (
+    <div className="flex h-[70vh] min-h-[420px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white">
+      <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-800">
+        <FlaskConical className="h-4 w-4 shrink-0" aria-hidden />
+        Sandbox: nothing is sent or saved. Messages stay in this browser tab.
+      </div>
+
+      <ConversationThread messages={messages} />
+
+      <form
+        className="flex items-end gap-2 border-t border-gray-100 p-3"
+        onSubmit={(e) => { e.preventDefault(); submit(); }}
+      >
+        <label htmlFor="sb-message" className="sr-only">Customer message</label>
+        <div className="min-w-0 flex-1">
+          <textarea
+            ref={textareaRef}
+            id="sb-message"
+            rows={2}
+            value={draft}
+            maxLength={MAX_MESSAGE_LENGTH}
+            disabled={disabled}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder={disabled ? disabledReason : 'Type as the customer… (Enter to send)'}
+            className={`${BUILDER_CONTROL_CLASS} resize-none overflow-y-auto`}
+          />
+          {draft.length >= COUNTER_FROM && (
+            <p className="mt-1 text-right text-[11px] text-gray-500" data-testid="message-counter">
+              {draft.length} / {MAX_MESSAGE_LENGTH}
+            </p>
+          )}
+        </div>
+        <button
+          type="submit"
+          disabled={disabled || !draft.trim()}
+          aria-label="Send test message"
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-[#3CCED7] to-[#A6E661] text-white disabled:opacity-50"
+        >
+          <Send className="h-4 w-4" aria-hidden />
+        </button>
+      </form>
+    </div>
+  );
+}

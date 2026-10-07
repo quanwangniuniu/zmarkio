@@ -3,6 +3,9 @@ export { BUILDER_PRIMARY_BUTTON_CLASS, BUILDER_CONTROL_CLASS } from '@/component
 export const DRAWER_PRIMARY_BUTTON_CLASS =
   'inline-flex items-center gap-2 rounded-lg border border-transparent bg-gradient-to-br from-[#3CCED7] to-[#A6E661] px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3CCED7]/60 focus-visible:ring-offset-1 disabled:opacity-50';
 
+export const FORM_LABEL_CLASS =
+  'mb-1.5 block text-[12px] font-medium uppercase tracking-wider text-gray-500';
+
 export const SECONDARY_BUTTON_CLASS =
   'inline-flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50';
 
