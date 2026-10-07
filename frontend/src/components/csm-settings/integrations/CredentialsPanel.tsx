@@ -4,16 +4,30 @@ import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { AlertCircle, Ban, Plus } from 'lucide-react';
 import { CsmIntegrationsAPI } from '@/lib/api/csmIntegrationsApi';
-import type { ApiKey, CreateCredentialData, CredentialKind, OAuthClient } from '@/types/csmIntegrations';
+import type {
+  ApiKey, CreateCredentialData, CredentialKind, OAuthClient, VocabularyOption,
+} from '@/types/csmIntegrations';
 import { PORTAL_SUBMIT_BUTTON_CLASS } from '@/components/ticket-form/constants';
 import StatusBadge from '@/components/csm-settings/StatusBadge';
+import { formatDateTime } from '@/components/csm/quality/formatDates';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import CredentialFormModal from './CredentialFormModal';
 import SecretRevealModal, { type RevealedSecret } from './SecretRevealModal';
-import { formatDateTime, summarizeScopes } from './labels';
 
 type Credential = ApiKey | OAuthClient;
+
+/** "Tickets (write), Queues (read)": a resource with both scopes shows as write. */
+function summarizeScopes(scopes: string[], resources: VocabularyOption[]): string {
+  return resources
+    .map(({ value, label }) => {
+      if (scopes.includes(`${value}:write`)) return `${label} (write)`;
+      if (scopes.includes(`${value}:read`)) return `${label} (read)`;
+      return null;
+    })
+    .filter(Boolean)
+    .join(', ');
+}
 
 const COPY: Record<CredentialKind, { noun: string; newLabel: string; empty: string; intro: string }> = {
   'api-key': {
@@ -34,7 +48,7 @@ const COPY: Record<CredentialKind, { noun: string; newLabel: string; empty: stri
 interface Props {
   kind: CredentialKind;
   projectId: number;
-  resources: string[];
+  resources: VocabularyOption[];
 }
 
 export default function CredentialsPanel({ kind, projectId, resources }: Props) {
@@ -155,12 +169,12 @@ export default function CredentialsPanel({ kind, projectId, resources }: Props) 
                   <td className="px-4 py-3 font-mono text-xs text-gray-700">
                     {'display_key' in row ? row.display_key : row.client_id}
                   </td>
-                  <td className="max-w-xs px-4 py-3 text-xs text-gray-600">{summarizeScopes(row.scopes)}</td>
+                  <td className="max-w-xs px-4 py-3 text-xs text-gray-600">{summarizeScopes(row.scopes, resources)}</td>
                   <td className="px-4 py-3 text-gray-700">
                     {'last_used_at' in row ? formatDateTime(row.last_used_at) : formatDateTime(row.created_at)}
                   </td>
                   <td className="px-4 py-3">
-                    <StatusBadge active={row.is_active} inactiveLabel={row.revoked_at ? 'Revoked' : 'Expired'} />
+                    <StatusBadge active={row.is_active} inactiveLabel="Revoked" />
                   </td>
                   <td className="px-4 py-3 text-right">
                     {row.is_active && (

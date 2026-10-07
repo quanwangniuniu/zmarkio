@@ -4,10 +4,8 @@ import type {
   CreateCredentialData,
   CreatedApiKey,
   CreatedOAuthClient,
-  DeliveryFilters,
   IntegrationsVocabulary,
   OAuthClient,
-  Paginated,
   WebhookDelivery,
   WebhookEndpoint,
   WebhookEndpointData,
@@ -15,10 +13,6 @@ import type {
 } from '@/types/csmIntegrations';
 
 const BASE = '/api/csm/integrations';
-
-function unwrap<T>(data: T[] | Paginated<T>): T[] {
-  return Array.isArray(data) ? data : data?.results ?? [];
-}
 
 export const CsmIntegrationsAPI = {
   vocabulary(projectId: number) {
@@ -28,9 +22,7 @@ export const CsmIntegrationsAPI = {
   },
 
   listApiKeys(projectId: number) {
-    return api
-      .get<ApiKey[] | Paginated<ApiKey>>(`${BASE}/api-keys/`, { params: { project: projectId, page_size: 100 } })
-      .then((res) => unwrap(res.data));
+    return api.get<ApiKey[]>(`${BASE}/api-keys/`, { params: { project: projectId } }).then((res) => res.data);
   },
 
   createApiKey(projectId: number, data: CreateCredentialData) {
@@ -47,10 +39,8 @@ export const CsmIntegrationsAPI = {
 
   listOAuthClients(projectId: number) {
     return api
-      .get<OAuthClient[] | Paginated<OAuthClient>>(`${BASE}/oauth-clients/`, {
-        params: { project: projectId, page_size: 100 },
-      })
-      .then((res) => unwrap(res.data));
+      .get<OAuthClient[]>(`${BASE}/oauth-clients/`, { params: { project: projectId } })
+      .then((res) => res.data);
   },
 
   createOAuthClient(projectId: number, data: CreateCredentialData) {
@@ -67,10 +57,8 @@ export const CsmIntegrationsAPI = {
 
   listWebhooks(projectId: number) {
     return api
-      .get<WebhookEndpoint[] | Paginated<WebhookEndpoint>>(`${BASE}/webhooks/`, {
-        params: { project: projectId, page_size: 100 },
-      })
-      .then((res) => unwrap(res.data));
+      .get<WebhookEndpoint[]>(`${BASE}/webhooks/`, { params: { project: projectId } })
+      .then((res) => res.data);
   },
 
   createWebhook(projectId: number, data: WebhookEndpointData) {
@@ -103,19 +91,12 @@ export const CsmIntegrationsAPI = {
     });
   },
 
-  listDeliveries(projectId: number, filters: DeliveryFilters = {}) {
-    const params: Record<string, string | number> = { project: projectId };
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value !== undefined && value !== '') params[key] = value;
-    });
+  /** The newest 20 attempts, optionally for one endpoint. */
+  listDeliveries(projectId: number, endpointId: number | null) {
+    const params: Record<string, number> = { project: projectId };
+    if (endpointId) params.endpoint = endpointId;
     return api
-      .get<Paginated<WebhookDelivery>>(`${BASE}/webhook-deliveries/`, { params })
-      .then((res) => res.data);
-  },
-
-  redeliver(projectId: number, deliveryId: number) {
-    return api.post<{ event_id: string }>(`${BASE}/webhook-deliveries/${deliveryId}/redeliver/`, null, {
-      params: { project: projectId },
-    });
+      .get<{ results: WebhookDelivery[] }>(`${BASE}/webhook-deliveries/`, { params })
+      .then((res) => res.data.results);
   },
 };

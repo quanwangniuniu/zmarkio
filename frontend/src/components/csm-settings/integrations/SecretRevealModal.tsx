@@ -1,9 +1,9 @@
 'use client';
 
+import toast from 'react-hot-toast';
 import { Copy, KeyRound } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { BUILDER_PRIMARY_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '@/components/csm-settings/constants';
-import { copyToClipboard } from './labels';
 
 export interface RevealedSecret {
   title: string;
@@ -15,6 +15,15 @@ export interface RevealedSecret {
 interface Props {
   revealed: RevealedSecret | null;
   onClose: () => void;
+}
+
+async function copy(value: string, label: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+    toast.success(`${label} copied.`);
+  } catch {
+    toast.error('Could not copy. Select the text and copy it manually.');
+  }
 }
 
 /** Shows a key or secret exactly once; the server never returns it again. */
@@ -45,7 +54,7 @@ export default function SecretRevealModal({ revealed, onClose }: Props) {
                 </code>
                 <button
                   type="button"
-                  onClick={() => copyToClipboard(value, label)}
+                  onClick={() => copy(value, label)}
                   aria-label={`Copy ${label}`}
                   className={SECONDARY_BUTTON_CLASS}
                 >

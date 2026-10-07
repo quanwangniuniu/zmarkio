@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import WebhooksPanel from '@/components/csm-settings/integrations/WebhooksPanel';
 import { validateWebhookUrl } from '@/components/csm-settings/integrations/WebhookEndpointDrawer';
 import { CsmIntegrationsAPI } from '@/lib/api/csmIntegrationsApi';
-import type { WebhookDelivery, WebhookEndpoint, WebhookEventType } from '@/types/csmIntegrations';
+import type { WebhookDelivery, WebhookEndpoint } from '@/types/csmIntegrations';
 
 jest.mock('@/lib/api/csmIntegrationsApi', () => ({
   __esModule: true,
@@ -17,7 +17,6 @@ jest.mock('@/lib/api/csmIntegrationsApi', () => ({
     rotateWebhookSecret: jest.fn(),
     sendTestEvent: jest.fn(),
     listDeliveries: jest.fn(),
-    redeliver: jest.fn(),
   },
 }));
 
@@ -27,7 +26,11 @@ jest.mock('react-hot-toast', () => ({
 }));
 
 const api = CsmIntegrationsAPI as jest.Mocked<typeof CsmIntegrationsAPI>;
-const EVENTS: WebhookEventType[] = ['ticket.created', 'ticket.status_changed', 'sla.breached'];
+const EVENTS = [
+  { value: 'ticket.created', label: 'Ticket created' },
+  { value: 'ticket.status_changed', label: 'Ticket status changed' },
+  { value: 'sla.breached', label: 'SLA breached' },
+];
 
 const endpoint: WebhookEndpoint = {
   id: 5,
@@ -35,34 +38,25 @@ const endpoint: WebhookEndpoint = {
   description: 'PagerDuty',
   events: ['sla.breached'],
   is_active: true,
-  created_by_name: null,
   created_at: '2026-10-01T00:00:00Z',
-  updated_at: '2026-10-01T00:00:00Z',
-  last_delivery_status: 'failed',
-  last_delivery_at: '2026-10-02T00:00:00Z',
 };
 
 const delivery = (overrides: Partial<WebhookDelivery> = {}): WebhookDelivery => ({
   id: 70,
-  endpoint: 5,
-  event_id: '0b8f6d6e-0000-4000-8000-000000000001',
   event_type: 'sla.breached',
   target_url: endpoint.url,
   attempt: 4,
   status: 'failed',
   response_code: 503,
   error: 'HTTP 503',
-  duration_ms: 120,
-  next_retry_at: null,
   created_at: '2026-10-02T00:00:00Z',
-  payload: { type: 'sla.breached' },
   ...overrides,
 });
 
 beforeEach(() => {
   jest.clearAllMocks();
   api.listWebhooks.mockResolvedValue([endpoint]);
-  api.listDeliveries.mockResolvedValue({ count: 1, next: null, previous: null, results: [delivery()] });
+  api.listDeliveries.mockResolvedValue([delivery()]);
 });
 
 const renderPanel = async () => {
@@ -87,7 +81,7 @@ describe('WebhooksPanel', () => {
     expect(within(log).getByText('503')).toBeInTheDocument();
     expect(within(log).getByText('4 / 4')).toBeInTheDocument();
     expect(within(log).getAllByText('SLA breached').length).toBeGreaterThan(0);
-    expect(api.listDeliveries).toHaveBeenCalledWith(1, { page: 1 });
+    expect(api.listDeliveries).toHaveBeenCalledWith(1, null);
   });
 
   it('registers an endpoint and reveals the signing secret once', async () => {
@@ -127,7 +121,7 @@ describe('WebhooksPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: `Send test event to ${endpoint.url}` }));
 
     await waitFor(() => expect(api.sendTestEvent).toHaveBeenCalledWith(1, 5));
-    await waitFor(() => expect(api.listDeliveries).toHaveBeenLastCalledWith(1, { page: 1, endpoint: 5 }));
+    await waitFor(() => expect(api.listDeliveries).toHaveBeenLastCalledWith(1, 5));
     expect(toast.success).toHaveBeenCalled();
   });
 
@@ -152,32 +146,13 @@ describe('WebhooksPanel', () => {
     expect(api.deleteWebhook).toHaveBeenCalledWith(1, 5);
   });
 
-  it('filters the log and redelivers a failed attempt', async () => {
-    api.redeliver.mockResolvedValue({ data: { event_id: 'x' } } as never);
+  it('shows the failure reason on the HTTP cell and clears the endpoint filter', async () => {
     await renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: `View log of ${endpoint.url}` }));
+    await waitFor(() => expect(api.listDeliveries).toHaveBeenLastCalledWith(1, 5));
 
-    fireEvent.change(screen.getByLabelText('Filter by status'), { target: { value: 'failed' } });
-    await waitFor(() => expect(api.listDeliveries).toHaveBeenLastCalledWith(1, { page: 1, status: 'failed' }));
-
-    fireEvent.click(await screen.findByRole('button', { name: 'Redeliver delivery 70' }));
-    await waitFor(() => expect(api.redeliver).toHaveBeenCalledWith(1, 70));
-  });
-
-  it('pages through a long log', async () => {
-    api.listDeliveries.mockResolvedValue({
-      count: 45, next: 'n', previous: null, results: [delivery({ status: 'succeeded', response_code: 200 })],
-    });
-    await renderPanel();
-
-    expect(await screen.findByText('Page 1 of 3')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    await waitFor(() => expect(api.listDeliveries).toHaveBeenLastCalledWith(1, { page: 2 }));
-  });
-
-  it('expands a row to show the error and payload', async () => {
-    await renderPanel();
-    fireEvent.click(await screen.findByRole('button', { name: 'Details of delivery 70' }));
-    expect(screen.getByText('HTTP 503')).toBeInTheDocument();
-    expect(screen.getByText(delivery().event_id)).toBeInTheDocument();
+    expect(screen.getByTitle('HTTP 503')).toHaveTextContent('503');
+    fireEvent.change(screen.getByLabelText('Filter by endpoint'), { target: { value: '' } });
+    await waitFor(() => expect(api.listDeliveries).toHaveBeenLastCalledWith(1, null));
   });
 });

@@ -4,7 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { AlertCircle, KeyRound, ListChecks, Pencil, Plus, Send, Trash2 } from 'lucide-react';
 import { CsmIntegrationsAPI } from '@/lib/api/csmIntegrationsApi';
-import type { WebhookEndpoint, WebhookEndpointData, WebhookEventType } from '@/types/csmIntegrations';
+import type { VocabularyOption, WebhookEndpoint, WebhookEndpointData } from '@/types/csmIntegrations';
+import { ICON_BUTTON_CLASS } from '@/components/csm-settings/constants';
 import { PORTAL_SUBMIT_BUTTON_CLASS } from '@/components/ticket-form/constants';
 import StatusBadge from '@/components/csm-settings/StatusBadge';
 import ConfirmModal from '@/components/ui/ConfirmModal';
@@ -12,16 +13,12 @@ import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import SecretRevealModal, { type RevealedSecret } from './SecretRevealModal';
 import WebhookDeliveryLog from './WebhookDeliveryLog';
 import WebhookEndpointDrawer from './WebhookEndpointDrawer';
-import { DELIVERY_STATUS_CLASS, DELIVERY_STATUS_LABELS, eventLabel, formatDateTime } from './labels';
-
-const ICON_BUTTON_CLASS =
-  'rounded-md p-1.5 text-gray-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600 disabled:opacity-40';
 
 type Pending = { kind: 'delete' | 'rotate'; endpoint: WebhookEndpoint } | null;
 
 interface Props {
   projectId: number;
-  events: WebhookEventType[];
+  events: VocabularyOption[];
 }
 
 function secretReveal(endpoint: WebhookEndpoint, secret: string, rotated: boolean): RevealedSecret {
@@ -150,7 +147,6 @@ export default function WebhooksPanel({ projectId, events }: Props) {
                 <tr>
                   <th className="px-4 py-3">Endpoint</th>
                   <th className="px-4 py-3">Events</th>
-                  <th className="px-4 py-3">Last delivery</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -166,22 +162,10 @@ export default function WebhooksPanel({ projectId, events }: Props) {
                       <div className="flex flex-wrap gap-1">
                         {endpoint.events.map((event) => (
                           <span key={event} className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-700">
-                            {eventLabel(event)}
+                            {events.find((option) => option.value === event)?.label ?? event}
                           </span>
                         ))}
                       </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {endpoint.last_delivery_status ? (
-                        <div className="flex flex-col gap-1">
-                          <span className={`w-fit rounded-full px-2 py-0.5 text-xs font-medium ${DELIVERY_STATUS_CLASS[endpoint.last_delivery_status]}`}>
-                            {DELIVERY_STATUS_LABELS[endpoint.last_delivery_status]}
-                          </span>
-                          <span className="text-xs text-gray-500">{formatDateTime(endpoint.last_delivery_at)}</span>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
                     </td>
                     <td className="px-4 py-3"><StatusBadge active={endpoint.is_active} /></td>
                     <td className="px-4 py-3">
@@ -213,7 +197,7 @@ export default function WebhooksPanel({ projectId, events }: Props) {
                 ))}
                 {endpoints.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-sm italic text-gray-400">
+                    <td colSpan={4} className="px-4 py-8 text-center text-sm italic text-gray-400">
                       No webhooks yet. Add an endpoint to receive ticket and SLA events.
                     </td>
                   </tr>

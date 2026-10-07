@@ -23,13 +23,13 @@ jest.mock('@/components/csm-settings/SettingsHubLink', () => ({ __esModule: true
 // Each panel has its own test; stub them so this file stays on the page.
 jest.mock('@/components/csm-settings/integrations/CredentialsPanel', () => ({
   __esModule: true,
-  default: ({ kind, resources }: { kind: string; resources: string[] }) => (
-    <div>credentials:{kind}:{resources.join(',')}</div>
+  default: ({ kind, resources }: { kind: string; resources: { value: string }[] }) => (
+    <div>credentials:{kind}:{resources.map((r) => r.value).join(',')}</div>
   ),
 }));
 jest.mock('@/components/csm-settings/integrations/WebhooksPanel', () => ({
   __esModule: true,
-  default: ({ events }: { events: string[] }) => <div>webhooks:{events.join(',')}</div>,
+  default: ({ events }: { events: { value: string }[] }) => <div>webhooks:{events.map((e) => e.value).join(',')}</div>,
 }));
 
 const vocabulary = CsmIntegrationsAPI.vocabulary as jest.Mock;
@@ -38,7 +38,10 @@ beforeEach(() => jest.clearAllMocks());
 
 describe('IntegrationsSettingsPage', () => {
   it('switches between API keys, OAuth clients and webhooks', async () => {
-    vocabulary.mockResolvedValue({ resources: ['tickets'], scopes: [], events: ['ticket.created'] });
+    vocabulary.mockResolvedValue({
+      resources: [{ value: 'tickets', label: 'Tickets' }],
+      events: [{ value: 'ticket.created', label: 'Ticket created' }],
+    });
     render(<IntegrationsSettingsPage />);
 
     expect(await screen.findByText('credentials:api-key:tickets')).toBeInTheDocument();

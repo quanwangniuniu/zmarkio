@@ -9,13 +9,12 @@ import {
   BUILDER_PRIMARY_BUTTON_CLASS,
   SECONDARY_BUTTON_CLASS,
 } from '@/components/csm-settings/constants';
-import type { CreateCredentialData } from '@/types/csmIntegrations';
-import { resourceLabel } from './labels';
+import type { CreateCredentialData, VocabularyOption } from '@/types/csmIntegrations';
 
 interface Props {
   isOpen: boolean;
   title: string;
-  resources: string[];
+  resources: VocabularyOption[];
   onClose: () => void;
   /** Throws the axios error on failure so field errors can be shown. */
   onSubmit: (data: CreateCredentialData) => Promise<void>;
@@ -49,19 +48,6 @@ export default function CredentialFormModal({ isOpen, title, resources, onClose,
       }
       return next;
     });
-  };
-
-  const setAll = (access: 'read' | 'write' | 'none') => {
-    if (access === 'none') {
-      setScopes(new Set());
-      return;
-    }
-    const next = new Set<string>();
-    resources.forEach((resource) => {
-      next.add(`${resource}:read`);
-      if (access === 'write') next.add(`${resource}:write`);
-    });
-    setScopes(next);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -119,19 +105,8 @@ export default function CredentialFormModal({ isOpen, title, resources, onClose,
           </div>
 
           <fieldset className="flex flex-col gap-2">
-            <legend className="mb-1 flex w-full items-center justify-between text-sm font-medium text-gray-700">
-              <span>Permissions <span className="text-red-500">*</span></span>
-              <span className="flex gap-3 text-xs font-normal">
-                <button type="button" className="text-indigo-600 hover:underline" onClick={() => setAll('read')}>
-                  All read
-                </button>
-                <button type="button" className="text-indigo-600 hover:underline" onClick={() => setAll('write')}>
-                  All read &amp; write
-                </button>
-                <button type="button" className="text-gray-500 hover:underline" onClick={() => setAll('none')}>
-                  Clear
-                </button>
-              </span>
+            <legend className="mb-1 text-sm font-medium text-gray-700">
+              Permissions <span className="text-red-500">*</span>
             </legend>
             <div className="overflow-hidden rounded-lg border border-gray-200">
               <table className="min-w-full text-sm">
@@ -143,15 +118,15 @@ export default function CredentialFormModal({ isOpen, title, resources, onClose,
                   </tr>
                 </thead>
                 <tbody>
-                  {resources.map((resource) => {
+                  {resources.map(({ value: resource, label }) => {
                     const canWrite = scopes.has(`${resource}:write`);
                     return (
                       <tr key={resource} className="border-t border-gray-100">
-                        <td className="px-3 py-2 text-gray-800">{resourceLabel(resource)}</td>
+                        <td className="px-3 py-2 text-gray-800">{label}</td>
                         <td className="px-3 py-2 text-center">
                           <input
                             type="checkbox"
-                            aria-label={`${resourceLabel(resource)} read`}
+                            aria-label={`${label} read`}
                             checked={scopes.has(`${resource}:read`)}
                             disabled={submitting || canWrite}
                             onChange={(e) => toggle(resource, 'read', e.target.checked)}
@@ -160,7 +135,7 @@ export default function CredentialFormModal({ isOpen, title, resources, onClose,
                         <td className="px-3 py-2 text-center">
                           <input
                             type="checkbox"
-                            aria-label={`${resourceLabel(resource)} write`}
+                            aria-label={`${label} write`}
                             checked={canWrite}
                             disabled={submitting}
                             onChange={(e) => toggle(resource, 'write', e.target.checked)}

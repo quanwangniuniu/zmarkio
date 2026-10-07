@@ -10,14 +10,7 @@ import {
   SECONDARY_BUTTON_CLASS,
 } from '@/components/csm-settings/constants';
 import { parseFieldErrors } from '@/components/ticket-form/formErrors';
-import type { WebhookEndpoint, WebhookEndpointData, WebhookEventType } from '@/types/csmIntegrations';
-import { eventLabel } from './labels';
-
-const EVENT_HELP: Record<WebhookEventType, string> = {
-  'ticket.created': 'A ticket is created from any source: agents, portal forms, the API or a conversation.',
-  'ticket.status_changed': 'A ticket moves to another status. The payload includes the previous status.',
-  'sla.breached': 'A ticket misses its first-response or resolution target (checked every 15 minutes).',
-};
+import type { VocabularyOption, WebhookEndpoint, WebhookEndpointData } from '@/types/csmIntegrations';
 
 /** Client-side check only; the server also rejects hosts that resolve to private addresses. */
 export function validateWebhookUrl(url: string): string | null {
@@ -35,7 +28,7 @@ export function validateWebhookUrl(url: string): string | null {
 interface Props {
   isOpen: boolean;
   editing: WebhookEndpoint | null;
-  events: WebhookEventType[];
+  events: VocabularyOption[];
   onClose: () => void;
   /** Throws the axios error on failure so field errors can be shown. */
   onSubmit: (data: WebhookEndpointData) => Promise<void>;
@@ -45,7 +38,7 @@ export default function WebhookEndpointDrawer({ isOpen, editing, events, onClose
   const isEdit = editing !== null;
   const [url, setUrl] = useState('');
   const [description, setDescription] = useState('');
-  const [selected, setSelected] = useState<Set<WebhookEventType>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isActive, setIsActive] = useState(true);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -61,7 +54,7 @@ export default function WebhookEndpointDrawer({ isOpen, editing, events, onClose
     setServerError(null);
   }, [isOpen, editing]);
 
-  const toggleEvent = (event: WebhookEventType, checked: boolean) => {
+  const toggleEvent = (event: string, checked: boolean) => {
     setSelected((prev) => {
       const next = new Set(prev);
       if (checked) next.add(event);
@@ -87,7 +80,7 @@ export default function WebhookEndpointDrawer({ isOpen, editing, events, onClose
       await onSubmit({
         url: url.trim(),
         description: description.trim(),
-        events: events.filter((event) => selected.has(event)),
+        events: events.map(({ value }) => value).filter((event) => selected.has(event)),
         is_active: isActive,
       });
     } catch (err: unknown) {
@@ -164,21 +157,17 @@ export default function WebhookEndpointDrawer({ isOpen, editing, events, onClose
             <legend className={FORM_LABEL_CLASS}>
               Events <span className="text-red-500">*</span>
             </legend>
-            <div className="flex flex-col gap-3">
-              {events.map((event) => (
-                <label key={event} className="flex items-start gap-3 rounded-lg border border-gray-200 p-3">
+            <div className="flex flex-col gap-2">
+              {events.map(({ value, label }) => (
+                <label key={value} className="flex items-center gap-2 text-sm text-gray-800">
                   <input
                     type="checkbox"
-                    className="mt-0.5"
-                    checked={selected.has(event)}
+                    checked={selected.has(value)}
                     disabled={submitting}
-                    onChange={(e) => toggleEvent(event, e.target.checked)}
+                    onChange={(e) => toggleEvent(value, e.target.checked)}
                   />
-                  <span>
-                    <span className="block text-sm font-medium text-gray-900">{eventLabel(event)}</span>
-                    <span className="block font-mono text-xs text-gray-500">{event}</span>
-                    <span className="mt-1 block text-xs text-gray-600">{EVENT_HELP[event]}</span>
-                  </span>
+                  {label}
+                  <span className="font-mono text-xs text-gray-500">{value}</span>
                 </label>
               ))}
             </div>

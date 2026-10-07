@@ -24,19 +24,20 @@ jest.mock('react-hot-toast', () => ({
 }));
 
 const api = CsmIntegrationsAPI as jest.Mocked<typeof CsmIntegrationsAPI>;
-const RESOURCES = ['tickets', 'queues'];
+const RESOURCES = [
+  { value: 'tickets', label: 'Tickets' },
+  { value: 'queues', label: 'Queues' },
+];
 
 const key: ApiKey = {
   id: 3,
   name: 'Zapier',
-  prefix: 'abcd1234',
   display_key: 'zmk_abcd1234_…',
   scopes: ['tickets:read', 'tickets:write', 'queues:read'],
   is_active: true,
   created_by_name: 'Ada Admin',
   created_at: '2026-10-01T00:00:00Z',
   last_used_at: null,
-  expires_at: null,
   revoked_at: null,
 };
 
@@ -100,7 +101,7 @@ describe('CredentialsPanel (API keys)', () => {
     await renderPanel();
     fireEvent.click(screen.getByRole('button', { name: /New API key/ }));
     fireEvent.change(screen.getByLabelText(/Name/), { target: { value: 'x' } });
-    fireEvent.click(screen.getByRole('button', { name: 'All read' }));
+    fireEvent.click(screen.getByLabelText('Tickets read'));
     fireEvent.click(screen.getByRole('button', { name: 'Create' }));
 
     expect(await screen.findByText('Too long.')).toBeInTheDocument();
