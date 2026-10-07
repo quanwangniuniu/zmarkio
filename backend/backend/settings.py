@@ -129,6 +129,8 @@ INSTALLED_APPS = [
     'tracking',
     'csm',
     'portal',
+    'oauth2_provider',
+    'public_api.apps.PublicApiConfig',
 ]
 
 MIDDLEWARE = [
@@ -511,8 +513,21 @@ REST_FRAMEWORK = {
             'SPREADSHEET_WS_TICKET_THROTTLE_RATE',
             default='60/minute',
         ),
+        # Per API key / OAuth client (public_api.throttling).
+        'public_api': config('PUBLIC_API_THROTTLE_RATE', default='600/minute'),
     },
 }
+
+# Public API OAuth 2.0 (django-oauth-toolkit). Clients are created in the CSM
+# admin console with the client-credentials grant only; what a token may do is
+# decided by its public_api.OAuthClient scopes, not the OAuth scope parameter.
+OAUTH2_PROVIDER = {
+    'ACCESS_TOKEN_EXPIRE_SECONDS': config('PUBLIC_API_OAUTH_TOKEN_TTL_SECONDS', default=3600, cast=int),
+    'SCOPES': {'api': 'Zmarkio public API'},
+    'DEFAULT_SCOPES': ['api'],
+}
+# Referenced by public_api.OAuthClient; the toolkit's default model.
+OAUTH2_PROVIDER_APPLICATION_MODEL = 'oauth2_provider.Application'
 
 SPREADSHEET_WS_CONNECTION_MAX_SECONDS = config(
     'SPREADSHEET_WS_CONNECTION_MAX_SECONDS',
