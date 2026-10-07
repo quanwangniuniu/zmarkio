@@ -28,6 +28,16 @@ class Customer(models.Model):
       null=True,                                                                                                                                                
       blank=True,
   )       
+    # The workspace this customer belongs to. project_id alone is ambiguous
+    # (project ids are numbered per organisation schema), so external API
+    # scoping filters on organization + project.
+    organization = models.ForeignKey(
+        'core.Organization',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='csm_customers',
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
