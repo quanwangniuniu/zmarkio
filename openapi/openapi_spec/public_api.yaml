@@ -3,7 +3,7 @@ info:
   title: Zmarkio Public CSM API
   version: 1.0.0
   description: |
-    REST API and outbound webhooks for external systems integrating with the CSM platform (MED-226).
+    REST API and outbound webhooks for external systems integrating with the CSM platform.
 
     ## Credentials
     An organisation admin or CSM admin creates credentials in **CSM settings → API & Webhooks**.
@@ -100,29 +100,6 @@ paths:
                   scope: {type: string}
         '401': {description: Invalid client or revoked client}
 
-  /csm/whoami/:
-    get:
-      tags: [Credentials]
-      summary: The workspace, project and scopes of the calling credential
-      responses:
-        '200':
-          description: Credential identity
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  credential_type: {type: string, enum: [api_key, oauth_client]}
-                  name: {type: string}
-                  organization:
-                    type: object
-                    properties:
-                      id: {type: integer}
-                      slug: {type: string}
-                  project_id: {type: integer}
-                  scopes: {type: array, items: {type: string}}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-
   /csm/customers/:
     get:
       tags: [Customers]
@@ -132,7 +109,7 @@ paths:
         - {$ref: '#/components/parameters/PageSize'}
         - {name: email, in: query, schema: {type: string}, description: Case-insensitive exact match}
       responses:
-        '200': {$ref: '#/components/responses/CustomerList'}
+        '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Customer'}}}}]}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
     post:
@@ -169,7 +146,7 @@ paths:
       summary: List customer organisations of the workspace (scope organisations:read)
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/CustomerOrganisationPage'}}}}
+        '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/CustomerOrganisation'}}}}]}}}}
     post:
       tags: [Organisations]
       summary: Create a customer organisation (scope organisations:write)
@@ -206,9 +183,8 @@ paths:
         - {$ref: '#/components/parameters/PageSize'}
         - {name: queue, in: query, schema: {type: integer}}
         - {name: status, in: query, schema: {type: string}, description: Status slug}
-        - {$ref: '#/components/parameters/UpdatedSince'}
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/TicketPage'}}}}
+        '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Ticket'}}}}]}}}}
     post:
       tags: [Tickets]
       summary: Create a ticket (scope tickets:write). Emits ticket.created.
@@ -245,9 +221,8 @@ paths:
         - {$ref: '#/components/parameters/PageSize'}
         - {name: queue, in: query, schema: {type: integer}}
         - {name: status, in: query, schema: {type: string, enum: [active, pending, resolved, closed]}}
-        - {$ref: '#/components/parameters/UpdatedSince'}
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/ConversationPage'}}}}
+        '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Conversation'}}}}]}}}}
     post:
       tags: [Conversations]
       summary: Create a conversation (scope conversations:write)
@@ -275,7 +250,7 @@ paths:
       summary: List a conversation's messages, oldest first (read-only)
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/MessagePage'}}}}
+        '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Message'}}}}]}}}}
 
   /csm/templates/:
     get:
@@ -283,7 +258,7 @@ paths:
       summary: List quick reply templates (scope templates:read)
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/TemplatePage'}}}}
+        '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Template'}}}}]}}}}
     post:
       tags: [Templates]
       summary: Create a template (scope templates:write)
@@ -319,7 +294,7 @@ paths:
         - {$ref: '#/components/parameters/PageSize'}
         - {name: experience_group, in: query, schema: {type: integer}}
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/RoutingRulePage'}}}}
+        '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/RoutingRule'}}}}]}}}}
     post:
       tags: [Routing rules]
       summary: Create a rule, appended to the end of its experience group (scope routing_rules:write)
@@ -371,7 +346,7 @@ paths:
       summary: List queues (scope queues:read)
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/QueuePage'}}}}
+        '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Queue'}}}}]}}}}
     post:
       tags: [Queues]
       summary: Create a queue in the credential's project (scope queues:write)
@@ -404,7 +379,7 @@ paths:
       summary: List CSM profiles — agents, supervisors and admins (scope agents:read)
       parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
       responses:
-        '200': {description: OK, content: {application/json: {schema: {$ref: '#/components/schemas/AgentPage'}}}}
+        '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Agent'}}}}]}}}}
     post:
       tags: [Agents]
       summary: Give an existing workspace member a CSM profile (scope agents:write)
@@ -482,11 +457,6 @@ components:
     Id: {name: id, in: path, required: true, schema: {type: integer}}
     Page: {name: page, in: query, schema: {type: integer, minimum: 1}}
     PageSize: {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
-    UpdatedSince:
-      name: updated_since
-      in: query
-      schema: {type: string, format: date-time}
-      description: Only rows updated at or after this ISO 8601 time
 
   responses:
     Unauthorized:
@@ -503,9 +473,6 @@ components:
     ValidationError:
       description: Invalid input
       content: {application/json: {schema: {type: object, additionalProperties: true}}}
-    CustomerList:
-      description: OK
-      content: {application/json: {schema: {$ref: '#/components/schemas/CustomerPage'}}}
 
   requestBodies:
     Customer: {content: {application/json: {schema: {$ref: '#/components/schemas/CustomerWrite'}}}}
@@ -555,10 +522,6 @@ components:
             status_label_color: {type: [string, 'null']}
             created_at: {type: string, format: date-time}
             updated_at: {type: string, format: date-time}
-    CustomerPage:
-      allOf:
-        - {$ref: '#/components/schemas/Page'}
-        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Customer'}}}}
 
     CustomerOrganisationWrite:
       type: object
@@ -578,10 +541,6 @@ components:
             organization: {type: integer, description: The workspace (always the credential's)}
             created_at: {type: string, format: date-time}
             updated_at: {type: string, format: date-time}
-    CustomerOrganisationPage:
-      allOf:
-        - {$ref: '#/components/schemas/Page'}
-        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/CustomerOrganisation'}}}}
 
     TicketWrite:
       type: object
@@ -618,10 +577,6 @@ components:
                   slug: {type: string}
                   name: {type: string}
                   color: {type: string}
-    TicketPage:
-      allOf:
-        - {$ref: '#/components/schemas/Page'}
-        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Ticket'}}}}
 
     ConversationWrite:
       type: object
@@ -651,10 +606,6 @@ components:
             elapsed_seconds: {type: integer}
             ticket: {type: [object, 'null'], additionalProperties: true}
             created_at: {type: string, format: date-time}
-    ConversationPage:
-      allOf:
-        - {$ref: '#/components/schemas/Page'}
-        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Conversation'}}}}
     Message:
       type: object
       properties:
@@ -668,10 +619,6 @@ components:
         rich_body: {type: [object, 'null'], additionalProperties: true}
         image_url: {type: [string, 'null'], format: uri}
         created_at: {type: string, format: date-time}
-    MessagePage:
-      allOf:
-        - {$ref: '#/components/schemas/Page'}
-        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Message'}}}}
 
     TemplateWrite:
       type: object
@@ -695,10 +642,6 @@ components:
             created_by_name: {type: [string, 'null']}
             created_at: {type: string, format: date-time}
             updated_at: {type: string, format: date-time}
-    TemplatePage:
-      allOf:
-        - {$ref: '#/components/schemas/Page'}
-        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Template'}}}}
 
     RoutingRuleWrite:
       type: object
@@ -730,10 +673,6 @@ components:
             can_route: {type: boolean, description: False when the target queue was deleted or deactivated}
             created_at: {type: string, format: date-time}
             updated_at: {type: string, format: date-time}
-    RoutingRulePage:
-      allOf:
-        - {$ref: '#/components/schemas/Page'}
-        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/RoutingRule'}}}}
 
     QueueWrite:
       type: object
@@ -757,10 +696,6 @@ components:
             organisation_name: {type: [string, 'null']}
             tier_display: {type: string}
             created_at: {type: string, format: date-time}
-    QueuePage:
-      allOf:
-        - {$ref: '#/components/schemas/Page'}
-        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Queue'}}}}
 
     AgentWrite:
       type: object
@@ -784,10 +719,6 @@ components:
             organisation_name: {type: [string, 'null']}
             user_type_display: {type: string}
             created_at: {type: string, format: date-time}
-    AgentPage:
-      allOf:
-        - {$ref: '#/components/schemas/Page'}
-        - {type: object, properties: {results: {type: array, items: {$ref: '#/components/schemas/Agent'}}}}
 
     WebhookEvent:
       type: object
