@@ -23,7 +23,7 @@ import useAuth from '@/hooks/useAuth';
 import { useAuthStore } from '@/lib/authStore';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { authAPI, readPersistedAuthState } from '@/lib/api';
+import { authAPI } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { OrganizationAPI, OrgListItem } from '@/lib/api/organizationApi';
 
@@ -346,9 +346,7 @@ function ProfileContent() {
     if (deleteConfirmText !== 'DELETE MY ACCOUNT') return;
     setIsDeleting(true);
     try {
-      // Note: the persisted field is `refreshToken`, not `refresh` (fixed pre-existing typo)
-      const refreshToken = readPersistedAuthState()?.state?.refreshToken ?? '';
-      await authAPI.deleteAccount(refreshToken);
+      await authAPI.deleteAccount();
       toast.success('Your account has been deleted.');
       await logout();
       router.replace('/login');

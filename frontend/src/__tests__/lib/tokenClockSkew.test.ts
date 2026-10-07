@@ -38,7 +38,7 @@ describe('access token expiry with a skewed client clock', () => {
     const serverNow = () => nowSeconds() - 20 * 60;
     const serverToken = () => jwt({ iat: serverNow(), exp: serverNow() + FIFTEEN_MIN });
 
-    persistAuthTokens({ token: serverToken(), refreshToken: 'refresh', user: { id: 1 } as any });
+    persistAuthTokens({ token: serverToken(), user: { id: 1 } as any });
     const refreshSpy = jest
       .spyOn(axios, 'post')
       .mockImplementation(async () => ({ data: { access: serverToken() } }) as any);

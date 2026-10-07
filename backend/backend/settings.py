@@ -543,6 +543,15 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
+# The refresh token lives only in this server-set cookie: HttpOnly so page
+# scripts (and any XSS) can't read it, and scoped to /auth/ so it is only sent
+# to the refresh/logout/delete-account endpoints. SameSite=Strict keeps it off
+# every cross-site request, which is what protects those endpoints from CSRF.
+REFRESH_COOKIE_NAME = 'ms_refresh'
+REFRESH_COOKIE_PATH = '/auth/'
+REFRESH_COOKIE_SAMESITE = 'Strict'
+REFRESH_COOKIE_SECURE = config('REFRESH_COOKIE_SECURE', default=not DEBUG, cast=bool)
+
 # Security settings for production
 if not DEBUG:
     SECURE_BROWSER_XSS_FILTER = True

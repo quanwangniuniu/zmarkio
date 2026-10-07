@@ -7,6 +7,7 @@ Redis is mocked so no real Redis server is required.
 """
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
@@ -218,7 +219,7 @@ class SessionRevokeViewTests(APITestCase):
             reverse("login"),
             {"email": "revoke@example.com", "password": "testpass123"},
         )
-        return resp.data["token"], resp.data["refresh"]
+        return resp.data["token"], resp.cookies[settings.REFRESH_COOKIE_NAME].value
 
     def _auth_header(self, token):
         return {"HTTP_AUTHORIZATION": f"Bearer {token}"}
@@ -520,3 +521,57 @@ class AuthTokensTests(APITestCase):
         refresh = build_user_refresh_token(self.user)
         access = refresh.access_token
         self.assertEqual(access["refresh_jti"], str(refresh["jti"]))
+
+    def test_refresh_cookie_expires_with_the_token_not_a_fresh_lifetime(self):
+        from datetime import timedelta
+
+        from rest_framework.response import Response
+
+        from core.services.auth_tokens import build_user_refresh_token, set_refresh_cookie
+
+        # A token near the end of its life, re-set by the refresh view as a raw string.
+        refresh = build_user_refresh_token(self.user)
+        refresh.set_exp(lifetime=timedelta(hours=1))
+        response = set_refresh_cookie(Response(), str(refresh))
+
+        max_age = response.cookies[settings.REFRESH_COOKIE_NAME]["max-age"]
+        self.assertAlmostEqual(int(max_age), 3600, delta=5)
+
+    def _refresh_with_cookie(self, raw_refresh):
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = raw_refresh
+        return self.client.post(reverse("token-refresh"))
+
+    def test_refresh_with_valid_cookie_returns_access_only_in_body(self):
+        from core.services.auth_tokens import build_user_refresh_token
+
+        response = self._refresh_with_cookie(str(build_user_refresh_token(self.user)))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.data)
+        self.assertNotIn("refresh", response.data)
+        self.assertTrue(response.cookies[settings.REFRESH_COOKIE_NAME]["httponly"])
+
+    def test_refresh_for_deactivated_user_returns_401_and_clears_cookie(self):
+        from core.services.auth_tokens import build_user_refresh_token
+
+        raw = str(build_user_refresh_token(self.user))
+        # Same state DeleteAccountView leaves behind (soft delete).
+        self.user.is_active = False
+        self.user.save()
+
+        response = self._refresh_with_cookie(raw)
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data["code"], "no_active_account")
+        self.assertEqual(response.cookies[settings.REFRESH_COOKIE_NAME]["max-age"], 0)
+
+    def test_refresh_for_missing_user_returns_401_not_500(self):
+        from core.services.auth_tokens import build_user_refresh_token
+
+        refresh = build_user_refresh_token(self.user)
+        refresh["user_id"] = self.user.id + 10_000  # signed token for a user row that doesn't exist
+
+        response = self._refresh_with_cookie(str(refresh))
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.cookies[settings.REFRESH_COOKIE_NAME]["max-age"], 0)

@@ -3,9 +3,9 @@ import { waitForTasksPageReady } from '../../tasks/tasks-helpers';
 import { BUDGET_E2E_DEFAULT_PASSWORD, resolveBudgetRbacAuthState, type BudgetE2EFixturePayload } from './budget-e2e-types';
 import { loadBudgetE2EFixtures } from './budget-fixtures';
 
+// No refresh token in the body: login sets it as an HttpOnly cookie on page.request's context.
 type LoginPayload = {
   token: string;
-  refresh: string;
   user: Record<string, unknown>;
   organization_access_token?: string | null;
 };
@@ -53,7 +53,6 @@ async function seedAuthStorage(
         JSON.stringify({
           state: {
             token: authState.token,
-            refreshToken: authState.refresh,
             organizationAccessToken: authState.organization_access_token ?? null,
             user: {
               ...authState.user,
