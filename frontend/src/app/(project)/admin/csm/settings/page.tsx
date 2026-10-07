@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { CalendarClock, ClipboardList, FileText, FlaskConical, FolderKanban, GitBranch, Lightbulb, ListOrdered, Radio, Shield, Tag, Workflow } from 'lucide-react';
+import { CalendarClock, ClipboardList, FileText, FlaskConical, FolderKanban, GitBranch, Lightbulb, ListOrdered, Radio, Shield, Tag, Webhook, Workflow } from 'lucide-react';
 import CsmSettingsPageRoot, { CsmSettingsProjectGuard } from '@/components/csm-settings/CsmSettingsPageRoot';
 import CsmSettingsNavCard from '@/components/csm-settings/CsmSettingsNavCard';
 import { useProjectIdFromUrl } from '@/components/csm-settings/useProjectIdFromUrl';
@@ -101,6 +101,12 @@ export default function CsmSettingsHubPage() {
             icon={FlaskConical}
             title="Routing & Template Sandbox"
             description="Simulate a conversation, trace rule evaluation, and preview templates. Nothing is saved."
+          />
+          <CsmSettingsNavCard
+            href={buildUrl('/admin/csm/settings/integrations')}
+            icon={Webhook}
+            title="API & Webhooks"
+            description="API keys and OAuth clients for external systems, and signed webhooks for ticket and SLA events."
           />
         </div>
       )}
