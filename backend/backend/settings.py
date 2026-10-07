@@ -530,7 +530,11 @@ from .celery import app as celery_app
 __all__ = ('celery_app',)
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(days=4),
+    # Short-lived so a leaked access token is only useful briefly; the frontend
+    # refreshes it with the refresh token (on 401, or just before expiry).
+    'ACCESS_TOKEN_LIFETIME': timedelta(
+        minutes=config('JWT_ACCESS_TOKEN_LIFETIME_MINUTES', default=15, cast=int)
+    ),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=4),
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': True,

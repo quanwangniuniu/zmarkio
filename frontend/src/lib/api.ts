@@ -81,7 +81,6 @@ const AUTH_STORAGE_KEY = 'auth-storage-v1';
 /** Old key — read once for migration, never written. Removed by follow-up cleanup ticket. */
 export const LEGACY_AUTH_STORAGE_KEY = 'auth-storage';
 const AUTH_COOKIE_KEY = 'ms_auth';
-const AUTH_COOKIE_MAX_AGE_SECONDS = 4 * 24 * 60 * 60;
 
 type PersistedAuthState = {
   state?: {
@@ -102,11 +101,6 @@ function getCookieValue(name: string): string | null {
     .split('; ')
     .find((part) => part.startsWith(encodedName));
   return match ? decodeURIComponent(match.slice(encodedName.length)) : null;
-}
-
-function writeCookieValue(name: string, value: string, maxAgeSeconds = AUTH_COOKIE_MAX_AGE_SECONDS) {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; Max-Age=${maxAgeSeconds}; Path=/; SameSite=Lax`;
 }
 
 function clearCookieValue(name: string) {
@@ -182,25 +176,6 @@ function readAuthCookie(): PersistedAuthState | null {
   }
 }
 
-function writeAuthCookie(authData: PersistedAuthState) {
-  const state = authData.state;
-  if (!state?.token && !state?.refreshToken) {
-    clearCookieValue(AUTH_COOKIE_KEY);
-    return;
-  }
-  writeCookieValue(
-    AUTH_COOKIE_KEY,
-    JSON.stringify({
-      state: {
-        token: state.token ?? null,
-        refreshToken: state.refreshToken ?? null,
-        organizationAccessToken: state.organizationAccessToken ?? null,
-      },
-      version: authData.version ?? 0,
-    }),
-  );
-}
-
 export function readPersistedAuthState() {
   if (typeof window === 'undefined') return null;
   if (canUseLocalStorage()) {
@@ -245,7 +220,6 @@ export function persistAuthTokens(tokens: {
     }
   }
   writeAuthSessionStorage(authData);
-  writeAuthCookie(authData);
 }
 
 export function clearPersistedAuthState() {
@@ -295,14 +269,6 @@ export const authPersistStorage = {
         console.warn('Failed to write persisted auth session item:', error);
       }
     }
-    // Always write cookie (not just as localStorage fallback) so SSR requests
-    // have an up-to-date token without needing a separate persistAuthTokens call.
-    if (name !== AUTH_STORAGE_KEY) return;
-    try {
-      writeAuthCookie(JSON.parse(value));
-    } catch (error) {
-      console.warn('Failed to persist auth cookie:', error);
-    }
   },
   removeItem: (name: string): void => {
     if (canUseLocalStorage()) {
@@ -325,6 +291,12 @@ export const authPersistStorage = {
   },
 };
 
+// authStore listens for this to keep its in-memory token in sync; otherwise it
+// would keep (and re-persist) the expired token after a refresh.
+export const ACCESS_TOKEN_REFRESHED_EVENT = 'auth:access-token-refreshed';
+
+export type AccessTokenRefreshedDetail = { accessToken: string; refreshToken?: string };
+
 export function updatePersistedAccessToken(accessToken: string, refreshToken?: string) {
   const authData: PersistedAuthState = readPersistedAuthState() ?? { state: {}, version: 0 };
   authData.state = authData.state ?? {};
@@ -340,7 +312,11 @@ export function updatePersistedAccessToken(accessToken: string, refreshToken?: s
     }
   }
   writeAuthSessionStorage(authData);
-  writeAuthCookie(authData);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(ACCESS_TOKEN_REFRESHED_EVENT, { detail: { accessToken, refreshToken } }),
+    );
+  }
 }
 
 // Throws on failure so callers can tell a rejected refresh token from an unreachable server.
@@ -357,6 +333,7 @@ async function requestTokenRefresh(refreshToken: string): Promise<string | null>
   );
   const accessToken = response.data?.access || response.data?.token;
   if (!accessToken) return null;
+  learnServerClockOffset(accessToken);
   updatePersistedAccessToken(accessToken, response.data?.refresh);
   return accessToken;
 }
@@ -399,6 +376,46 @@ export function getSharedRefreshedToken(refreshToken: string): Promise<string | 
   return sharedRefreshPromise.finally(() => {
     sharedRefreshPromise = null;
   });
+}
+
+// Refresh this many seconds early so the token can't expire in flight.
+const ACCESS_TOKEN_EXPIRY_BUFFER_SECONDS = 30;
+
+// Server clock minus this browser's clock, in seconds. Token exp/iat are in
+// server time, so a fast or slow local clock would otherwise make every token
+// look expired (endless refreshes) or never expiring.
+let serverClockOffsetSeconds = 0;
+
+function readJwtPayload(token: string): { exp?: unknown; iat?: unknown } | null {
+  try {
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  } catch {
+    return null;
+  }
+}
+
+// Only call with a token that was minted just now (i.e. a refresh response):
+// its iat is then the server's current time.
+function learnServerClockOffset(freshToken: string) {
+  const iat = readJwtPayload(freshToken)?.iat;
+  if (typeof iat === 'number') serverClockOffsetSeconds = iat - Date.now() / 1000;
+}
+
+export function isAccessTokenExpiring(token: string): boolean {
+  const exp = readJwtPayload(token)?.exp;
+  // Unreadable token: send it as-is and let the server decide.
+  if (typeof exp !== 'number') return false;
+  const serverNow = Date.now() / 1000 + serverClockOffsetSeconds;
+  return serverNow > exp - ACCESS_TOKEN_EXPIRY_BUFFER_SECONDS;
+}
+
+// For requests that bypass the axios 401 interceptor (fetch, EventSource):
+// returns the stored access token, refreshing it first if it is about to expire.
+export async function getValidAccessToken(): Promise<string | null> {
+  const state = readPersistedAuthState()?.state;
+  const token = state?.token ?? null;
+  if (!token || !state?.refreshToken || !isAccessTokenExpiring(token)) return token;
+  return getSharedRefreshedToken(state.refreshToken);
 }
 
 // Prevent duplicate banners when the interceptor fires more than once for the

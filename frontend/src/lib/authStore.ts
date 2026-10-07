@@ -7,6 +7,8 @@ import {
   readPersistedAuthState,
   LEGACY_AUTH_STORAGE_KEY,
   SESSION_ENDED_EVENT,
+  ACCESS_TOKEN_REFRESHED_EVENT,
+  type AccessTokenRefreshedDetail,
 } from './api';
 import { User } from '../types/auth';
 import TeamAPI from './api/teamApi';
@@ -453,5 +455,9 @@ export const useAuthStore = create<AuthState>()(
 if (typeof window !== 'undefined') {
   window.addEventListener(SESSION_ENDED_EVENT, () => {
     useAuthStore.getState().clearAuth();
+  });
+  window.addEventListener(ACCESS_TOKEN_REFRESHED_EVENT, (event) => {
+    const { accessToken, refreshToken } = (event as CustomEvent<AccessTokenRefreshedDetail>).detail;
+    useAuthStore.setState(refreshToken ? { token: accessToken, refreshToken } : { token: accessToken });
   });
 }

@@ -25,6 +25,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
+import { getValidAccessToken, isAccessTokenExpiring } from '@/lib/api';
 import { useAuthStore } from '@/lib/authStore';
 import { useChatStore } from '@/lib/chatStore';
 import { useNotificationStore } from '@/lib/notificationStore';
@@ -65,6 +66,9 @@ export function useNotificationSSE(): void {
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const stoppedRef = useRef(false);
+  // Token this hook just refreshed to; connect with it even if it still looks
+  // expiring, so a wrong expiry guess can't cause back-to-back refreshes.
+  const justRefreshedTokenRef = useRef<string | null>(null);
 
   const refreshUnreadCount = useCallback(async () => {
     try {
@@ -85,6 +89,9 @@ export function useNotificationSSE(): void {
     if (typeof window === 'undefined') return;
 
     stoppedRef.current = false;
+    // Set when this effect run is torn down (unmount, or a new token re-ran it),
+    // so a refresh that resolves afterwards doesn't act on the newer run's state.
+    let disposed = false;
 
     const close = () => {
       if (esRef.current) {
@@ -98,6 +105,27 @@ export function useNotificationSSE(): void {
       const currentToken = tokenRef.current;
       if (!currentToken) {
         setConnectionStatus('disconnected');
+        return;
+      }
+
+      // EventSource can't report a 401, so refresh an expiring token before
+      // connecting. Putting the new token in the store re-runs this effect
+      // with it (it may have come from another tab, so no refresh event).
+      const justRefreshed = currentToken === justRefreshedTokenRef.current;
+      justRefreshedTokenRef.current = null;
+      if (!justRefreshed && isAccessTokenExpiring(currentToken)) {
+        void getValidAccessToken().then((freshToken) => {
+          if (disposed) return;
+          if (!freshToken) {
+            scheduleReconnect();
+            return;
+          }
+          justRefreshedTokenRef.current = freshToken;
+          // Same token back (e.g. nothing to refresh with): the store won't
+          // change, so connect directly and let the server decide.
+          if (freshToken === currentToken) connect();
+          else useAuthStore.getState().setToken(freshToken);
+        });
         return;
       }
 
@@ -193,21 +221,25 @@ export function useNotificationSSE(): void {
       es.onerror = () => {
         if (stoppedRef.current) return;
         close();
-        setConnectionStatus('reconnecting');
-
-        const retryDelay = jitteredRetryDelay(retryMsRef.current);
-        if (process.env.NODE_ENV === 'development') {
-          console.warn(
-            `[NotificationSSE] error – reconnecting in ${retryDelay}ms`,
-          );
-        }
-
-        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = setTimeout(() => {
-          retryMsRef.current = Math.min(retryMsRef.current * 2, MAX_RETRY_MS);
-          connect();
-        }, retryDelay);
+        scheduleReconnect();
       };
+    };
+
+    const scheduleReconnect = () => {
+      setConnectionStatus('reconnecting');
+
+      const retryDelay = jitteredRetryDelay(retryMsRef.current);
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(
+          `[NotificationSSE] error – reconnecting in ${retryDelay}ms`,
+        );
+      }
+
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = setTimeout(() => {
+        retryMsRef.current = Math.min(retryMsRef.current * 2, MAX_RETRY_MS);
+        connect();
+      }, retryDelay);
     };
 
     connect();
@@ -237,6 +269,7 @@ export function useNotificationSSE(): void {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      disposed = true;
       stoppedRef.current = true;
       if (retryTimerRef.current) {
         clearTimeout(retryTimerRef.current);
