@@ -1113,7 +1113,7 @@ def send_scheduled_message(
         )
 
     except Exception as exc:
-        logger.error(f"send_scheduled_message {scheduled_message_id} failed: {exc}")
+        logger.exception("send_scheduled_message %s failed", scheduled_message_id)
         if sm is not None:
             try:
                 sm.status = ScheduledMessage.STATUS_FAILED

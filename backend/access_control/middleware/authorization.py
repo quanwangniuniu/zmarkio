@@ -111,8 +111,8 @@ class AuthorizationMiddleware:
         except Exception:
             # Fail closed on the bypass only: fall through to the regular RBAC check below.
             logger.warning(
-                "Org-admin bypass lookup failed for user_id=%s path=%s; falling back to RBAC",
-                getattr(user, "id", None), request.path, exc_info=True,
+                "Org-admin bypass lookup failed for user_id=%s route=%s; falling back to RBAC",
+                getattr(user, "id", None), getattr(request.resolver_match, "route", None), exc_info=True,
             )
 
         if not has_permission_gate:
@@ -244,9 +244,9 @@ class AuthorizationMiddleware:
             # Best-effort by design (never block the request), but a lost audit
             # row is security-relevant and must be visible to operators.
             logger.exception(
-                "Failed to write AdminOverrideAudit user_id=%s type=%s module=%s action=%s method=%s path=%s",
+                "Failed to write AdminOverrideAudit user_id=%s type=%s module=%s action=%s method=%s route=%s",
                 getattr(user, "id", None), override_type, module_key, action_key,
-                request.method, request.path,
+                request.method, getattr(request.resolver_match, "route", None),
             )
 
     # Authorization decorator for team endpoints
