@@ -1,7 +1,212 @@
+import math
 from typing import Dict, List, Optional, TypedDict
 
+from django.core.cache import cache
+from django.db import connection, transaction
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
+from django.utils import timezone
+
 from core.models import Permission, Project, ProjectMember, Role
-from access_control.models import RolePermission
+from access_control.models import RolePermission, UserRole
+
+
+class PermissionBundle(TypedDict):
+    permissions: List[str]
+    has_any_role: bool
+
+
+def permission_cache_key(schema_name: str, user_id: int) -> str:
+    return f"access_control:permission_bundle:{schema_name}:{user_id}"
+
+
+def invalidate_user_permission_cache(schema_name: str, user_id: int) -> None:
+    try:
+        cache.delete(permission_cache_key(schema_name, user_id))
+    except Exception:
+        pass
+
+
+def _set_permission_cache(
+    key: str,
+    bundle: PermissionBundle,
+    timeout,
+) -> None:
+    try:
+        cache.set(key, bundle, timeout)
+    except Exception:
+        pass
+
+
+def get_user_permission_bundle(
+    user_id: int,
+    schema_name: str,
+) -> PermissionBundle:
+    key = permission_cache_key(schema_name, user_id)
+
+    try:
+        cached = cache.get(key)
+    except Exception:
+        cached = None
+
+    if cached is not None:
+        return cached
+
+    now = timezone.now()
+
+    user_roles = list(
+        UserRole.objects.filter(user_id=user_id).values(
+            "role_id",
+            "valid_from",
+            "valid_to",
+        )
+    )
+
+    active_role_ids = []
+    next_transition_seconds = None
+
+    for user_role in user_roles:
+        valid_from = user_role["valid_from"]
+        valid_to = user_role["valid_to"]
+
+        if valid_from <= now and (
+            valid_to is None or valid_to >= now
+        ):
+            active_role_ids.append(user_role["role_id"])
+
+            if valid_to is not None:
+                seconds = max(
+                    1,
+                    math.ceil((valid_to - now).total_seconds()),
+                )
+                if (
+                    next_transition_seconds is None
+                    or seconds < next_transition_seconds
+                ):
+                    next_transition_seconds = seconds
+
+        elif valid_from > now:
+            seconds = max(
+                1,
+                math.ceil((valid_from - now).total_seconds()),
+            )
+            if (
+                next_transition_seconds is None
+                or seconds < next_transition_seconds
+            ):
+                next_transition_seconds = seconds
+
+    permission_pairs = RolePermission.objects.filter(
+        role_id__in=active_role_ids
+    ).values_list(
+        "permission__module",
+        "permission__action",
+    )
+
+    bundle: PermissionBundle = {
+        "permissions": sorted(
+            f"{module}:{action}"
+            for module, action in permission_pairs
+        ),
+        "has_any_role": bool(user_roles),
+    }
+
+    timeout = cache.default_timeout
+    if next_transition_seconds is not None:
+        timeout = (
+            next_transition_seconds
+            if timeout is None
+            else min(timeout, next_transition_seconds)
+        )
+
+    if connection.in_atomic_block:
+        transaction.on_commit(
+            lambda: _set_permission_cache(
+                key,
+                bundle,
+                timeout,
+            )
+        )
+    else:
+        _set_permission_cache(
+            key,
+            bundle,
+            timeout,
+        )
+
+    return bundle
+
+
+def _current_schema_name() -> str:
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW search_path")
+        search_path = cursor.fetchone()[0]
+
+    return search_path.split(",")[0].strip().strip('"')
+
+
+def _invalidate_user_after_commit(user_id: int) -> None:
+    try:
+        schema_name = _current_schema_name()
+    except Exception:
+        return
+
+    transaction.on_commit(
+        lambda: invalidate_user_permission_cache(
+            schema_name,
+            user_id,
+        )
+    )
+
+
+def _invalidate_role_users_after_commit(role_id: int) -> None:
+    try:
+        schema_name = _current_schema_name()
+        user_ids = list(
+            UserRole.objects.filter(role_id=role_id)
+            .values_list("user_id", flat=True)
+            .distinct()
+        )
+    except Exception:
+        return
+
+    def invalidate():
+        for user_id in user_ids:
+            invalidate_user_permission_cache(
+                schema_name,
+                user_id,
+            )
+
+    transaction.on_commit(invalidate)
+
+
+@receiver(post_save, sender=UserRole)
+@receiver(post_delete, sender=UserRole)
+def invalidate_permission_cache_on_user_role_change(
+    sender,
+    instance,
+    **kwargs,
+):
+    _invalidate_user_after_commit(instance.user_id)
+
+
+@receiver(post_save, sender=RolePermission)
+@receiver(post_delete, sender=RolePermission)
+def invalidate_permission_cache_on_role_permission_change(
+    sender,
+    instance,
+    **kwargs,
+):
+    _invalidate_role_users_after_commit(instance.role_id)
+
+
+@receiver(post_save, sender=Role)
+def invalidate_permission_cache_on_role_change(
+    sender,
+    instance,
+    **kwargs,
+):
+    _invalidate_role_users_after_commit(instance.id)
 
 
 MODULE_LABELS = {

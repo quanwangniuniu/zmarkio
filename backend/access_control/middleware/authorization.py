@@ -6,6 +6,7 @@ from datetime import timedelta
 from core.models import Organization
 from core.services.tenant import slug_to_schema_name
 from access_control.models import RolePermission, UserRole, AdminOverrideAudit
+from access_control.services import get_user_permission_bundle
 from typing import Optional, Callable, Any
 from functools import wraps
 from core.models import Team, TeamMember, TeamRole
@@ -108,6 +109,32 @@ class AuthorizationMiddleware:
 
         if not has_permission_gate:
             return None
+
+        # MED-299: use the cached permission bundle as a fast path.
+        # If cache resolution fails, continue through the existing PostgreSQL path below.
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SHOW search_path")
+                search_path = cursor.fetchone()[0]
+
+            schema_name = search_path.split(",")[0].strip().strip('"')
+            bundle = get_user_permission_bundle(
+                request.user.id,
+                schema_name,
+            )
+
+            required_permission = f"{module_key}:{action_key}"
+
+            if required_permission in bundle["permissions"]:
+                return None
+
+            if bundle["has_any_role"]:
+                return JsonResponse({'detail': 'Permission denied'}, status=403)
+
+            return None
+
+        except Exception:
+            pass
 
         # CRITICAL: After multi-organization restructuring, UserRole and RolePermission
         # tables now live in TENANT schemas, not public schema. TenantSchemaMiddleware
