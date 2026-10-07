@@ -67,3 +67,54 @@ def other_workspace(db):
     project = Project.objects.create(name='Other Project', organization=organization)
     customer_organisation = CustomerOrganisation.objects.create(name='Other Customers', organization=organization)
     return {'organization': organization, 'project': project, 'customer_organisation': customer_organisation}
+
+
+def client_for(raw_key):
+    client = APIClient()
+    client.credentials(HTTP_X_API_KEY=raw_key)
+    return client
+
+
+@pytest.fixture
+def tenant_project(organization, project):
+    """
+    Mirror `project` into its organisation's schema. A credential's request runs
+    there (as a logged-in user's would), and services such as routing rules
+    resolve the project's organisation from that schema.
+    """
+    from core.services.tenant import slug_to_schema_name
+    from core.tenant_context import tenant_schema_context
+
+    with tenant_schema_context(slug_to_schema_name(organization.slug)):
+        if not Project.objects.filter(pk=project.pk).exists():
+            Project.objects.bulk_create([Project(
+                pk=project.pk, name=project.name, slug=project.slug,
+                organization_id=organization.id, owner_id=project.owner_id,
+            )])
+    return project
+
+
+@pytest.fixture
+def workspace(project, organization, customer_organisation, csm_queue, experience_group, user):
+    """One row of every public resource in the credential's workspace."""
+    from csm.models import Conversation, CustomerUser, QuickReplyTemplate, TemplateTag, Ticket
+    from customer.models import Customer
+
+    customer = Customer.objects.create(
+        email='alice@example.com', full_name='Alice', project=project,
+        organisation=customer_organisation, organization=organization, experience_group=experience_group,
+    )
+    agent = CustomerUser.objects.create(
+        user=user, user_type='agent', organisation=customer_organisation, queue=csm_queue, is_active=True,
+    )
+    conversation = Conversation.objects.create(customer=customer, queue=csm_queue, assigned_to=agent)
+    conversation.messages.create(sender_type='customer', content='Where is my refund?')
+    ticket = Ticket.objects.create(queue=csm_queue, title='Refund', customer_email=customer.email, conversation=conversation)
+    TemplateTag.objects.create(organisation=customer_organisation, name='billing')
+    template = QuickReplyTemplate.objects.create(
+        organisation=customer_organisation, title='Refund ETA', content='5 days', tags=['billing'],
+    )
+    return {
+        'customer': customer, 'agent': agent, 'conversation': conversation, 'ticket': ticket,
+        'template': template, 'queue': csm_queue, 'customer_organisation': customer_organisation,
+    }
