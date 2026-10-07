@@ -97,11 +97,14 @@ export const TaskAPI = {
    */
   getTask: (
     taskId: number | string,
-    options?: { internalRefetch?: boolean },
+    options?: { internalRefetch?: boolean; projectId?: number | string | null },
   ) =>
     api.get(`/api/tasks/${taskId}/`, {
       headers: options?.internalRefetch
         ? { 'X-Internal-Refetch': '1' }
+        : undefined,
+      params: options?.projectId
+        ? { project_id: options.projectId }
         : undefined,
     }),
 

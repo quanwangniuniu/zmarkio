@@ -7,6 +7,7 @@ import { OnboardingProvider } from '@/contexts/OnboardingContext';
 import OnboardingGate from '@/components/onboarding/OnboardingGate';
 import { TrackingProvider } from '@/lib/tracking/TrackingProvider';
 import UpgradeModal from '@/components/plans/UpgradeModal';
+import ToastDedupeCleaner from './ToastDedupeCleaner';
 
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
@@ -17,6 +18,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
         </OnboardingProvider>
       </TrackingProvider>
       <UpgradeModal />
+      <ToastDedupeCleaner />
       <Toaster
         position="top-right"
         containerStyle={{

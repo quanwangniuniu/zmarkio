@@ -26,7 +26,6 @@ export function CalendarSidebarContainer({
   const handleCalendarItemClick = useCallback(
     (calendarId: string) => {
       if (selectedCalendarId === calendarId) {
-        onVisibleCalendarsChange(undefined);
         return;
       }
       onVisibleCalendarsChange([calendarId]);

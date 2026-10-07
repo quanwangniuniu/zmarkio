@@ -1,7 +1,9 @@
 """
-RAG indexing signals for the meetings app (MED-264).
+Meeting signals: RAG indexing (MED-264) + transcript search_vector sync.
 
-Every handler here just says "this Meeting's content may have changed" and
+RAG indexing
+------------
+Every RAG handler here just says "this Meeting's content may have changed" and
 enqueues the same per-document Celery task signals everywhere else use —
 `rag.tasks.index_document_task`. It does not decide whether anything
 actually needs re-embedding: `index_source_document`'s content_hash +
@@ -60,6 +62,11 @@ complete successfully.
 `current_tenant_schema()` reads the schema already active on this
 connection — inside a request, TenantSchemaMiddleware has already set it
 correctly, so there's no need to re-derive it from the user/org.
+
+Transcript FTS
+--------------
+A separate post_save handler keeps `Meeting.search_vector` in sync via
+`meetings.tasks.update_meeting_search_vector` (prod-preview).
 """
 import logging
 
@@ -167,3 +174,10 @@ def handle_meeting_document_deleted(sender, instance: MeetingDocument, **kwargs)
 @receiver(post_save, sender=MeetingDocument)
 def handle_meeting_document_saved(sender, instance: MeetingDocument, **kwargs) -> None:
     _enqueue_meeting_index(instance.meeting.project_id, instance.meeting_id)
+
+
+@receiver(post_save, sender=Meeting)
+def update_search_vector_on_save(sender, instance: Meeting, **kwargs) -> None:
+    """Keep search_vector in sync whenever a Meeting is created or updated."""
+    from meetings.tasks import update_meeting_search_vector
+    update_meeting_search_vector.delay(instance.pk)  # type: ignore[operator]

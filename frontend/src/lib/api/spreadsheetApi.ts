@@ -1,4 +1,4 @@
-import api from '../api';
+import api, { LONG_REQUEST_TIMEOUT_MS } from '../api';
 import {
   SpreadsheetData,
   SpreadsheetListResponse,
@@ -17,8 +17,12 @@ import {
   withBaseRevision,
 } from '@/lib/sheetRevisionStore';
 
-/** Timeout for long-running spreadsheet requests (import batch, large range read). Default axios 10s is too short. */
-const SPREADSHEET_LONG_REQUEST_TIMEOUT_MS = 300000; // 5 minutes (safety net; optimized batch writes should finish in <5s)
+/**
+ * Timeout for long-running spreadsheet requests (import batch, large range read).
+ * Default axios 10s is too short; uses the shared LONG_REQUEST_TIMEOUT_MS tier
+ * (5 minutes, safety net — optimized batch writes should finish in <5s).
+ */
+const SPREADSHEET_LONG_REQUEST_TIMEOUT_MS = LONG_REQUEST_TIMEOUT_MS;
 
 /**
  * Collab WS client id of this tab (set by useSheetSocket while a sheet room is
@@ -675,4 +679,50 @@ export const SpreadsheetAPI = {
     );
     return captureSheetRevision(sheetId, response.data);
   },
+
+  // -----------------------------------------------------------------------
+  // User-Defined Functions (UDFs)
+  // -----------------------------------------------------------------------
+
+  listUdfs: async (projectSlug: string): Promise<UdfData[]> => {
+    const response = await api.get<UdfData[]>(
+      `/api/spreadsheet/projects/${projectSlug}/udfs/`
+    );
+    return response.data;
+  },
+
+  createUdf: async (projectSlug: string, data: UdfPayload): Promise<UdfData> => {
+    const response = await api.post<UdfData>(
+      `/api/spreadsheet/projects/${projectSlug}/udfs/`,
+      data
+    );
+    return response.data;
+  },
+
+  updateUdf: async (projectSlug: string, udfId: number, data: UdfPayload): Promise<UdfData> => {
+    const response = await api.put<UdfData>(
+      `/api/spreadsheet/projects/${projectSlug}/udfs/${udfId}`,
+      data
+    );
+    return response.data;
+  },
+
+  deleteUdf: async (projectSlug: string, udfId: number): Promise<void> => {
+    await api.delete(`/api/spreadsheet/projects/${projectSlug}/udfs/${udfId}`);
+  },
 };
+
+export interface UdfData {
+  id: number;
+  name: string;
+  params: string[];
+  expression: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UdfPayload {
+  name: string;
+  params: string[];
+  expression: string;
+}

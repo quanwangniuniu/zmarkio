@@ -1,6 +1,8 @@
 from datetime import date
 from urllib.parse import urlencode
 
+from meetings.tasks import update_meeting_search_vector
+
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
@@ -117,7 +119,7 @@ class TestMeetingsKnowledgeListAPI(TestCase):
         self.assertEqual(ids, {m1.id})
 
     def test_q_matches_title(self):
-        Meeting.objects.create(
+        m1 = Meeting.objects.create(
             project=self.project,
             title="Alpha roadmap",
             type_definition=self.planning,
@@ -131,6 +133,8 @@ class TestMeetingsKnowledgeListAPI(TestCase):
             objective="o",
             summary="",
         )
+        update_meeting_search_vector(m1.pk)
+        update_meeting_search_vector(m2.pk)
         rows = self._results(self.client.get(self._url(q="beta")))
         self.assertEqual({r["id"] for r in rows}, {m2.id})
 
@@ -142,6 +146,7 @@ class TestMeetingsKnowledgeListAPI(TestCase):
             objective="o",
             summary="Quarterly outcomes digest",
         )
+        update_meeting_search_vector(m.pk)
         rows = self._results(self.client.get(self._url(q="digest")))
         self.assertEqual({r["id"] for r in rows}, {m.id})
 
@@ -722,6 +727,8 @@ class TestMeetingsKnowledgeListAPI(TestCase):
                 "related_decisions",
                 "related_tasks",
                 "is_archived",
+                "snippet_source",
+                "search_snippet",
             },
         )
         self.assertEqual(row["meeting_type"], "Planning")

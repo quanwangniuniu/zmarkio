@@ -13,6 +13,7 @@ import {
 import { klaviyoApi } from '@/lib/api/klaviyoApi';
 import { useBuildUrl } from '@/lib/buildUrl';
 import type { KlaviyoDraft } from '@/hooks/useKlaviyoData';
+import { toastDeduped } from '@/lib/toastDeduped';
 
 function toRow(draft: KlaviyoDraft): EmailDraftRow {
   return {
@@ -81,7 +82,9 @@ export default function KlaviyoV2Page() {
       toast.success(`Moved "${deleteTarget.title}" to trash`);
       setDeleteTarget(null);
     } catch (err) {
-      toast.error('Failed to delete draft. Please try again.');
+      toastDeduped.error('Failed to delete draft. Please try again.', {
+        operation: 'klaviyo.delete',
+      });
     } finally {
       setDeleteBusy(false);
     }
@@ -102,7 +105,10 @@ export default function KlaviyoV2Page() {
         void loadDrafts();
       }
     } catch (err) {
-      toast.error('Failed to create template. Please try again.');
+      // Retries of the same create failure merge into one toast with a count badge.
+      toastDeduped.error('Failed to create template. Please try again.', {
+        operation: 'klaviyo.create',
+      });
       setCreating(false);
     }
   };

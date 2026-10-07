@@ -10,13 +10,13 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import ValidationError, NotFound
+from rest_framework.exceptions import ValidationError, NotFound, PermissionDenied
 from rest_framework.throttling import ScopedRateThrottle
 from django.shortcuts import get_object_or_404
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.http import HttpResponse
 
 from .xlsx_export import build_sheet_workbook
@@ -36,6 +36,7 @@ from .models import (
     SpreadsheetHighlightScope,
     PivotConfig,
     SheetKind,
+    UserDefinedFunction,
 )
 from .serializers import (
     SpreadsheetSerializer,
@@ -68,6 +69,7 @@ from .serializers import (
     SpreadsheetCellFormatBatchSerializer,
     PivotConfigSerializer,
     PivotConfigCreateUpdateSerializer,
+    UserDefinedFunctionSerializer,
 )
 from .services import (
     SpreadsheetService, SheetService, CellService, CellBatchArgumentError,
@@ -1624,3 +1626,72 @@ class GeneratePivotConfigView(APIView):
             rows=row_count,
         )
         return Response({'config': config})
+
+class UserDefinedFunctionView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get_project(self, request, project_slug):
+        from core.models import Project, ProjectMember
+        project = get_object_or_404(Project, slug=project_slug, is_deleted=False)
+        if not ProjectMember.objects.filter(project=project, user=request.user, is_active=True).exists():
+            raise PermissionDenied()
+        return project
+
+    def get(self, request, project_slug):
+        project = self._get_project(request, project_slug)
+        udfs = UserDefinedFunction.objects.filter(project=project, is_deleted=False)
+        serializer = UserDefinedFunctionSerializer(udfs, many=True)
+        return Response(serializer.data)
+
+    @transaction.atomic
+    def post(self, request, project_slug):
+        project = self._get_project(request, project_slug)
+        serializer = UserDefinedFunctionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        name = serializer.validated_data["name"].upper()
+        if UserDefinedFunction.objects.filter(project=project, name=name, is_deleted=False).exists():
+            raise ValidationError({"name": f"A function named '{name}' already exists."})
+        try:
+            serializer.save(project=project)
+        except IntegrityError:
+            raise ValidationError({"name": f"A function named '{name}' already exists."})
+        CellService.recalculate_cells_using_udf(project, name)
+        return Response(serializer.data, status=201)
+
+class UserDefinedFunctionDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get_udf(self, request, project_slug, udf_id, select_for_update=False):
+        from core.models import Project, ProjectMember
+        project = get_object_or_404(Project, slug=project_slug, is_deleted=False)
+        if not ProjectMember.objects.filter(project=project, user=request.user, is_active=True).exists():
+            raise PermissionDenied()
+        qs = UserDefinedFunction.objects.filter(id=udf_id, project=project, is_deleted=False)
+        if select_for_update:
+            qs = qs.select_for_update()
+        return get_object_or_404(qs)
+
+    @transaction.atomic
+    def put(self, request, project_slug, udf_id):
+        udf = self._get_udf(request, project_slug, udf_id, select_for_update=True)
+        old_name = udf.name
+        serializer = UserDefinedFunctionSerializer(udf, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.save()
+        except IntegrityError:
+            raise ValidationError({"name": "A function with this name already exists."})
+        CellService.recalculate_cells_using_udf(udf.project, old_name)
+        new_name = udf.name
+        if new_name != old_name:
+            CellService.recalculate_cells_using_udf(udf.project, new_name)
+        return Response(serializer.data)
+
+    @transaction.atomic
+    def delete(self, request, project_slug, udf_id):
+        udf = self._get_udf(request, project_slug, udf_id, select_for_update=True)
+        udf_name = udf.name
+        udf.is_deleted = True
+        udf.save(update_fields=["is_deleted", "updated_at"])
+        CellService.recalculate_cells_using_udf(udf.project, udf_name)
+        return Response(status=204)

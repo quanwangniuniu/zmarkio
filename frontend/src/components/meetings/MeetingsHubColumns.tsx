@@ -17,6 +17,7 @@ interface Props {
   onCompletedSortChange: (key: MeetingSortKey) => void;
   projectId: number | string;
   onCreate: () => void;
+  searchQuery?: string;
 }
 
 export default function MeetingsHubColumns({
@@ -32,6 +33,7 @@ export default function MeetingsHubColumns({
   onCompletedSortChange,
   projectId,
   onCreate,
+  searchQuery,
 }: Props) {
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:items-start">
@@ -45,6 +47,7 @@ export default function MeetingsHubColumns({
         onSortChange={onIncomingSortChange}
         projectId={projectId}
         onCreate={onCreate}
+        searchQuery={searchQuery}
       />
       <MeetingColumn
         title="Completed meetings"
@@ -55,6 +58,7 @@ export default function MeetingsHubColumns({
         sortKey={completedSort}
         onSortChange={onCompletedSortChange}
         projectId={projectId}
+        searchQuery={searchQuery}
       />
     </div>
   );

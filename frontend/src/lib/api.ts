@@ -5,12 +5,14 @@ import {
   LoginResponse,
   RegisterRequest,
   RegisterResponse,
+  PasswordValidationRule,
   User,
   AuthError,
   GoogleAuthResponse,
   SetPasswordRequest,
   ChangePasswordResponse,
 } from '../types/auth';
+import { isRetryableAuthError } from './authMessages';
 
 const DEFAULT_API_BASE_URL = '';
 
@@ -26,12 +28,44 @@ export function resolveApiBaseUrl(): string {
   return API_BASE_URL;
 }
 
+/**
+ * Named timeout tiers, in milliseconds, for calls through the shared `api`
+ * client. Most endpoints are ordinary CRUD and finish well under a second,
+ * so the client defaults to DEFAULT_TIMEOUT_MS. A known-slow endpoint should
+ * pass the matching tier as `{ timeout: ... }` on that specific call rather
+ * than inventing a new local constant — grep for these names before adding
+ * one, since the class of request you're timing has probably shown up
+ * before.
+ *
+ * - LLM_TIMEOUT_MS: a single LLM-backed generation call (e.g. one Gemini/
+ *   Vertex request analyzing an existing sheet/instruction).
+ * - LLM_BATCH_TIMEOUT_MS: heavier or multi-item LLM generation (batch content
+ *   generation, multi-step previews).
+ * - SYNC_TIMEOUT_MS: a request that synchronously calls out to an external
+ *   platform (ad platform, calendar, etc.) before responding.
+ * - UPLOAD_TIMEOUT_MS: uploading a user-provided file (attachments, media).
+ * - LONG_REQUEST_TIMEOUT_MS: safety net for rare, exceptionally long
+ *   operations (large batch writes) that are otherwise expected to be fast.
+ *
+ * For anything that can run past a couple of minutes regardless of timeout
+ * length — batch generation, full account syncs — prefer a job-and-poll
+ * endpoint (kick off the work, return a job id, poll for status) over
+ * stretching the timeout further; a timeout is the wrong tool once the
+ * operation is that long.
+ */
+export const DEFAULT_TIMEOUT_MS = 10_000;
+export const LLM_TIMEOUT_MS = 60_000;
+export const LLM_BATCH_TIMEOUT_MS = 120_000;
+export const SYNC_TIMEOUT_MS = 120_000;
+export const UPLOAD_TIMEOUT_MS = 60_000;
+export const LONG_REQUEST_TIMEOUT_MS = 300_000;
+
 // Create axios instance for API calls
 // indexes: null => array params serialize as repeated keys (e.g. status=A&status=B)
 // so Django QueryDict.getlist('status') works; default axios uses status[]=... which Django ignores.
 const api = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 10000,
+  timeout: DEFAULT_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json, text/plain, */*',
@@ -309,25 +343,44 @@ export function updatePersistedAccessToken(accessToken: string, refreshToken?: s
   writeAuthCookie(authData);
 }
 
+// Throws on failure so callers can tell a rejected refresh token from an unreachable server.
+async function requestTokenRefresh(refreshToken: string): Promise<string | null> {
+  const response = await axios.post(
+    `${API_BASE_URL}/auth/token/refresh/`,
+    { refresh: refreshToken },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/plain, */*',
+      },
+    },
+  );
+  const accessToken = response.data?.access || response.data?.token;
+  if (!accessToken) return null;
+  updatePersistedAccessToken(accessToken, response.data?.refresh);
+  return accessToken;
+}
+
 export async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   try {
-    const response = await axios.post(
-      `${API_BASE_URL}/auth/token/refresh/`,
-      { refresh: refreshToken },
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json, text/plain, */*',
-        },
-      },
-    );
-    const accessToken = response.data?.access || response.data?.token;
-    if (!accessToken) return null;
-    updatePersistedAccessToken(accessToken, response.data?.refresh);
-    return accessToken;
+    return await requestTokenRefresh(refreshToken);
   } catch (error) {
     console.warn('Failed to refresh auth token:', error);
     return null;
+  }
+}
+
+export const SESSION_ENDED_EVENT = 'auth:session-ended';
+
+// The session can't be recovered: clear it and send the user to log in again.
+// authStore listens for SESSION_ENDED_EVENT to reset its in-memory state
+// (it can't be imported here — authStore already imports this file).
+export function endSession() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event(SESSION_ENDED_EVENT));
+  clearPersistedAuthState();
+  if (!window.location.pathname.startsWith('/login')) {
+    window.location.href = '/login';
   }
 }
 
@@ -335,11 +388,33 @@ export async function refreshAccessToken(refreshToken: string): Promise<string |
 // like preferencesApi.ts) so concurrent 401s trigger exactly one refresh call.
 export function getSharedRefreshedToken(refreshToken: string): Promise<string | null> {
   if (!sharedRefreshPromise) {
-    sharedRefreshPromise = refreshAccessToken(refreshToken);
+    sharedRefreshPromise = requestTokenRefresh(refreshToken).catch((error) => {
+      console.warn('Failed to refresh auth token:', error);
+      // Network errors and 5xx may recover; a 4xx means the server rejected the refresh token.
+      // Runs once per refresh, not once per waiting request.
+      if (!isRetryableAuthError(error)) endSession();
+      return null;
+    });
   }
   return sharedRefreshPromise.finally(() => {
     sharedRefreshPromise = null;
   });
+}
+
+// Prevent duplicate banners when the interceptor fires more than once for the
+// same eviction event (original request + one retry).
+let _sessionEvictedPending = false;
+
+function notifySessionEvicted() {
+  if (_sessionEvictedPending) return;
+  _sessionEvictedPending = true;
+
+  try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch (_) {}
+  clearAuthSessionStorage();
+  clearCookieValue(AUTH_COOKIE_KEY);
+  try { sessionStorage.setItem('session_evicted', '1'); } catch (_) {}
+
+  window.location.href = '/login';
 }
 
 // Request interceptor to add auth token to requests
@@ -422,6 +497,18 @@ api.interceptors.response.use(
           config.headers.Authorization = `Bearer ${accessToken}`;
           return api(config);
         }
+        // Sent a token but have nothing to refresh it with: the session is dead.
+        // (A rejected refresh already ended it inside getSharedRefreshedToken.)
+        if (!refreshToken && config.headers.Authorization) endSession();
+      }
+
+      // Session was explicitly revoked or exceeded concurrent limit.
+      // Show a top banner on the current page, then redirect to login.
+      // Return a never-resolving promise so the component's catch block never
+      // fires — this keeps the current page visible while the toast is shown.
+      if (typeof window !== 'undefined' && responseData?.code === 'session_evicted') {
+        notifySessionEvicted();
+        return new Promise(() => {});
       }
     }
 
@@ -460,6 +547,14 @@ export const authAPI = {
   
   register: async (userData: RegisterRequest): Promise<RegisterResponse> => {
     const response = await api.post('/auth/register/', userData);
+    return response.data;
+  },
+
+  validatePassword: async (
+    userData: Pick<RegisterRequest, 'username' | 'email' | 'password'>,
+    signal?: AbortSignal,
+  ): Promise<{ rules: PasswordValidationRule[] }> => {
+    const response = await api.post('/auth/password/validate/', userData, { signal });
     return response.data;
   },
   
@@ -528,6 +623,16 @@ export const authAPI = {
     const response = await api.delete('/auth/me/delete/', {
       data: { confirm: 'DELETE MY ACCOUNT', refresh_token: refreshToken },
     });
+    return response.data;
+  },
+
+  getSessions: async (): Promise<{ jti: string; ip: string; user_agent: string; created_at: string }[]> => {
+    const response = await api.get('/auth/sessions/');
+    return response.data;
+  },
+
+  revokeSession: async (jti: string): Promise<{ message: string }> => {
+    const response = await api.delete(`/auth/sessions/${jti}/`);
     return response.data;
   },
 };

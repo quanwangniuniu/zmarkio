@@ -107,6 +107,7 @@ export function getSampleSidebarMyCalendars(): SidebarCalendarItem[] {
       color: calendars[0].color,
       isHidden: false,
       isMine: true,
+      isTeam: false,
     },
   ];
 }
@@ -121,6 +122,7 @@ export function getSampleSidebarOtherCalendars(): SidebarCalendarItem[] {
       color: calendars[1].color,
       isHidden: false,
       isMine: false,
+      isTeam: true,
     },
   ];
 }

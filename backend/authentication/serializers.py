@@ -8,6 +8,37 @@ from stripe_meta.models import Subscription
 
 User = get_user_model()
 
+
+class PasswordValidationStringField(serializers.Field):
+    default_error_messages = {
+        'invalid': 'Not a valid string.',
+        'max_length': 'Ensure this field has no more than {max_length} characters.',
+        'blank': 'This field cannot be blank.',
+    }
+
+    def __init__(self, *args, max_length, trim_whitespace=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_length = max_length
+        self.trim_whitespace = trim_whitespace
+
+    def to_internal_value(self, data):
+        if not isinstance(data, str):
+            self.fail('invalid')
+        if self.trim_whitespace and data:
+            data = data.strip()
+            if not data:
+                self.fail('blank')
+        if len(data) > self.max_length:
+            self.fail('max_length', max_length=self.max_length)
+        return data
+
+
+class PasswordValidationSerializer(serializers.Serializer):
+    password = PasswordValidationStringField(default='', max_length=256)
+    username = PasswordValidationStringField(default='', max_length=150, trim_whitespace=True)
+    email = PasswordValidationStringField(default='', max_length=254, trim_whitespace=True)
+
+
 class OrganizationSerializer(serializers.ModelSerializer):
     plan_id = serializers.SerializerMethodField()
     
@@ -33,6 +64,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     avatar = serializers.SerializerMethodField()
     is_org_admin = serializers.SerializerMethodField()
     is_csm_admin = serializers.SerializerMethodField()
+    is_csm_supervisor = serializers.SerializerMethodField()
     password_rotation = serializers.SerializerMethodField()
 
     class Meta:
@@ -41,7 +73,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'id', 'email', 'username', 'is_verified', 'is_staff',
             'organization', 'current_organization', 'roles', 'first_name', 'last_name',
             'avatar', 'job', 'department', 'location',
-            'is_org_admin', 'is_csm_admin', 'password_rotation',
+            'is_org_admin', 'is_csm_admin', 'is_csm_supervisor', 'password_rotation',
         ]
 
     def get_is_org_admin(self, obj):
@@ -51,6 +83,10 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def get_is_csm_admin(self, obj):
         from core.admin_utils import is_csm_admin
         return is_csm_admin(obj)
+
+    def get_is_csm_supervisor(self, obj):
+        from core.admin_utils import is_csm_supervisor
+        return is_csm_supervisor(obj)
 
     def get_password_rotation(self, obj):
         from authentication.password_rotation import get_password_rotation_status

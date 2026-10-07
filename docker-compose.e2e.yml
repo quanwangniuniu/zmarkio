@@ -1,0 +1,7 @@
+# CI-only override for real browser tests. Never use this for deployment.
+services:
+  backend:
+    environment:
+      DEBUG: 'True'
+    ports:
+      - '127.0.0.1:8000:8000'

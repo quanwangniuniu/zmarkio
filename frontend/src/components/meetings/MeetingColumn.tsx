@@ -21,6 +21,7 @@ interface Props {
   onSortChange: (key: MeetingSortKey) => void;
   projectId: number | string;
   onCreate?: () => void;
+  searchQuery?: string;
 }
 
 function SortMenu({
@@ -99,6 +100,7 @@ export default function MeetingColumn({
   onSortChange,
   projectId,
   onCreate,
+  searchQuery,
 }: Props) {
   const sorted = applyMeetingSort(meetings, sortKey);
   const hasRows = sorted.length > 0;
@@ -125,7 +127,7 @@ export default function MeetingColumn({
         <ul className="flex flex-col gap-2.5">
           {sorted.map((m) => (
             <li key={m.id}>
-              <MeetingCard meeting={m} projectId={projectId} />
+              <MeetingCard meeting={m} projectId={projectId} searchQuery={searchQuery} />
             </li>
           ))}
         </ul>

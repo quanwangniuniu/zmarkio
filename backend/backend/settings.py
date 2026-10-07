@@ -18,6 +18,18 @@ from django.core.exceptions import ImproperlyConfigured
 from celery.schedules import crontab
 from corsheaders.defaults import default_headers as CORS_DEFAULT_HEADERS
 
+from .secret_settings import (
+    ALLOW_LEGACY_ENV,
+    COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
+    COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
+    COMMITTED_SECRET_KEY_DIGESTS,
+    read_bool_env,
+    read_secret_env,
+    validate_distinct_secrets,
+    validate_fernet_key_setting,
+    validate_secret_setting,
+)
+
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -27,17 +39,28 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = config('SECRET_KEY', default='django-insecure-4g=$b1l14w5*aia@bgix6zv9%ky2#elk0f*jso867wpgcq8&3u')
-
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0').split(',') + [
-    'lipographic-damon-unshrinkable.ngrok-free.dev',
-    'volar-probankruptcy-orval.ngrok-free.dev',
-    'christeen-gawkiest-carmelia.ngrok-free.dev',
-    'upload-rinsing-tracing.ngrok-free.dev',
+# Local-only escape hatch for keys that were committed to this repository: they
+# boot with a warning only when DEBUG is on AND ALLOW_LEGACY_LOCAL_KEYS is set.
+# Off by default. See backend/secret_settings.py.
+ALLOW_LEGACY_LOCAL_KEYS = DEBUG and read_bool_env(ALLOW_LEGACY_ENV)
+
+# SECURITY WARNING: keep the secret key used in production secret!
+# Required, with no fallback: it signs every JWT and is shared with
+# variations-studio-api. Read from the environment only. See
+# backend/secret_settings.py.
+SECRET_KEY = validate_secret_setting(
+    'SECRET_KEY',
+    read_secret_env('SECRET_KEY'),
+    allow_committed=ALLOW_LEGACY_LOCAL_KEYS,
+    committed_digests=COMMITTED_SECRET_KEY_DIGESTS,
+)
+
+ALLOWED_HOSTS = [
+    h.strip() for h in config('ALLOWED_HOSTS', default='localhost,127.0.0.1,0.0.0.0').split(',')
+    if h.strip()
 ]
 
 
@@ -308,7 +331,6 @@ if USE_SQLITE_FOR_TESTS:
         'NAME': os.path.join(BASE_DIR, 'db.test.sqlite3'),
     }
 
-
 # Password validation
 # https://docs.djangoproject.com/en/4.2/ref/settings/#auth-password-validators
 
@@ -483,10 +505,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:80",
     "http://127.0.0.1:80",
-    "http://lipographic-damon-unshrinkable.ngrok-free.dev",
-    "http://volar-probankruptcy-orval.ngrok-free.dev",
-    "http://christeen-gawkiest-carmelia.ngrok-free.dev",
-    "https://upload-rinsing-tracing.ngrok-free.dev",
+] + [
+    o.strip() for o in config('CORS_EXTRA_ORIGINS', default='').split(',')
+    if o.strip()
 ]
 
 CORS_ALLOW_CREDENTIALS = True
@@ -507,16 +528,13 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "http://christeen-gawkiest-carmelia.ngrok-free.dev",
-    "http://christeen-gawkiest-carmelia.ngrok-free.dev",
-    "http://lipographic-damon-unshrinkable.ngrok-free.dev",
-    "http://volar-probankruptcy-orval.ngrok-free.dev",
-    "https://upload-rinsing-tracing.ngrok-free.dev",
+] + [
+    o.strip() for o in config('CSRF_EXTRA_ORIGINS', default='').split(',')
+    if o.strip()
 ]
 
 # Session Configuration for OAuth
 SESSION_COOKIE_SAMESITE = 'Lax'  # Allow session cookies for OAuth redirects
-SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_AGE = 3600  # 1 hour
 SESSION_SAVE_EVERY_REQUEST = True
@@ -549,6 +567,17 @@ REST_FRAMEWORK = {
     ],
     'EXCEPTION_HANDLER': 'calendars.exceptions.calendar_exception_handler',
     'DEFAULT_THROTTLE_RATES': {
+        # Booking links are unauthenticated, so they are throttled by
+        # IP. Reads are generous (a prospect paging through weeks); writes are
+        # tight, since each one creates a real calendar event.
+        'public_booking_read': config('PUBLIC_BOOKING_READ_THROTTLE_RATE', default='60/minute'),
+        'public_booking_write': config('PUBLIC_BOOKING_WRITE_THROTTLE_RATE', default='10/hour'),
+        # Anonymous Custom KPI share GETs re-aggregate warehouse metrics each
+        # hit; cap by IP like public booking reads.
+        'public_kpi_share_read': config(
+            'PUBLIC_KPI_SHARE_READ_THROTTLE_RATE',
+            default='60/minute',
+        ),
         'chat_message_write': config('CHAT_MESSAGE_WRITE_THROTTLE_RATE', default='60/minute'),
         'chat_reaction': config('CHAT_REACTION_THROTTLE_RATE', default='120/minute'),
         'spreadsheet_ws_ticket': config(
@@ -591,6 +620,8 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 31536000
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 # Celery Configuration
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://redis:6379/0')
@@ -1003,6 +1034,7 @@ INTERNAL_WEBHOOK_ENABLED = config('INTERNAL_WEBHOOK_ENABLED', default=True, cast
 STRIPE_SECRET_KEY = config('STRIPE_SECRET_KEY', default='sk')
 STRIPE_PUBLISHABLE_KEY = config('STRIPE_PUBLISHABLE_KEY', default='pk')
 STRIPE_WEBHOOK_SECRET = config('STRIPE_WEBHOOK_SECRET', default='wh')
+STRIPE_WEBHOOK_SECRET_NEXT = config('STRIPE_WEBHOOK_SECRET_NEXT', default='')
 # Token-billing Stripe price IDs (env-driven, no hardcoded IDs)
 STRIPE_TEAM_BASE_PRICE_ID = os.environ.get('STRIPE_TEAM_BASE_PRICE_ID', '')
 STRIPE_TEAM_EXTRA_SEAT_PRICE_ID = os.environ.get('STRIPE_TEAM_EXTRA_SEAT_PRICE_ID', '')
@@ -1027,8 +1059,26 @@ FAIR_USE_THRESHOLD_RATIO = 0.30   # alert when user > 30% of org quota
 FREE_USER_MAX_COST_CENTS = 200    # safety cap for fair-use alert on Free tier
 
 # Organization Access Token Configuration
-ORGANIZATION_ACCESS_TOKEN_SECRET_KEY = config('ORGANIZATION_ACCESS_TOKEN_SECRET_KEY', default='52r(=liv3ro&zsuau-doa(wekq-(x^&y8(b$5h@k(g(c9&jlmp')
-ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY = config('ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY', default='jtBsdl7-HVKnF61JnesSM0xpqB-vkAXboBbIRawVUhU=')
+# Required, with no fallback: they sign and encrypt the organization access
+# token. Read from the environment only. See backend/secret_settings.py.
+ORGANIZATION_ACCESS_TOKEN_SECRET_KEY = validate_secret_setting(
+    'ORGANIZATION_ACCESS_TOKEN_SECRET_KEY',
+    read_secret_env('ORGANIZATION_ACCESS_TOKEN_SECRET_KEY'),
+    allow_committed=ALLOW_LEGACY_LOCAL_KEYS,
+    committed_digests=COMMITTED_ORG_TOKEN_SECRET_KEY_DIGESTS,
+)
+ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY = validate_fernet_key_setting(
+    'ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY',
+    read_secret_env('ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY'),
+    allow_committed=ALLOW_LEGACY_LOCAL_KEYS,
+    committed_digests=COMMITTED_ORG_TOKEN_ENCRYPTION_KEY_DIGESTS,
+)
+# Rule 5: one leaked key must not unlock the others.
+validate_distinct_secrets(
+    SECRET_KEY=SECRET_KEY,
+    ORGANIZATION_ACCESS_TOKEN_SECRET_KEY=ORGANIZATION_ACCESS_TOKEN_SECRET_KEY,
+    ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY=ORGANIZATION_ACCESS_TOKEN_ENCRYPTION_KEY,
+)
 
 # Field-level encryption keys for OAuth tokens and API secrets stored in the DB.
 # Format: comma-separated list of "key_id:fernet_base64_key" pairs.

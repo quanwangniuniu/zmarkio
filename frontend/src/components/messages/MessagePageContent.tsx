@@ -680,9 +680,9 @@ export default function MessagePageContent() {
           projectId={selectedProjectId}
           currentUserId={currentUserId}
           onClose={() => setIsBrowseOpen(false)}
-          onJoinedChannel={(chatId) => {
+          onJoinedChannel={(chatSlug) => {
             setIsBrowseOpen(false);
-            getChat(chatId)
+            getChat(chatSlug)
               .then((joined) => useChatStore.getState().addChat(joined))
               .catch(() => {});
           }}

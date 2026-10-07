@@ -1,5 +1,7 @@
 from datetime import timedelta
 
+from meetings.tasks import update_meeting_search_vector
+
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework import status
@@ -283,20 +285,22 @@ class TestMeetingAPI(TestCase):
 
     def test_meeting_list_lane_filtered_differs_when_q_narrows(self):
         mt = self._meeting_type(self.project_a, slug="planning")
-        Meeting.objects.create(
+        m1 = Meeting.objects.create(
             project=self.project_a,
             title="Alpha unique",
             type_definition=mt,
             objective="x",
             scheduled_date=None,
         )
-        Meeting.objects.create(
+        m2 = Meeting.objects.create(
             project=self.project_a,
             title="Beta other",
             type_definition=mt,
             objective="x",
             scheduled_date=None,
         )
+        update_meeting_search_vector(m1.pk)
+        update_meeting_search_vector(m2.pk)
 
         self.assertEqual(
             Meeting.objects.filter(project=self.project_a, is_deleted=False).count(),

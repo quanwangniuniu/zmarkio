@@ -1,5 +1,10 @@
 export interface Customer {
   id: number;
+  /**
+   * The account behind this customer, when they have one. Null means they
+   * exist only as a contact record and can be reached by email alone.
+   */
+  user_id: number | null;
   email: string;
   full_name: string;
   company: string;

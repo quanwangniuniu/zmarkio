@@ -24,4 +24,36 @@ urlpatterns = [
         views.ReportKeyActionRetrieveUpdateDestroyView.as_view(),
         name="report-key-action-detail",
     ),
+    # Custom KPIs. `kpis/preview/` precedes `kpis/<int:id>/` only for clarity --
+    # the int converter would not match "preview" either way.
+    path(
+        "kpi-metrics/",
+        views.KPIMetricCatalogView.as_view(),
+        name="kpi-metric-catalog",
+    ),
+    path(
+        "kpis/preview/",
+        views.CustomKPIPreviewView.as_view(),
+        name="custom-kpi-preview",
+    ),
+    path(
+        "kpis/",
+        views.CustomKPIListCreateView.as_view(),
+        name="custom-kpi-list-create",
+    ),
+    path(
+        "kpis/<int:id>/",
+        views.CustomKPIDetailView.as_view(),
+        name="custom-kpi-detail",
+    ),
+    path(
+        "kpis/share/",
+        views.ReportShareLinkView.as_view(),
+        name="report-share-link",
+    ),
+    path(
+        "share/<str:token>/",
+        views.PublicReportShareLinkView.as_view(),
+        name="public-report-share-link",
+    ),
 ]

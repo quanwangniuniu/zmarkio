@@ -1,5 +1,5 @@
 import axios from 'axios';
-import api from '@/lib/api';
+import api, { LLM_BATCH_TIMEOUT_MS } from '@/lib/api';
 import type {
   AdCopyVariation,
   AdCopyVariationCopy,
@@ -13,7 +13,7 @@ import type {
 const BASE = '/api/ad_copy_variation/variations';
 
 /** Generate waits on Vertex; the shared axios client is 10s and is too short. */
-const GENERATE_TIMEOUT_MS = 120_000;
+const GENERATE_TIMEOUT_MS = LLM_BATCH_TIMEOUT_MS;
 
 function parseBatchGenerateResponse(data: unknown): BatchGenerateResponse | null {
   if (!data || typeof data !== 'object') return null;

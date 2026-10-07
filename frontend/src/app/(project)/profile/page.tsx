@@ -11,6 +11,7 @@ import {
   Camera,
   Loader2,
   MapPin,
+  Monitor,
   Network,
   Pencil,
   X,
@@ -26,12 +27,13 @@ import { authAPI, readPersistedAuthState } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { OrganizationAPI, OrgListItem } from '@/lib/api/organizationApi';
 
-type SectionKey = 'overview' | 'organization' | 'privacy';
+type SectionKey = 'overview' | 'organization' | 'privacy' | 'sessions';
 
 const SECTIONS: Array<{ id: SectionKey; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'organization', label: 'Organization' },
   { id: 'privacy', label: 'Privacy' },
+  { id: 'sessions', label: 'Active Sessions' },
 ];
 
 const getInitials = (name?: string | null): string => {
@@ -44,6 +46,27 @@ const getInitials = (name?: string | null): string => {
 
 const humanize = (s: string) =>
   s.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+function parseUserAgent(ua: string): { browser: string; os: string } {
+  const browser =
+    /Edg\//.test(ua) ? 'Edge' :
+    /OPR\//.test(ua) ? 'Opera' :
+    /Chrome\//.test(ua) ? 'Chrome' :
+    /Firefox\//.test(ua) ? 'Firefox' :
+    /Safari\//.test(ua) ? 'Safari' :
+    'Unknown browser';
+
+  const os =
+    /iPhone/.test(ua) ? 'iPhone' :
+    /iPad/.test(ua) ? 'iPad' :
+    /Android/.test(ua) ? 'Android' :
+    /Windows/.test(ua) ? 'Windows' :
+    /Mac OS/.test(ua) ? 'macOS' :
+    /Linux/.test(ua) ? 'Linux' :
+    'Unknown OS';
+
+  return { browser, os };
+}
 
 // ── Inline editable field ────────────────────────────────────────────────────
 
@@ -203,6 +226,11 @@ function ProfileContent() {
   const [orgs, setOrgs] = useState<OrgListItem[]>([]);
   const [orgsLoading, setOrgsLoading] = useState(false);
 
+  // Active sessions
+  const [sessions, setSessions] = useState<{ jti: string; ip: string; user_agent: string; created_at: string }[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [revokingJti, setRevokingJti] = useState<string | null>(null);
+
   const profileLoading = loading || !user;
 
   const displayName = useMemo(() => {
@@ -240,12 +268,40 @@ function ProfileContent() {
     }
   }, []);
 
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    try {
+      const data = await authAPI.getSessions();
+      setSessions(data);
+    } catch {
+      toast.error('Failed to load sessions.');
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  const handleRevokeSession = async (jti: string) => {
+    setRevokingJti(jti);
+    try {
+      await authAPI.revokeSession(jti);
+      setSessions((prev) => prev.filter((s) => s.jti !== jti));
+      toast.success('Session revoked.', { position: 'top-center' });
+    } catch {
+      toast.error('Failed to revoke session.');
+    } finally {
+      setRevokingJti(null);
+    }
+  };
+
   useEffect(() => {
     if (activeSection === 'organization') {
       loadProjects();
       loadOrgs();
     }
-  }, [activeSection, loadProjects, loadOrgs]);
+    if (activeSection === 'sessions') {
+      loadSessions();
+    }
+  }, [activeSection, loadProjects, loadOrgs, loadSessions]);
 
   // ── Patch helper ─────────────────────────────────────────────────────────
 
@@ -558,9 +614,68 @@ function ProfileContent() {
     );
   };
 
+  const renderSessions = () => (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500">Active Sessions</h2>
+        {!sessionsLoading && (
+          <span className="text-xs text-gray-400">{sessions.length} session{sessions.length !== 1 ? 's' : ''}</span>
+        )}
+      </div>
+
+      {sessionsLoading ? (
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="flex items-center gap-3 p-3 rounded-lg border border-gray-100">
+              <Skeleton className="h-8 w-8 rounded-md" />
+              <div className="flex-1 space-y-1.5">
+                <Skeleton className="h-3.5 w-40" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+              <Skeleton className="h-7 w-16 rounded-md" />
+            </div>
+          ))}
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-gray-200 py-10 flex flex-col items-center text-center">
+          <Monitor className="w-8 h-8 text-gray-300 mb-2" />
+          <p className="text-sm text-gray-500">No active sessions found.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {sessions.map((session) => {
+            const { browser, os } = parseUserAgent(session.user_agent || '');
+            return (
+              <div key={session.jti} className="flex items-center gap-3 p-3 rounded-lg border border-gray-100">
+                <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center shrink-0">
+                  <Monitor className="w-4 h-4 text-gray-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium text-gray-900">{browser} on {os}</div>
+                  <div className="text-xs text-gray-400">
+                    {session.ip} · {new Date(session.created_at).toLocaleString()}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRevokeSession(session.jti)}
+                  disabled={revokingJti === session.jti}
+                  className="shrink-0 px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-md hover:bg-red-50 transition-colors disabled:opacity-50"
+                >
+                  {revokingJti === session.jti ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Revoke'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+
   const renderActiveSection = () => {
     if (activeSection === 'overview') return renderOverview();
     if (activeSection === 'organization') return renderOrganization();
+    if (activeSection === 'sessions') return renderSessions();
     return <PrivacyExportPanel />;
   };
 

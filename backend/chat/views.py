@@ -798,6 +798,7 @@ class ChatViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         for chat in chats:
             results.append({
                 'id': chat.id,
+                'slug': chat.slug,
                 'name': chat.name or 'Unnamed',
                 'topic': chat.topic,
                 'description': chat.description,

@@ -50,6 +50,13 @@ components:
         error:
           type: string
           example: "Error message"
+    FieldValidationErrors:
+      type: object
+      description: Validation messages keyed by password, username, or email.
+      additionalProperties:
+        type: array
+        items:
+          type: string
     SuccessResponse:
       type: object
       properties:
@@ -57,6 +64,72 @@ components:
           type: string
           example: "Success message"
 paths:
+  /auth/password/validate/:
+    post:
+      summary: Preview the configured registration password requirements
+      description: Checks each existing password validator without creating an account. An empty or omitted password returns requirements with null validity; username and email supply the same similarity context as registration. Both endpoints enforce the same field length limits.
+      tags:
+        - Authentication
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password:
+                  type: string
+                  maxLength: 256
+                  default: ''
+                  description: Preserved exactly, including surrounding whitespace.
+                username:
+                  type: string
+                  maxLength: 150
+                  default: ''
+                  description: Surrounding whitespace is removed before checking length. Whitespace-only input is rejected; empty or omitted input is allowed during preview.
+                email:
+                  type: string
+                  maxLength: 254
+                  default: ''
+                  description: May be incomplete while the registration form is being filled. Surrounding whitespace is removed before checking length. Whitespace-only input is rejected; empty or omitted input is allowed during preview.
+      responses:
+        '200':
+          description: Requirements and individual validation results, including all actual validator messages.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rules]
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, help_text, valid, errors]
+                      properties:
+                        id:
+                          type: string
+                          description: Configured validator class name.
+                          example: MinimumLengthValidator
+                        help_text:
+                          type: string
+                          example: Your password must contain at least 8 characters.
+                        valid:
+                          type: boolean
+                          nullable: true
+                          description: Null when the password is empty; otherwise whether this rule passed.
+                        errors:
+                          type: array
+                          items:
+                            type: string
+                          example: []
+        '400':
+          description: Fields must be strings within their maximum lengths; username and email cannot contain only whitespace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldValidationErrors'
   /auth/register/:
     post:
       summary: Register a new user and trigger email verification
@@ -72,13 +145,18 @@ paths:
                 email:
                   type: string
                   format: email
+                  maxLength: 254
+                  description: Surrounding whitespace is removed before validation and account creation; the result must not be empty.
                   example: "user@example.com"
                 password:
                   type: string
                   minLength: 8
+                  maxLength: 256
                   example: "securepass123"
                 username:
                   type: string
+                  maxLength: 150
+                  description: Surrounding whitespace is removed before validation and account creation; the result must not be empty.
                   example: "username"
                 organization_id:
                   type: integer
@@ -98,24 +176,29 @@ paths:
                 example:
                   message: "User registered. Please verify email."
         '400':
-          description: Invalid input (e.g. missing fields, password too short, email already registered)
+          description: Invalid input (e.g. missing fields, field length exceeded, password too short, email already registered). Field type and length errors use the same field-message format as password preview.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorResponse'
-                examples:
-                  missing_fields:
-                    value:
-                      error: "Missing fields"
-                  password_short:
-                    value:
-                      error: "Password too short"
-                  email_exists:
-                    value:
-                      error: "Email already registered"
-                  org_not_found:
-                    value:
-                      error: "Organization not found"
+                anyOf:
+                  - $ref: '#/components/schemas/ErrorResponse'
+                  - $ref: '#/components/schemas/FieldValidationErrors'
+              examples:
+                missing_fields:
+                  value:
+                    error: "Missing fields"
+                password_too_long:
+                  value:
+                    password: ["Ensure this field has no more than 256 characters."]
+                password_short:
+                  value:
+                    error: "Password too short"
+                email_exists:
+                  value:
+                    error: "Email already registered"
+                org_not_found:
+                  value:
+                    error: "Organization not found"
   /auth/verify/:
     get:
       summary: Verify user email with token

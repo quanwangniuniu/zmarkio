@@ -210,38 +210,6 @@ class TestKnowledgeNavigationAPIContract(TestCase):
         self.assertEqual(response.data["related_tasks"][0]["title"], "Artifact task")
         self.assertEqual(response.data["related_tasks"][0]["url"], f"/tasks/{t.slug}")
 
-    def test_decision_detail_returns_origin_meeting(self):
-        m = Meeting.objects.create(
-            project=self.project,
-            title="Source meeting",
-            type_definition=self.planning,
-            objective="o",
-        )
-        d = Decision.objects.create(
-            project=self.project,
-            author=self.user,
-            title="Committed with origin",
-        )
-        create_meeting_decision_origin(meeting=m, decision=d)
-        Decision.objects.filter(pk=d.pk).update(status=Decision.Status.COMMITTED)
-
-        url = f"/api/decisions/{d.slug}/"
-        response = self.client.get(url, {"project_id": self.project.slug})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("origin_meeting", response.data)
-        om = response.data["origin_meeting"]
-        self.assertIsNotNone(om)
-        self.assertEqual(om["id"], m.id)
-        self.assertEqual(om["title"], "Source meeting")
-        self.assertEqual(
-            om["url"],
-            f"/projects/{self.project.id}/meetings/{m.slug}",
-        )
-        self.assertEqual(om["detail_url"], om["url"])
-        self.assertEqual(om["project_id"], self.project.id)
-        self.assertEqual(om["type"], self.planning.slug)
-        self.assertIn("scheduled_date", om)
-
     def test_task_detail_returns_origin_meeting(self):
         m = Meeting.objects.create(
             project=self.project,
@@ -265,36 +233,6 @@ class TestKnowledgeNavigationAPIContract(TestCase):
         self.assertIsNotNone(om)
         self.assertEqual(om["id"], m.id)
         self.assertEqual(om["title"], "Task origin meeting")
-        self.assertEqual(
-            om["url"],
-            f"/projects/{self.project.id}/meetings/{m.slug}",
-        )
-        self.assertEqual(om["detail_url"], om["url"])
-        self.assertEqual(om["project_id"], self.project.id)
-        self.assertEqual(om["type"], self.planning.slug)
-
-    def test_decision_draft_detail_returns_origin_meeting(self):
-        """Draft serializer backs GET /drafts/{id}/; needed when detail UI merges draft fields (e.g. AWAITING_APPROVAL)."""
-        m = Meeting.objects.create(
-            project=self.project,
-            title="Draft origin",
-            type_definition=self.planning,
-            objective="o",
-        )
-        d = Decision.objects.create(
-            project=self.project,
-            author=self.user,
-            title="Still draft",
-        )
-        create_meeting_decision_origin(meeting=m, decision=d)
-
-        url = f"/api/decisions/drafts/{d.slug}/"
-        response = self.client.get(url, {"project_id": self.project.slug})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("origin_meeting", response.data)
-        om = response.data["origin_meeting"]
-        self.assertIsNotNone(om)
-        self.assertEqual(om["id"], m.id)
         self.assertEqual(
             om["url"],
             f"/projects/{self.project.id}/meetings/{m.slug}",

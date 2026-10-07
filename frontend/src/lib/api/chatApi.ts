@@ -1,5 +1,5 @@
 // Chat API client
-import api from '../api';
+import api, { UPLOAD_TIMEOUT_MS } from '../api';
 import {
   formatFileSize,
   getFileTypeFromMime,
@@ -119,6 +119,9 @@ export async function uploadAttachment(
   formData.append('file', file);
 
   const response = await api.post('/api/chat/attachments/', formData, {
+    // Attachments can include large files (video); the shared client's 10s
+    // default is too short for an upload over a slow connection.
+    timeout: UPLOAD_TIMEOUT_MS,
     headers: {
       'Content-Type': 'multipart/form-data',
     },
@@ -263,6 +266,7 @@ export const unpinMessage = async (chatSlug: string, messageId: number): Promise
 
 export interface BrowseChannelRow {
   id: number;
+  slug: string;
   name: string;
   topic: string;
   description: string;
@@ -352,8 +356,8 @@ export const reorderStarredChats = async (
 /**
  * Add a participant to a group chat
  */
-export const addParticipant = async (chatId: number, userId: number): Promise<ChatParticipant> => {
-  const response = await api.post(`/api/chat/chats/${chatId}/add_participant/`, {
+export const addParticipant = async (chatSlug: string, userId: number): Promise<ChatParticipant> => {
+  const response = await api.post(`/api/chat/chats/${chatSlug}/add_participant/`, {
     user_id: userId,
   });
   return response.data;
@@ -362,8 +366,8 @@ export const addParticipant = async (chatId: number, userId: number): Promise<Ch
 /**
  * Remove a participant from a group chat
  */
-export const removeParticipant = async (chatId: number, userId: number): Promise<void> => {
-  await api.post(`/api/chat/chats/${chatId}/remove_participant/`, {
+export const removeParticipant = async (chatRef: number | string, userId: number): Promise<void> => {
+  await api.post(`/api/chat/chats/${chatRef}/remove_participant/`, {
     user_id: userId,
   });
 };

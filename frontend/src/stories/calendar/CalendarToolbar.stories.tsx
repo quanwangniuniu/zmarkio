@@ -32,6 +32,7 @@ function ToolbarStory(args: {
 }) {
   const [view, setView] = React.useState<CalendarViewType>(args.currentView);
   const [open, setOpen] = React.useState(false);
+  const [showAllEvents, setShowAllEvents] = React.useState(false);
   const ref = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -52,6 +53,8 @@ function ToolbarStory(args: {
         }}
         onToday={() => {}}
         onOffset={() => {}}
+        showAllEvents={showAllEvents}
+        onShowAllEventsChange={setShowAllEvents}
       />
     </div>
   );

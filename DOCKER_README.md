@@ -20,6 +20,9 @@ cd mediaJira
 
 # Copy environment file
 cp env.example .env
+
+# Generate your own SECRET_KEY and paste it into .env (the template leaves it empty)
+python3 -c "import secrets; print(secrets.token_urlsafe(50))"
 ```
 
 ### 2. Local PostgreSQL Setup

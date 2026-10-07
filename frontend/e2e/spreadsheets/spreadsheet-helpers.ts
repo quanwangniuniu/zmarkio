@@ -1,4 +1,9 @@
-import { type Page, expect } from '@playwright/test';
+import {
+  type APIRequestContext,
+  type BrowserContext,
+  type Page,
+  expect,
+} from '@playwright/test';
 
 /**
  * Wait for any blocking overlay (Guided Onboarding, "Preparing your workspace")
@@ -235,4 +240,64 @@ export async function deleteSheetByName(
     `${origin}/api/projects/${projectId}/spreadsheets/${spreadsheetId}/sheets/${target.id}/`,
     { headers },
   );
+}
+
+/**
+ * Return the slug of a spreadsheet in the active project, creating one if the
+ * project has none. Open it at the flat `/spreadsheets/<slug>` route (numeric
+ * ids 404 since the slug migration). Token and active project come from the
+ * saved storageState, so no page visit is needed first.
+ */
+export async function getOrCreateSpreadsheetSlug(
+  context: BrowserContext,
+  request: APIRequestContext,
+  name = 'Spreadsheet E2E',
+): Promise<string> {
+  const state = await context.storageState();
+  const localStorageOf = (key: string): string | undefined => {
+    for (const origin of state.origins ?? []) {
+      const hit = origin.localStorage?.find((item) => item.name === key);
+      if (hit) return hit.value;
+    }
+    return undefined;
+  };
+  const parseState = (raw: string | undefined) => {
+    try {
+      return raw ? JSON.parse(raw)?.state : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+
+  const authState = parseState(
+    localStorageOf('auth-storage-v1') ?? localStorageOf('auth-storage'),
+  );
+  const token: string | undefined = authState?.token;
+  const organizationToken: string | undefined = authState?.organizationAccessToken;
+  expect(token, 'auth token missing from storageState (auth.setup failed?)').toBeTruthy();
+
+  const activeProjectId: number | undefined = parseState(
+    localStorageOf('project-storage-v1') ?? localStorageOf('project-storage'),
+  )?.activeProject?.id;
+  expect(activeProjectId, 'no active project in storageState (auth.setup incomplete?)').toBeTruthy();
+
+  const base = process.env.PLAYWRIGHT_API_BASE_URL?.replace(/\/$/, '') ?? '';
+  const listUrl = `${base}/api/spreadsheet/spreadsheets/?project_id=${activeProjectId}`;
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    ...(process.env.PLAYWRIGHT_API_HOST
+      ? { Host: process.env.PLAYWRIGHT_API_HOST }
+      : {}),
+    ...(organizationToken ? { 'X-Organization-Token': organizationToken } : {}),
+  };
+
+  const listResp = await request.get(listUrl, { headers });
+  expect(listResp.ok(), `spreadsheet list API returned ${listResp.status()}`).toBeTruthy();
+  const body = await listResp.json();
+  const results: Array<{ slug: string }> = body.results ?? body ?? [];
+  if (results.length > 0) return results[0].slug;
+
+  const createResp = await request.post(listUrl, { headers, data: { name } });
+  expect(createResp.ok(), `spreadsheet create API returned ${createResp.status()}`).toBeTruthy();
+  return (await createResp.json()).slug;
 }

@@ -58,6 +58,7 @@ export default function OverviewPage() {
           data={data}
           projectId={projectId}
           projectName={activeProject?.name}
+          projectSlug={activeProject?.slug}
         />
       )}
       <ChatFAB />

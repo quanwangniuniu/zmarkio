@@ -276,6 +276,10 @@ function normalizeMeetingListItem(raw: Record<string, unknown>): MeetingListItem
     related_tasks: normalizeKnowledgeLinks(raw.related_tasks ?? raw.relatedTasks),
     is_archived: Boolean(raw.is_archived),
     status: typeof raw.status === 'string' ? raw.status as MeetingStatus : 'draft',
+    search_snippet: typeof raw.search_snippet === 'string' ? raw.search_snippet : undefined,
+    snippet_source: (raw.snippet_source === 'transcript' || raw.snippet_source === 'summary' || raw.snippet_source === 'title')
+      ? raw.snippet_source
+      : undefined,
   };
 }
 

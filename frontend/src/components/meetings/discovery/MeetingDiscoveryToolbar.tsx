@@ -92,7 +92,7 @@ function MeetingToolbarSearch({
         type="text"
         inputMode="search"
         autoComplete="off"
-        placeholder="Search meetings…"
+        placeholder="Search titles, summaries & transcripts…"
         value={local}
         onChange={(e) => setLocal(e.target.value)}
         disabled={disabled}

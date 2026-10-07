@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline';
 
 interface FormInputProps {
@@ -8,6 +8,7 @@ interface FormInputProps {
   value: string;
   onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   error?: string;
+  description?: ReactNode;
   placeholder?: string;
   required?: boolean;
   className?: string;
@@ -20,24 +21,32 @@ export default function FormInput({
   value,
   onChange,
   error,
+  description,
   placeholder,
   required = false,
   className = ''
 }: FormInputProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [focused, setFocused] = useState(false);
+  const inputId = useId();
 
   const inputType = type === 'password' && showPassword ? 'text' : type;
 
   return (
     <div className={`space-y-2 ${className}`}>
-      <label className="block text-sm font-medium text-gray-700">
+      <label htmlFor={inputId} className="block text-sm font-medium text-gray-700">
         {label}
         {required && <span className="text-red-500">*</span>}
       </label>
 
       <div className="relative">
         <input
+          id={inputId}
+          aria-invalid={Boolean(error)}
+          aria-describedby={[
+            description ? `${inputId}-description` : '',
+            error ? `${inputId}-error` : '',
+          ].filter(Boolean).join(' ') || undefined}
           type={inputType}
           name={name}
           value={value}
@@ -71,8 +80,9 @@ export default function FormInput({
       </div>
 
       {error && (
-        <p className="text-sm text-red-600">{error}</p>
+        <p id={`${inputId}-error`} role="alert" className="text-sm text-red-600">{error}</p>
       )}
+      {description && <div id={`${inputId}-description`}>{description}</div>}
     </div>
   );
 }

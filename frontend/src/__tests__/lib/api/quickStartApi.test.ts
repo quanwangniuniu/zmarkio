@@ -5,6 +5,10 @@ import type { QuickStartBlueprint } from '@/types/quickStart';
 import { QUICK_START_BLUEPRINT_VERSION } from '@/types/quickStart';
 
 jest.mock('@/lib/api', () => ({
+  // Keep the real named exports (timeout tier constants) — only the
+  // default axios instance is mocked. Re-exporting everything by hand here
+  // would silently drift from lib/api.ts whenever a tier is added/renamed.
+  ...jest.requireActual('@/lib/api'),
   __esModule: true,
   default: {
     post: jest.fn(),

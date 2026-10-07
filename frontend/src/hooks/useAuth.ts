@@ -1,7 +1,7 @@
 import { useAuthStore } from '../lib/authStore';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
-import { LoginRequest, RegisterRequest, RegisterResponse, ApiResponse } from '../types/auth';
+import { LoginRequest, RegisterRequest, RegisterResponse, ApiResponse, FormValidation } from '../types/auth';
 import { authAPI } from '../lib/api';
 import { LOGIN_ERROR_MESSAGES, isNetworkError } from '../lib/authMessages';
 import { buildUrl } from '../lib/buildUrl';
@@ -109,11 +109,28 @@ export default function useAuth() {
       return { success: false, error: loginResult.error };
     } catch (error: any) {
       let message = 'Registration failed';
+      const fieldErrors: FormValidation = {};
+      const passwordError = error.response?.status === 400 &&
+        error.response?.data?.error === 'Password validation failed';
 
       if (error.response?.status === 400) {
         const errorMsg = error.response.data?.error || '';
+        for (const field of ['password', 'username', 'email'] as const) {
+          const reasons = error.response.data?.[field];
+          if (Array.isArray(reasons) && reasons.length) {
+            fieldErrors[field] = reasons.join(' ');
+          }
+        }
 
-        if (errorMsg.includes('Missing fields')) {
+        if (passwordError) {
+          const details = error.response.data.details;
+          message = Array.isArray(details) && details.length > 0
+            ? details.join(' ')
+            : errorMsg;
+          fieldErrors.password = message;
+        } else if (Object.keys(fieldErrors).length) {
+          message = Object.values(fieldErrors).join(' ');
+        } else if (errorMsg.includes('Missing fields')) {
           message = 'Please fill in all required fields (username, email, and password)';
         } else if (errorMsg.includes('Password too short')) {
           message = 'Password must be at least 8 characters long';
@@ -129,7 +146,11 @@ export default function useAuth() {
       }
 
       toast.error(message);
-      return { success: false, error: message };
+      return {
+        success: false,
+        error: message,
+        ...(Object.keys(fieldErrors).length ? { fieldErrors } : {}),
+      };
     }
   };
 

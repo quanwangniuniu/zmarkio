@@ -12,8 +12,20 @@ import { readJson, studioRequest } from './support/requests';
 import { accessToken } from './support/tokens';
 
 // Guards run before any model call, but mocking keeps a regression from
-// reaching the real Vertex endpoint.
-jest.mock('@/src/ai/providers/gemini');
+// reaching the configured Ollama endpoint.
+jest.mock('@/src/ai/providers/ollama', () => {
+  const actual = jest.requireActual('@/src/ai/providers/ollama');
+
+  return {
+    ...actual,
+    callOllamaJson: jest.fn(),
+    getOllamaConfig: jest.fn(() => ({
+      baseUrl: 'http://ollama.test:11434',
+      model: 'test-model',
+      timeoutMs: 5000,
+    })),
+  };
+});
 
 let fixture: StudioFixture;
 let token: string;

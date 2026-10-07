@@ -94,10 +94,11 @@ describe('SupportChannelFormDrawer', () => {
       />,
     );
     expect(await screen.findByLabelText(/default queue/i)).toBeInTheDocument();
+    // Let the drawer finish its initial focus before opening the popover.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Close' })).toHaveFocus();
+    });
     fireEvent.click(screen.getByLabelText(/default queue/i));
-    // listProjectQueues() resolves async, then the popover re-renders with the
-    // fetched option. The default findBy timeout (1000ms) can be too tight
-    // under CI load; give it more headroom, same as SpreadsheetGrid.test.tsx.
     expect(
       await screen.findByRole('option', { name: 'Frontline' }, { timeout: 3000 }),
     ).toBeInTheDocument();

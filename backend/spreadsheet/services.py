@@ -17,7 +17,7 @@ from django.utils import timezone
 from .models import (
     Spreadsheet, Sheet, SheetRow, SheetColumn, Cell, CellValueType, ComputedCellType, CellDependency,
     SheetStructureOperation, WorkflowPattern, WorkflowPatternStep,
-    SpreadsheetHighlight, SpreadsheetHighlightScope,
+    SpreadsheetHighlight, SpreadsheetHighlightScope, UserDefinedFunction
 )
 from .formula_engine import evaluate_formula, extract_references, reference_to_indexes, FormulaError
 from .formula_rewrite import rewrite_cells_for_operation
@@ -1438,6 +1438,19 @@ class CellService:
         cycle_ids = affected_ids - ordered_set
         updated_cells = []
 
+        udfs = {}
+        if all_cells:
+            project = next(iter(all_cells.values())).sheet.spreadsheet.project
+            udf_qs = UserDefinedFunction.objects.filter(project=project, is_deleted=False)
+            udfs = {
+                udf.name.upper():{
+                    "name": udf.name.upper(),
+                    "params": udf.params,
+                    "expression": udf.expression,
+                }
+                for udf in udf_qs
+            }
+
         formula_contexts = {}
         for sheet_id in {cell.sheet_id for cell in all_cells.values()}:
             formula_contexts[sheet_id] = {
@@ -1500,7 +1513,7 @@ class CellService:
                     level_updates.append(cell)
                     continue
 
-                result = evaluate_formula(formula_source, cell.sheet)
+                result = evaluate_formula(formula_source, cell.sheet, udfs)
                 cell.computed_type = result.computed_type
                 if result.computed_type == ComputedCellType.NUMBER and result.computed_number is not None:
                     cell.computed_number = Decimal(str(result.computed_number))
@@ -1563,6 +1576,38 @@ class CellService:
             for cell in formula_cells:
                 CellService._update_dependencies(cell)
             CellService._recalculate_formula_cells(formula_cells)
+
+    @staticmethod
+    def recalculate_cells_using_udf(project, udf_name: str) -> None:
+        """
+        Find all formula cells in the project whose raw_input references the
+        given UDF name, recalculate them, then broadcast the updated values to
+        all connected clients grouped by sheet.
+        """
+        search_token = f"{udf_name.upper()}("
+        formula_cells = list(
+            Cell.objects.filter(
+                sheet__spreadsheet__project=project,
+                is_deleted=False,
+                row__is_deleted=False,
+                column__is_deleted=False,
+            ).filter(
+                Q(raw_input__icontains=search_token)
+                | Q(formula_value__icontains=search_token)
+            ).select_related('sheet', 'row', 'column')
+        )
+        if not formula_cells:
+            return
+
+        updated_cells = CellService._recalculate_formula_cells(formula_cells)
+
+        # Group updated cells by sheet and broadcast once per sheet so peers
+        # see the new computed values without a page reload.
+        cells_by_sheet: dict[int, list] = {}
+        for cell in updated_cells:
+            cells_by_sheet.setdefault(cell.sheet_id, []).append(cell)
+        for sheet_id, cells in cells_by_sheet.items():
+            broadcast_cells_updated(sheet_id=sheet_id, cells=cells)
 
     @staticmethod
     def _clear_cell(cell: Cell) -> None:

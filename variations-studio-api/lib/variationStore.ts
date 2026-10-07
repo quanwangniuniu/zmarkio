@@ -16,7 +16,6 @@ export {
   deleteVariationsByIds,
   deleteVariationsForProjects,
   setVariationStatus,
-  listSlugs,
   findBatchVariations,
   findLatestBatchRow,
   markReviewed,

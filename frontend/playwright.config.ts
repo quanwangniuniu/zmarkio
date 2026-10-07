@@ -12,6 +12,18 @@ const useExistingServer =
   process.env.E2E_USE_EXISTING_SERVER === '1' ||
   process.env.E2E_USE_EXISTING_SERVER === 'true';
 
+const budgetRealE2eSpecs = [
+  /e2e[\\/]budget[\\/]budget-multi-step-chain\.spec\.ts$/,
+  /e2e[\\/]budget[\\/]budget-single-approver\.spec\.ts$/,
+  /e2e[\\/]budget[\\/]budget-reject-reopen-flow\.spec\.ts$/,
+  /e2e[\\/]budget[\\/]budget-admin-override-real\.spec\.ts$/,
+];
+
+const mockOnlyE2eSpecs = [
+  /e2e[\\/]budget[\\/]budget-admin-override\.spec\.ts$/,
+  /e2e[\\/]meta-ads[\\/]meta-ads-preview-account-switch\.spec\.ts$/,
+];
+
 /**
  * See https://playwright.dev/docs/test-configuration.
  */
@@ -37,7 +49,7 @@ export default defineConfig({
   /* Opt out of parallel tests on CI. */
   workers: process.env.CI ? 1 : undefined,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
-  reporter: 'html',
+  reporter: process.env.CI ? [['html', { open: 'never' }], ['github']] : 'html',
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('')`. Next.js dev runs on 3000. */
@@ -47,8 +59,8 @@ export default defineConfig({
       : undefined,
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
-    
+    trace: process.env.CI ? 'retain-on-failure' : 'on-first-retry',
+    screenshot: 'only-on-failure',
   },
 
   /* Configure projects */
@@ -64,7 +76,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: /e2e[\\/]auth[\\/]/,
+      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
     },
     {
       name: 'firefox',
@@ -73,7 +85,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: /e2e[\\/]auth[\\/]/,
+      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
     },
     {
       name: 'webkit',
@@ -82,8 +94,17 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: /e2e[\\/]auth[\\/]/,
+      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
     },
+    // Ads fixtures provision their own real accounts; no shared login dependency.
+    ...(['chromium', 'firefox', 'webkit'] as const).map((browserName) => ({
+      name: `ads-${browserName}`,
+      use: {
+        ...devices[browserName === 'chromium' ? 'Desktop Chrome' : browserName === 'firefox' ? 'Desktop Firefox' : 'Desktop Safari'],
+      },
+      testMatch: /e2e[\\/]ads[\\/].*\.spec\.ts$/,
+      timeout: 90_000,
+    })),
     {
       name: 'auth-chromium',
       use: {
@@ -124,6 +145,7 @@ export default defineConfig({
         /e2e[\\/]messages[\\/]messages-pinned\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-link-preview\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-ordering-jitter\.spec\.ts$/,
+        /e2e[\\/]messages[\\/]messages-participant-removal\.spec\.ts$/,
       ],
     },
     {
@@ -146,6 +168,29 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
       },
       testMatch: /e2e[\\/]budget[\\/]budget-admin-override\.spec\.ts$/,
+    },
+    {
+      /* Fully mocked Meta Ads preview account-switch; no real Meta. */
+      name: 'meta-ads-mock',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Demo: PLAYWRIGHT_SLOW_MO=800 npx playwright test --project=meta-ads-mock --headed
+        launchOptions: process.env.PLAYWRIGHT_SLOW_MO
+          ? { slowMo: Number(process.env.PLAYWRIGHT_SLOW_MO) || 0 }
+          : undefined,
+      },
+      testMatch: /e2e[\\/]meta-ads[\\/]meta-ads-preview-account-switch\.spec\.ts$/,
+    },
+    {
+      /* Real-backend budget flows: multi-user login via issue_budget_e2e_fixtures. */
+      name: 'budget-e2e',
+      timeout: 90_000,
+      use: {
+        ...devices['Desktop Chrome'],
+        actionTimeout: 20_000,
+        navigationTimeout: 45_000,
+      },
+      testMatch: budgetRealE2eSpecs,
     },
   ],
 });

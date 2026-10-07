@@ -15,12 +15,25 @@ Public API:
   normalize_spreadsheet(data, column_mapping) -> normalized data dict
   auto_categorize_by_name(canonical_name)     -> category string
   save_learned_template(schema_name, source_platform, columns, project) -> DataSchemaTemplate | None
+  register_schema(schema_key, schema) -> registered schema
+  register_column(schema_key, canonical_name, spec) -> registered column
+
+Plugin author guidance:
+  Use register_schema/register_column instead of editing SCHEMA_REGISTRY directly.
+  Schema keys must be unique. Within a schema, column names and aliases must not
+  identify different columns after case, whitespace and underscore normalization.
+  Conflicts raise ColumnRegistryCollisionError before changing the registry.
+  Example: register_schema('my_plugin', {'name': 'My export', 'columns': {}})
+           register_column('my_plugin', 'sales', {'aliases': ['Total Sales']})
+  Set AGENT_COLUMN_REGISTRY_TEST_MODE=1 only in tests that need overwrites.
+  Validate definitions with `python manage.py check`.
 """
 
 import json
 import logging
 import os
 import re
+from copy import deepcopy
 
 logger = logging.getLogger(__name__)
 
@@ -87,12 +100,13 @@ def auto_categorize_by_name(canonical_name: str) -> str:
     if not canonical_name or canonical_name == CAT_UNKNOWN:
         return CAT_UNKNOWN
 
-    tokens = set(re.split(r'[\s_\-]+', canonical_name.lower()))
+    normalized_name = re.sub(r'[\s\-]+', '_', canonical_name.lower()).strip('_')
+    padded_name = f'_{normalized_name}_'
 
     for category, keywords in _AUTO_CATEGORY_RULES:
         for kw in keywords:
-            # Check if any keyword is a substring of the canonical_name or a token
-            if kw in tokens or kw in canonical_name.lower():
+            normalized_keyword = re.sub(r'[\s\-]+', '_', kw.lower()).strip('_')
+            if f'_{normalized_keyword}_' in padded_name:
                 return category
 
     return CAT_UNKNOWN
@@ -386,20 +400,77 @@ def _normalise(text: str) -> str:
     return re.sub(r"[\s_]+", " ", text.strip().lower())
 
 
-def _build_alias_index(schema: dict) -> dict:
-    """Return {normalised_alias: canonical_name} for a single schema."""
+class ColumnRegistryCollisionError(ValueError):
+    """A schema key, canonical name or alias is already registered."""
+
+
+def _registry_test_mode() -> bool:
+    return os.environ.get('AGENT_COLUMN_REGISTRY_TEST_MODE', '').strip().lower() in {
+        '1', 'true', 'yes', 'on',
+    }
+
+
+def _build_alias_index(schema: dict, schema_key: str = '') -> dict:
+    """Build an index without silently replacing another column's name."""
     index = {}
+    allow_overwrite = _registry_test_mode()
     for canonical, spec in schema["columns"].items():
-        for alias in spec["aliases"]:
-            index[_normalise(alias)] = canonical
+        for alias in [canonical, *spec.get("aliases", [])]:
+            name = _normalise(alias)
+            if name in index and index[name] != canonical and not allow_overwrite:
+                raise ColumnRegistryCollisionError(
+                    f"Column registry name collision in {schema_key!r}: {name!r} "
+                    f"is claimed by {index[name]!r} and {canonical!r}."
+                )
+            index[name] = canonical
     return index
 
 
-# Pre-compute alias indexes for every schema at import time.
-_SCHEMA_INDEXES = {
-    schema_key: _build_alias_index(schema)
-    for schema_key, schema in SCHEMA_REGISTRY.items()
-}
+def validate_registry() -> None:
+    """Validate current definitions and refresh indexes only if all are valid."""
+    global _SCHEMA_INDEXES
+    _SCHEMA_INDEXES = {
+        key: _build_alias_index(schema, key)
+        for key, schema in SCHEMA_REGISTRY.items()
+    }
+
+
+def register_schema(schema_key: str, schema: dict) -> dict:
+    """Register a schema in the existing dictionary format, checking before writing."""
+    global _SCHEMA_INDEXES
+    if schema_key in SCHEMA_REGISTRY and not _registry_test_mode():
+        raise ColumnRegistryCollisionError(
+            f"Column registry name collision: schema {schema_key!r} is already registered."
+        )
+    candidate = deepcopy(schema)
+    index = _build_alias_index(candidate, schema_key)
+    SCHEMA_REGISTRY[schema_key] = candidate
+    _SCHEMA_INDEXES = {**_SCHEMA_INDEXES, schema_key: index}
+    return candidate
+
+
+def register_column(schema_key: str, canonical_name: str, spec: dict) -> dict:
+    """Reject duplicate names before changing a schema or its lookup index."""
+    global _SCHEMA_INDEXES
+    schema = SCHEMA_REGISTRY[schema_key]
+    if canonical_name in schema["columns"] and not _registry_test_mode():
+        raise ColumnRegistryCollisionError(
+            f"Column registry name collision in {schema_key!r}: "
+            f"column {canonical_name!r} is already registered."
+        )
+    candidate = {**schema, "columns": {**schema["columns"], canonical_name: deepcopy(spec)}}
+    index = _build_alias_index(candidate, schema_key)
+    schema["columns"][canonical_name] = candidate["columns"][canonical_name]
+    _SCHEMA_INDEXES = {**_SCHEMA_INDEXES, schema_key: index}
+    return schema["columns"][canonical_name]
+
+
+# Pre-compute indexes at boot, leaving diagnostics available for invalid definitions.
+_SCHEMA_INDEXES = {}
+try:
+    validate_registry()
+except ColumnRegistryCollisionError:
+    logger.exception("Column registry validation failed; fix the conflicting definitions.")
 
 # ---------------------------------------------------------------------------
 # Detection result
@@ -465,6 +536,7 @@ def _try_rule_match(headers: list) -> "ColumnDetectionResult | None":
     Attempt to match headers against each registered schema.
     Returns the best-matching result if confidence >= 0.5, else None.
     """
+    validate_registry()
     normalised = [_normalise(h) for h in headers]
     best_result = None
     best_confidence = 0.0
@@ -480,7 +552,7 @@ def _try_rule_match(headers: list) -> "ColumnDetectionResult | None":
             canonical = alias_index.get(norm)
             if canonical:
                 mappings[original] = canonical
-                categories[canonical] = schema["columns"][canonical]["category"]
+                categories[canonical] = schema["columns"][canonical].get("category", CAT_UNKNOWN)
                 matched += 1
             else:
                 mappings[original] = CAT_UNKNOWN
@@ -692,6 +764,7 @@ def detect_columns(headers: list, sample_rows: list = None,
         confidence scores.  Columns the AI could not classify receive the category
         inferred by auto_categorize_by_name(), or 'unknown' if inference also fails.
     """
+    validate_registry()
     if not headers:
         return _unknown_result([])
 

@@ -1,4 +1,4 @@
-import api from "../api";
+import api, { SYNC_TIMEOUT_MS } from "../api";
 
 export interface FacebookAdAccount {
   id: number;
@@ -578,7 +578,14 @@ export const facebookApi = {
   },
 
   sync: async (): Promise<FacebookStatus> => {
-    const response = await api.post("/api/facebook_integration/sync/");
+    // Synchronously calls the live Facebook Graph API (profile, businesses,
+    // ad accounts) before responding; the shared client's 10s default is too
+    // short for that round trip.
+    const response = await api.post(
+      "/api/facebook_integration/sync/",
+      undefined,
+      { timeout: SYNC_TIMEOUT_MS }
+    );
     return response.data;
   },
 

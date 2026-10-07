@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import AuthFormWrapper from '@/components/auth/AuthFormWrapper';
@@ -8,6 +8,7 @@ import AuthFeedback from '@/components/auth/AuthFeedback';
 import AuthFields from '@/components/auth/AuthFields';
 import AuthSubmit from '@/components/auth/AuthSubmit';
 import RegisterSuccessMessage from '@/components/auth/RegisterSuccessMessage';
+import PasswordRequirements, { type PasswordCheckStatus } from '@/components/auth/PasswordRequirements';
 import useAuth from '@/hooks/useAuth';
 import { useAuthStore } from '@/lib/authStore';
 import { validateRegistrationForm, hasValidationErrors } from '@/utils/validation';
@@ -31,33 +32,48 @@ export default function RegisterPage() {
   });
   const [errors, setErrors] = useState<FormValidation>({});
   const [loading, setLoading] = useState<boolean>(false);
+  const [passwordCheck, setPasswordCheck] = useState<PasswordCheckStatus | null>(null);
+  const passwordCheckReady = passwordCheck?.ready && passwordCheck.inputKey ===
+    JSON.stringify([formData.password, formData.username, formData.email]);
+  const liveFieldErrors = passwordCheckReady ? passwordCheck.fieldErrors : undefined;
   const [registrationSuccess, setRegistrationSuccess] = useState<boolean>(false);
   const [registrationMessage, setRegistrationMessage] = useState<string>('');
+  const inputVersion = useRef(0);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
+    if (name === 'password' || name === 'username' || name === 'email') {
+      inputVersion.current += 1;
+    }
     setFormData(prev => ({
       ...prev,
       [name]: value
     }));
     
     // Clear error when user starts typing
-    if (errors[name as keyof FormValidation]) {
+    if (errors[name as keyof FormValidation] ||
+      ((name === 'username' || name === 'email') && errors.password)) {
       setErrors(prev => ({
         ...prev,
-        [name]: ''
+        [name]: '',
+        ...((name === 'username' || name === 'email') ? { password: '' } : {}),
       }));
     }
   };
 
   const validateForm = (): boolean => {
-    const newErrors = validateRegistrationForm(formData);
+    const newErrors = validateRegistrationForm({
+      ...formData,
+      username: formData.username.trim(),
+      email: formData.email.trim(),
+    });
     setErrors(newErrors);
     return !hasValidationErrors(newErrors);
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (loading || !passwordCheckReady) return;
     
     if (!validateForm()) {
       toast.error('Please fix the form errors before submitting');
@@ -68,17 +84,18 @@ export default function RegisterPage() {
     
     // Prepare request data according to backend API requirements
     const requestData: RegisterRequest = {
-      username: formData.username,
-      email: formData.email,
+      username: formData.username.trim(),
+      email: formData.email.trim(),
       password: formData.password
     };
     
     console.log('Submitting registration data:', { ...requestData, password: '[HIDDEN]' });
     
+    const submittedVersion = inputVersion.current;
     const result = await register(requestData);
 
     if (result.success) {
-      const loginResult = await storeLogin(formData.email, formData.password);
+      const loginResult = await storeLogin(requestData.email, requestData.password);
       setLoading(false);
       if (loginResult.success) {
         toast.success('Account created! Redirecting...');
@@ -89,7 +106,9 @@ export default function RegisterPage() {
       setRegistrationMessage(result.data?.message || 'Registration successful! Your account is ready to use.');
     } else {
       setLoading(false);
-      setErrors({ general: result.error });
+      if (!result.fieldErrors || submittedVersion === inputVersion.current) {
+        setErrors(result.fieldErrors || { general: result.error });
+      }
     }
   };
 
@@ -129,6 +148,7 @@ export default function RegisterPage() {
           message={registrationMessage}
           onRegisterAnother={() => {
             setRegistrationSuccess(false);
+            setPasswordCheck(null);
             setFormData({
               username: '',
               email: '',
@@ -155,7 +175,7 @@ export default function RegisterPage() {
               name: 'username',
               value: formData.username,
               onChange: handleChange,
-              error: errors.username,
+              error: errors.username || liveFieldErrors?.username,
               required: true,
               placeholder: 'Enter your username',
             },
@@ -165,7 +185,7 @@ export default function RegisterPage() {
               name: 'email',
               value: formData.email,
               onChange: handleChange,
-              error: errors.email,
+              error: errors.email || liveFieldErrors?.email,
               required: true,
               placeholder: 'Enter your email address',
             },
@@ -176,6 +196,14 @@ export default function RegisterPage() {
               value: formData.password,
               onChange: handleChange,
               error: errors.password,
+              description: (
+                <PasswordRequirements
+                  password={formData.password}
+                  username={formData.username}
+                  email={formData.email}
+                  onCheckReadyChange={setPasswordCheck}
+                />
+              ),
               required: true,
               placeholder: 'Create a password (min 8 characters)',
             },
@@ -205,7 +233,7 @@ export default function RegisterPage() {
 
         <AuthSubmit
           loading={loading}
-          disabled={loading || formHasValidationErrors}
+          disabled={loading || formHasValidationErrors || !passwordCheckReady}
           onSubmitClick={() => {}} // Empty onClick for submit buttons
           submitLabel="Create Account"
           loadingLabel="Creating Account..."

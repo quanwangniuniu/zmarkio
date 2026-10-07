@@ -1,4 +1,4 @@
-import api from "../api";
+import api, { SYNC_TIMEOUT_MS } from "../api";
 
 export interface GoogleCalendarStatus {
   connected: boolean;
@@ -31,7 +31,7 @@ export const googleCalendarApi = {
     last_export_at?: string | null;
   }> => {
     const response = await api.post("/api/google-calendar/sync/", null, {
-      timeout: 120000,
+      timeout: SYNC_TIMEOUT_MS,
     });
     return response.data;
   },
