@@ -176,6 +176,16 @@ class TestAgents:
         assert created.status_code == 201, created.data
         assert CustomerUser.objects.get(pk=created.data['id']).user_id == user2.id
 
+    def test_queue_is_optional_and_duplicates_rejected(self, key_client, workspace, user2, organization):
+        OrganizationMembership.objects.create(user=user2, organization=organization, role='member', is_active=True)
+        payload = {'email': user2.email, 'organisation': workspace['customer_organisation'].id, 'user_type': 'admin'}
+
+        created = key_client.post(f'{BASE}/agents/', payload, format='json')
+        assert created.status_code == 201, created.data
+        assert created.data['queue'] is None
+        duplicate = key_client.post(f'{BASE}/agents/', payload, format='json')
+        assert duplicate.status_code == 400
+
     def test_never_creates_accounts(self, key_client, workspace):
         from django.contrib.auth import get_user_model
         before = get_user_model().objects.count()

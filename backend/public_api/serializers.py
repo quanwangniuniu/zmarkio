@@ -149,7 +149,11 @@ class PublicAgentSerializer(ScopedRelationsMixin, CustomerUserSerializer):
 
     class Meta(CustomerUserSerializer.Meta):
         read_only_fields = [*CustomerUserSerializer.Meta.read_only_fields, 'team']
-        extra_kwargs = {'organisation': {'required': True, 'allow_null': False}}
+        extra_kwargs = {
+            'organisation': {'required': True, 'allow_null': False},
+            # Admins and supervisors usually have no queue; uniqueness is checked in validate().
+            'queue': {'required': False, 'allow_null': True},
+        }
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
