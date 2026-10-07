@@ -35,6 +35,7 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from prometheus_client import Counter, Gauge
+from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
 
@@ -232,12 +233,11 @@ def publish_notification_to_redis(user_id: int, notification) -> None:
         if r is not None:
             try:
                 r.close()
-            except Exception:
-                # Best-effort teardown of a short-lived client. This function must
-                # never raise: it runs from on_commit hooks and inside
-                # create_or_update_chat_notification's atomic block, and the publish
-                # outcome has already been logged above.
-                logger.debug("SSE: Redis client close failed", exc_info=True)
+            except (RedisError, OSError):
+                # Teardown of a short-lived client; the publish outcome is already
+                # logged above. This function runs from on_commit hooks and inside
+                # create_or_update_chat_notification's atomic block, so it must not raise.
+                pass
 
 
 # ── async SSE generator ───────────────────────────────────────────────────────
@@ -363,18 +363,18 @@ async def sse_event_generator(
     finally:
         if active_connection_counted:
             sse_active_connections.dec()
-        # Best-effort teardown: the stream is already over and any real error was
-        # logged above, so cleanup failures must not surface. r.aclose() sits in its
-        # own finally so it still runs (and closes the pubsub connection with the
-        # pool) if unsubscribe raises or is cancelled.
+        # Teardown: the stream is already over and any real error was logged above.
+        # r.aclose() sits in its own finally so it still runs (and closes the pubsub
+        # connection with the pool) if unsubscribe raises or is cancelled.
+        # RuntimeError covers "Event loop is closed" when the server shuts down.
         try:
             if subscribed:
                 await pubsub.unsubscribe(channel)
-        except Exception:
-            logger.debug("SSE: unsubscribe failed for user_id=%s", user_id, exc_info=True)
+        except (RedisError, OSError, RuntimeError):
+            pass
         finally:
             try:
                 await r.aclose()
-            except Exception:
-                logger.debug("SSE: redis client close failed for user_id=%s", user_id, exc_info=True)
+            except (RedisError, OSError, RuntimeError):
+                pass
         logger.info("SSE: connection closed for user_id=%s", user_id)

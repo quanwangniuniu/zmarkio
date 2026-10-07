@@ -828,12 +828,10 @@ class MediaUploadView(APIView):
                 try:
                     os.unlink(temp_file_path)
                 except OSError:
-                    # Best-effort cleanup on the error path: the original failure is
-                    # already logged above with its traceback, and a cleanup error
-                    # must not replace the JSON 500 response.
-                    logger.debug(
-                        "Media upload: failed to remove temp file %s", temp_file_path, exc_info=True
-                    )
+                    # The temp file has a random name on the container's ephemeral
+                    # disk, so a leftover needs no cleanup. The original failure is
+                    # logged above, and a cleanup error must not replace the 500 response.
+                    pass
             return Response(
                 {'error': f'File upload error: {str(e)}'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

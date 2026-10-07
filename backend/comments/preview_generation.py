@@ -8,7 +8,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
 
 from comments.attachment_previews import get_comment_attachment_file_category
 from comments.models import CommentAttachment
@@ -541,14 +541,16 @@ def _get_image_preview_page(attachment):
         with attachment.file.open("rb") as handle:
             with Image.open(handle) as image:
                 page["width"], page["height"] = image.size
-    except Exception as exc:
-        # Width/height are optional hints; the image is still served from its original
-        # URL. Expected for formats Pillow cannot decode (e.g. SVG). A FileNotFoundError
-        # here usually means this worker cannot see MEDIA_ROOT.
+    except UnidentifiedImageError:
+        # Width/height are optional hints and the image is still served from its
+        # original URL, so formats Pillow cannot decode (for example SVG) are expected.
+        pass
+    except Exception:
+        # Not an unsupported format: a missing file (for example when this worker
+        # cannot see MEDIA_ROOT), a storage error, or a corrupt or oversized upload.
         logger.warning(
-            "Comment attachment preview: could not read image dimensions "
-            "attachment_id=%s content_type=%s: %r",
-            attachment.id, attachment.content_type, exc,
+            "Comment attachment preview: could not read image dimensions attachment_id=%s",
+            attachment.id, exc_info=True,
         )
     return page
 

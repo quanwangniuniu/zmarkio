@@ -38,15 +38,11 @@ extra DB round-trip on every request.  Org slugs change extremely rarely;
 the TTL is a safe trade-off.
 """
 
-import logging
-
 from django.core.cache import cache
-from django.db import connection
+from django.db import Error as DatabaseError, connection
 from psycopg2 import sql
 
 from core.services.tenant import slug_to_schema_name
-
-logger = logging.getLogger(__name__)
 
 _CACHE_TTL = 300  # seconds (5 minutes)
 
@@ -89,27 +85,20 @@ class TenantSchemaMiddleware:
             try:
                 with connection.cursor() as cursor:
                     cursor.execute('SET search_path TO public')
-            except Exception:
-                logger.debug(
-                    "TenantSchemaMiddleware: failed to reset search_path to public "
-                    "after %s %s; rolling back",
-                    request.method, request.path, exc_info=True,
-                )
+            except DatabaseError:
                 # Do NOT call connection.close() here: Django's test runner
                 # wraps every test in a transaction/savepoint using the same
                 # connection object, so closing it causes
                 # "InterfaceError: connection already closed" in the next test.
                 try:
                     connection.rollback()
-                except Exception:
+                except DatabaseError:
                     # Expected in tests: Django forbids rollback() inside the
-                    # TestCase atomic block. In production a failed rollback
-                    # means the connection is broken; with CONN_MAX_AGE=0 Django
-                    # closes it on request_finished and PgBouncer discards it.
-                    logger.debug(
-                        "TenantSchemaMiddleware: rollback after failed search_path reset also failed",
-                        exc_info=True,
-                    )
+                    # TestCase atomic block (TransactionManagementError). In
+                    # production a failed rollback means the connection is broken;
+                    # with CONN_MAX_AGE=0 Django closes it on request_finished and
+                    # PgBouncer discards it.
+                    pass
 
     # ------------------------------------------------------------------
     # Schema resolution

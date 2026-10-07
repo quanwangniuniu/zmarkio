@@ -21,6 +21,7 @@ from django.db.models import Count, Q, Prefetch, Max
 from django.core.cache import cache
 from django.utils import timezone
 from django_redis import get_redis_connection
+from redis.exceptions import RedisError
 from .models import Chat, ChatOutboxEvent, ChatParticipant, ChatStar, LinkPreview, Message, MessageAttachment, MessageMention, MessageStatus, ChatType, ChannelVisibility, ThreadReadStatus
 from core.models import ProjectMember
 from core.tenant_context import current_tenant_schema
@@ -726,12 +727,12 @@ class OnlineStatusService:
     def _touch_cache_key(cls, key: str) -> None:
         try:
             cache.touch(key, cls.ONLINE_TIMEOUT)
-        except Exception:
-            # Best effort: the key keeps its previous TTL, and set_online() rewrites
-            # the online key on every heartbeat anyway. A cache outage is already
-            # logged at ERROR by set_online()/connection_opened() on the same path,
-            # so stay at DEBUG to avoid one extra line per socket per heartbeat.
-            logger.debug("[OnlineStatus] Failed to touch cache key %s", key, exc_info=True)
+        except (RedisError, OSError):
+            # Best effort: the key keeps its previous TTL and set_online() rewrites it
+            # on every heartbeat. A cache outage is logged at ERROR by set_online() and
+            # connection_opened() on the same path. OSError covers socket timeouts,
+            # which django-redis re-raises as the builtin TimeoutError.
+            pass
 
     @classmethod
     def _redis(cls):
@@ -1053,15 +1054,11 @@ class ChatService:
         )
         try:
             cache.set(cache_key, recipient_ids, timeout=OnlineStatusService.PRESENCE_RECIPIENTS_TIMEOUT)
-        except Exception:
+        except (RedisError, OSError):
             # The cache is only an accelerator: recipient_ids was just read from the
-            # database and is returned either way; the next call simply recomputes it.
-            # Cache outages are already logged at ERROR by connection_opened() on the
-            # same connect path, so DEBUG avoids a duplicate line per connect.
-            logger.debug(
-                "[OnlineStatus] Failed to cache presence recipients for user %s",
-                user_id, exc_info=True,
-            )
+            # database and is returned either way. A cache outage is logged at ERROR
+            # by connection_opened() on the same path.
+            pass
         return recipient_ids
 
     @staticmethod
@@ -2123,15 +2120,12 @@ class MessageService:
         finally:
             try:
                 source_field.close()
-            except Exception:
-                # Closing the read-only source handle is cleanup, not part of the copy.
-                # Raising from `finally` would replace an in-flight
-                # SourceAttachmentMissingError/AttachmentCopyError (changing the
-                # failure reason reported to the client) or fail a copy that succeeded.
-                logger.debug(
-                    "forward_messages_batch source_close_failed file=%s",
-                    getattr(source_field, 'name', ''), exc_info=True,
-                )
+            except OSError:
+                # Closing the read-only source handle leaves nothing behind. Raising
+                # from `finally` would replace an in-flight
+                # SourceAttachmentMissingError/AttachmentCopyError or fail a copy
+                # that succeeded.
+                pass
 
     @staticmethod
     def _clone_attachments_for_forward(
