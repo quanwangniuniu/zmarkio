@@ -526,6 +526,9 @@ OAUTH2_PROVIDER = {
     'SCOPES': {'api': 'Zmarkio public API'},
     'DEFAULT_SCOPES': ['api'],
 }
+# Development only: let webhook endpoints point at localhost / private hosts
+# (and plain http) so a demo receiver can run locally. Never enable in production.
+PUBLIC_API_WEBHOOK_ALLOW_PRIVATE_HOSTS = config('PUBLIC_API_WEBHOOK_ALLOW_PRIVATE_HOSTS', default=False, cast=bool)
 # Referenced by public_api.OAuthClient; the toolkit's default model.
 OAUTH2_PROVIDER_APPLICATION_MODEL = 'oauth2_provider.Application'
 

@@ -86,3 +86,67 @@ class OAuthClient(TimeStampedModel):
 
     def __str__(self):
         return f"OAuthClient '{self.name}' ({self.client_id})"
+
+
+class WebhookEndpoint(TimeStampedModel):
+    """An external URL that receives signed POSTs for the events it subscribes to."""
+
+    organization = models.ForeignKey(
+        'core.Organization', on_delete=models.CASCADE, related_name='webhook_endpoints',
+    )
+    project_id = models.PositiveIntegerField()
+    url = models.URLField(max_length=2000)
+    description = models.CharField(max_length=200, blank=True, default='')
+    events = models.JSONField(default=list)
+    # core.crypto.encrypt_token output; the plain secret is shown once, on create and rotate.
+    secret_encrypted = models.TextField()
+    is_active = models.BooleanField(default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='+',
+    )
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        indexes = [
+            models.Index(fields=['organization', 'project_id', 'is_active'], name='papi_hook_org_proj_active_idx'),
+        ]
+
+    def __str__(self):
+        return f'WebhookEndpoint {self.url}'
+
+
+class WebhookDelivery(models.Model):
+    """One delivery attempt. Retries of an event are further rows with the same event_id."""
+
+    class Status(models.TextChoices):
+        PENDING = 'pending', 'Pending'
+        SUCCEEDED = 'succeeded', 'Succeeded'
+        RETRYING = 'retrying', 'Failed, retry scheduled'
+        FAILED = 'failed', 'Failed'
+
+    endpoint = models.ForeignKey(WebhookEndpoint, on_delete=models.CASCADE, related_name='deliveries')
+    event_id = models.UUIDField()
+    event_type = models.CharField(max_length=64)
+    # Snapshot: the endpoint's URL may be edited after the attempt.
+    target_url = models.URLField(max_length=2000)
+    payload = models.JSONField()
+    attempt = models.PositiveSmallIntegerField(default=1)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    response_code = models.PositiveSmallIntegerField(null=True, blank=True)
+    error = models.CharField(max_length=1000, blank=True, default='')
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
+    next_retry_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        indexes = [
+            models.Index(fields=['endpoint', '-created_at'], name='papi_delivery_endpoint_idx'),
+            models.Index(fields=['event_type'], name='papi_delivery_event_idx'),
+            models.Index(fields=['status'], name='papi_delivery_status_idx'),
+            models.Index(fields=['event_id'], name='papi_delivery_event_id_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.event_type} → {self.target_url} (attempt {self.attempt}, {self.status})'

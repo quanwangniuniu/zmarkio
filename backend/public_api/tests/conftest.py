@@ -118,3 +118,17 @@ def workspace(project, organization, customer_organisation, csm_queue, experienc
         'customer': customer, 'agent': agent, 'conversation': conversation, 'ticket': ticket,
         'template': template, 'queue': csm_queue, 'customer_organisation': customer_organisation,
     }
+
+
+def resolving_to(address):
+    """
+    Make the webhook URL guard resolve every host to `address`. Only chat.services'
+    reference to `socket` is replaced: patching socket.getaddrinfo itself would
+    also redirect the test's own Redis and database connections.
+    """
+    import socket
+    from unittest.mock import MagicMock, patch
+
+    fake = MagicMock(gaierror=socket.gaierror)
+    fake.getaddrinfo.return_value = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (address, 0))]
+    return patch('chat.services.socket', fake)

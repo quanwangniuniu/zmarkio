@@ -1,0 +1,192 @@
+"""Which product actions emit which webhook events (MED-226)."""
+from datetime import timedelta
+from unittest.mock import MagicMock, patch
+
+import pytest
+from django.utils import timezone
+
+from csm.models import SLAPolicy, SLAPriorityTarget, Ticket, TicketStatus
+from csm.tasks import auto_resolve_pending_tickets, notify_sla_breaches
+from public_api.scopes import EVENT_TYPES
+from public_api.services.webhooks import create_endpoint
+
+pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def endpoint(organization, project):
+    endpoint, _ = create_endpoint(
+        organization_id=organization.id, project_id=project.id,
+        url='https://hooks.example.com/zmarkio', events=list(EVENT_TYPES), user=None,
+    )
+    return endpoint
+
+
+@pytest.fixture
+def sent():
+    """
+    Collect (endpoint_id, payload) for every queued delivery. Tests run inside a
+    transaction that never commits, so on-commit callbacks run immediately here;
+    TestRouting.test_rolled_back_write_sends_nothing covers the real on-commit path.
+    """
+    calls = []
+    with patch('public_api.tasks.deliver_webhook.delay', side_effect=lambda *args: calls.append(args)), \
+            patch('public_api.services.webhooks.transaction.on_commit', side_effect=lambda fn: fn()):
+        yield calls
+
+
+def _types(calls):
+    return [payload['type'] for _, payload in calls]
+
+
+@pytest.fixture
+def csm_admin_client(api_client, user, customer_organisation):
+    from csm.models import CustomerUser
+    CustomerUser.objects.create(user=user, user_type='admin', organisation=customer_organisation, is_active=True)
+    api_client.force_authenticate(user=user)
+    return api_client
+
+
+class TestTicketCreated:
+    def test_any_ticket_creation_emits_once(self, endpoint, csm_queue, organization, project, sent):
+        ticket = Ticket.objects.create(queue=csm_queue, title='Printer on fire')
+        ticket.save(update_fields=['title'])  # a later save of the same ticket is not a new event
+
+        assert _types(sent) == ['ticket.created']
+        endpoint_id, payload = sent[0]
+        assert endpoint_id == endpoint.id
+        assert payload['organization_id'] == organization.id
+        assert payload['project_id'] == project.id
+        assert payload['data']['ticket']['id'] == ticket.id
+        assert payload['data']['ticket']['title'] == 'Printer on fire'
+
+    def test_internal_api_create_emits(self, endpoint, csm_queue, csm_admin_client, sent):
+        response = csm_admin_client.post('/api/csm/tickets/', {'queue': csm_queue.id, 'title': 'From UI'}, format='json')
+        assert response.status_code == 201, response.data
+        assert _types(sent) == ['ticket.created']
+
+    def test_public_api_create_emits(self, endpoint, csm_queue, key_client, sent):
+        response = key_client.post('/api/v1/csm/tickets/', {'queue': csm_queue.id, 'title': 'From API'}, format='json')
+        assert response.status_code == 201, response.data
+        assert _types(sent) == ['ticket.created']
+
+
+class TestStatusChanged:
+    @pytest.fixture
+    def ticket(self, csm_queue):
+        return Ticket.objects.create(queue=csm_queue, title='T')
+
+    def _reload(self, ticket):
+        return Ticket.objects.get(pk=ticket.pk)
+
+    def test_internal_patch(self, endpoint, ticket, csm_admin_client, sent):
+        csm_admin_client.patch(f'/api/csm/tickets/{ticket.id}/', {'status': 'in_progress'}, format='json')
+        assert _types(sent) == ['ticket.status_changed']
+        assert sent[0][1]['data']['previous_status'] == 'todo'
+        assert sent[0][1]['data']['ticket']['status'] == 'in_progress'
+
+    def test_claim_and_close(self, endpoint, ticket, csm_admin_client, sent):
+        csm_admin_client.post(f'/api/csm/tickets/{ticket.id}/claim/')
+        csm_admin_client.patch(f'/api/csm/tickets/{ticket.id}/', {'status': 'resolved'}, format='json')
+        csm_admin_client.post(f'/api/csm/tickets/{ticket.id}/close/')
+        assert [p['data']['ticket']['status'] for _, p in sent] == ['in_progress', 'resolved', 'closed']
+
+    def test_portal_reply_reopens_pending_ticket(self, endpoint, csm_queue, customer, portal_customer_client, sent):
+        from csm.models import Conversation
+        conversation = Conversation.objects.create(customer=customer, queue=csm_queue)
+        ticket = Ticket.objects.create(queue=csm_queue, title='T', conversation=conversation)
+        Ticket.objects.filter(pk=ticket.pk).update(status='pending_customer')
+        sent.clear()
+
+        with patch('portal.views.get_channel_layer', return_value=MagicMock()), patch('portal.views.async_to_sync'):
+            response = portal_customer_client.post(
+                f'/api/portal/conversations/{conversation.id}/messages/', {'content': 'Still broken'}, format='json',
+            )
+
+        assert response.status_code == 201, response.data
+        assert _types(sent) == ['ticket.status_changed']
+        assert sent[0][1]['data']['previous_status'] == 'pending_customer'
+
+    def test_auto_resolve_task(self, endpoint, ticket, sent):
+        from csm.services.status_machine import get_auto_resolve_config
+        config = get_auto_resolve_config(ticket.queue.project_id)
+        config.enabled = True
+        config.save()
+        Ticket.objects.filter(pk=ticket.pk).update(
+            status='pending_customer', pending_since=timezone.now() - timedelta(days=60),
+        )
+        sent.clear()
+
+        auto_resolve_pending_tickets()
+
+        assert self._reload(ticket).status == 'resolved'
+        assert _types(sent) == ['ticket.status_changed']
+
+    def test_custom_status_delete_moves_tickets_and_emits(self, endpoint, ticket, project, csm_admin_client, sent):
+        from core.models import ProjectMember  # noqa: F401  (project owner membership comes from the fixture)
+        custom = TicketStatus.objects.create(project_id=project.id, slug='waiting-on-vendor', name='Waiting', order=9)
+        Ticket.objects.filter(pk=ticket.pk).update(status=custom.slug)
+        sent.clear()
+
+        response = csm_admin_client.delete(f'/api/csm/ticket-statuses/{custom.id}/?project={project.id}&confirm=true')
+
+        assert response.status_code == 204, getattr(response, 'data', None)
+        assert self._reload(ticket).status == 'in_progress'
+        assert _types(sent) == ['ticket.status_changed']
+        assert sent[0][1]['data']['previous_status'] == 'waiting-on-vendor'
+
+    def test_saves_without_status_change_emit_nothing(self, endpoint, ticket, sent):
+        sent.clear()
+        ticket = self._reload(ticket)
+        ticket.priority = 'high'
+        ticket.save()
+        assert sent == []
+
+
+class TestSlaBreached:
+    def test_breach_emits_once_per_kind(self, endpoint, csm_queue, project, user, sent):
+        policy = SLAPolicy.objects.create(project=project, name='Default SLA')
+        SLAPriorityTarget.objects.create(policy=policy, priority='medium', first_response_minutes=60, resolution_minutes=120)
+        ticket = Ticket.objects.create(queue=csm_queue, title='Slow', priority='medium', assigned_to=user)
+        Ticket.objects.filter(pk=ticket.pk).update(
+            status='in_progress',
+            first_response_due=timezone.now() - timedelta(minutes=5),
+            resolution_due=timezone.now() - timedelta(minutes=5),
+        )
+        sent.clear()
+
+        notify_sla_breaches()
+        notify_sla_breaches()
+
+        breaches = [p for _, p in sent if p['type'] == 'sla.breached']
+        assert sorted(p['data']['breach_type'] for p in breaches) == ['first_response', 'resolution']
+
+
+class TestRouting:
+    def test_unsubscribed_inactive_and_foreign_endpoints_get_nothing(
+        self, organization, project, csm_queue, other_workspace, sent,
+    ):
+        create_endpoint(organization_id=organization.id, project_id=project.id,
+                        url='https://a.example.com', events=['sla.breached'], user=None)
+        create_endpoint(organization_id=organization.id, project_id=project.id,
+                        url='https://b.example.com', events=['ticket.created'], user=None, is_active=False)
+        # Same project id, other workspace.
+        create_endpoint(organization_id=other_workspace['organization'].id, project_id=project.id,
+                        url='https://c.example.com', events=['ticket.created'], user=None)
+
+        Ticket.objects.create(queue=csm_queue, title='T')
+
+        assert sent == []
+
+    def test_rolled_back_write_sends_nothing(self, endpoint, csm_queue, django_capture_on_commit_callbacks):
+        from django.db import transaction
+        with patch('public_api.tasks.deliver_webhook.delay') as delay:
+            with django_capture_on_commit_callbacks(execute=False) as callbacks:
+                try:
+                    with transaction.atomic():
+                        Ticket.objects.create(queue=csm_queue, title='T')
+                        raise RuntimeError
+                except RuntimeError:
+                    pass
+            assert callbacks == []
+            delay.assert_not_called()

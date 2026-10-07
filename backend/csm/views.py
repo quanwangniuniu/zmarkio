@@ -2024,7 +2024,15 @@ class TicketStatusViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
         # Reassign any tickets still on this status to 'in_progress' (a built-in
         # that can't be deleted) so they aren't stranded on a slug that no longer
         # exists — matches what the delete warning promises.
+        # A bulk update skips Ticket.save(), so announce each move to webhooks explicitly.
+        moved = list(
+            tickets_using_status(instance.project_id, instance.slug).select_related('queue__organisation'),
+        )
         tickets_using_status(instance.project_id, instance.slug).update(status='in_progress')
+        from public_api.services.webhooks import emit_status_changed
+        for ticket in moved:
+            ticket.status = 'in_progress'
+            emit_status_changed(ticket, instance.slug)
         # Drop transitions referencing the deleted slug so the machine stays clean.
         TicketStatusTransition.objects.filter(
             Q(project_id=instance.project_id),
