@@ -1,12 +1,15 @@
 from rest_framework import serializers
+from experience_group.models import ExperienceGroup
 from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, CsmNotification,
     Conversation, ConversationMessage, Ticket, QuickReplyTemplate, QuickReplyTemplateHistory,
+    ConversationQualityReview,
     TemplateTag,
     TicketForm, TicketFormField, TicketFormAssignment,
     SupportProject, CsmWorkType, GuidanceEntry, SupportChannel,
     SLAPolicy, SLAPriorityTarget, BusinessHoursCalendar,
     TicketStatus, TicketStatusTransition, TicketAutoResolveConfig,
+    RoutingRule,
 )
 
 
@@ -284,7 +287,7 @@ class CustomerProfileSerializer(serializers.Serializer):
     organisation_id = serializers.IntegerField(source='organisation.id', default=None)
     organisation_name = serializers.CharField(source='organisation.name', default=None)
     region_name = serializers.CharField(source='region.name', default=None)
-    # Status label (MED-217): agents view/assign it on the profile panel.
+    # Status label: agents view/assign it on the profile panel.
     status_label = serializers.IntegerField(source='status_label_id', default=None)
     status_label_name = serializers.CharField(source='status_label.name', default=None)
     status_label_color = serializers.CharField(source='status_label.color', default=None)
@@ -574,7 +577,7 @@ class WorkTypeReorderSerializer(serializers.Serializer):
 
 
 # ---------------------------------------------------------------------------
-# Guidance entries (CSM-S03-02)
+# Guidance entries
 # ---------------------------------------------------------------------------
 
 class GuidanceEntrySerializer(serializers.ModelSerializer):
@@ -637,7 +640,7 @@ class WorkspaceGuidanceEntrySerializer(serializers.Serializer):
 
 
 # ---------------------------------------------------------------------------
-# SLA Policy (MED-218)
+# SLA Policy
 # ---------------------------------------------------------------------------
 
 class BusinessHoursCalendarSerializer(serializers.ModelSerializer):
@@ -813,3 +816,129 @@ class ReplaceTransitionsSerializer(serializers.Serializer):
         child=serializers.DictField(child=serializers.CharField()),
         default=list,
     )
+
+
+class ConversationQualityReviewSerializer(serializers.ModelSerializer):
+    """One supervisor annotation, as returned by the quality endpoints."""
+    rating_display = serializers.CharField(source='get_rating_display', read_only=True)
+
+    class Meta:
+        model = ConversationQualityReview
+        fields = [
+            'id', 'conversation', 'rating', 'rating_display', 'comment',
+            'reviewer', 'reviewer_name', 'reviewed_at',
+            'agent_user',
+        ]
+        read_only_fields = fields
+
+
+class ConversationQualityReviewWriteSerializer(serializers.Serializer):
+    """Input for the annotate endpoint. Snapshots are resolved server-side."""
+    rating = serializers.ChoiceField(choices=ConversationQualityReview.Rating.choices)
+    comment = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class QualityConversationSerializer(ConversationSerializer):
+    """List row for the quality inspection table.
+
+    ``review_count`` and ``latest_rating`` come from annotations and
+    ``my_review`` from a filtered prefetch, so rendering a page costs no
+    per-row queries.
+    """
+    assigned_to_user_id = serializers.IntegerField(
+        source='assigned_to.user_id', read_only=True, default=None)
+    message_count = serializers.IntegerField(read_only=True, default=0)
+    review_count = serializers.IntegerField(read_only=True, default=0)
+    latest_rating = serializers.CharField(read_only=True, default=None)
+    my_review = serializers.SerializerMethodField()
+
+    class Meta(ConversationSerializer.Meta):
+        fields = ConversationSerializer.Meta.fields + [
+            'assigned_to_user_id', 'message_count', 'review_count',
+            'latest_rating', 'my_review',
+        ]
+
+    def get_my_review(self, obj):
+        reviews = getattr(obj, 'my_reviews', None)
+        if not reviews:
+            return None
+        return ConversationQualityReviewSerializer(reviews[0]).data
+
+
+class QualityConversationDetailSerializer(ConversationDetailSerializer):
+    """Detail payload for the review drawer: the transcript plus every review."""
+    reviews = serializers.SerializerMethodField()
+    my_review = serializers.SerializerMethodField()
+
+    class Meta(ConversationDetailSerializer.Meta):
+        fields = ConversationDetailSerializer.Meta.fields + ['reviews', 'my_review']
+
+    def get_reviews(self, obj):
+        return ConversationQualityReviewSerializer(obj.quality_reviews.all(), many=True).data
+
+    def get_my_review(self, obj):
+        request = self.context.get('request')
+        user = getattr(request, 'user', None)
+        if not user:
+            return None
+        review = obj.quality_reviews.filter(reviewer=user).first()
+        return ConversationQualityReviewSerializer(review).data if review else None
+
+
+# ---------------------------------------------------------------------------
+# Routing rules & sandbox
+# ---------------------------------------------------------------------------
+
+class RoutingRuleSerializer(serializers.ModelSerializer):
+    target_queue_name = serializers.CharField(
+        source='target_queue.name', read_only=True, default=None,
+    )
+    can_route = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = RoutingRule
+        fields = [
+            'id', 'experience_group', 'name', 'position', 'is_enabled',
+            'match_mode', 'conditions',
+            'target_queue', 'target_queue_name', 'can_route',
+            'add_tags', 'created_at', 'updated_at',
+        ]
+        read_only_fields = fields
+
+
+class RoutingRuleWriteSerializer(serializers.Serializer):
+    """Shape-only validation; business rules live in services.routing_rules."""
+    experience_group = serializers.PrimaryKeyRelatedField(
+        queryset=ExperienceGroup.objects.all(),
+    )
+    name = serializers.CharField(max_length=200)
+    is_enabled = serializers.BooleanField(required=False)
+    match_mode = serializers.ChoiceField(choices=RoutingRule.MatchMode.choices, required=False)
+    conditions = serializers.ListField(
+        child=serializers.DictField(), required=False, allow_empty=True,
+    )
+    target_queue = serializers.PrimaryKeyRelatedField(queryset=Queue.objects.all())
+    add_tags = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_empty=True,
+    )
+
+
+class RoutingRuleReorderSerializer(serializers.Serializer):
+    experience_group = serializers.IntegerField(min_value=1)
+    ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+
+
+class RoutingSandboxRequestSerializer(serializers.Serializer):
+    experience_group = serializers.IntegerField(min_value=1)
+    support_channel = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    customer_organisation = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    subject = serializers.CharField(max_length=200, required=False, allow_blank=True, default='')
+    messages = serializers.ListField(
+        child=serializers.CharField(max_length=5000, trim_whitespace=False),
+        min_length=1,
+        max_length=50,
+    )
+    simulated_at = serializers.DateTimeField(required=False, allow_null=True)
