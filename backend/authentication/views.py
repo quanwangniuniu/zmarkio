@@ -1295,8 +1295,6 @@ class DeleteAccountView(APIView):
                 try:
                     user.avatar.delete(save=False)
                 except Exception:
-                    # Storage is not transactional; do not abort account deletion,
-                    # but the leftover personal file needs manual cleanup.
                     logger.error(
                         "Failed to delete avatar file for deleted user %s; the path is still on the user row",
                         user.id, exc_info=True,

@@ -125,9 +125,8 @@ def _delete_storage_path(path):
         if default_storage.exists(path):
             default_storage.delete(path)
     except Exception:
-        # Storage cleanup must not block database cleanup. Callers delete the
-        # attachment row right after this call, so a file that fails here is no
-        # longer tracked anywhere and will not be retried; log it for manual cleanup.
+        # Storage cleanup should not block database cleanup; leaked files can be
+        # swept by the next run or by object-storage lifecycle policies.
         logger.error(
             "Comment attachment storage cleanup failed; file is now orphaned: path=%s",
             path, exc_info=True,

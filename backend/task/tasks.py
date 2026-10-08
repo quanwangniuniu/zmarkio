@@ -67,7 +67,7 @@ def scan_task_attachment(self, attachment_id):
                 "Failed to mark task attachment %s as error_scanning; it may stay in SCANNING",
                 attachment_id,
             )
-        logger.error("Error scanning task attachment %s", attachment_id, exc_info=e)
+        logger.error(f"Error scanning task attachment {attachment_id}: {str(e)}")
         return False
 
 

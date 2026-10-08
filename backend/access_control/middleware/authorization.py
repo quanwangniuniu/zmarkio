@@ -109,7 +109,6 @@ class AuthorizationMiddleware:
                     self._log_override(request, user, 'ORG_ADMIN', module_key, action_key)
                 return None
         except Exception:
-            # Fail closed on the bypass only: fall through to the regular RBAC check below.
             logger.warning(
                 "Org-admin bypass lookup failed for user_id=%s route=%s; falling back to RBAC",
                 getattr(user, "id", None), getattr(request.resolver_match, "route", None), exc_info=True,
@@ -241,8 +240,6 @@ class AuthorizationMiddleware:
                 reason=request.META.get('HTTP_X_OVERRIDE_REASON', ''),
             )
         except Exception:
-            # Best-effort by design (never block the request), but a lost audit
-            # row is security-relevant and must be visible to operators.
             logger.exception(
                 "Failed to write AdminOverrideAudit user_id=%s type=%s module=%s action=%s method=%s route=%s",
                 getattr(user, "id", None), override_type, module_key, action_key,
