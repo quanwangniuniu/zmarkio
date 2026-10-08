@@ -9,7 +9,6 @@ from datetime import datetime
 from django.utils.dateparse import parse_datetime
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError, transaction
 from django.db.models.deletion import ProtectedError
 from django.db.models import Q
@@ -1040,9 +1039,6 @@ class ArtifactLinkViewSet(ArchivedMeetingGuardMixin, viewsets.ModelViewSet):
                 from spreadsheet.models import Spreadsheet  # noqa: PLC0415
                 s = Spreadsheet.objects.only("name").get(pk=artifact_id)
                 return s.name or f"Spreadsheet #{artifact_id}"
-        except ObjectDoesNotExist:
-            # The linked target may have been deleted; use the generic label.
-            pass
         except Exception:
             logger.warning(
                 "Failed to resolve title for %s artifact %s; using generic label",
