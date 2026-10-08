@@ -1,13 +1,7 @@
 """Agent services package.
 
-The imports below are a thin re-export shim so ``from agent.services import X``
-keeps working for every public name. New code should import from the defining
-submodule instead.
-
-Patch helpers on the submodule that looks them up (e.g.
-``agent.services.analysis._run_analysis``), never on this package: a patch here
-replaces only the re-exported alias and does not reach the real call sites.
-``agent/tests/test_services_package.py`` enforces this.
+Re-exports the public names so ``from agent.services import X`` keeps working.
+Patch a helper on the submodule that defines it, not on this package.
 """
 from .analysis import (
     _ANALYSIS_VALIDATION_MAX_ATTEMPTS,
