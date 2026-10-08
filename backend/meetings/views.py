@@ -429,12 +429,10 @@ class MeetingViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         if row:
             db_layout_config = row[6]
             if isinstance(db_layout_config, str):
-                # Raw cursors return jsonb as text (Django disables psycopg2's jsonb
-                # decoding) and Postgres always emits valid JSON, so this should not
-                # fail; if it ever does, the diff below treats the value as "no layout".
                 try:
                     db_layout_config = json.loads(db_layout_config)
                 except json.JSONDecodeError:
+                    # Not expected from Postgres; the diff below treats it as no layout.
                     pass
             before = {
                 "title": row[0],
@@ -1043,9 +1041,7 @@ class ArtifactLinkViewSet(ArchivedMeetingGuardMixin, viewsets.ModelViewSet):
                 s = Spreadsheet.objects.only("name").get(pk=artifact_id)
                 return s.name or f"Spreadsheet #{artifact_id}"
         except ObjectDoesNotExist:
-            # ArtifactLink stores a loose (type, id) pair with no FK or existence
-            # check, so the target may not exist in this tenant schema or may have
-            # been hard-deleted; fall back to a generic label.
+            # The linked target may have been deleted; use the generic label.
             pass
         except Exception:
             logger.warning(

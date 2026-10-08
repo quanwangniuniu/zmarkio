@@ -828,10 +828,7 @@ class MediaUploadView(APIView):
                 try:
                     os.unlink(temp_file_path)
                 except OSError:
-                    # The temp file has a random name on the container's ephemeral
-                    # disk, so a leftover needs no cleanup. The original failure is
-                    # logged above, and a cleanup error must not replace the 500 response.
-                    pass
+                    pass  # Ignore cleanup errors
             return Response(
                 {'error': f'File upload error: {str(e)}'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

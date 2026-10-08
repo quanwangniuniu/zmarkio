@@ -49,8 +49,7 @@ def _token_error_message(response: requests.Response) -> str:
                 payload.get("error_description") or err or response.text or ""
             ).strip()[:600]
     except ValueError:
-        # Linear (or a proxy in front of it) can return a non-JSON error body, e.g.
-        # an HTML 502 page; fall back to the raw text. The caller logs the result.
+        # Non-JSON error body (e.g. an HTML 502 page); fall back to the raw text.
         pass
     return (response.text or "").strip()[:600]
 

@@ -542,12 +542,9 @@ def _get_image_preview_page(attachment):
             with Image.open(handle) as image:
                 page["width"], page["height"] = image.size
     except UnidentifiedImageError:
-        # Width/height are optional hints and the image is still served from its
-        # original URL, so formats Pillow cannot decode (for example SVG) are expected.
+        # Formats Pillow can't read (e.g. SVG); dimensions are optional.
         pass
     except Exception:
-        # Not an unsupported format: a missing file (for example when this worker
-        # cannot see MEDIA_ROOT), a storage error, or a corrupt or oversized upload.
         logger.warning(
             "Comment attachment preview: could not read image dimensions attachment_id=%s",
             attachment.id, exc_info=True,

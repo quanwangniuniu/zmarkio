@@ -728,10 +728,7 @@ class OnlineStatusService:
         try:
             cache.touch(key, cls.ONLINE_TIMEOUT)
         except (RedisError, OSError):
-            # Best effort: the key keeps its previous TTL and set_online() rewrites it
-            # on every heartbeat. A cache outage is logged at ERROR by set_online() and
-            # connection_opened() on the same path. OSError covers socket timeouts,
-            # which django-redis re-raises as the builtin TimeoutError.
+            # Best effort: set_online() rewrites the key on every heartbeat.
             pass
 
     @classmethod
@@ -1055,9 +1052,7 @@ class ChatService:
         try:
             cache.set(cache_key, recipient_ids, timeout=OnlineStatusService.PRESENCE_RECIPIENTS_TIMEOUT)
         except (RedisError, OSError):
-            # The cache is only an accelerator: recipient_ids was just read from the
-            # database and is returned either way. A cache outage is logged at ERROR
-            # by connection_opened() on the same path.
+            # Cache is only an accelerator; recipient_ids is returned either way.
             pass
         return recipient_ids
 
@@ -2121,10 +2116,7 @@ class MessageService:
             try:
                 source_field.close()
             except OSError:
-                # Closing the read-only source handle leaves nothing behind. Raising
-                # from `finally` would replace an in-flight
-                # SourceAttachmentMissingError/AttachmentCopyError or fail a copy
-                # that succeeded.
+                # Closing a read-only handle; must not mask the copy result.
                 pass
 
     @staticmethod

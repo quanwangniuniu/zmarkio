@@ -234,9 +234,7 @@ def publish_notification_to_redis(user_id: int, notification) -> None:
             try:
                 r.close()
             except (RedisError, OSError):
-                # Teardown of a short-lived client; the publish outcome is already
-                # logged above. This function runs from on_commit hooks and inside
-                # create_or_update_chat_notification's atomic block, so it must not raise.
+                # Teardown only; the publish outcome is already logged above.
                 pass
 
 
@@ -363,12 +361,11 @@ async def sse_event_generator(
     finally:
         if active_connection_counted:
             sse_active_connections.dec()
-        # Teardown: the stream is already over and any real error was logged above.
-        # RuntimeError covers "Event loop is closed" when the server shuts down.
         try:
             if subscribed:
                 await pubsub.unsubscribe(channel)
             await r.aclose()
         except (RedisError, OSError, RuntimeError):
+            # Teardown only; RuntimeError covers "Event loop is closed" on shutdown.
             pass
         logger.info("SSE: connection closed for user_id=%s", user_id)
