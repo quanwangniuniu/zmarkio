@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.urls import reverse
 from django.test import override_settings
 from django.db import connection
@@ -80,7 +81,7 @@ class SsoCallbackViewTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("message", response.data)
         self.assertIn("token", response.data)
-        self.assertIn("refresh", response.data)
+        self.assertIn(settings.REFRESH_COOKIE_NAME, response.cookies)
         self.assertIn("user", response.data)
         
         # Check user was created
@@ -282,7 +283,7 @@ class SsoCallbackViewTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
         # Check response structure
-        expected_keys = ["message", "token", "refresh", "user"]
+        expected_keys = ["message", "token", "user"]
         for key in expected_keys:
             self.assertIn(key, response.data)
         
@@ -310,10 +311,11 @@ class SsoCallbackViewTests(APITestCase):
         self.assertIsInstance(token, str)
         self.assertGreater(len(token), 50)  # JWT tokens are typically long
         
-        # Check refresh token
-        refresh_token = response.data["refresh"]
-        self.assertIsInstance(refresh_token, str)
-        self.assertGreater(len(refresh_token), 50)
+        # Refresh token comes only as an HttpOnly cookie, never in the body
+        self.assertNotIn("refresh", response.data)
+        refresh_cookie = response.cookies[settings.REFRESH_COOKIE_NAME]
+        self.assertTrue(refresh_cookie["httponly"])
+        self.assertGreater(len(refresh_cookie.value), 50)
 
     def test_sso_callback_username_uniqueness_resolved(self):
         """Test that using email as username resolves uniqueness conflicts"""

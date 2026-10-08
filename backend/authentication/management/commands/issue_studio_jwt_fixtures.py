@@ -126,9 +126,10 @@ class Command(BaseCommand):
         user.auth_token_version = 1
         user.save(update_fields=["auth_token_version"])
 
-        access = _mint_access(user)
-        # Long enough that CI/local mint→jest gaps (minutes) do not flake; still
-        # far shorter than SIMPLE_JWT ACCESS_TOKEN_LIFETIME (days).
+        # Explicit lifetimes: the default ACCESS_TOKEN_LIFETIME (minutes) could
+        # expire during CI/local mint→jest gaps. near_expiry must stay the
+        # shorter of the two while still outliving those gaps.
+        access = _mint_access(user, lifetime=timedelta(hours=2))
         near_expiry = _mint_access(user, lifetime=timedelta(minutes=30))
 
         if not _django_accepts_access(access):

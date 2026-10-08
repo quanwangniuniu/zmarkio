@@ -8,9 +8,11 @@ const AUTH_FILE = path.join(AUTH_DIR, 'user.json');
 const TEST_EMAIL = process.env.DEV_USER_EMAIL || 'devuser@example.com';
 const TEST_PASSWORD = process.env.DEV_USER_PASSWORD || 'password123!';
 
+// The refresh token isn't in the body: the login response sets it as an
+// HttpOnly cookie, which page.request stores in this browser context and
+// storageState() saves along with localStorage.
 type LoginPayload = {
   token: string;
-  refresh: string;
   user: Record<string, unknown>;
   organization_access_token?: string | null;
 };
@@ -83,7 +85,6 @@ setup('authenticate', async ({ page, baseURL }) => {
         JSON.stringify({
           state: {
             token: auth.token,
-            refreshToken: auth.refresh,
             organizationAccessToken: auth.organization_access_token ?? null,
             user: auth.user,
             isAuthenticated: true,

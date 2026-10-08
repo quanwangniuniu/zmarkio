@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.management import call_command
 from django.db import connection, connections
 from django.test import TransactionTestCase
 from rest_framework.test import APIClient
@@ -40,6 +41,18 @@ class ConcurrentBookingTests(TransactionTestCase):
         with connection.cursor() as cursor:
             cursor.execute('DROP SCHEMA IF EXISTS "org_booking_race" CASCADE')
         super().tearDown()
+
+    def _fixture_teardown(self):
+        # Tenant tables left by other TransactionTestCases (e.g. task_task)
+        # reference public django_content_type, so Django's plain TRUNCATE
+        # fails and leaks this test's org into the next setUp. Force CASCADE,
+        # as in task/tests/test_approval_race.py.
+        for db_name in self._databases_names(include_mirrors=False):
+            call_command(
+                'flush', verbosity=0, interactive=False, database=db_name,
+                reset_sequences=False, allow_cascade=True,
+                inhibit_post_migrate=self.available_apps is not None,
+            )
 
     def _race(self, different_links=False):
         barrier = Barrier(2)

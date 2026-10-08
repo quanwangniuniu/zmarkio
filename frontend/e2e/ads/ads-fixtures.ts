@@ -67,10 +67,11 @@ export const test = base.extend<{}, { account: Account }>({
       });
 
       const storageState = {
-        cookies: [],
+        // The login above set the HttpOnly refresh cookie on the guest context.
+        cookies: (await guest.storageState()).cookies,
         origins: [{ origin: new URL(baseURL).origin, localStorage: [
           { name: 'auth-storage-v1', value: JSON.stringify({ version: 0, state: {
-            token: auth.token, refreshToken: auth.refresh,
+            token: auth.token,
             organizationAccessToken: auth.organization_access_token ?? null,
             user: auth.user, isAuthenticated: true, userTeams: [], selectedTeamId: null,
             loading: false, initialized: true, hasHydrated: true,

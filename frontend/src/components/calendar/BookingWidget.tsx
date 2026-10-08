@@ -48,6 +48,7 @@ import {
   saveBookingReminder,
 } from './bookingConfirmationSession';
 import { resolveViewerBookings } from '@/lib/bookingViewerReminder';
+import { getValidAccessToken } from '@/lib/api';
 import { useAuthStore } from '@/lib/authStore';
 import { bookerDisplayName, isInternalBooker } from '@/lib/bookingBookerIdentity';
 import ConfirmDialog from '@/components/common/ConfirmDialog';
@@ -188,7 +189,9 @@ export default function BookingWidget({ orgSlug, linkSlug }: BookingWidgetProps)
           from: (padded > new Date() ? padded : new Date()).toISOString(),
           to: new Date(to.getTime() + 86_400_000).toISOString(),
         },
-        token,
+        // publicApi has no 401 refresh; if refreshing fails, send the old
+        // token so the server rejects it rather than treating us as a guest.
+        token ? (await getValidAccessToken()) ?? token : null,
       );
       if (data.invitees_only && data.viewer_can_book === false) {
         setLink(null);
@@ -403,7 +406,7 @@ export default function BookingWidget({ orgSlug, linkSlug }: BookingWidgetProps)
           start: selectedSlot.start,
           notes: form.notes.trim(),
         },
-        internalBooker ? token : undefined,
+        internalBooker ? (await getValidAccessToken()) ?? token : undefined,
       );
       const confirmation = {
         start: result.start,

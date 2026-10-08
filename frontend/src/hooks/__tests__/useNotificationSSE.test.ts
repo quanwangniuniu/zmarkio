@@ -36,6 +36,13 @@ jest.mock('@/lib/chatStore', () => ({
   }),
 }));
 
+// Only the token helpers are replaced; tests decide whether a token is expiring.
+jest.mock('@/lib/api', () => ({
+  ...jest.requireActual('@/lib/api'),
+  isAccessTokenExpiring: jest.fn(),
+  getValidAccessToken: jest.fn(),
+}));
+
 jest.mock('@/lib/api/notificationsApi', () => ({
   notificationsApi: {
     list: jest.fn().mockResolvedValue({ data: { unread_count: 3 } }),
@@ -47,6 +54,7 @@ import { useAuthStore } from '@/lib/authStore';
 import { useNotificationStore } from '@/lib/notificationStore';
 import { useChatStore } from '@/lib/chatStore';
 import { notificationsApi } from '@/lib/api/notificationsApi';
+import * as authApi from '@/lib/api';
 
 // ─── EventSource mock ─────────────────────────────────────────────────────────
 
@@ -103,6 +111,7 @@ describe('useNotificationSSE', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     latestES = null;
+    (authApi.isAccessTokenExpiring as jest.Mock).mockReturnValue(false);
 
     // Default: authenticated user with a token.
     (useAuthStore as unknown as jest.Mock).mockImplementation(
@@ -452,6 +461,91 @@ describe('useNotificationSSE', () => {
         jest.advanceTimersByTime(60_000);
       });
 
+      expect(MockEventSource).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── 6. Expiring token before connecting ───────────────────────────────────
+
+  describe('refreshing an expiring token before connecting', () => {
+    let storeToken: string;
+    let mockSetToken: jest.Mock;
+    let getValidAccessTokenSpy: jest.Mock;
+
+    beforeEach(() => {
+      storeToken = 'expiring-token';
+      mockSetToken = jest.fn((t: string) => {
+        storeToken = t;
+      });
+      (useAuthStore as unknown as jest.Mock).mockImplementation(
+        (selector: (s: { token: string }) => unknown) => selector({ token: storeToken }),
+      );
+      (useAuthStore as unknown as { getState: () => unknown }).getState = () => ({
+        setToken: mockSetToken,
+      });
+      // Every token looks expiring, as with a client clock far ahead of the server.
+      (authApi.isAccessTokenExpiring as jest.Mock).mockReturnValue(true);
+      getValidAccessTokenSpy = authApi.getValidAccessToken as jest.Mock;
+    });
+
+    it('refreshes once and connects with the new token even if it still looks expiring', async () => {
+      getValidAccessTokenSpy.mockResolvedValue('refreshed-token');
+      const { rerender } = renderHook(() => useNotificationSSE());
+      expect(MockEventSource).not.toHaveBeenCalled();
+
+      await act(async () => {});
+      expect(mockSetToken).toHaveBeenCalledWith('refreshed-token');
+
+      // The store update re-renders the hook with the new token.
+      rerender();
+      await act(async () => {});
+
+      expect(getValidAccessTokenSpy).toHaveBeenCalledTimes(1);
+      expect(MockEventSource).toHaveBeenCalledTimes(1);
+      expect(MockEventSource.mock.calls[0][0]).toContain('token=refreshed-token');
+    });
+
+    it('connects directly when the refresh hands back the same token', async () => {
+      getValidAccessTokenSpy.mockResolvedValue('expiring-token');
+      renderHook(() => useNotificationSSE());
+
+      await act(async () => {});
+
+      expect(mockSetToken).not.toHaveBeenCalled();
+      expect(MockEventSource).toHaveBeenCalledTimes(1);
+      expect(MockEventSource.mock.calls[0][0]).toContain('token=expiring-token');
+    });
+
+    it('backs off and retries when the refresh fails', async () => {
+      jest.useFakeTimers();
+      getValidAccessTokenSpy.mockResolvedValue(null);
+      renderHook(() => useNotificationSSE());
+
+      await act(async () => {});
+      expect(MockEventSource).not.toHaveBeenCalled();
+      expect(mockSetConnectionStatus).toHaveBeenCalledWith('reconnecting');
+
+      await act(async () => {
+        jest.advanceTimersByTime(4_000);
+      });
+      expect(getValidAccessTokenSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('ignores a refresh that resolves after unmount', async () => {
+      let resolveRefresh!: (t: string) => void;
+      getValidAccessTokenSpy.mockReturnValue(
+        new Promise<string>((r) => {
+          resolveRefresh = r;
+        }),
+      );
+      const { unmount } = renderHook(() => useNotificationSSE());
+      unmount();
+
+      await act(async () => {
+        resolveRefresh('refreshed-token');
+      });
+
+      expect(mockSetToken).not.toHaveBeenCalled();
       expect(MockEventSource).not.toHaveBeenCalled();
     });
   });

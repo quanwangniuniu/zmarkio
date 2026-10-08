@@ -1339,7 +1339,7 @@ class AcceptInvitationView(APIView):
             )
 
             # Generate tokens for new users
-            from core.services.auth_tokens import build_user_refresh_token
+            from core.services.auth_tokens import build_user_refresh_token, set_refresh_cookie
 
             refresh = build_user_refresh_token(user)
             from core.serializers import UserSummarySerializer
@@ -1355,9 +1355,11 @@ class AcceptInvitationView(APIView):
 
             if user_created:
                 response_data['token'] = str(refresh.access_token)
-                response_data['refresh'] = str(refresh)
 
-            return Response(response_data, status=status.HTTP_200_OK)
+            response = Response(response_data, status=status.HTTP_200_OK)
+            if user_created:
+                set_refresh_cookie(response, refresh)
+            return response
 
         except ValueError as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
@@ -2481,17 +2483,15 @@ class AcceptOrganizationInvitationView(APIView):
             'role': invitation.role,
         }
 
-        if user_created:
-            # Generate JWT tokens
-            from core.services.auth_tokens import build_user_refresh_token
+        if not user_created:
+            return Response(response_data, status=status.HTTP_200_OK)
 
-            refresh = build_user_refresh_token(user)
-            response_data['tokens'] = {
-                'access': str(refresh.access_token),
-                'refresh': str(refresh),
-            }
+        # Generate JWT tokens
+        from core.services.auth_tokens import build_user_refresh_token, set_refresh_cookie
 
-        return Response(response_data, status=status.HTTP_200_OK)
+        refresh = build_user_refresh_token(user)
+        response_data['tokens'] = {'access': str(refresh.access_token)}
+        return set_refresh_cookie(Response(response_data, status=status.HTTP_200_OK), refresh)
 
 
 class CreateOrganizationView(APIView):
