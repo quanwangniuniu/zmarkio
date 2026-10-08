@@ -128,5 +128,5 @@ def scan_file_generic(file_path, model_class, file_id, status_field='scan_status
                 "Failed to mark %s %s as error_scanning; it may stay in SCANNING",
                 model_class.__name__, file_id,
             )
-        logger.error("Error scanning file %s", file_id, exc_info=e)
+        logger.error(f"Error scanning file {file_id}: {str(e)}")
         return False
