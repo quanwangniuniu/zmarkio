@@ -1,6 +1,7 @@
 export const MAX_BATCH = 50;
 export const BATCH_CONCURRENCY = 5;
 export const MODEL_NAME = 'qwen3:4b';
+// Keep in sync with PROMPT_VERSION in backend/ad_copy_variation/services.py.
 export const PROMPT_VERSION = 'v2';
 export const AI_QUOTA_MESSAGE =
   'AI generation is temporarily rate-limited or quota-limited. Please wait '
@@ -80,7 +81,7 @@ export function buildUserPrompt(template: CopyJson, instruction: string): string
   );
 }
 
-/** Angles rotated across a batch; each reshapes facts already in the source. */
+/** Angles rotated by each variation's batch position; each reshapes facts already in the source. */
 export const VARIATION_ANGLES = [
   'lead with the main benefit',
   'open with a short question about the problem',

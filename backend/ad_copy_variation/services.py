@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 MAX_BATCH = 50
 BATCH_CONCURRENCY = 5
+# Keep in sync with PROMPT_VERSION in variations-studio-api/src/ai/prompts/index.ts.
 PROMPT_VERSION = 'v2'
 AI_QUOTA_MESSAGE = (
     "AI generation is temporarily rate-limited or quota-limited. Please wait "
@@ -102,7 +103,7 @@ def _build_user_prompt(template: dict, instruction: str) -> str:
     )
 
 
-# Angles rotated across a batch; each reshapes facts already in the source.
+# Angles rotated by each variation's batch position; each reshapes facts already in the source.
 VARIATION_ANGLES = (
     "lead with the main benefit",
     "open with a short question about the problem",
