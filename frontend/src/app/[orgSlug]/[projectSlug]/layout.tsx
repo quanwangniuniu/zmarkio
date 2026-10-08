@@ -6,6 +6,8 @@ import { ProjectAPI } from '@/lib/api/projectApi';
 import { OrganizationAPI } from '@/lib/api/organizationApi';
 import { useProjectStore } from '@/lib/projectStore';
 import { useAuthStore } from '@/lib/authStore';
+import { DashboardPanelPreferenceProvider } from '@/components/dashboard/DashboardPanelPreferenceContext';
+import { readUpcomingMeetingsPanelOpen } from '@/lib/dashboardPanelPreferences';
 import { ChatWebSocketProvider } from '@/hooks/useChatWebSocket';
 
 /**
@@ -97,9 +99,14 @@ export default function OrgProjectLayout({ children }: { children: React.ReactNo
     return null;
   }
 
+
   return (
-    <ChatWebSocketProvider userId={user?.id ? Number(user.id) : null}>
-      {children}
-    </ChatWebSocketProvider>
-  );
+    <DashboardPanelPreferenceProvider
+      initialUpcomingMeetingsPanelOpen={readUpcomingMeetingsPanelOpen()}
+    >
+      <ChatWebSocketProvider userId={user?.id ? Number(user.id) : null}>
+        {children}
+      </ChatWebSocketProvider>
+    </DashboardPanelPreferenceProvider>
+  )
 }
