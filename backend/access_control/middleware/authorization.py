@@ -141,7 +141,10 @@ class AuthorizationMiddleware:
             return None
 
         except Exception:
-            pass
+            logger.warning(
+                "Permission cache fast path failed for user_id=%s route=%s; falling back to the database check",
+                getattr(user, "id", None), getattr(request.resolver_match, "route", None), exc_info=True,
+            )
 
         # CRITICAL: After multi-organization restructuring, UserRole and RolePermission
         # tables now live in TENANT schemas, not public schema. TenantSchemaMiddleware
@@ -240,10 +243,10 @@ class AuthorizationMiddleware:
                 reason=request.META.get('HTTP_X_OVERRIDE_REASON', ''),
             )
         except Exception:
-            logger.exception(
+            logger.error(
                 "Failed to write AdminOverrideAudit user_id=%s type=%s module=%s action=%s method=%s route=%s",
                 getattr(user, "id", None), override_type, module_key, action_key,
-                request.method, getattr(request.resolver_match, "route", None),
+                request.method, getattr(request.resolver_match, "route", None), exc_info=True,
             )
 
     # Authorization decorator for team endpoints

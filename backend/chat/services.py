@@ -21,7 +21,6 @@ from django.db.models import Count, Q, Prefetch, Max
 from django.core.cache import cache
 from django.utils import timezone
 from django_redis import get_redis_connection
-from redis.exceptions import RedisError
 from .models import Chat, ChatOutboxEvent, ChatParticipant, ChatStar, LinkPreview, Message, MessageAttachment, MessageMention, MessageStatus, ChatType, ChannelVisibility, ThreadReadStatus
 from core.models import ProjectMember
 from core.tenant_context import current_tenant_schema
@@ -727,9 +726,11 @@ class OnlineStatusService:
     def _touch_cache_key(cls, key: str) -> None:
         try:
             cache.touch(key, cls.ONLINE_TIMEOUT)
-        except (RedisError, OSError):
-            # Best effort: set_online() rewrites the key on every heartbeat.
-            pass
+        except Exception:
+            logger.warning(
+                "OnlineStatusService: failed to refresh TTL of %s",
+                key, exc_info=True,
+            )
 
     @classmethod
     def _redis(cls):
@@ -843,7 +844,10 @@ class OnlineStatusService:
             try:
                 cls._redis().delete(cls._connection_key(user_id))
             except Exception:
-                pass
+                logger.warning(
+                    "OnlineStatusService: failed to delete connection set for user_id=%s",
+                    user_id, exc_info=True,
+                )
             logger.info(f"[OnlineStatus] User {user_id} marked as OFFLINE")
             return True
         except Exception:
@@ -1051,9 +1055,11 @@ class ChatService:
         )
         try:
             cache.set(cache_key, recipient_ids, timeout=OnlineStatusService.PRESENCE_RECIPIENTS_TIMEOUT)
-        except (RedisError, OSError):
-            # Cache is only an accelerator; recipient_ids is returned either way.
-            pass
+        except Exception:
+            logger.warning(
+                "Failed to cache presence recipients for user_id=%s",
+                user_id, exc_info=True,
+            )
         return recipient_ids
 
     @staticmethod
@@ -2115,9 +2121,12 @@ class MessageService:
         finally:
             try:
                 source_field.close()
-            except OSError:
-                # Closing a read-only handle; must not mask the copy result.
-                pass
+            except Exception:
+                # Intentional skip: cleanup in finally; raising here would mask the copy result or error.
+                logger.warning(
+                    "Failed to close source attachment file after copy",
+                    exc_info=True,
+                )
 
     @staticmethod
     def _clone_attachments_for_forward(

@@ -124,9 +124,10 @@ def scan_file_generic(file_path, model_class, file_id, status_field='scan_status
                     setattr(instance, status_field, ERROR_SCANNING)
                 instance.save()
         except Exception:
-            logger.exception(
+            # Intentional skip: cleanup after the scan failed; raising here would mask the scan error.
+            logger.error(
                 "Failed to mark %s %s as error_scanning; it may stay in SCANNING",
-                model_class.__name__, file_id,
+                model_class.__name__, file_id, exc_info=True,
             )
         logger.error(f"Error scanning file {file_id}: {str(e)}")
         return False

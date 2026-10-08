@@ -39,10 +39,14 @@ the TTL is a safe trade-off.
 """
 
 from django.core.cache import cache
-from django.db import Error as DatabaseError, connection
+import logging
+
+from django.db import connection
 from psycopg2 import sql
 
 from core.services.tenant import slug_to_schema_name
+
+logger = logging.getLogger(__name__)
 
 _CACHE_TTL = 300  # seconds (5 minutes)
 
@@ -94,8 +98,12 @@ class TenantSchemaMiddleware:
                 # request when the health-check fails.
                 try:
                     connection.rollback()
-                except DatabaseError:
-                    pass
+                except Exception:
+                    # Intentional skip: cleanup in finally; see the comment above.
+                    logger.warning(
+                        "Failed to roll back connection after search_path reset failed",
+                        exc_info=True,
+                    )
 
     # ------------------------------------------------------------------
     # Schema resolution
@@ -204,7 +212,10 @@ class TenantSchemaMiddleware:
             pass
         except Exception:
             # Any other error - leave as AnonymousUser
-            pass
+            logger.warning(
+                "JWT authentication failed unexpectedly in tenant middleware; continuing as anonymous",
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Cache-backed helpers

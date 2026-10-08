@@ -71,7 +71,11 @@ class BudgetRequestPermission(permissions.BasePermission):
             try:
                 organization = obj.project.organization
             except Exception:
-                pass
+                logger.warning(
+                    "BudgetRequestPermission: cannot resolve organization from project for budget_request_id=%s "
+                    "(user_id=%s); falling back to user.organization",
+                    obj.pk, request.user.id, exc_info=True,
+                )
         elif hasattr(obj, 'budget_pool'):
             try:
                 organization = obj.budget_pool.project.organization
@@ -257,7 +261,11 @@ class BudgetPoolPermission(permissions.BasePermission):
             try:
                 organization = obj.project.organization
             except Exception:
-                pass
+                logger.warning(
+                    "BudgetPoolPermission: cannot resolve organization for budget_pool_id=%s "
+                    "(user_id=%s); falling back to user.organization",
+                    obj.pk, request.user.id, exc_info=True,
+                )
 
         if organization is None:
             organization = getattr(request.user, 'organization', None)

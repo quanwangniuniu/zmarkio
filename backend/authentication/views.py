@@ -1307,7 +1307,10 @@ class DeleteAccountView(APIView):
                     token = RefreshToken(refresh_token)
                     token.blacklist()
                 except Exception:
-                    pass
+                    logger.warning(
+                        "Failed to blacklist refresh token for deleted user %s",
+                        user.id, exc_info=True,
+                    )
 
             # 8. Anonymise and soft-delete the user record
             #    (keeps FK integrity for audit logs / chat messages etc.)

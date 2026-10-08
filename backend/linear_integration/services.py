@@ -48,9 +48,11 @@ def _token_error_message(response: requests.Response) -> str:
             return str(
                 payload.get("error_description") or err or response.text or ""
             ).strip()[:600]
-    except ValueError:
-        # Non-JSON error body (e.g. an HTML 502 page); fall back to the raw text.
-        pass
+    except Exception:
+        logger.warning(
+            "Linear token error response is not parseable JSON (status=%s); using raw text",
+            response.status_code, exc_info=True,
+        )
     return (response.text or "").strip()[:600]
 
 

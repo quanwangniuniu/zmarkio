@@ -53,9 +53,10 @@ def scan_file_for_virus(self, file_id):
                 metric_file.mark_error_scanning()
                 metric_file.save()
         except Exception:
-            logger.exception(
+            # Intentional skip: cleanup after the scan failed; raising here would mask the scan error.
+            logger.error(
                 "Failed to mark MetricFile %s as error_scanning; it may stay in SCANNING",
-                file_id,
+                file_id, exc_info=True,
             )
         return False
 

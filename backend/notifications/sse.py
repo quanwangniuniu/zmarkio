@@ -35,7 +35,6 @@ from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from prometheus_client import Counter, Gauge
-from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
 
@@ -233,9 +232,12 @@ def publish_notification_to_redis(user_id: int, notification) -> None:
         if r is not None:
             try:
                 r.close()
-            except (RedisError, OSError):
-                # Teardown only; the publish outcome is already logged above.
-                pass
+            except Exception:
+                # Intentional skip: cleanup in finally; raising here would mask the publish outcome.
+                logger.warning(
+                    "SSE: failed to close Redis client for user_id=%s",
+                    user_id, exc_info=True,
+                )
 
 
 # ── async SSE generator ───────────────────────────────────────────────────────
@@ -365,7 +367,10 @@ async def sse_event_generator(
             if subscribed:
                 await pubsub.unsubscribe(channel)
             await r.aclose()
-        except (RedisError, OSError, RuntimeError):
-            # Teardown only; RuntimeError covers "Event loop is closed" on shutdown.
-            pass
+        except Exception:
+            # Intentional skip: cleanup in finally; raising here would mask how the stream ended.
+            logger.warning(
+                "SSE: failed to close pubsub for user_id=%s",
+                user_id, exc_info=True,
+            )
         logger.info("SSE: connection closed for user_id=%s", user_id)

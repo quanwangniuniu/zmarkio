@@ -63,9 +63,10 @@ def scan_task_attachment(self, attachment_id):
                 attachment.mark_error_scanning()
                 attachment.save()
         except Exception:
-            logger.exception(
+            # Intentional skip: cleanup after the scan failed; raising here would mask the scan error.
+            logger.error(
                 "Failed to mark task attachment %s as error_scanning; it may stay in SCANNING",
-                attachment_id,
+                attachment_id, exc_info=True,
             )
         logger.error(f"Error scanning task attachment {attachment_id}: {str(e)}")
         return False

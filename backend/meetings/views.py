@@ -430,9 +430,11 @@ class MeetingViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
             if isinstance(db_layout_config, str):
                 try:
                     db_layout_config = json.loads(db_layout_config)
-                except json.JSONDecodeError:
-                    # Not expected from Postgres; the diff below treats it as no layout.
-                    pass
+                except Exception:
+                    logger.warning(
+                        "Meeting %s: cannot parse stored layout_config for the change diff",
+                        meeting.pk, exc_info=True,
+                    )
             before = {
                 "title": row[0],
                 "objective": row[1],
