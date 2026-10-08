@@ -304,9 +304,7 @@ def upload_video_ad(request):
                 try:
                     os.unlink(temp_path)
                 except OSError:
-                    # The temp file has a random name on the container's ephemeral
-                    # disk, so a leftover needs no cleanup. An unlink error must not
-                    # replace the in-flight response or the mediainfo exception.
+                    # Temp file cleanup; must not mask the in-flight response.
                     pass
         
         # Validate duration (5-600 seconds)
@@ -678,9 +676,6 @@ def material_delete(request, id):
         try:
             default_storage.delete(creative.storage_path)
         except Exception:
-            # FileSystemStorage.delete() already ignores missing files, so anything
-            # caught here is a real failure. The row is still deleted to honour the
-            # user's request; log the path so the orphaned file can be removed by hand.
             logger.error(
                 "TikTok material %s: failed to delete stored file %s; file is now orphaned",
                 creative.id, creative.storage_path, exc_info=True,
