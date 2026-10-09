@@ -10,7 +10,7 @@ import {
   SECONDARY_BUTTON_CLASS,
 } from '@/components/csm-settings/constants';
 import { parseFieldErrors } from '@/components/ticket-form/formErrors';
-import type { VocabularyOption, WebhookEndpoint, WebhookEndpointData } from '@/types/csmIntegrations';
+import type { VocabularyOption, WebhookEndpointData } from '@/types/csmIntegrations';
 
 /** Client-side check only; the server also rejects hosts that resolve to private addresses. */
 export function validateWebhookUrl(url: string): string | null {
@@ -27,32 +27,26 @@ export function validateWebhookUrl(url: string): string | null {
 
 interface Props {
   isOpen: boolean;
-  editing: WebhookEndpoint | null;
   events: VocabularyOption[];
   onClose: () => void;
   /** Throws the axios error on failure so field errors can be shown. */
   onSubmit: (data: WebhookEndpointData) => Promise<void>;
 }
 
-export default function WebhookEndpointDrawer({ isOpen, editing, events, onClose, onSubmit }: Props) {
-  const isEdit = editing !== null;
+export default function WebhookEndpointDrawer({ isOpen, events, onClose, onSubmit }: Props) {
   const [url, setUrl] = useState('');
-  const [description, setDescription] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [isActive, setIsActive] = useState(true);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
-    setUrl(editing?.url ?? '');
-    setDescription(editing?.description ?? '');
-    setSelected(new Set(editing?.events ?? []));
-    setIsActive(editing?.is_active ?? true);
+    setUrl('');
+    setSelected(new Set());
     setFieldErrors({});
     setServerError(null);
-  }, [isOpen, editing]);
+  }, [isOpen]);
 
   const toggleEvent = (event: string, checked: boolean) => {
     setSelected((prev) => {
@@ -79,9 +73,7 @@ export default function WebhookEndpointDrawer({ isOpen, editing, events, onClose
     try {
       await onSubmit({
         url: url.trim(),
-        description: description.trim(),
         events: events.map(({ value }) => value).filter((event) => selected.has(event)),
-        is_active: isActive,
       });
     } catch (err: unknown) {
       const parsed = parseFieldErrors((err as { response?: { data?: unknown } })?.response?.data);
@@ -96,14 +88,14 @@ export default function WebhookEndpointDrawer({ isOpen, editing, events, onClose
     <CsmSettingsDrawerShell
       open={isOpen}
       onClose={onClose}
-      title={isEdit ? 'Edit webhook' : 'New webhook'}
+      title="New webhook"
       footer={
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} disabled={submitting} className={SECONDARY_BUTTON_CLASS}>
             Cancel
           </button>
           <button type="submit" form="webhook-endpoint-form" disabled={submitting} className={DRAWER_PRIMARY_BUTTON_CLASS}>
-            {submitting ? 'Saving…' : isEdit ? 'Save webhook' : 'Create webhook'}
+            {submitting ? 'Saving…' : 'Create webhook'}
           </button>
         </div>
       }
@@ -139,20 +131,6 @@ export default function WebhookEndpointDrawer({ isOpen, editing, events, onClose
             {fieldErrors.url && <p className="mt-1 text-xs text-red-600">{fieldErrors.url}</p>}
           </div>
 
-          <div>
-            <label htmlFor="webhook-description" className={FORM_LABEL_CLASS}>Description</label>
-            <input
-              id="webhook-description"
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Escalations to PagerDuty"
-              maxLength={200}
-              disabled={submitting}
-              className={`w-full ${BUILDER_CONTROL_CLASS}`}
-            />
-          </div>
-
           <fieldset>
             <legend className={FORM_LABEL_CLASS}>
               Events <span className="text-red-500">*</span>
@@ -173,17 +151,6 @@ export default function WebhookEndpointDrawer({ isOpen, editing, events, onClose
             </div>
             {fieldErrors.events && <p className="mt-1 text-xs text-red-600">{fieldErrors.events}</p>}
           </fieldset>
-
-          <label className="flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={isActive}
-              disabled={submitting}
-              onChange={(e) => setIsActive(e.target.checked)}
-            />
-            <span className="font-medium">Active</span>
-            <span className="text-gray-500">— inactive webhooks receive nothing, and pending retries stop.</span>
-          </label>
         </div>
       </form>
     </CsmSettingsDrawerShell>

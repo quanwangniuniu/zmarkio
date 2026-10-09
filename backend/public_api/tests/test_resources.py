@@ -73,13 +73,6 @@ class TestConversations:
         response = key_client.post(_list('conversation'), {'customer': workspace['customer'].id}, format='json')
         assert response.status_code == 400 and 'queue' in response.data
 
-    def test_messages_are_listed_read_only(self, key_client, workspace):
-        url = reverse('public-api-conversation-messages', args=[workspace['conversation'].id])
-
-        listed = key_client.get(url)
-        assert listed.status_code == 200
-        assert [m['content'] for m in listed.data['results']] == ['Where is my refund?']
-        assert key_client.post(url, {'content': 'hi'}, format='json').status_code == 405
 
 
 class TestCustomers:
@@ -207,27 +200,16 @@ class TestAgents:
 
 
 class TestRoutingRules:
-    def test_create_update_reorder_delete(self, key_client, workspace, tenant_project, experience_group):
-        url = _list('routing-rule')
-        first = key_client.post(url, {
+    def test_create_update_delete(self, key_client, workspace, tenant_project, experience_group):
+        first = key_client.post(_list('routing-rule'), {
             'experience_group': experience_group.id, 'name': 'Refunds', 'target_queue': workspace['queue'].id,
             'conditions': [{'field': 'latest_message', 'operator': 'contains_any', 'value': ['refund']}],
         }, format='json')
         assert first.status_code == 201, first.data
-        second = key_client.post(url, {
-            'experience_group': experience_group.id, 'name': 'Everything else', 'target_queue': workspace['queue'].id,
-        }, format='json')
-        assert second.status_code == 201, second.data
         assert RoutingRule.objects.get(pk=first.data['id']).created_by is None
 
         patched = key_client.patch(_detail('routing-rule', first.data['id']), {'is_enabled': False}, format='json')
         assert patched.status_code == 200 and patched.data['is_enabled'] is False
-
-        reordered = key_client.put(reverse('public-api-routing-rule-reorder'), {
-            'experience_group': experience_group.id, 'ids': [second.data['id'], first.data['id']],
-        }, format='json')
-        assert reordered.status_code == 200, reordered.data
-        assert [r['id'] for r in reordered.data] == [second.data['id'], first.data['id']]
 
         assert key_client.delete(_detail('routing-rule', first.data['id'])).status_code == 204
         assert not RoutingRule.objects.filter(pk=first.data['id']).exists()

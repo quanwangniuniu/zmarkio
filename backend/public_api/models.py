@@ -98,12 +98,10 @@ class WebhookEndpoint(TimeStampedModel):
     )
     project_id = models.PositiveIntegerField()
     url = models.URLField(max_length=2000)
-    description = models.CharField(max_length=200, blank=True, default='')
     # WebhookEvent values.
     events = models.JSONField(default=list)
     # core.crypto.encrypt_token output; the plain secret is shown once, on create.
     secret_encrypted = models.TextField()
-    is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='+',
@@ -112,7 +110,7 @@ class WebhookEndpoint(TimeStampedModel):
     class Meta:
         ordering = ['-created_at', '-id']
         indexes = [
-            models.Index(fields=['organization', 'project_id', 'is_active'], name='papi_hook_org_proj_active_idx'),
+            models.Index(fields=['organization', 'project_id'], name='papi_hook_org_project_idx'),
         ]
 
     def __str__(self):

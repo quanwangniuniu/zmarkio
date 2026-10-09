@@ -115,13 +115,13 @@ class OAuthClientViewSet(IntegrationsAdminMixin, mixins.ListModelMixin, viewsets
 @method_decorator(csrf_exempt, name='dispatch')
 class WebhookEndpointViewSet(IntegrationsAdminMixin, viewsets.ModelViewSet):
     """
-    - GET/POST          /api/csm/integrations/webhooks/?project={id}     POST returns the signing secret once
-    - GET/PATCH/DELETE  /api/csm/integrations/webhooks/{id}/?project={id}
+    - GET/POST    /api/csm/integrations/webhooks/?project={id}     POST returns the signing secret once
+    - GET/DELETE  /api/csm/integrations/webhooks/{id}/?project={id}
     """
 
     serializer_class = WebhookEndpointSerializer
     pagination_class = None
-    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
+    http_method_names = ['get', 'post', 'delete', 'head', 'options']
 
     def get_queryset(self):
         return self.scoped(WebhookEndpoint.objects.all())
@@ -136,15 +136,6 @@ class WebhookEndpointViewSet(IntegrationsAdminMixin, viewsets.ModelViewSet):
             **serializer.validated_data,
         )
         return Response({**WebhookEndpointSerializer(endpoint).data, 'secret': secret}, status=status.HTTP_201_CREATED)
-
-    def partial_update(self, request, *args, **kwargs):
-        endpoint = self.get_object()
-        serializer = WebhookEndpointWriteSerializer(data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        for field, value in serializer.validated_data.items():
-            setattr(endpoint, field, value)
-        endpoint.save(update_fields=[*serializer.validated_data, 'updated_at'])
-        return Response(WebhookEndpointSerializer(endpoint).data)
 
 
 @method_decorator(csrf_exempt, name='dispatch')

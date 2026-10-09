@@ -62,12 +62,10 @@ class OAuthClientSerializer(serializers.ModelSerializer):
 
 class WebhookEndpointWriteSerializer(serializers.Serializer):
     url = serializers.URLField(max_length=2000)
-    description = serializers.CharField(max_length=200, required=False, allow_blank=True)
     events = serializers.ListField(
         child=serializers.ChoiceField(choices=WebhookEvent.choices), allow_empty=False,
         max_length=len(WebhookEvent.choices),
     )
-    is_active = serializers.BooleanField(required=False)
 
     def validate_url(self, value):
         try:
@@ -84,7 +82,7 @@ class WebhookEndpointWriteSerializer(serializers.Serializer):
 class WebhookEndpointSerializer(serializers.ModelSerializer):
     class Meta:
         model = WebhookEndpoint
-        fields = ['id', 'url', 'description', 'events', 'is_active', 'created_at']
+        fields = ['id', 'url', 'events', 'created_at']
         read_only_fields = fields
 
 

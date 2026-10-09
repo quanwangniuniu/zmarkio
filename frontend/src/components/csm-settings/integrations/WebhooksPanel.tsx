@@ -2,11 +2,11 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { AlertCircle, Pencil, Plus, Trash2 } from 'lucide-react';
+import { AlertCircle, Plus, Trash2 } from 'lucide-react';
 import { CsmIntegrationsAPI } from '@/lib/api/csmIntegrationsApi';
 import type { VocabularyOption, WebhookEndpoint, WebhookEndpointData } from '@/types/csmIntegrations';
+import { formatDateTime } from '@/components/csm/quality/formatDates';
 import { PORTAL_SUBMIT_BUTTON_CLASS } from '@/components/ticket-form/constants';
-import StatusBadge from '@/components/csm-settings/StatusBadge';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 import SecretRevealModal, { type RevealedSecret } from './SecretRevealModal';
@@ -35,7 +35,6 @@ export default function WebhooksPanel({ projectId, events }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [editing, setEditing] = useState<WebhookEndpoint | null>(null);
   const [revealed, setRevealed] = useState<RevealedSecret | null>(null);
   const [deleting, setDeleting] = useState<WebhookEndpoint | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -54,20 +53,11 @@ export default function WebhooksPanel({ projectId, events }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const replace = (updated: WebhookEndpoint) =>
-    setEndpoints((prev) => prev.map((row) => (row.id === updated.id ? { ...row, ...updated } : row)));
-
   const handleSubmit = async (data: WebhookEndpointData) => {
-    if (editing) {
-      replace(await CsmIntegrationsAPI.updateWebhook(projectId, editing.id, data));
-      toast.success('Webhook updated.');
-    } else {
-      const { secret, ...created } = await CsmIntegrationsAPI.createWebhook(projectId, data);
-      setEndpoints((prev) => [created, ...prev]);
-      setRevealed(secretReveal(created, secret));
-    }
+    const { secret, ...created } = await CsmIntegrationsAPI.createWebhook(projectId, data);
+    setEndpoints((prev) => [created, ...prev]);
+    setRevealed(secretReveal(created, secret));
     setDrawerOpen(false);
-    setEditing(null);
   };
 
   const handleDelete = async () => {
@@ -94,7 +84,7 @@ export default function WebhooksPanel({ projectId, events }: Props) {
           </p>
           <button
             type="button"
-            onClick={() => { setEditing(null); setDrawerOpen(true); }}
+            onClick={() => setDrawerOpen(true)}
             className={`gap-2 ${PORTAL_SUBMIT_BUTTON_CLASS}`}
           >
             <Plus className="h-4 w-4" aria-hidden />
@@ -125,16 +115,15 @@ export default function WebhooksPanel({ projectId, events }: Props) {
                 <tr>
                   <th className="px-4 py-3">Endpoint</th>
                   <th className="px-4 py-3">Events</th>
-                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Created</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {endpoints.map((endpoint) => (
-                  <tr key={endpoint.id} className={`border-t border-gray-100 ${endpoint.is_active ? '' : 'opacity-60'}`}>
-                    <td className="max-w-sm px-4 py-3">
-                      <div className="truncate font-mono text-xs text-gray-900" title={endpoint.url}>{endpoint.url}</div>
-                      {endpoint.description && <div className="text-xs text-gray-500">{endpoint.description}</div>}
+                  <tr key={endpoint.id} className="border-t border-gray-100">
+                    <td className="max-w-sm truncate px-4 py-3 font-mono text-xs text-gray-900" title={endpoint.url}>
+                      {endpoint.url}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
@@ -145,14 +134,9 @@ export default function WebhooksPanel({ projectId, events }: Props) {
                         ))}
                       </div>
                     </td>
-                    <td className="px-4 py-3"><StatusBadge active={endpoint.is_active} /></td>
+                    <td className="px-4 py-3 text-gray-700">{formatDateTime(endpoint.created_at)}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
-                        <button type="button" onClick={() => { setEditing(endpoint); setDrawerOpen(true); }}
-                          title="Edit" aria-label={`Edit ${endpoint.url}`}
-                          className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600">
-                          <Pencil className="h-4 w-4" aria-hidden />
-                        </button>
                         <button type="button" onClick={() => setDeleting(endpoint)}
                           title="Delete" aria-label={`Delete ${endpoint.url}`}
                           className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600">
@@ -182,9 +166,8 @@ export default function WebhooksPanel({ projectId, events }: Props) {
 
       <WebhookEndpointDrawer
         isOpen={drawerOpen}
-        editing={editing}
         events={events}
-        onClose={() => { setDrawerOpen(false); setEditing(null); }}
+        onClose={() => setDrawerOpen(false)}
         onSubmit={handleSubmit}
       />
       <SecretRevealModal revealed={revealed} onClose={() => setRevealed(null)} />

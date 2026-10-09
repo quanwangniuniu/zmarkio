@@ -81,16 +81,14 @@ def post_json_safely(url, body, headers):
 # Endpoints
 # ---------------------------------------------------------------------------
 
-def create_endpoint(*, organization_id, project_id, url, events, user, description='', is_active=True):
+def create_endpoint(*, organization_id, project_id, url, events, user):
     """Return (endpoint, signing secret). The secret is not recoverable from the API afterwards."""
     secret = f'whsec_{secrets.token_urlsafe(32)}'
     endpoint = WebhookEndpoint.objects.create(
         organization_id=organization_id,
         project_id=project_id,
         url=url,
-        description=description,
         events=events,
-        is_active=is_active,
         secret_encrypted=encrypt_token(secret),
         created_by=user,
     )
@@ -135,7 +133,6 @@ def emit_ticket_event(event_type, ticket, **extra):
         WebhookEndpoint.objects.filter(
             organization_id=organization_id,
             project_id=queue.project_id,
-            is_active=True,
             events__contains=[event_type],
         ).values_list('id', flat=True)
     )

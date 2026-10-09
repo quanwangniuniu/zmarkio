@@ -89,11 +89,11 @@ class TestDelivery:
         assert WebhookDelivery.objects.get().status == 'failed'
         retry.assert_not_called()
 
-    def test_deactivated_endpoint_stops_the_chain(self, endpoint, payload):
-        endpoint.is_active = False
-        endpoint.save()
+    def test_deleted_endpoint_stops_the_chain(self, endpoint, payload):
+        endpoint_id = endpoint.id
+        endpoint.delete()
         with patch('public_api.tasks.post_json_safely') as post:
-            assert deliver_webhook(endpoint.id, payload, 2) is None
+            assert deliver_webhook(endpoint_id, payload, 2) is None
         post.assert_not_called()
         assert not WebhookDelivery.objects.exists()
 

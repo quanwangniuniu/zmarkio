@@ -157,13 +157,11 @@ class TestSlaBreached:
 
 
 class TestRouting:
-    def test_unsubscribed_inactive_and_foreign_endpoints_get_nothing(
+    def test_unsubscribed_and_foreign_endpoints_get_nothing(
         self, organization, project, csm_queue, other_workspace, sent,
     ):
         create_endpoint(organization_id=organization.id, project_id=project.id,
                         url='https://a.example.com', events=['sla.breached'], user=None)
-        create_endpoint(organization_id=organization.id, project_id=project.id,
-                        url='https://b.example.com', events=['ticket.created'], user=None, is_active=False)
         # Same project id, other workspace.
         create_endpoint(organization_id=other_workspace['organization'].id, project_id=project.id,
                         url='https://c.example.com', events=['ticket.created'], user=None)

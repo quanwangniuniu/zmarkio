@@ -49,9 +49,7 @@ export interface CreatedOAuthClient extends OAuthClient {
 export interface WebhookEndpoint {
   id: number;
   url: string;
-  description: string;
   events: string[];
-  is_active: boolean;
   created_at: string;
 }
 
@@ -61,9 +59,7 @@ export interface WebhookEndpointWithSecret extends WebhookEndpoint {
 
 export interface WebhookEndpointData {
   url: string;
-  description?: string;
   events: string[];
-  is_active?: boolean;
 }
 
 export type WebhookDeliveryStatus = 'succeeded' | 'retrying' | 'failed';

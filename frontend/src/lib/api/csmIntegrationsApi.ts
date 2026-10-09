@@ -67,12 +67,6 @@ export const CsmIntegrationsAPI = {
       .then((res) => res.data);
   },
 
-  updateWebhook(projectId: number, id: number, data: Partial<WebhookEndpointData>) {
-    return api
-      .patch<WebhookEndpoint>(`${BASE}/webhooks/${id}/`, data, { params: { project: projectId } })
-      .then((res) => res.data);
-  },
-
   deleteWebhook(projectId: number, id: number) {
     return api.delete(`${BASE}/webhooks/${id}/`, { params: { project: projectId } });
   },

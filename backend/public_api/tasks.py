@@ -17,9 +17,9 @@ def deliver_webhook(endpoint_id, payload, attempt=1):
     on failure. Every table touched here is in the public schema, so no tenant
     schema context is needed.
     """
-    endpoint = WebhookEndpoint.objects.filter(pk=endpoint_id, is_active=True).first()
+    endpoint = WebhookEndpoint.objects.filter(pk=endpoint_id).first()
     if endpoint is None:
-        return None  # deleted or deactivated since the event: stop
+        return None  # deleted since the event: stop
 
     body = canonical_json(payload).encode()
     response_code, error, retryable = None, '', True

@@ -94,10 +94,6 @@ class TestIsolation:
         assert intruder.get(_detail('routing-rule', rule.id)).status_code == 404
         assert intruder.delete(_detail('routing-rule', rule.id)).status_code == 404
 
-    def test_messages_of_other_workspace_are_404(self, intruder, workspace):
-        url = reverse('public-api-conversation-messages', args=[workspace['conversation'].id])
-        assert intruder.get(url).status_code == 404
-
     def test_writes_cannot_reference_another_workspaces_rows(self, intruder, workspace):
         queue = workspace['queue'].id
         organisation = workspace['customer_organisation'].id

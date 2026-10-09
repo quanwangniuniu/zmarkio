@@ -59,13 +59,10 @@ class TestEndpoints:
             private = admin_client.post(url, {'url': 'https://internal.example.com/x', 'events': ['ticket.created']}, format='json')
         assert private.status_code == 400 and 'url' in private.data
 
-    def test_update_and_delete(self, admin_client, project, endpoint):
+    def test_delete_and_no_edit(self, admin_client, project, endpoint):
         detail = _url('integrations-webhook-detail', project, endpoint.id)
 
-        patched = admin_client.patch(detail, {'events': ['sla.breached'], 'is_active': False}, format='json')
-        assert patched.status_code == 200
-        assert (patched.data['events'], patched.data['is_active']) == (['sla.breached'], False)
-
+        assert admin_client.patch(detail, {'events': ['sla.breached']}, format='json').status_code == 405
         assert admin_client.delete(detail).status_code == 204
         assert not WebhookEndpoint.objects.filter(pk=endpoint.id).exists()
 

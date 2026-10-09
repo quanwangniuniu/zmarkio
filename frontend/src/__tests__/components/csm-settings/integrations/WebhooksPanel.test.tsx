@@ -11,7 +11,6 @@ jest.mock('@/lib/api/csmIntegrationsApi', () => ({
   CsmIntegrationsAPI: {
     listWebhooks: jest.fn(),
     createWebhook: jest.fn(),
-    updateWebhook: jest.fn(),
     deleteWebhook: jest.fn(),
     listDeliveries: jest.fn(),
   },
@@ -32,9 +31,7 @@ const EVENTS = [
 const endpoint: WebhookEndpoint = {
   id: 5,
   url: 'https://hooks.example.com/zmarkio',
-  description: 'PagerDuty',
   events: ['sla.breached'],
-  is_active: true,
   created_at: '2026-10-01T00:00:00Z',
 };
 
@@ -58,7 +55,7 @@ beforeEach(() => {
 
 const renderPanel = async () => {
   render(<WebhooksPanel projectId={1} events={EVENTS} />);
-  await screen.findByText('PagerDuty');
+  await screen.findByRole('button', { name: `Delete ${endpoint.url}` });
 };
 
 describe('validateWebhookUrl', () => {
@@ -82,7 +79,7 @@ describe('WebhooksPanel', () => {
   });
 
   it('registers an endpoint and reveals the signing secret once', async () => {
-    api.createWebhook.mockResolvedValue({ ...endpoint, id: 6, description: '', events: ['ticket.created'], secret: 'whsec_abc' });
+    api.createWebhook.mockResolvedValue({ ...endpoint, id: 6, events: ['ticket.created'], secret: 'whsec_abc' });
     await renderPanel();
 
     fireEvent.click(screen.getByRole('button', { name: /New webhook/ }));
@@ -95,7 +92,7 @@ describe('WebhooksPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create webhook' }));
 
     await waitFor(() => expect(api.createWebhook).toHaveBeenCalledWith(1, {
-      url: 'https://hooks.example.com/new', description: '', events: ['ticket.created'], is_active: true,
+      url: 'https://hooks.example.com/new', events: ['ticket.created'],
     }));
     expect(await screen.findByTestId('revealed-Signing secret')).toHaveTextContent('whsec_abc');
   });
@@ -118,7 +115,7 @@ describe('WebhooksPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: `Delete ${endpoint.url}` }));
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }));
 
-    await waitFor(() => expect(screen.queryByText('PagerDuty')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole('button', { name: `Delete ${endpoint.url}` })).not.toBeInTheDocument());
     expect(api.deleteWebhook).toHaveBeenCalledWith(1, 5);
   });
 

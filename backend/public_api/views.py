@@ -3,15 +3,14 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.fields import get_error_detail
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from csm.models import QuickReplyTemplateHistory, RoutingRule
-from csm.serializers import ConversationMessageSerializer, RoutingRuleReorderSerializer, RoutingRuleSerializer
-from csm.services.routing_rules import create_rule, reorder_rules, update_rule
+from csm.serializers import RoutingRuleSerializer
+from csm.services.routing_rules import create_rule, update_rule
 from csm.services.sla import recalculate_ticket_sla
 from csm.services.status_machine import assert_transition_allowed
 from public_api.authentication import ApiKeyAuthentication, OAuthClientAuthentication
@@ -110,7 +109,6 @@ class ConversationViewSet(PublicApiMixin, viewsets.ModelViewSet):
     """
     - GET/POST   /api/v1/csm/conversations/
     - GET/PATCH  /api/v1/csm/conversations/{id}/
-    - GET        /api/v1/csm/conversations/{id}/messages/    read-only, oldest first
     """
 
     api_resource = 'conversations'
@@ -121,15 +119,6 @@ class ConversationViewSet(PublicApiMixin, viewsets.ModelViewSet):
         return scoping.conversations(self.request.user).select_related(
             'customer', 'queue', 'assigned_to__user',
         ).order_by('-started_at', '-id')
-
-    @action(detail=True, methods=['get'])
-    def messages(self, request, pk=None):
-        conversation = self.get_object()
-        qs = conversation.messages.select_related('sender_agent__user').order_by('created_at', 'id')
-        page = self.paginate_queryset(qs)
-        return self.get_paginated_response(
-            ConversationMessageSerializer(page, many=True, context=self.get_serializer_context()).data,
-        )
 
 
 class CustomerViewSet(PublicApiMixin, viewsets.ModelViewSet):
@@ -239,12 +228,11 @@ class RoutingRuleViewSet(PublicApiMixin, viewsets.ModelViewSet):
 
     - GET/POST          /api/v1/csm/routing-rules/
     - GET/PATCH/DELETE  /api/v1/csm/routing-rules/{id}/
-    - PUT               /api/v1/csm/routing-rules/reorder/    {"experience_group", "ids"}
     """
 
     api_resource = 'routing_rules'
     serializer_class = RoutingRuleSerializer
-    http_method_names = ['get', 'post', 'patch', 'put', 'delete', 'head', 'options']
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
         return scoping.routing_rules(self.request.user).select_related(
@@ -276,9 +264,7 @@ class RoutingRuleViewSet(PublicApiMixin, viewsets.ModelViewSet):
             raise ValidationError(get_error_detail(exc))
         return Response(RoutingRuleSerializer(rule).data, status=status.HTTP_201_CREATED)
 
-    def update(self, request, *args, **kwargs):
-        if not kwargs.get('partial'):
-            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+    def partial_update(self, request, *args, **kwargs):
         rule = self.get_object()
         serializer = self.get_serializer(data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -289,17 +275,3 @@ class RoutingRuleViewSet(PublicApiMixin, viewsets.ModelViewSet):
         except DjangoValidationError as exc:
             raise ValidationError(get_error_detail(exc))
         return Response(RoutingRuleSerializer(rule).data)
-
-    @action(detail=False, methods=['put'], url_path='reorder')
-    def reorder(self, request):
-        serializer = RoutingRuleReorderSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        try:
-            rules = reorder_rules(
-                request.user.project_id,
-                serializer.validated_data['experience_group'],
-                serializer.validated_data['ids'],
-            )
-        except DjangoValidationError as exc:
-            raise ValidationError(get_error_detail(exc))
-        return Response(RoutingRuleSerializer(rules, many=True).data)

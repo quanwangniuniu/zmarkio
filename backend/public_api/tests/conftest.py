@@ -107,7 +107,6 @@ def workspace(project, organization, customer_organisation, csm_queue, experienc
         user=user, user_type='agent', organisation=customer_organisation, queue=csm_queue, is_active=True,
     )
     conversation = Conversation.objects.create(customer=customer, queue=csm_queue, assigned_to=agent)
-    conversation.messages.create(sender_type='customer', content='Where is my refund?')
     ticket = Ticket.objects.create(queue=csm_queue, title='Refund', customer_email=customer.email, conversation=conversation)
     TemplateTag.objects.create(organisation=customer_organisation, name='billing')
     template = QuickReplyTemplate.objects.create(
