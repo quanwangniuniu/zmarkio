@@ -35,7 +35,7 @@ function formatDateDivider(iso: string): string {
 }
 
 // Read-only rich text renderer using Tiptap
-function RichMessageBody({ body, isAgent }: { body: object; isAgent: boolean }) {
+export function RichMessageBody({ body, isAgent }: { body: object; isAgent: boolean }) {
   const editor = useEditor({
     extensions: [StarterKit],
     content: body,
@@ -61,10 +61,13 @@ interface ConversationThreadProps {
 }
 
 export function ConversationThread({ messages, typingUserIds = [] }: ConversationThreadProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Scroll only the thread: scrollIntoView would also scroll the page and
+  // the app shell around it.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const container = scrollRef.current;
+    container?.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
   }, [messages.length]);
 
   if (messages.length === 0) {
@@ -101,7 +104,7 @@ export function ConversationThread({ messages, typingUserIds = [] }: Conversatio
   let lastDate = '';
 
   return (
-    <div className="flex flex-col flex-1 overflow-y-auto px-4 py-4 gap-4">
+    <div ref={scrollRef} className="flex flex-col flex-1 overflow-y-auto px-4 py-4 gap-4">
       {groups.map((group, gi) => {
         const firstMessage = group.messages[0];
         const showDateDivider = group.dateKey !== lastDate;
@@ -221,8 +224,6 @@ export function ConversationThread({ messages, typingUserIds = [] }: Conversatio
           <span>typing…</span>
         </div>
       )}
-
-      <div ref={bottomRef} />
     </div>
   );
 }

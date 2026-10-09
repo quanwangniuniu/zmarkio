@@ -1,0 +1,165 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { parseFieldErrors } from '@/components/ticket-form/formErrors';
+import { RoutingSandboxAPI } from '@/lib/api/routingRuleApi';
+import type { ConversationMessage, QuickReplyTemplate } from '@/types/csmConversation';
+import type { RoutingSandboxResult, RoutingTrace } from '@/types/routingRule';
+
+export interface SandboxConfig {
+  experienceGroupId: number | null;
+  supportChannelId: number | null;
+  customerOrganisationId: number | null;
+  subject: string;
+  /** `datetime-local` value; empty means "now". */
+  simulatedAt: string;
+}
+
+const EMPTY_CONFIG: SandboxConfig = {
+  experienceGroupId: null,
+  supportChannelId: null,
+  customerOrganisationId: null,
+  subject: '',
+  simulatedAt: '',
+};
+
+export const PREVIEW_AGENT_NAME = 'Template preview · not sent';
+
+/** Settings edits (e.g. typing a subject) wait this long; a sent message runs at once. */
+export const CONFIG_DEBOUNCE_MS = 300;
+
+let localId = 0;
+const nextLocalId = () => { localId -= 1; return localId; };
+
+function localMessage(partial: Pick<ConversationMessage, 'sender_type' | 'content'> & Partial<ConversationMessage>): ConversationMessage {
+  return {
+    id: nextLocalId(),
+    conversation: 0,
+    sender_agent: null,
+    sender_agent_name: null,
+    sender_agent_email: null,
+    rich_body: null,
+    image_url: null,
+    created_at: new Date().toISOString(),
+    ...partial,
+  };
+}
+
+/**
+ * Sandbox session state. Lives only in React state: the backend call is a
+ * stateless dry run, so leaving the page leaves nothing behind.
+ */
+export function useRoutingSandbox(projectId: number) {
+  const [config, setConfig] = useState<SandboxConfig>(EMPTY_CONFIG);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [traces, setTraces] = useState<RoutingTrace[]>([]);
+  const [meta, setMeta] = useState<Omit<RoutingSandboxResult, 'traces'> | null>(null);
+  const [evaluating, setEvaluating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestSeq = useRef(0);
+
+  const customerTexts = messages.filter((m) => m.sender_type === 'customer').map((m) => m.content);
+
+  const evaluate = useCallback(async (texts: string[], cfg: SandboxConfig) => {
+    if (cfg.experienceGroupId === null || texts.length === 0) return;
+    const seq = ++requestSeq.current;
+    setEvaluating(true);
+    setError(null);
+    try {
+      const result = await RoutingSandboxAPI.evaluate(projectId, {
+        experience_group: cfg.experienceGroupId,
+        messages: texts,
+        subject: cfg.subject,
+        support_channel: cfg.supportChannelId,
+        customer_organisation: cfg.customerOrganisationId,
+        simulated_at: cfg.simulatedAt ? new Date(cfg.simulatedAt).toISOString() : null,
+      });
+      if (seq !== requestSeq.current) return;
+      const { traces: nextTraces, ...rest } = result;
+      setTraces(nextTraces);
+      setMeta(rest);
+    } catch (err) {
+      if (seq !== requestSeq.current) return;
+      // Show the server's reason for a 400, e.g. a channel no longer in the group.
+      const data = (err as { response?: { data?: unknown } }).response?.data;
+      const [reason] = Object.values(parseFieldErrors(data));
+      setError(reason ?? 'Could not evaluate routing rules.');
+      // Don't leave a trace for different settings next to the error.
+      setTraces([]);
+      setMeta(null);
+    } finally {
+      if (seq === requestSeq.current) setEvaluating(false);
+    }
+  }, [projectId]);
+
+  // Re-run when the scenario changes so the trace always matches the config.
+  // `evaluating` is set while a change waits, so the old trace reads as stale.
+  const textsKey = JSON.stringify(customerTexts);
+  const lastTextsKey = useRef(textsKey);
+  useEffect(() => {
+    const texts: string[] = JSON.parse(textsKey);
+    const messageSent = textsKey !== lastTextsKey.current;
+    lastTextsKey.current = textsKey;
+    requestSeq.current += 1; // drop any response for the previous scenario
+    if (config.experienceGroupId === null || texts.length === 0) {
+      setEvaluating(false);
+      return undefined;
+    }
+    setEvaluating(true);
+    const timer = setTimeout(() => evaluate(texts, config), messageSent ? 0 : CONFIG_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [config, textsKey, evaluate]);
+
+  const sendCustomerMessage = useCallback((text: string) => {
+    const content = text.trim();
+    if (!content) return;
+    setMessages((prev) => [...prev, localMessage({ sender_type: 'customer', content })]);
+  }, []);
+
+  const insertTemplate = useCallback((template: QuickReplyTemplate) => {
+    setMessages((prev) => [
+      ...prev,
+      localMessage({
+        sender_type: 'agent',
+        sender_agent_name: PREVIEW_AGENT_NAME,
+        content: template.content,
+        rich_body: template.rich_body,
+      }),
+    ]);
+  }, []);
+
+  const rerun = useCallback(
+    () => evaluate(JSON.parse(textsKey), config),
+    [evaluate, textsKey, config],
+  );
+
+  // Rules may have been edited in another tab; refresh when the admin comes back.
+  useEffect(() => {
+    window.addEventListener('focus', rerun);
+    return () => window.removeEventListener('focus', rerun);
+  }, [rerun]);
+
+  const reset = useCallback(() => {
+    requestSeq.current += 1;
+    setMessages([]);
+    setTraces([]);
+    setMeta(null);
+    setError(null);
+    setEvaluating(false);
+  }, []);
+
+  return {
+    config,
+    setConfig,
+    messages,
+    traces,
+    meta,
+    evaluating,
+    error,
+    customerTexts,
+    sendCustomerMessage,
+    insertTemplate,
+    rerun,
+    reset,
+  };
+}

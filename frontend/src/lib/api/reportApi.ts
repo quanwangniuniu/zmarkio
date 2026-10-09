@@ -6,6 +6,9 @@ import type {
   KPIMetric,
   KPIPreviewRequest,
   KPIPreviewResponse,
+  ReportShareLinkCreateRequest,
+  ReportShareLinkCreateResponse,
+  ReportShareLinkCurrent,
   ReportTask,
   ReportTaskCreateRequest,
   ReportTaskUpdateRequest,
@@ -79,6 +82,22 @@ export const ReportAPI = {
   /** Evaluates an unsaved formula. Formula errors arrive as 200 + `error`. */
   previewKPI: (data: KPIPreviewRequest) =>
     api.post<KPIPreviewResponse>(`${KPI_BASE}/preview/`, data),
+
+  // --- Custom KPI share links --------------------------------------------
+
+  /** Current unrevoked link for the project. Does not create one. */
+  getShareLink: (project: string) =>
+    api.get<ReportShareLinkCurrent>(`${KPI_BASE}/share/`, {
+      params: { project },
+    }),
+
+  /** Reuses a live link or issues a new token. `days` is 7, 14, or 30. */
+  createShareLink: (data: ReportShareLinkCreateRequest) =>
+    api.post<ReportShareLinkCreateResponse>(`${KPI_BASE}/share/`, data),
+
+  /** Revokes the project's current unrevoked link. */
+  revokeShareLink: (project: string) =>
+    api.delete<void>(`${KPI_BASE}/share/`, { params: { project } }),
 };
 
 export default ReportAPI;
