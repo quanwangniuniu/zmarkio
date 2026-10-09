@@ -3,8 +3,6 @@
 import hashlib
 import hmac
 import secrets
-from datetime import timedelta
-
 from django.db import transaction
 from django.utils import timezone
 from oauth2_provider.generators import generate_client_secret
@@ -13,8 +11,6 @@ from oauth2_provider.models import get_application_model
 from public_api.models import ApiKey, OAuthClient
 
 KEY_PREFIX = 'zmk'
-# last_used_at is informational; writing it on every request would add a write per call.
-LAST_USED_RESOLUTION = timedelta(minutes=1)
 
 
 def _hash_secret(secret):
@@ -56,13 +52,6 @@ def verify_api_key(raw):
     if not key.is_active or not key.organization.is_active:
         return None
     return key
-
-
-def touch_last_used(key):
-    now = timezone.now()
-    if key.last_used_at is None or now - key.last_used_at >= LAST_USED_RESOLUTION:
-        ApiKey.objects.filter(pk=key.pk).update(last_used_at=now)
-        key.last_used_at = now
 
 
 def revoke_api_key(key):

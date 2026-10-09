@@ -2,10 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { AlertCircle, KeyRound, ListChecks, Pencil, Plus, Send, Trash2 } from 'lucide-react';
+import { AlertCircle, Pencil, Plus, Trash2 } from 'lucide-react';
 import { CsmIntegrationsAPI } from '@/lib/api/csmIntegrationsApi';
 import type { VocabularyOption, WebhookEndpoint, WebhookEndpointData } from '@/types/csmIntegrations';
-import { ICON_BUTTON_CLASS } from '@/components/csm-settings/constants';
 import { PORTAL_SUBMIT_BUTTON_CLASS } from '@/components/ticket-form/constants';
 import StatusBadge from '@/components/csm-settings/StatusBadge';
 import ConfirmModal from '@/components/ui/ConfirmModal';
@@ -14,19 +13,16 @@ import SecretRevealModal, { type RevealedSecret } from './SecretRevealModal';
 import WebhookDeliveryLog from './WebhookDeliveryLog';
 import WebhookEndpointDrawer from './WebhookEndpointDrawer';
 
-type Pending = { kind: 'delete' | 'rotate'; endpoint: WebhookEndpoint } | null;
-
 interface Props {
   projectId: number;
   events: VocabularyOption[];
 }
 
-function secretReveal(endpoint: WebhookEndpoint, secret: string, rotated: boolean): RevealedSecret {
+function secretReveal(endpoint: WebhookEndpoint, secret: string): RevealedSecret {
   return {
-    title: rotated ? 'Signing secret rotated' : 'Webhook created',
+    title: 'Webhook created',
     description:
-      'Verify each request: X-Zmarkio-Signature is t=<timestamp>,v1=<HMAC-SHA256 of "<timestamp>.<raw body>" with this secret>.'
-      + (rotated ? ' The previous secret stopped working immediately.' : ''),
+      'Verify each request: X-Zmarkio-Signature is t=<timestamp>,v1=<HMAC-SHA256 of "<timestamp>.<raw body>" with this secret>.',
     values: [
       { label: 'Endpoint', value: endpoint.url },
       { label: 'Signing secret', value: secret, secret: true },
@@ -41,9 +37,8 @@ export default function WebhooksPanel({ projectId, events }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editing, setEditing] = useState<WebhookEndpoint | null>(null);
   const [revealed, setRevealed] = useState<RevealedSecret | null>(null);
-  const [pending, setPending] = useState<Pending>(null);
-  const [pendingBusy, setPendingBusy] = useState(false);
-  const [logEndpointId, setLogEndpointId] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<WebhookEndpoint | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,41 +64,24 @@ export default function WebhooksPanel({ projectId, events }: Props) {
     } else {
       const { secret, ...created } = await CsmIntegrationsAPI.createWebhook(projectId, data);
       setEndpoints((prev) => [created, ...prev]);
-      setRevealed(secretReveal(created, secret, false));
+      setRevealed(secretReveal(created, secret));
     }
     setDrawerOpen(false);
     setEditing(null);
   };
 
-  const handleTest = async (endpoint: WebhookEndpoint) => {
+  const handleDelete = async () => {
+    if (!deleting) return;
+    setDeleteBusy(true);
     try {
-      await CsmIntegrationsAPI.sendTestEvent(projectId, endpoint.id);
-      toast.success('Test event queued. Check the delivery log in a few seconds.');
-      setLogEndpointId(endpoint.id);
+      await CsmIntegrationsAPI.deleteWebhook(projectId, deleting.id);
+      setEndpoints((prev) => prev.filter((row) => row.id !== deleting.id));
+      toast.success('Webhook deleted.');
+      setDeleting(null);
     } catch {
-      toast.error('Could not send a test event.');
-    }
-  };
-
-  const handleConfirm = async () => {
-    if (!pending) return;
-    setPendingBusy(true);
-    try {
-      if (pending.kind === 'delete') {
-        await CsmIntegrationsAPI.deleteWebhook(projectId, pending.endpoint.id);
-        setEndpoints((prev) => prev.filter((row) => row.id !== pending.endpoint.id));
-        if (logEndpointId === pending.endpoint.id) setLogEndpointId(null);
-        toast.success('Webhook deleted.');
-      } else {
-        const { secret, ...updated } = await CsmIntegrationsAPI.rotateWebhookSecret(projectId, pending.endpoint.id);
-        replace(updated);
-        setRevealed(secretReveal(updated, secret, true));
-      }
-      setPending(null);
-    } catch {
-      toast.error(pending.kind === 'delete' ? 'Could not delete the webhook.' : 'Could not rotate the secret.');
+      toast.error('Could not delete the webhook.');
     } finally {
-      setPendingBusy(false);
+      setDeleteBusy(false);
     }
   };
 
@@ -170,23 +148,12 @@ export default function WebhooksPanel({ projectId, events }: Props) {
                     <td className="px-4 py-3"><StatusBadge active={endpoint.is_active} /></td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1">
-                        <button type="button" onClick={() => setLogEndpointId(endpoint.id)} title="View log"
-                          aria-label={`View log of ${endpoint.url}`} className={ICON_BUTTON_CLASS}>
-                          <ListChecks className="h-4 w-4" aria-hidden />
-                        </button>
-                        <button type="button" onClick={() => handleTest(endpoint)} disabled={!endpoint.is_active}
-                          title="Send test event" aria-label={`Send test event to ${endpoint.url}`} className={ICON_BUTTON_CLASS}>
-                          <Send className="h-4 w-4" aria-hidden />
-                        </button>
                         <button type="button" onClick={() => { setEditing(endpoint); setDrawerOpen(true); }}
-                          title="Edit" aria-label={`Edit ${endpoint.url}`} className={ICON_BUTTON_CLASS}>
+                          title="Edit" aria-label={`Edit ${endpoint.url}`}
+                          className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600">
                           <Pencil className="h-4 w-4" aria-hidden />
                         </button>
-                        <button type="button" onClick={() => setPending({ kind: 'rotate', endpoint })}
-                          title="Rotate signing secret" aria-label={`Rotate secret of ${endpoint.url}`} className={ICON_BUTTON_CLASS}>
-                          <KeyRound className="h-4 w-4" aria-hidden />
-                        </button>
-                        <button type="button" onClick={() => setPending({ kind: 'delete', endpoint })}
+                        <button type="button" onClick={() => setDeleting(endpoint)}
                           title="Delete" aria-label={`Delete ${endpoint.url}`}
                           className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600">
                           <Trash2 className="h-4 w-4" aria-hidden />
@@ -210,13 +177,7 @@ export default function WebhooksPanel({ projectId, events }: Props) {
 
       <div>
         <h2 className="mb-3 text-lg font-semibold text-gray-900">Delivery log</h2>
-        <WebhookDeliveryLog
-          projectId={projectId}
-          endpoints={endpoints}
-          events={events}
-          endpointId={logEndpointId}
-          onEndpointChange={setLogEndpointId}
-        />
+        <WebhookDeliveryLog projectId={projectId} events={events} />
       </div>
 
       <WebhookEndpointDrawer
@@ -228,18 +189,14 @@ export default function WebhooksPanel({ projectId, events }: Props) {
       />
       <SecretRevealModal revealed={revealed} onClose={() => setRevealed(null)} />
       <ConfirmModal
-        isOpen={pending !== null}
-        onClose={() => setPending(null)}
-        onConfirm={handleConfirm}
-        title={pending?.kind === 'delete' ? 'Delete webhook?' : 'Rotate signing secret?'}
-        message={
-          pending?.kind === 'delete'
-            ? `${pending.endpoint.url} stops receiving events, pending retries are dropped and its delivery log is deleted.`
-            : 'The current secret stops working immediately. Update the receiving system with the new secret right away.'
-        }
-        confirmText={pending?.kind === 'delete' ? 'Delete' : 'Rotate'}
-        type={pending?.kind === 'delete' ? 'danger' : 'warning'}
-        loading={pendingBusy}
+        isOpen={deleting !== null}
+        onClose={() => setDeleting(null)}
+        onConfirm={handleDelete}
+        title="Delete webhook?"
+        message={`${deleting?.url ?? ''} stops receiving events, pending retries are dropped and its delivery log is deleted.`}
+        confirmText="Delete"
+        type="danger"
+        loading={deleteBusy}
       />
     </div>
   );

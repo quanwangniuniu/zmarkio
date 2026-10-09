@@ -1,6 +1,4 @@
 """Admin console: webhook endpoints and the delivery log."""
-from unittest.mock import patch
-
 import pytest
 from django.urls import reverse
 
@@ -61,24 +59,12 @@ class TestEndpoints:
             private = admin_client.post(url, {'url': 'https://internal.example.com/x', 'events': ['ticket.created']}, format='json')
         assert private.status_code == 400 and 'url' in private.data
 
-    def test_update_rotate_test_and_delete(self, admin_client, project, endpoint, django_capture_on_commit_callbacks):
+    def test_update_and_delete(self, admin_client, project, endpoint):
         detail = _url('integrations-webhook-detail', project, endpoint.id)
-        old_secret = decrypt_token(endpoint.secret_encrypted)
 
         patched = admin_client.patch(detail, {'events': ['sla.breached'], 'is_active': False}, format='json')
-        assert patched.status_code == 200 and patched.data['events'] == ['sla.breached']
-
-        rotated = admin_client.post(_url('integrations-webhook-rotate-secret', project, endpoint.id))
-        assert rotated.status_code == 200 and rotated.data['secret'] != old_secret
-
-        test_url = _url('integrations-webhook-test', project, endpoint.id)
-        assert admin_client.post(test_url).status_code == 400  # inactive
-        admin_client.patch(detail, {'is_active': True}, format='json')
-        with patch('public_api.tasks.deliver_webhook.delay') as delay, \
-                django_capture_on_commit_callbacks(execute=True):
-            tested = admin_client.post(test_url)
-        assert tested.status_code == 202
-        assert delay.call_args.args[1]['type'] == 'ping'
+        assert patched.status_code == 200
+        assert (patched.data['events'], patched.data['is_active']) == (['sla.breached'], False)
 
         assert admin_client.delete(detail).status_code == 204
         assert not WebhookEndpoint.objects.filter(pk=endpoint.id).exists()
@@ -108,13 +94,10 @@ class TestDeliveryLog:
         self._attempt(other, 1, 'succeeded', 204)
 
         rows = admin_client.get(_url('integrations-webhook-delivery-list', project)).data['results']
-        assert [r['response_code'] for r in rows] == [204, 200, 500]
+        assert [(r['target_url'], r['attempt'], r['response_code']) for r in rows] == [
+            (other.url, 1, 204), (endpoint.url, 2, 200), (endpoint.url, 1, 500),
+        ]
         assert all(r['created_at'] and r['event_type'] == 'ticket.created' for r in rows)
-
-        only_a = admin_client.get(
-            f"{_url('integrations-webhook-delivery-list', project)}&endpoint={endpoint.id}",
-        ).data['results']
-        assert [(r['attempt'], r['target_url']) for r in only_a] == [(2, endpoint.url), (1, endpoint.url)]
 
     def test_other_workspace_log_is_invisible(self, admin_client, project, other_workspace):
         foreign, _ = create_endpoint(

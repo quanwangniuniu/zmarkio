@@ -22,7 +22,7 @@ from csm.services.scope import accessible_queues_for
 
 from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, Ticket, CsmNotification,
-    Conversation, ConversationMessage, QuickReplyTemplate,
+    Conversation, ConversationMessage, QuickReplyTemplate, QuickReplyTemplateHistory,
     TemplateTag,
     TicketForm, TicketFormAssignment, SupportProject, CsmWorkType, GuidanceEntry,
     SupportChannel, SLAPolicy, SLAPriorityTarget, BusinessHoursCalendar,
@@ -990,8 +990,16 @@ class QuickReplyTemplateViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         serializer.save(created_by=self.request.user)
 
     def perform_update(self, serializer):
+        instance = serializer.instance
         # Snapshot the current state BEFORE applying changes
-        serializer.instance.record_history(edited_by=self.request.user)
+        QuickReplyTemplateHistory.objects.create(
+            template=instance,
+            edited_by=self.request.user,
+            title=instance.title,
+            content=instance.content,
+            rich_body=instance.rich_body,
+            tags=instance.tags,
+        )
         serializer.save()
 
     def perform_destroy(self, instance):
@@ -1134,8 +1142,11 @@ class TicketViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
-        from csm.services.sla import start_ticket_sla
-        start_ticket_sla(serializer.save())
+        from csm.services.sla import recalculate_ticket_sla
+        ticket = serializer.save()
+        recalculate_ticket_sla(ticket)
+        if ticket.first_response_due is not None or ticket.resolution_due is not None:
+            ticket.save(update_fields=['first_response_due', 'resolution_due'])
 
     @action(detail=True, methods=['post'])
     def claim(self, request, pk=None):
@@ -1156,7 +1167,7 @@ class TicketViewSet(viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         """Override PATCH to enforce the state machine and sync SLA on priority change."""
-        from csm.services.sla import restart_ticket_sla
+        from csm.services.sla import recalculate_ticket_sla
         from csm.services.status_machine import assert_transition_allowed
         ticket = self.get_object()
         old_priority = ticket.priority
@@ -1179,8 +1190,10 @@ class TicketViewSet(viewsets.ModelViewSet):
         # Recalculate SLA when priority changes, using now() so the countdown
         # restarts from the moment of the change rather than ticket creation.
         if new_priority and old_priority != new_priority:
+            from django.utils import timezone as tz
             ticket.refresh_from_db()
-            restart_ticket_sla(ticket)
+            recalculate_ticket_sla(ticket, base_time=tz.now())
+            ticket.save(update_fields=['first_response_due', 'resolution_due'])
             return Response(TicketSerializer(ticket).data)
 
         return response

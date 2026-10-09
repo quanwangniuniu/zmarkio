@@ -9,7 +9,6 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -17,8 +16,8 @@ from rest_framework.views import APIView
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from csm.services.routing_rules import project_organization_id
 from public_api.models import ApiKey, OAuthClient, WebhookDelivery, WebhookEndpoint
-from public_api.scopes import vocabulary_payload
 from public_api.permissions import require_integrations_admin
+from public_api.scopes import vocabulary_payload
 from public_api.serializers_admin import (
     ApiKeySerializer,
     CredentialWriteSerializer,
@@ -33,7 +32,7 @@ from public_api.services.credentials import (
     revoke_api_key,
     revoke_oauth_client,
 )
-from public_api.services.webhooks import create_endpoint, rotate_secret, send_test
+from public_api.services.webhooks import create_endpoint
 
 
 class IntegrationsAdminMixin(ProjectScopedViewSetMixin):
@@ -118,8 +117,6 @@ class WebhookEndpointViewSet(IntegrationsAdminMixin, viewsets.ModelViewSet):
     """
     - GET/POST          /api/csm/integrations/webhooks/?project={id}     POST returns the signing secret once
     - GET/PATCH/DELETE  /api/csm/integrations/webhooks/{id}/?project={id}
-    - POST              /api/csm/integrations/webhooks/{id}/rotate-secret/?project={id}
-    - POST              /api/csm/integrations/webhooks/{id}/test/?project={id}   sends a `ping` event
     """
 
     serializer_class = WebhookEndpointSerializer
@@ -149,38 +146,22 @@ class WebhookEndpointViewSet(IntegrationsAdminMixin, viewsets.ModelViewSet):
         endpoint.save(update_fields=[*serializer.validated_data, 'updated_at'])
         return Response(WebhookEndpointSerializer(endpoint).data)
 
-    @action(detail=True, methods=['post'], url_path='rotate-secret')
-    def rotate_secret(self, request, pk=None):
-        endpoint = self.get_object()
-        return Response({**WebhookEndpointSerializer(endpoint).data, 'secret': rotate_secret(endpoint)})
-
-    @action(detail=True, methods=['post'])
-    def test(self, request, pk=None):
-        endpoint = self.get_object()
-        if not endpoint.is_active:
-            raise ValidationError({'detail': 'Activate the endpoint before sending a test event.'})
-        payload = send_test(endpoint)
-        return Response({'event_id': payload['id']}, status=status.HTTP_202_ACCEPTED)
-
 
 @method_decorator(csrf_exempt, name='dispatch')
 class WebhookDeliveryViewSet(IntegrationsAdminMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     """
     The delivery log: one row per attempt, newest first.
 
-    - GET /api/csm/integrations/webhook-deliveries/?project={id}[&endpoint={id}]
+    - GET /api/csm/integrations/webhook-deliveries/?project={id}
     """
 
     serializer_class = WebhookDeliverySerializer
 
     def get_queryset(self):
-        qs = WebhookDelivery.objects.filter(
+        return WebhookDelivery.objects.filter(
             endpoint__organization_id=self.organization_id,
             endpoint__project_id=self.project_id,
-        )
-        if self.request.query_params.get('endpoint'):
-            qs = qs.filter(endpoint_id=self.request.query_params['endpoint'])
-        return qs.order_by('-created_at', '-id')
+        ).order_by('-created_at', '-id')
 
 
 @method_decorator(csrf_exempt, name='dispatch')

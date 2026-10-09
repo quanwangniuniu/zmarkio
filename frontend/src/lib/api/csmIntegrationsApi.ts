@@ -77,26 +77,10 @@ export const CsmIntegrationsAPI = {
     return api.delete(`${BASE}/webhooks/${id}/`, { params: { project: projectId } });
   },
 
-  rotateWebhookSecret(projectId: number, id: number) {
+  /** The newest 20 attempts. */
+  listDeliveries(projectId: number) {
     return api
-      .post<WebhookEndpointWithSecret>(`${BASE}/webhooks/${id}/rotate-secret/`, null, {
-        params: { project: projectId },
-      })
-      .then((res) => res.data);
-  },
-
-  sendTestEvent(projectId: number, id: number) {
-    return api.post<{ event_id: string }>(`${BASE}/webhooks/${id}/test/`, null, {
-      params: { project: projectId },
-    });
-  },
-
-  /** The newest 20 attempts, optionally for one endpoint. */
-  listDeliveries(projectId: number, endpointId: number | null) {
-    const params: Record<string, number> = { project: projectId };
-    if (endpointId) params.endpoint = endpointId;
-    return api
-      .get<{ results: WebhookDelivery[] }>(`${BASE}/webhook-deliveries/`, { params })
+      .get<{ results: WebhookDelivery[] }>(`${BASE}/webhook-deliveries/`, { params: { project: projectId } })
       .then((res) => res.data.results);
   },
 };

@@ -36,7 +36,7 @@ class ApiKeySerializer(serializers.ModelSerializer):
         model = ApiKey
         fields = [
             'id', 'name', 'display_key', 'scopes', 'is_active',
-            'created_by_name', 'created_at', 'last_used_at', 'revoked_at',
+            'created_by_name', 'created_at', 'revoked_at',
         ]
         read_only_fields = fields
 

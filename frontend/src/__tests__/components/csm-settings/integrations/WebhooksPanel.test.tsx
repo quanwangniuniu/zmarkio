@@ -1,7 +1,6 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import toast from 'react-hot-toast';
 import WebhooksPanel from '@/components/csm-settings/integrations/WebhooksPanel';
 import { validateWebhookUrl } from '@/components/csm-settings/integrations/WebhookEndpointDrawer';
 import { CsmIntegrationsAPI } from '@/lib/api/csmIntegrationsApi';
@@ -14,8 +13,6 @@ jest.mock('@/lib/api/csmIntegrationsApi', () => ({
     createWebhook: jest.fn(),
     updateWebhook: jest.fn(),
     deleteWebhook: jest.fn(),
-    rotateWebhookSecret: jest.fn(),
-    sendTestEvent: jest.fn(),
     listDeliveries: jest.fn(),
   },
 }));
@@ -81,7 +78,7 @@ describe('WebhooksPanel', () => {
     expect(within(log).getByText('503')).toBeInTheDocument();
     expect(within(log).getByText('4 / 4')).toBeInTheDocument();
     expect(within(log).getAllByText('SLA breached').length).toBeGreaterThan(0);
-    expect(api.listDeliveries).toHaveBeenCalledWith(1, null);
+    expect(api.listDeliveries).toHaveBeenCalledWith(1);
   });
 
   it('registers an endpoint and reveals the signing secret once', async () => {
@@ -114,27 +111,6 @@ describe('WebhooksPanel', () => {
     expect(await screen.findByText(/non-public address/)).toBeInTheDocument();
   });
 
-  it('sends a test event and focuses the log on that endpoint', async () => {
-    api.sendTestEvent.mockResolvedValue({ data: { event_id: 'x' } } as never);
-    await renderPanel();
-
-    fireEvent.click(screen.getByRole('button', { name: `Send test event to ${endpoint.url}` }));
-
-    await waitFor(() => expect(api.sendTestEvent).toHaveBeenCalledWith(1, 5));
-    await waitFor(() => expect(api.listDeliveries).toHaveBeenLastCalledWith(1, 5));
-    expect(toast.success).toHaveBeenCalled();
-  });
-
-  it('rotates the secret after confirmation', async () => {
-    api.rotateWebhookSecret.mockResolvedValue({ ...endpoint, secret: 'whsec_new' });
-    await renderPanel();
-
-    fireEvent.click(screen.getByRole('button', { name: `Rotate secret of ${endpoint.url}` }));
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Rotate' }));
-
-    expect(await screen.findByTestId('revealed-Signing secret')).toHaveTextContent('whsec_new');
-  });
-
   it('deletes after confirmation', async () => {
     api.deleteWebhook.mockResolvedValue({} as never);
     await renderPanel();
@@ -146,13 +122,11 @@ describe('WebhooksPanel', () => {
     expect(api.deleteWebhook).toHaveBeenCalledWith(1, 5);
   });
 
-  it('shows the failure reason on the HTTP cell and clears the endpoint filter', async () => {
+  it('shows the failure reason on the HTTP cell and refreshes on demand', async () => {
     await renderPanel();
-    fireEvent.click(screen.getByRole('button', { name: `View log of ${endpoint.url}` }));
-    await waitFor(() => expect(api.listDeliveries).toHaveBeenLastCalledWith(1, 5));
 
     expect(screen.getByTitle('HTTP 503')).toHaveTextContent('503');
-    fireEvent.change(screen.getByLabelText('Filter by endpoint'), { target: { value: '' } });
-    await waitFor(() => expect(api.listDeliveries).toHaveBeenLastCalledWith(1, null));
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(api.listDeliveries).toHaveBeenCalledTimes(2));
   });
 });

@@ -26,7 +26,6 @@ interface CredentialBase {
 export interface ApiKey extends CredentialBase {
   /** e.g. `zmk_1a2b3c4d_…` — the secret part is never returned again. */
   display_key: string;
-  last_used_at: string | null;
 }
 
 export interface OAuthClient extends CredentialBase {

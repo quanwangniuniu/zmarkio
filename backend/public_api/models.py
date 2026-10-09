@@ -28,7 +28,6 @@ class ApiKey(TimeStampedModel):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
         null=True, blank=True, related_name='+',
     )
-    last_used_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
@@ -102,7 +101,7 @@ class WebhookEndpoint(TimeStampedModel):
     description = models.CharField(max_length=200, blank=True, default='')
     # WebhookEvent values.
     events = models.JSONField(default=list)
-    # core.crypto.encrypt_token output; the plain secret is shown once, on create and rotate.
+    # core.crypto.encrypt_token output; the plain secret is shown once, on create.
     secret_encrypted = models.TextField()
     is_active = models.BooleanField(default=True)
     created_by = models.ForeignKey(

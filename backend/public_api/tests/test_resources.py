@@ -19,7 +19,7 @@ def _detail(resource, pk):
 
 
 class TestTickets:
-    def test_create_list_and_filter(self, key_client, workspace):
+    def test_create_and_list(self, key_client, workspace):
         created = key_client.post(_list('ticket'), {
             'title': 'API ticket', 'queue': workspace['queue'].id, 'priority': 'high',
         }, format='json')
@@ -27,9 +27,8 @@ class TestTickets:
         assert created.status_code == 201, created.data
         assert created.data['status'] == 'todo'
         assert created.data['status_display'] == 'To Do'
-
-        listed = key_client.get(_list('ticket'), {'status': 'todo', 'queue': workspace['queue'].id})
-        assert {row['id'] for row in listed.data['results']} >= {created.data['id']}
+        listed = key_client.get(_list('ticket'))
+        assert {row['id'] for row in listed.data['results']} == {created.data['id'], workspace['ticket'].id}
 
     def test_status_change_follows_the_status_machine(self, key_client, workspace):
         url = _detail('ticket', workspace['ticket'].id)
@@ -94,8 +93,8 @@ class TestCustomers:
         assert (customer.organization_id, customer.project_id) == (organization.id, project.id)
         assert customer.email == 'bob@example.com'
 
-    def test_filter_update_delete(self, key_client, workspace):
-        listed = key_client.get(_list('customer'), {'email': 'ALICE@example.com'})
+    def test_list_update_delete(self, key_client, workspace):
+        listed = key_client.get(_list('customer'))
         assert [row['id'] for row in listed.data['results']] == [workspace['customer'].id]
 
         url = _detail('customer', workspace['customer'].id)

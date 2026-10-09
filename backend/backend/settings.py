@@ -513,8 +513,6 @@ REST_FRAMEWORK = {
             'SPREADSHEET_WS_TICKET_THROTTLE_RATE',
             default='60/minute',
         ),
-        # Per API key / OAuth client (public_api.throttles).
-        'public_api': config('PUBLIC_API_THROTTLE_RATE', default='600/minute'),
     },
 }
 

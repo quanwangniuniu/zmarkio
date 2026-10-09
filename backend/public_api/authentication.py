@@ -18,7 +18,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from core.services.tenant import slug_to_schema_name
 from public_api.models import OAuthClient
 from public_api.principal import ApiPrincipal
-from public_api.services.credentials import touch_last_used, verify_api_key
+from public_api.services.credentials import verify_api_key
 
 
 def activate_tenant(organization):
@@ -51,7 +51,6 @@ class ApiKeyAuthentication(BaseAuthentication):
         key = verify_api_key(raw)
         if key is None:
             raise AuthenticationFailed('Invalid, expired or revoked API key.')
-        touch_last_used(key)
         activate_tenant(key.organization)
         return _principal('api_key', key), key
 

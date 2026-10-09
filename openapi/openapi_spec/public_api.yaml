@@ -23,14 +23,13 @@ info:
     - `403` — valid credential without the scope the request needs.
     - `400` — validation error, `{"<field>": ["message"]}`.
     - `404` — the row does not exist **in the credential's workspace and project**.
-    - `429` — rate limit (default 600 requests/minute per credential).
 
     ## Scopes
     `<resource>:read` and `<resource>:write` for `customers`, `organisations`, `tickets`,
     `conversations`, `templates`, `routing_rules`, `queues`, `agents`. A write scope implies read.
 
     ## Pagination
-    Lists return `{count, next, previous, results}`; `?page=` and `?page_size=` (max 100).
+    Lists return `{count, next, previous, results}`, 20 per page; use `?page=`.
 
     ## Webhooks
     See `webhooks` below. Each delivery is a `POST` with a JSON `WebhookEvent` body and these headers:
@@ -106,8 +105,6 @@ paths:
       summary: List customers (scope customers:read)
       parameters:
         - {$ref: '#/components/parameters/Page'}
-        - {$ref: '#/components/parameters/PageSize'}
-        - {name: email, in: query, schema: {type: string}, description: Case-insensitive exact match}
       responses:
         '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Customer'}}}}]}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
@@ -144,7 +141,7 @@ paths:
     get:
       tags: [Organisations]
       summary: List customer organisations of the workspace (scope organisations:read)
-      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      parameters: [{$ref: '#/components/parameters/Page'}]
       responses:
         '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/CustomerOrganisation'}}}}]}}}}
     post:
@@ -180,9 +177,6 @@ paths:
       summary: List tickets (scope tickets:read)
       parameters:
         - {$ref: '#/components/parameters/Page'}
-        - {$ref: '#/components/parameters/PageSize'}
-        - {name: queue, in: query, schema: {type: integer}}
-        - {name: status, in: query, schema: {type: string}, description: Status slug}
       responses:
         '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Ticket'}}}}]}}}}
     post:
@@ -218,9 +212,6 @@ paths:
       description: Conversations that have not been routed to a queue are not exposed.
       parameters:
         - {$ref: '#/components/parameters/Page'}
-        - {$ref: '#/components/parameters/PageSize'}
-        - {name: queue, in: query, schema: {type: integer}}
-        - {name: status, in: query, schema: {type: string, enum: [active, pending, resolved, closed]}}
       responses:
         '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Conversation'}}}}]}}}}
     post:
@@ -248,7 +239,7 @@ paths:
     get:
       tags: [Conversations]
       summary: List a conversation's messages, oldest first (read-only)
-      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      parameters: [{$ref: '#/components/parameters/Page'}]
       responses:
         '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Message'}}}}]}}}}
 
@@ -256,7 +247,7 @@ paths:
     get:
       tags: [Templates]
       summary: List quick reply templates (scope templates:read)
-      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      parameters: [{$ref: '#/components/parameters/Page'}]
       responses:
         '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Template'}}}}]}}}}
     post:
@@ -291,8 +282,6 @@ paths:
       summary: List routing rules in evaluation order (scope routing_rules:read)
       parameters:
         - {$ref: '#/components/parameters/Page'}
-        - {$ref: '#/components/parameters/PageSize'}
-        - {name: experience_group, in: query, schema: {type: integer}}
       responses:
         '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/RoutingRule'}}}}]}}}}
     post:
@@ -344,7 +333,7 @@ paths:
     get:
       tags: [Queues]
       summary: List queues (scope queues:read)
-      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      parameters: [{$ref: '#/components/parameters/Page'}]
       responses:
         '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Queue'}}}}]}}}}
     post:
@@ -377,7 +366,7 @@ paths:
     get:
       tags: [Agents]
       summary: List CSM profiles — agents, supervisors and admins (scope agents:read)
-      parameters: [{$ref: '#/components/parameters/Page'}, {$ref: '#/components/parameters/PageSize'}]
+      parameters: [{$ref: '#/components/parameters/Page'}]
       responses:
         '200': {description: OK, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/Page'}, {properties: {results: {type: array, items: {$ref: '#/components/schemas/Agent'}}}}]}}}}
     post:
@@ -434,11 +423,6 @@ webhooks:
       summary: A ticket breached its first-response or resolution SLA; `data.breach_type` says which
       requestBody: {$ref: '#/components/requestBodies/WebhookEvent'}
       responses: {'2XX': {description: Received}}
-  ping:
-    post:
-      summary: Test event sent from the admin console
-      requestBody: {$ref: '#/components/requestBodies/WebhookEvent'}
-      responses: {'2XX': {description: Received}}
 
 components:
   securitySchemes:
@@ -456,7 +440,6 @@ components:
   parameters:
     Id: {name: id, in: path, required: true, schema: {type: integer}}
     Page: {name: page, in: query, schema: {type: integer, minimum: 1}}
-    PageSize: {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
 
   responses:
     Unauthorized:
@@ -725,7 +708,7 @@ components:
       required: [id, type, created_at, organization_id, project_id, data]
       properties:
         id: {type: string, format: uuid, description: Event id; repeated on every retry}
-        type: {type: string, enum: [ticket.created, ticket.status_changed, sla.breached, ping]}
+        type: {type: string, enum: [ticket.created, ticket.status_changed, sla.breached]}
         created_at: {type: string, format: date-time}
         organization_id: {type: integer}
         project_id: {type: integer}
@@ -735,4 +718,3 @@ components:
             ticket: {$ref: '#/components/schemas/Ticket'}
             previous_status: {type: string, description: ticket.status_changed only}
             breach_type: {type: string, enum: [first_response, resolution], description: sla.breached only}
-            message: {type: string, description: ping only}

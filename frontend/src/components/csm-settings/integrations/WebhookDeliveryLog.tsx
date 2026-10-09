@@ -3,13 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { CsmIntegrationsAPI } from '@/lib/api/csmIntegrationsApi';
-import type {
-  VocabularyOption,
-  WebhookDelivery,
-  WebhookDeliveryStatus,
-  WebhookEndpoint,
-} from '@/types/csmIntegrations';
-import { BUILDER_CONTROL_CLASS, SECONDARY_BUTTON_CLASS } from '@/components/csm-settings/constants';
+import type { VocabularyOption, WebhookDelivery, WebhookDeliveryStatus } from '@/types/csmIntegrations';
+import { SECONDARY_BUTTON_CLASS } from '@/components/csm-settings/constants';
 import { formatDateTime } from '@/components/csm/quality/formatDates';
 import LoadingSpinner from '@/components/ui/LoadingSpinner';
 
@@ -27,15 +22,11 @@ const STATUS_CLASS: Record<WebhookDeliveryStatus, string> = {
 
 interface Props {
   projectId: number;
-  endpoints: WebhookEndpoint[];
   events: VocabularyOption[];
-  /** Set from a webhook's "View log" action. */
-  endpointId: number | null;
-  onEndpointChange: (id: number | null) => void;
 }
 
 /** The newest 20 delivery attempts. Retries of an event appear as further attempts. */
-export default function WebhookDeliveryLog({ projectId, endpoints, events, endpointId, onEndpointChange }: Props) {
+export default function WebhookDeliveryLog({ projectId, events }: Props) {
   const [rows, setRows] = useState<WebhookDelivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -44,13 +35,13 @@ export default function WebhookDeliveryLog({ projectId, endpoints, events, endpo
     setLoading(true);
     setError(null);
     try {
-      setRows(await CsmIntegrationsAPI.listDeliveries(projectId, endpointId));
+      setRows(await CsmIntegrationsAPI.listDeliveries(projectId));
     } catch {
       setError('Failed to load the delivery log.');
     } finally {
       setLoading(false);
     }
-  }, [projectId, endpointId]);
+  }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -58,19 +49,8 @@ export default function WebhookDeliveryLog({ projectId, endpoints, events, endpo
 
   return (
     <section className="flex flex-col gap-3" aria-label="Delivery log">
-      <div className="flex flex-wrap items-center gap-3">
-        <select
-          aria-label="Filter by endpoint"
-          value={endpointId ?? ''}
-          onChange={(e) => onEndpointChange(e.target.value ? Number(e.target.value) : null)}
-          className={BUILDER_CONTROL_CLASS}
-        >
-          <option value="">All endpoints</option>
-          {endpoints.map((endpoint) => (
-            <option key={endpoint.id} value={endpoint.id}>{endpoint.url}</option>
-          ))}
-        </select>
-        <button type="button" onClick={load} className={`ml-auto ${SECONDARY_BUTTON_CLASS}`}>
+      <div className="flex justify-end">
+        <button type="button" onClick={load} className={SECONDARY_BUTTON_CLASS}>
           <RefreshCw className="h-4 w-4" aria-hidden />
           Refresh
         </button>
@@ -120,7 +100,7 @@ export default function WebhookDeliveryLog({ projectId, endpoints, events, endpo
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-sm italic text-gray-400">
-                    No deliveries yet. Use &quot;Send test&quot; on a webhook to try one.
+                    No deliveries yet.
                   </td>
                 </tr>
               )}

@@ -43,11 +43,6 @@ class TestApiKey:
         organization.save(update_fields=['is_active'])
         assert client_for(api_key[1]).get(TICKETS).status_code == 401
 
-    def test_use_records_last_used(self, key_client, api_key):
-        key_client.get(TICKETS)
-        api_key[0].refresh_from_db()
-        assert api_key[0].last_used_at is not None
-
     def test_only_a_hash_of_the_secret_is_stored(self, api_key):
         key, raw = api_key
         assert raw.split('_', 2)[2] not in key.key_hash

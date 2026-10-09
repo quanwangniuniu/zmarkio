@@ -154,7 +154,7 @@ export default function CredentialsPanel({ kind, projectId, resources }: Props) 
                 <th className="px-4 py-3">Name</th>
                 <th className="px-4 py-3">{kind === 'api-key' ? 'Key' : 'Client ID'}</th>
                 <th className="px-4 py-3">Permissions</th>
-                <th className="px-4 py-3">{kind === 'api-key' ? 'Last used' : 'Created'}</th>
+                <th className="px-4 py-3">Created</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
@@ -171,7 +171,7 @@ export default function CredentialsPanel({ kind, projectId, resources }: Props) 
                   </td>
                   <td className="max-w-xs px-4 py-3 text-xs text-gray-600">{summarizeScopes(row.scopes, resources)}</td>
                   <td className="px-4 py-3 text-gray-700">
-                    {'last_used_at' in row ? formatDateTime(row.last_used_at) : formatDateTime(row.created_at)}
+                    {formatDateTime(row.created_at)}
                   </td>
                   <td className="px-4 py-3">
                     <StatusBadge active={row.is_active} inactiveLabel="Revoked" />

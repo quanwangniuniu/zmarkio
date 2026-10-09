@@ -26,24 +26,18 @@ from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
 from django.utils import timezone
 
-from chat.services import UnsafeUrlError, pinned_address, resolve_public_url
+from chat.services import UnsafeUrlError, _pinned_address, resolve_public_url
 from core.crypto import decrypt_token, encrypt_token
 from public_api.models import WebhookEndpoint
 
 logger = logging.getLogger(__name__)
 
-# Sent only by the admin console's "Send test"; endpoints cannot subscribe to it.
-PING = 'ping'
 TIMEOUT_SECONDS = 10
 
 
 # ---------------------------------------------------------------------------
 # Secrets, signing and delivery
 # ---------------------------------------------------------------------------
-
-def _new_secret():
-    return f'whsec_{secrets.token_urlsafe(32)}'
-
 
 def canonical_json(payload):
     return json.dumps(payload, sort_keys=True, separators=(',', ':'), cls=DjangoJSONEncoder)
@@ -76,7 +70,7 @@ def validate_webhook_url(url):
 def post_json_safely(url, body, headers):
     """POST `body` (bytes) to `url`; the caller must close the returned response."""
     normalized, address = validate_webhook_url(url)
-    with pinned_address(urlparse(normalized).hostname, address):
+    with _pinned_address(urlparse(normalized).hostname, address):
         return requests.post(
             normalized, data=body, headers=headers,
             timeout=TIMEOUT_SECONDS, allow_redirects=False, stream=True,
@@ -89,7 +83,7 @@ def post_json_safely(url, body, headers):
 
 def create_endpoint(*, organization_id, project_id, url, events, user, description='', is_active=True):
     """Return (endpoint, signing secret). The secret is not recoverable from the API afterwards."""
-    secret = _new_secret()
+    secret = f'whsec_{secrets.token_urlsafe(32)}'
     endpoint = WebhookEndpoint.objects.create(
         organization_id=organization_id,
         project_id=project_id,
@@ -101,13 +95,6 @@ def create_endpoint(*, organization_id, project_id, url, events, user, descripti
         created_by=user,
     )
     return endpoint, secret
-
-
-def rotate_secret(endpoint):
-    secret = _new_secret()
-    endpoint.secret_encrypted = encrypt_token(secret)
-    endpoint.save(update_fields=['secret_encrypted', 'updated_at'])
-    return secret
 
 
 # ---------------------------------------------------------------------------
@@ -157,13 +144,3 @@ def emit_ticket_event(event_type, ticket, **extra):
     data = {'ticket': PublicTicketSerializer(ticket).data, **extra}
     _enqueue(endpoint_ids, build_event(event_type, organization_id=organization_id, project_id=queue.project_id, data=data))
 
-
-def send_test(endpoint):
-    payload = build_event(
-        PING,
-        organization_id=endpoint.organization_id,
-        project_id=endpoint.project_id,
-        data={'message': 'Test event from the Zmarkio admin console.'},
-    )
-    _enqueue([endpoint.id], payload)
-    return payload

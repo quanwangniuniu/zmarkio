@@ -45,19 +45,6 @@ def recalculate_ticket_sla(ticket, base_time=None):
         ticket.resolution_due = base_time + timedelta(minutes=target.resolution_minutes)
 
 
-def start_ticket_sla(ticket):
-    """Set a new ticket's deadlines from its creation time and save them."""
-    recalculate_ticket_sla(ticket)
-    if ticket.first_response_due is not None or ticket.resolution_due is not None:
-        ticket.save(update_fields=['first_response_due', 'resolution_due'])
-
-
-def restart_ticket_sla(ticket):
-    """Restart the countdown from now, e.g. after a priority change, and save it."""
-    recalculate_ticket_sla(ticket, base_time=timezone.now())
-    ticket.save(update_fields=['first_response_due', 'resolution_due'])
-
-
 def recalculate_ticket_sla_after_policy_change(
     ticket, old_targets_by_priority, *, policy_reactivated=False,
 ):
