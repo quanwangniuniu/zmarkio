@@ -2,6 +2,46 @@ from rest_framework import serializers
 from django.utils import timezone
 from task.models import Task
 from core.models import CustomUser
+from .widget_catalog import GRID_COLUMNS, MAX_ROWS, MAX_WIDGETS, WIDGET_BY_ID
+
+
+class DashboardWidgetPositionSerializer(serializers.Serializer):
+    id = serializers.CharField()
+    x = serializers.IntegerField(min_value=0)
+    y = serializers.IntegerField(min_value=0)
+    w = serializers.IntegerField(min_value=1)
+    h = serializers.IntegerField(min_value=1)
+
+
+class DashboardLayoutSerializer(serializers.Serializer):
+    widgets = DashboardWidgetPositionSerializer(many=True)
+
+    def validate_widgets(self, widgets):
+        if not widgets:
+            raise serializers.ValidationError('Keep at least one dashboard widget.')
+        if len(widgets) > MAX_WIDGETS:
+            raise serializers.ValidationError('Too many dashboard widgets.')
+
+        seen = set()
+        for widget in widgets:
+            widget_id = widget['id']
+            definition = WIDGET_BY_ID.get(widget_id)
+            if definition is None:
+                raise serializers.ValidationError(f'Unknown widget: {widget_id}.')
+            if widget_id in seen:
+                raise serializers.ValidationError(f'Duplicate widget: {widget_id}.')
+            seen.add(widget_id)
+            if widget['x'] + widget['w'] > GRID_COLUMNS or widget['y'] + widget['h'] > MAX_ROWS:
+                raise serializers.ValidationError('A widget is outside the dashboard grid.')
+            if widget['h'] < definition['min_h']:
+                raise serializers.ValidationError(f'{widget_id} is below its minimum height.')
+
+        for index, left in enumerate(widgets):
+            for right in widgets[index + 1:]:
+                if (left['x'] < right['x'] + right['w'] and right['x'] < left['x'] + left['w']
+                        and left['y'] < right['y'] + right['h'] and right['y'] < left['y'] + left['h']):
+                    raise serializers.ValidationError('Dashboard widgets cannot overlap.')
+        return widgets
 
 
 class DashboardUserSerializer(serializers.ModelSerializer):
