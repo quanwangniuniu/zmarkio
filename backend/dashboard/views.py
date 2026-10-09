@@ -1,17 +1,24 @@
 import logging
+from datetime import timedelta, date
 
+from django.db import transaction
+from django.db.models import Count, Q
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Count, Q
-from django.utils import timezone
-from datetime import timedelta, date
+from rest_framework.exceptions import NotFound, ValidationError
+
+from core.models import Project
+from core.slug_mixins import resolve_project_pk
 from task.models import Task, ApprovalRecord, TaskComment
 from decision.models import Decision
 from spreadsheet.models import Spreadsheet
-from core.slug_mixins import resolve_project_pk
-from .serializers import DashboardSummarySerializer, ProjectWorkspaceDashboardSerializer
+
+from .models import DashboardLayout
+from .serializers import DashboardSummarySerializer, ProjectWorkspaceDashboardSerializer, DashboardLayoutSerializer
+from .widget_catalog import GRID_COLUMNS, MAX_ROWS, WIDGET_CATALOG, DEFAULT_WIDGETS
 
 
 logger = logging.getLogger(__name__)
@@ -532,3 +539,75 @@ class ProjectWorkspaceDashboardView(APIView):
         }
         serializer = ProjectWorkspaceDashboardSerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class DashboardLayoutView(APIView):
+    """Load or replace the requesting user's layout for one accessible project."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get_project(self, request):
+        project_id = resolve_project_pk(request.query_params.get('project_id'))
+        if not project_id:
+            raise ValidationError({'project_id': 'A valid project is required.'})
+        projects = Project.objects.filter(pk=project_id).filter(
+            Q(owner=request.user) | Q(members__user=request.user, members__is_active=True)
+        ).distinct()
+        organization_id = (
+            getattr(request.user, 'current_organization_id', None)
+            or getattr(request.user, 'organization_id', None)
+        )
+        if organization_id:
+            projects = projects.filter(organization_id=organization_id)
+        project = projects.first()
+        if project is None:
+            raise NotFound('Project not found.')
+        return project
+
+    def response_data(self, project, widgets, updated_at=None):
+        return {
+            'project_id': project.pk,
+            'project_slug': project.slug,
+            'widgets': widgets,
+            'catalog': WIDGET_CATALOG,
+            'columns': GRID_COLUMNS,
+            'max_rows': MAX_ROWS,
+            'updated_at': updated_at,
+        }
+
+    def get(self, request):
+        project = self.get_project(request)
+        rows = list(
+            DashboardLayout.objects.filter(project=project, user=request.user)
+            .order_by('y', 'x')
+            .values('widget_id', 'x', 'y', 'w', 'h', 'updated_at')
+        )
+        widgets = [
+            {key: row[key] for key in ('x', 'y', 'w', 'h')} | {'id': row['widget_id']}
+            for row in rows
+        ]
+        return Response(
+            self.response_data(
+                project,
+                widgets if widgets else DEFAULT_WIDGETS,
+                max(row['updated_at'] for row in rows) if rows else None,
+            ),
+            headers={'Cache-Control': 'private, no-store'},
+        )
+
+    def put(self, request):
+        project = self.get_project(request)
+        serializer = DashboardLayoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        widgets = serializer.validated_data['widgets']
+        with transaction.atomic():
+            DashboardLayout.objects.filter(project=project, user=request.user).delete()
+            DashboardLayout.objects.bulk_create([
+                DashboardLayout(project=project, user=request.user, widget_id=widget['id'],
+                                x=widget['x'], y=widget['y'], w=widget['w'], h=widget['h'])
+                for widget in widgets
+            ])
+        return Response(
+            self.response_data(project, widgets, timezone.now()),
+            headers={'Cache-Control': 'private, no-store'},
+        )
