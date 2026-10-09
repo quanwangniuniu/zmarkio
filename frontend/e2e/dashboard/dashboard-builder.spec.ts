@@ -1,6 +1,7 @@
 /** MED-287: completed drag and resize gestures persist across reloads. */
 import { expect, test, type Page } from '@playwright/test';
-import type { DashboardWidgetPosition } from '../../src/types/dashboardLayout';
+import type { DashboardLayoutConfiguration, DashboardWidgetPosition } from '../../src/types/dashboardLayout';
+import { dashboardLayoutConfiguration } from '../../src/lib/mock/dashboardLayout';
 import {
   installApiMockSafetyNet, mockAuthenticatedUserApis, mockProjectShellApis,
   seedActiveProject, seedAuthenticatedUser, waitForLayoutMain,
@@ -18,7 +19,7 @@ const initial = [
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
-async function openDashboard(page: Page, widgets: DashboardWidgetPosition[] = initial) {
+async function openDashboard(page: Page, widgets: DashboardWidgetPosition[] = initial, configuration: DashboardLayoutConfiguration = dashboardLayoutConfiguration) {
   await installApiMockSafetyNet(page);
   await seedAuthenticatedUser(page);
   await mockAuthenticatedUserApis(page);
@@ -50,7 +51,7 @@ async function openDashboard(page: Page, widgets: DashboardWidgetPosition[] = in
       persisted = route.request().postDataJSON().widgets;
     }
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-      project_id: project.id, project_slug: project.slug, widgets: persisted,
+      project_id: project.id, project_slug: project.slug, widgets: persisted, configuration,
     }) });
   });
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -58,60 +59,6 @@ async function openDashboard(page: Page, widgets: DashboardWidgetPosition[] = in
   await waitForLayoutMain(page);
   return { saved: () => persisted, writes: () => writes };
 }
-
-test('enables layout controls and title editing only while Customize is on', async ({ page }) => {
-  const layout = await openDashboard(page, [
-    { id: 'section-title-overview', title: 'Project overview', x: 0, y: 0, w: 12, h: 1 },
-    { id: 'activity', x: 0, y: 1, w: 6, h: 4 },
-  ]);
-  const toggle = page.getByRole('button', { name: 'Customize', exact: true });
-  const tile = page.getByTestId('dashboard-widget-activity');
-  const heading = tile.getByText('Recent Activity', { exact: true });
-  const icon = tile.locator('svg.lucide-clipboard-list');
-  const controls = page.getByRole('button', { name: /^(Move|Resize|Remove) / });
-  const titleInput = page.getByRole('textbox', { name: 'Section title text' });
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.getByRole('heading', { name: 'Project overview', exact: true })).toBeVisible();
-  await tile.hover();
-  await expect(controls).toHaveCount(0);
-  await expect(titleInput).toHaveCount(0);
-  await expect(page.getByLabel('Widget picker')).toHaveCount(0);
-  const headingX = (await heading.boundingBox())!.x;
-  const iconX = (await icon.boundingBox())!.x;
-  const from = (await heading.boundingBox())!;
-  await page.mouse.move(from.x + 20, from.y + 5); await page.mouse.down();
-  await page.mouse.move(from.x + 100, from.y + 65, { steps: 8 }); await page.mouse.up();
-  expect(layout.writes()).toBe(0);
-  expect(layout.saved()[1]).toMatchObject({ x: 0, y: 1 });
-
-  await toggle.click();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByLabel('Widget picker')).toBeVisible();
-  await expect(tile.getByRole('button', { name: 'Move Recent activity', exact: true })).toBeAttached();
-  await expect(tile.getByRole('button', { name: 'Resize Recent activity', exact: true })).toBeAttached();
-  await expect(tile.getByRole('button', { name: 'Remove Recent activity', exact: true })).toBeAttached();
-  expect((await heading.boundingBox())!.x).toBeCloseTo(headingX, 0);
-  expect((await icon.boundingBox())!.x).toBeCloseTo(iconX, 0);
-  await titleInput.fill('My overview');
-  await titleInput.press('Enter');
-  await expect.poll(() => layout.saved()[0].title).toBe('My overview');
-  await toggle.click();
-  await tile.hover();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
-  await expect(controls).toHaveCount(0);
-  await expect(titleInput).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'My overview', exact: true })).toBeVisible();
-  expect((await heading.boundingBox())!.x).toBeCloseTo(headingX, 0);
-  expect((await icon.boundingBox())!.x).toBeCloseTo(iconX, 0);
-  expect(await icon.evaluate((element) => {
-    for (let node: Element | null = element; node; node = node.parentElement) {
-      if (getComputedStyle(node).opacity === '0') return false;
-    }
-    return true;
-  })).toBe(true);
-  await expect(tile.getByRole('button', { name: 'View all activity', exact: true })).toBeVisible();
-  expect(layout.writes()).toBe(1);
-});
 
 test('cancels an active resize when Customize is turned off without saving the preview', async ({ page }) => {
   const layout = await openDashboard(page, [{ id: 'audit', x: 0, y: 0, w: 6, h: 4 }]);
@@ -276,42 +223,12 @@ test('resizes by 10px on both axes and retains that fine size after reload', asy
   await expect.poll(async () => (await tile.boundingBox())!.height).toBeCloseTo(before.height + 20, 0);
 });
 
-test('closes the blank space above a section title and shifts its content after editing a card', async ({ page }) => {
-  const original = [
-    { id: 'audit', x: 0, y: 0, w: 5.5, h: 4 },
-    { id: 'activity', x: 6, y: 0, w: 6, h: 5 },
-    { id: 'section-title-modules', title: 'Modules', x: 0, y: 12, w: 12, h: 1 },
-    { id: 'tasks', x: 0, y: 13, w: 4, h: 7 },
-    { id: 'operations', x: 4, y: 13, w: 4, h: 7 },
-  ];
-  const layout = await openDashboard(page, original);
-  await page.getByRole('button', { name: 'Customize', exact: true }).click();
-  const title = page.getByTestId('dashboard-widget-section-title-modules');
-  const before = (await title.boundingBox())!;
-  const handle = (await page.getByRole('button', { name: 'Move Audit', exact: true }).boundingBox())!;
-  const x = handle.x + handle.width / 2;
-  const y = handle.y + handle.height / 2;
-  await page.mouse.move(x, y); await page.mouse.down();
-  await page.mouse.move(x + 10, y, { steps: 4 });
-  await expect.poll(async () => (await title.boundingBox())!.y).toBeCloseTo(before.y - 420, 0);
-  expect(layout.writes()).toBe(0);
-  await page.mouse.up();
-  await expect.poll(() => layout.writes()).toBe(1);
-  expect(layout.saved().find((widget) => widget.id === 'activity')).toEqual(original[1]);
-  expect(layout.saved().find((widget) => widget.id === 'section-title-modules')).toEqual({ ...original[2], y: 5 });
-  expect(layout.saved().find((widget) => widget.id === 'tasks')).toEqual({ ...original[3], y: 6 });
-  expect(layout.saved().find((widget) => widget.id === 'operations')).toEqual({ ...original[4], y: 6 });
-  await page.reload();
-  await expect.poll(async () => (await title.boundingBox())!.y - (await page.getByTestId('dashboard-canvas').boundingBox())!.y).toBeCloseTo(300, 0);
-});
-
-test('ordinary cards and section titles follow the bottom edge during resize and after delete or reload', async ({ page }) => {
+test('ordinary cards follow the bottom edge during resize and after delete or reload', async ({ page }) => {
   const original = [
     { id: 'audit', x: 0, y: 0, w: 6, h: 8 },
     { id: 'tasks', x: 6, y: 0, w: 6, h: 6 },
     { id: 'activity', x: 0, y: 10, w: 6, h: 4 },
     { id: 'meetings', x: 0, y: 18, w: 6, h: 4 },
-    { id: 'section-title-next', title: 'Next section', x: 0, y: 25, w: 12, h: 1 },
     { id: 'custom-kpis', x: 0, y: 28, w: 12, h: 4 },
   ];
   const layout = await openDashboard(page, original);
@@ -320,7 +237,6 @@ test('ordinary cards and section titles follow the bottom edge during resize and
   const audit = page.getByTestId('dashboard-widget-audit');
   const activity = page.getByTestId('dashboard-widget-activity');
   const meetings = page.getByTestId('dashboard-widget-meetings');
-  const title = page.getByTestId('dashboard-widget-section-title-next');
   const kpis = page.getByTestId('dashboard-widget-custom-kpis');
   const gapAfter = (below: typeof activity, aboveId: string) => below.evaluate((element, id) =>
     element.getBoundingClientRect().top - document.querySelector(`[data-testid="dashboard-widget-${id}"]`)!.getBoundingClientRect().bottom, aboveId);
@@ -333,8 +249,7 @@ test('ordinary cards and section titles follow the bottom edge during resize and
   await page.mouse.move(x, y - 240, { steps: 16 });
   await expect.poll(() => gapAfter(activity, 'audit')).toBeCloseTo(12, 0);
   await expect.poll(() => gapAfter(meetings, 'activity')).toBeCloseTo(12, 0);
-  await expect.poll(() => gapAfter(title, 'meetings')).toBeCloseTo(12, 0);
-  await expect.poll(() => gapAfter(kpis, 'section-title-next')).toBeCloseTo(12, 0);
+  await expect.poll(() => gapAfter(kpis, 'meetings')).toBeCloseTo(12, 0);
   expect(layout.writes()).toBe(0);
   await page.mouse.up();
   await expect.poll(() => layout.writes()).toBe(1);
@@ -350,8 +265,6 @@ test('ordinary cards and section titles follow the bottom edge during resize and
   await expect.poll(() => layout.writes()).toBe(2);
   expect(layout.saved().find((widget) => widget.id === 'activity')?.y).toBe(0);
   expect(layout.saved().find((widget) => widget.id === 'meetings')?.y).toBe(4);
-  expect(layout.saved().find((widget) => widget.id === 'section-title-next')?.y).toBe(8);
-  await expect.poll(() => gapAfter(title, 'meetings')).toBeCloseTo(12, 0);
 });
 
 test('resizes Type breakdown repeatedly while its handle moves with the preview', async ({ page }) => {
@@ -461,74 +374,14 @@ test('keeps the widget picker open after the last widget until manually collapse
   const toggle = page.getByRole('button', { name: 'Customize' });
   const picker = page.getByLabel('Widget picker');
   await toggle.click();
-  await expect(picker.getByRole('button', { name: /^Add / })).toHaveCount(2);
+  await expect(picker.getByRole('button', { name: /^Add / })).toHaveCount(1);
   await picker.getByRole('button', { name: 'Add Type breakdown', exact: true }).click();
   await expect(picker).toBeVisible();
-  await expect(page.getByRole('note')).toHaveText('Tips: Drag any component onto the dashboard to customize your layout. You can also rename section titles.');
+  await expect(page.getByRole('note')).toHaveText('Tips: Drag any component onto the dashboard to customize your layout.');
   await expect(toggle).toHaveAttribute('aria-expanded', 'true');
   await toggle.click();
   await expect(picker).toHaveCount(0);
   await expect.poll(() => layout.saved().some((widget) => widget.id === 'task-types')).toBe(true);
-});
-
-test('adds multiple section titles, edits and reloads their text, resizes and removes them independently', async ({ page }) => {
-  const layout = await openDashboard(page, []);
-  await page.getByRole('button', { name: 'Customize', exact: true }).click();
-  const addTitle = page.getByRole('button', { name: 'Add Section title', exact: true });
-  await addTitle.click();
-  const titles = page.getByRole('textbox', { name: 'Section title text', exact: true });
-  await titles.first().fill('Project overview');
-  await titles.first().press('Enter');
-  await addTitle.click();
-  await titles.nth(1).fill('Recent updates');
-  await titles.nth(1).press('Enter');
-  await expect.poll(() => layout.saved().map((widget) => widget.title)).toEqual(['Project overview', 'Recent updates']);
-  expect(new Set(layout.saved().map((widget) => widget.id)).size).toBe(2);
-  await page.reload();
-  await page.getByRole('button', { name: 'Customize', exact: true }).click();
-  await expect(titles.first()).toHaveValue('Project overview');
-  await expect(titles.nth(1)).toHaveValue('Recent updates');
-  const resize = page.getByRole('button', { name: 'Resize Project overview', exact: true });
-  await resize.press('ArrowLeft');
-  await resize.press('ArrowUp');
-  await expect.poll(() => layout.saved()[0].w).toBeLessThan(12);
-  expect(layout.saved()[0].h).toBe(1);
-  await page.getByRole('button', { name: 'Remove Project overview', exact: true }).click();
-  await expect(titles).toHaveCount(1);
-  await expect.poll(() => layout.saved().length).toBe(1);
-  await page.reload();
-  await page.getByRole('button', { name: 'Customize', exact: true }).click();
-  await expect(titles).toHaveValue('Recent updates');
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect((await page.locator('[data-section-title]').boundingBox())!.height).toBeLessThan(100);
-});
-
-test('drags a section title from the picker with a full-width one-row preview', async ({ page }) => {
-  const layout = await openDashboard(page, []);
-  await page.getByRole('button', { name: 'Customize', exact: true }).click();
-  const source = page.getByRole('button', { name: 'Drag Section title onto dashboard', exact: true });
-  const from = (await source.boundingBox())!;
-  const canvas = (await page.getByTestId('dashboard-canvas').boundingBox())!;
-  await page.mouse.move(from.x + 20, from.y + 10); await page.mouse.down();
-  await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + 20, { steps: 12 });
-  const preview = page.getByTestId('widget-drop-preview');
-  expect((await preview.boundingBox())!.width).toBeCloseTo(canvas.width, 0);
-  expect((await preview.boundingBox())!.height).toBe(48);
-  expect(layout.writes()).toBe(0);
-  await page.mouse.up();
-  await expect.poll(() => layout.saved().length).toBe(1);
-  expect(layout.saved()[0]).toMatchObject({ title: 'Section title', x: 0, y: 0, w: 12, h: 1 });
-  await expect(page.getByRole('textbox', { name: 'Section title text' })).toBeVisible();
-  await expect(source).toBeVisible();
-  const grip = page.getByRole('button', { name: 'Move Section title', exact: true });
-  const handle = (await grip.boundingBox())!;
-  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2 + 120, { steps: 12 });
-  await page.mouse.up();
-  await expect(grip).toBeAttached();
-  expect(layout.saved()[0].y).toBe(0);
-  expect(layout.writes()).toBe(1);
 });
 
 test('shows the drag grip over a card icon without shifting its title', async ({ page }) => {
@@ -657,7 +510,7 @@ test('loads the layout for the project in the URL when switching projects', asyn
     requestedProjects.push(String(id));
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
       project_id: id, project_slug: projects.find((item) => item.id === id)?.slug,
-      widgets: layouts[id],
+      widgets: layouts[id], configuration: dashboardLayoutConfiguration,
     }) });
   });
   for (const [slug, expectedId, visible, hidden] of [
@@ -676,7 +529,7 @@ test('does not display a layout returned for another project', async ({ page }) 
   await openDashboard(page);
   await page.route('**/api/dashboard/layout/**', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
-      project_id: 999, project_slug: 'another-project', widgets: initial,
+      project_id: 999, project_slug: 'another-project', widgets: initial, configuration: dashboardLayoutConfiguration,
     }) });
   });
   await page.reload();
@@ -740,4 +593,47 @@ test('Hide Panel removes the sidebar, releases its width and remains hidden afte
   await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('button', { name: 'Show Panel', exact: true })).toBeVisible();
   await expect(panel).toHaveCount(0);
+});
+
+test('keeps native section labels static and preserves saved widget geometry', async ({ page }) => {
+  const original = [
+    { id: 'overall-progress', x: 0, y: 1, w: 6, h: 3 },
+    { id: 'decisions', x: 0, y: 5, w: 4, h: 7 },
+    { id: 'tasks', x: 4, y: 5, w: 4, h: 7 },
+  ];
+  const layout = await openDashboard(page, original);
+  const overview = page.getByTestId('native-section-project-overview');
+  const modules = page.getByTestId('native-section-module-summary');
+  await expect(overview).toHaveText('Project Overview');
+  await expect(modules).toHaveText('Module Summary');
+  await expect(page.getByRole('button', { name: /^(Move|Resize|Remove) / })).toHaveCount(0);
+  expect(layout.saved()).toEqual(original);
+  await page.getByRole('button', { name: 'Customize', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Section title text' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Section title/ })).toHaveCount(0);
+  await expect(overview.getByRole('button')).toHaveCount(0);
+  await expect(modules.getByRole('button')).toHaveCount(0);
+  expect(layout.writes()).toBe(0);
+  await page.getByRole('button', { name: 'Remove Tasks', exact: true }).click();
+  await expect.poll(() => layout.writes()).toBe(1);
+  expect(layout.saved().map((widget) => widget.id)).toEqual(['overall-progress', 'decisions']);
+  await expect(modules).toBeVisible();
+  await page.reload();
+  await expect(overview).toBeVisible();
+  await expect(modules).toBeVisible();
+});
+
+test('uses server configuration for ordinary card geometry and resize steps', async ({ page }) => {
+  const layout = await openDashboard(page, [{ id: 'audit', x: 0, y: 0, w: 6, h: 5 }], {
+    ...dashboardLayoutConfiguration, row_height: 32, gap: 8, resize_step: 5,
+  });
+  await page.getByRole('button', { name: 'Customize', exact: true }).click();
+  const tile = page.getByTestId('dashboard-widget-audit');
+  const before = (await tile.boundingBox())!;
+  expect(before.height).toBeCloseTo(192, 0);
+  await tile.getByRole('button', { name: 'Resize Audit' }).press('ArrowDown');
+  await expect.poll(async () => (await tile.boundingBox())!.height).toBeCloseTo(before.height + 5, 0);
+  await expect.poll(() => layout.writes()).toBe(1);
+  await page.reload();
+  await expect.poll(async () => (await tile.boundingBox())!.height).toBeCloseTo(before.height + 5, 0);
 });

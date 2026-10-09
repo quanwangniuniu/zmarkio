@@ -1,7 +1,12 @@
+import math
+
 from rest_framework import serializers
 from django.utils import timezone
 from task.models import Task
 from core.models import CustomUser
+from .services import (
+    LAYOUT_CONFIGURATION, POSITION_EPSILON, WIDGET_IDS, positions_overlap,
+)
 
 
 class DashboardUserSerializer(serializers.ModelSerializer):
@@ -211,3 +216,52 @@ class ProjectWorkspaceDashboardSerializer(serializers.Serializer):
     tasks        = WorkspaceTaskSerializer(many=True)
     spreadsheets = WorkspaceSpreadsheetSerializer(many=True)
     patterns     = WorkspacePatternSerializer(many=True)
+
+
+class WidgetPositionSerializer(serializers.Serializer):
+    id = serializers.CharField(max_length=64)
+    x = serializers.FloatField(
+        min_value=0,
+        max_value=LAYOUT_CONFIGURATION['columns'] - LAYOUT_CONFIGURATION['min_width'],
+    )
+    y = serializers.FloatField(min_value=0, max_value=LAYOUT_CONFIGURATION['max_y'])
+    w = serializers.FloatField(
+        min_value=LAYOUT_CONFIGURATION['min_width'],
+        max_value=LAYOUT_CONFIGURATION['columns'],
+    )
+    h = serializers.FloatField(min_value=LAYOUT_CONFIGURATION['min_height'], max_value=LAYOUT_CONFIGURATION['max_height'])
+
+    def to_internal_value(self, data):
+        if isinstance(data, dict) and 'title' in data:
+            raise serializers.ValidationError({'title': 'Widget titles cannot be customized.'})
+        return super().to_internal_value(data)
+
+    def validate_id(self, value):
+        if value not in WIDGET_IDS:
+            raise serializers.ValidationError('Unknown widget type.')
+        return value
+
+    def validate(self, attrs):
+        if not all(math.isfinite(attrs[key]) for key in ('x', 'y', 'w', 'h')):
+            raise serializers.ValidationError('Widget dimensions must be finite.')
+        if attrs['x'] + attrs['w'] > LAYOUT_CONFIGURATION['columns'] + POSITION_EPSILON:
+            raise serializers.ValidationError('Widget extends beyond the grid.')
+        return attrs
+
+
+class DashboardLayoutSerializer(serializers.Serializer):
+    widgets = WidgetPositionSerializer(many=True, allow_empty=True)
+
+    def validate_widgets(self, widgets):
+        if len(widgets) > LAYOUT_CONFIGURATION['max_widgets']:
+            raise serializers.ValidationError('Too many widgets.')
+        seen = set()
+        for widget in widgets:
+            if widget['id'] in seen:
+                raise serializers.ValidationError('Widget IDs must be unique.')
+            seen.add(widget['id'])
+        for index, a in enumerate(widgets):
+            for b in widgets[index + 1:]:
+                if positions_overlap(a, b):
+                    raise serializers.ValidationError('Widgets may not overlap.')
+        return widgets

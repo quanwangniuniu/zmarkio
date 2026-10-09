@@ -95,7 +95,7 @@ function relTime(dateStr: string | null): string {
 
 // ── Tiny shared components ────────────────────────────────────────────────────
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+export function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <p style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: TEXT_MUTED, marginBottom: 8 }}>
       {children}

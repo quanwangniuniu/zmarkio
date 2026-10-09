@@ -1,12 +1,26 @@
-import { addWidget, compactWidgets, dropWidget, moveWidget, removeWidget, resizeDelta, resizeWidget } from '@/components/dashboard/builder/layoutReducer';
-import { MAX_SECTION_TITLES } from '@/components/dashboard/builder/sectionTitle';
+import { createLayoutReducer } from '@/components/dashboard/builder/layoutReducer';
+import { dashboardLayoutConfiguration } from '@/lib/mock/dashboardLayout';
 import type { DashboardWidgetPosition as Widget } from '@/types/dashboardLayout';
+
+const { addWidget, compactWidgets, dropWidget, moveWidget, removeWidget, resizeDelta, resizeWidget } = createLayoutReducer(dashboardLayoutConfiguration);
 
 const widgets: Widget[] = [
   { id: 'overall-progress', x: 0, y: 0, w: 6, h: 4 },
   { id: 'decisions', x: 6, y: 0, w: 6, h: 4 },
   { id: 'task-status', x: 0, y: 4, w: 6, h: 4 },
 ];
+
+it('uses API configuration for pixel snapping, grid bounds and resize minimums', () => {
+  const configured = createLayoutReducer({
+    ...dashboardLayoutConfiguration,
+    columns: 6, row_height: 32, gap: 8, resize_step: 5, max_height: 10,
+    widgets: [{ id: 'audit', label: 'Audit', x: 0, y: 0, w: 6, h: 5, min_resize_height: 5 }],
+  });
+  expect(configured.resizeDelta(7, 7, 80)).toEqual({ dw: 5 / 80, dh: 5 / 40 });
+  const resized = configured.resizeWidget([{ id: 'audit', x: 0, y: 0, w: 4, h: 6 }], 'audit', 100, -100);
+  expect(resized[0]).toMatchObject({ w: 6, h: 5 });
+  expect(configured.widgetStyle(resized[0])).toMatchObject({ height: 192, width: 'calc(100% + 0px)' });
+});
 
 it('snaps a move into the grid and pushes collided widgets below it', () => {
   const result = moveWidget(widgets, 'decisions', -6, 0);
@@ -103,21 +117,6 @@ it('drops a new preset at the requested column and snaps upward while retaining 
   expect(widgets).toHaveLength(3);
 });
 
-it('preserves independent title text through moving, resizing and deleting another title', () => {
-  const titles: Widget[] = [
-    { id: 'section-title-first', title: 'Overview', x: 0, y: 0, w: 12, h: 1 },
-    { id: 'audit', x: 0, y: 1, w: 6, h: 4 },
-    { id: 'section-title-second', title: 'Updates', x: 0, y: 5, w: 12, h: 1 },
-  ];
-  const moved = moveWidget(titles, 'section-title-second', 0, -5);
-  expect(moved.find((item) => item.id === 'section-title-second')).toMatchObject({ title: 'Updates', y: 0 });
-  const resized = resizeWidget(moved, 'section-title-second', -6, -10);
-  expect(resized.find((item) => item.id === 'section-title-second')).toMatchObject({ title: 'Updates', w: 6, h: 1 });
-  const removed = removeWidget(resized, 'section-title-first');
-  expect(removed.some((item) => item.id === 'section-title-first')).toBe(false);
-  expect(removed.find((item) => item.id === 'section-title-second')?.title).toBe('Updates');
-});
-
 it('resizes in 10px increments while preserving minimum size and non-overlapping neighbors', () => {
   const baseline: Widget[] = [
     { id: 'audit', x: 0, y: 0, w: 6, h: 5 },
@@ -134,42 +133,6 @@ it('resizes in 10px increments while preserving minimum size and non-overlapping
   expect(shrunk.find((widget) => widget.id === 'audit')).toMatchObject({ w: 1, h: 4 });
 });
 
-it('closes gaps above successive titles and shifts their content without changing widths or order', () => {
-  const layout: Widget[] = [
-    { id: 'audit', x: 0, y: 0, w: 5.5, h: 4 },
-    { id: 'activity', x: 6, y: 0, w: 6, h: 6 },
-    { id: 'section-title-first', title: 'Modules', x: 0, y: 15, w: 12, h: 1 },
-    { id: 'tasks', x: 0, y: 16, w: 4, h: 7 },
-    { id: 'operations', x: 4, y: 16, w: 4, h: 7 },
-    { id: 'section-title-second', title: 'More', x: 0, y: 30, w: 12, h: 1 },
-    { id: 'decisions', x: 0, y: 31, w: 4, h: 7 },
-  ];
-  const moved = moveWidget(layout, 'audit', 0.125, 0);
-  expect(moved.find((item) => item.id === 'activity')).toEqual(layout[1]);
-  expect(moved.find((item) => item.id === 'section-title-first')).toEqual({ ...layout[2], y: 6 });
-  expect(moved.find((item) => item.id === 'tasks')).toEqual({ ...layout[3], y: 7 });
-  expect(moved.find((item) => item.id === 'operations')).toEqual({ ...layout[4], y: 7 });
-  expect(moved.find((item) => item.id === 'section-title-second')).toEqual({ ...layout[5], y: 14 });
-  expect(moved.find((item) => item.id === 'decisions')).toEqual({ ...layout[6], y: 15 });
-  expect(layout[2].y).toBe(15);
-});
-
-it('brings a title and its content upward when the preceding card shrinks', () => {
-  const layout: Widget[] = [
-    { id: 'audit', x: 0, y: 0, w: 6, h: 8 },
-    { id: 'section-title-next', title: 'Next', x: 0, y: 10, w: 12, h: 1 },
-    { id: 'tasks', x: 0, y: 11, w: 4, h: 7 },
-  ];
-  const resized = resizeWidget(layout, 'audit', 0, -4);
-  expect(resized.find((item) => item.id === 'section-title-next')?.y).toBe(4);
-  expect(resized.find((item) => item.id === 'tasks')).toEqual({ ...layout[2], y: 5 });
-});
-
-it('snaps a dragged title upward when there is no preceding component', () => {
-  const title: Widget = { id: 'section-title-heading', title: 'Heading', x: 0, y: 0, w: 12, h: 1 };
-  expect(moveWidget([title], title.id, 0, 5)).toEqual([title]);
-});
-
 it('makes ordinary cards follow a shrinking card through the whole column', () => {
   const layout: Widget[] = [
     { id: 'audit', x: 0, y: 0, w: 6, h: 8 },
@@ -184,21 +147,6 @@ it('makes ordinary cards follow a shrinking card through the whole column', () =
   expect(layout[1].y).toBe(10);
 });
 
-it('follows the lowest bottom among horizontally overlapping predecessors and does not cross titles', () => {
-  const layout: Widget[] = [
-    { id: 'audit', x: 0, y: 0, w: 6, h: 4 + 1 / 6 },
-    { id: 'activity', x: 6, y: 0, w: 6, h: 6 },
-    { id: 'meetings', x: 3, y: 12, w: 6, h: 4 },
-    { id: 'section-title-next', title: 'Next', x: 0, y: 20, w: 3, h: 1 },
-    { id: 'tasks', x: 6, y: 25, w: 6, h: 7 },
-  ];
-  const result = compactWidgets(layout);
-  expect(result.find((widget) => widget.id === 'meetings')).toEqual({ ...layout[2], y: 6 });
-  expect(result.find((widget) => widget.id === 'section-title-next')).toEqual({ ...layout[3], y: 10 });
-  expect(result.find((widget) => widget.id === 'tasks')).toEqual({ ...layout[4], y: 11 });
-  expect(compactWidgets(result)).toEqual(result);
-});
-
 it('closes the vacated column after moving a card sideways', () => {
   const layout: Widget[] = [
     { id: 'audit', x: 0, y: 0, w: 6, h: 4 },
@@ -211,13 +159,22 @@ it('closes the vacated column after moving a card sideways', () => {
   expect(result.find((widget) => widget.id === 'audit')).toEqual({ ...layout[0], x: 6 });
 });
 
-it('stops adding section titles at the limit but still adds other widgets', () => {
-  const titles: Widget[] = Array.from({ length: MAX_SECTION_TITLES }, (_, index) => ({
-    id: `section-title-${index}`, title: `Section ${index}`, x: 0, y: index, w: 12, h: 1,
-  }));
-  const extra: Widget = { id: 'section-title-extra', title: 'Extra', x: 0, y: 0, w: 12, h: 1 };
-  expect(addWidget(titles, extra)).toBe(titles);
-  expect(dropWidget(titles, extra, 0, 0)).toBe(titles);
-  expect(addWidget(titles.slice(1), extra)).toHaveLength(MAX_SECTION_TITLES);
-  expect(addWidget(titles, { id: 'audit', x: 0, y: 0, w: 6, h: 4 })).toHaveLength(MAX_SECTION_TITLES + 1);
+
+it('uses the API total widget limit for adding and dropping', () => {
+  const configured = createLayoutReducer({ ...dashboardLayoutConfiguration, max_widgets: 1 });
+  const full: Widget[] = [{ id: 'audit', x: 0, y: 0, w: 6, h: 4 }];
+  const incoming = { id: 'activity', x: 6, y: 0, w: 6, h: 4 };
+  expect(configured.addWidget(full, incoming)).toBe(full);
+  expect(configured.dropWidget(full, incoming, 6, 0)).toBe(full);
+});
+
+it('follows the lowest bottom among horizontally overlapping predecessors', () => {
+  const original: Widget[] = [
+    { id: 'audit', x: 0, y: 0, w: 6, h: 4 + 1 / 6 },
+    { id: 'activity', x: 6, y: 0, w: 6, h: 6 },
+    { id: 'meetings', x: 3, y: 12, w: 6, h: 4 },
+  ];
+  const result = compactWidgets(original);
+  expect(result.find((widget) => widget.id === 'meetings')).toEqual({ ...original[2], y: 6 });
+  expect(compactWidgets(result)).toEqual(result);
 });

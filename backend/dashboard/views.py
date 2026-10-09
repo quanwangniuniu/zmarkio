@@ -4,6 +4,10 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import NotFound, ValidationError
+from core.models import Project
+from .models import DashboardLayout
+from .services import DEFAULT_WIDGETS, LAYOUT_CONFIGURATION, save_layout, widgets_for_response
 from django.db.models import Count, Q
 from django.utils import timezone
 from datetime import timedelta, date
@@ -11,7 +15,7 @@ from task.models import Task, ApprovalRecord, TaskComment
 from decision.models import Decision
 from spreadsheet.models import Spreadsheet
 from core.slug_mixins import resolve_project_pk
-from .serializers import DashboardSummarySerializer, ProjectWorkspaceDashboardSerializer
+from .serializers import DashboardSummarySerializer, ProjectWorkspaceDashboardSerializer, DashboardLayoutSerializer
 
 
 logger = logging.getLogger(__name__)
@@ -532,3 +536,44 @@ class ProjectWorkspaceDashboardView(APIView):
         }
         serializer = ProjectWorkspaceDashboardSerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class DashboardLayoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def project(self, request):
+        project_id = resolve_project_pk(request.query_params.get('project_id'))
+        if not project_id:
+            raise ValidationError({'project_id': 'A valid project is required.'})
+        projects = Project.objects.filter(pk=project_id).filter(
+            Q(owner=request.user) | Q(members__user=request.user, members__is_active=True)
+        ).distinct()
+        org_id = getattr(request.user, 'current_organization_id', None) or getattr(request.user, 'organization_id', None)
+        if org_id:
+            projects = projects.filter(organization_id=org_id)
+        project = projects.first()
+        if project is None:
+            raise NotFound('Project not found.')
+        return project
+
+    def get(self, request):
+        project = self.project(request)
+        layout = DashboardLayout.objects.filter(project=project, user=request.user).first()
+        return Response(
+            {'project_id': project.pk, 'project_slug': project.slug,
+             'widgets': widgets_for_response(layout.widgets) if layout else DEFAULT_WIDGETS,
+             'configuration': LAYOUT_CONFIGURATION},
+            headers={'Cache-Control': 'private, no-store'},
+        )
+
+    def put(self, request):
+        project = self.project(request)
+        serializer = DashboardLayoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        layout = save_layout(project, request.user, serializer.validated_data['widgets'])
+        return Response(
+            {'project_id': project.pk, 'project_slug': project.slug,
+             'widgets': layout.widgets, 'updated_at': layout.updated_at,
+             'configuration': LAYOUT_CONFIGURATION},
+            headers={'Cache-Control': 'private, no-store'},
+        )

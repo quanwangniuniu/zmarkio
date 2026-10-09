@@ -1,6 +1,5 @@
 from django.urls import path
-from .views import DashboardSummaryView, ProjectWorkspaceDashboardView
-from .layout_views import DashboardLayoutView
+from .views import DashboardSummaryView, ProjectWorkspaceDashboardView, DashboardLayoutView
 
 app_name = 'dashboard'
 

@@ -25,7 +25,7 @@ export function DashboardTileIcon({ icon, dragHandle }: { icon: ReactNode; dragH
   if (!dragHandle) return <>{icon}</>;
   return (
     <span className="relative inline-flex shrink-0 items-center justify-center">
-      <span className="inline-flex group-hover:opacity-0 group-focus-within:opacity-0 [@media(hover:none)]:opacity-0">{icon}</span>
+      <span className="inline-flex group-hover:opacity-0 group-focus-within:opacity-0">{icon}</span>
       <span className="absolute inset-0 z-10 flex items-center justify-center">{dragHandle}</span>
     </span>
   );

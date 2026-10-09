@@ -619,15 +619,6 @@ hr {
 }
 
 /* Thin dashboard scrollbar with transparent track. */
-@media (max-width: 767px) {
-  .dashboard-builder-grid { display: flex; flex-direction: column; gap: 12px; height: auto !important; }
-  .dashboard-builder-grid > section,
-  .dashboard-builder-grid > [data-testid="widget-drop-preview"] {
-    position: relative !important; left: auto !important; top: auto !important; width: 100% !important; flex-shrink: 0;
-  }
-  .dashboard-builder-grid > section:not([data-section-title]) { min-height: 0; }
-  .dashboard-builder-grid > section[data-section-title] { min-height: 3rem; }
-}
 .dashboard-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: #94a3b8 transparent;
