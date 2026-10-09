@@ -5,8 +5,8 @@ from rest_framework.test import APIClient
 from core.models import Organization, Project
 from csm.models import CustomerUser
 from customer.models import CustomerOrganisation
-from public_api.scopes import ALL_SCOPES
-from public_api.services.credentials import create_api_key, create_oauth_client
+from public_api.permissions import ALL_SCOPES
+from public_api.services import create_api_key, create_oauth_client
 
 
 @pytest.fixture

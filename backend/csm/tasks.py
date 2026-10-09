@@ -49,7 +49,7 @@ def notify_sla_breaches():
     """
     from csm.services.sla import _policy_for_ticket
     from public_api.models import WebhookEvent
-    from public_api.services.webhooks import emit_ticket_event
+    from public_api.services import emit_ticket_event
 
     now = timezone.now()
     notified = 0

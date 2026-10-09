@@ -3,7 +3,22 @@ from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from core.admin_utils import get_org_admin_org_ids
 from csm.models import CustomerUser
-from public_api.principal import ApiPrincipal
+from public_api.authentication import ApiPrincipal
+
+
+# Scope vocabulary: `<resource>:read` / `<resource>:write`; a write scope implies read.
+RESOURCES = {
+    'customers': 'Customers',
+    'organisations': 'Organisations',
+    'tickets': 'Tickets',
+    'conversations': 'Conversations',
+    'templates': 'Quick reply templates',
+    'routing_rules': 'Routing rules',
+    'queues': 'Queues',
+    'agents': 'Agents',
+}
+
+ALL_SCOPES = tuple(f'{resource}:{access}' for resource in RESOURCES for access in ('read', 'write'))
 
 
 class HasApiScope(BasePermission):

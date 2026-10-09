@@ -3,7 +3,7 @@ from celery import shared_task
 
 from chat.services import UnsafeUrlError
 from public_api.models import WebhookDelivery, WebhookEndpoint
-from public_api.services.webhooks import canonical_json, delivery_headers, post_json_safely
+from public_api.services import canonical_json, delivery_headers, post_json_safely
 
 # Seconds to wait before attempts 2, 3 and 4: three retries, each 4x longer.
 BACKOFF_SECONDS = {1: 30, 2: 120, 3: 480}

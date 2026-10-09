@@ -1,16 +1,20 @@
 """
 Public API serializers.
 
-Each one subclasses the internal CSM serializer so the JSON matches what the
-product already returns, and swaps every writable relation for a queryset from
-public_api.services.scoping. The internal serializers check access through
-`request.user`; a credential has no user, so those checks are replaced here
-rather than skipped.
+The resource serializers subclass the internal CSM ones so the JSON matches
+what the product already returns, and swap every writable relation for a
+`scoped_*` queryset from public_api.services. The internal serializers check
+access through `request.user`; a credential has no user, so those checks are
+replaced here rather than skipped.
+
+The admin console serializers (credentials, webhook endpoints, delivery log)
+follow at the end.
 """
 
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
+from chat.services import UnsafeUrlError
 from csm.models import CustomerUser
 from csm.serializers import (
     ConversationSerializer,
@@ -22,7 +26,9 @@ from csm.serializers import (
 )
 from csm.services.status_machine import get_status
 from customer.serializers import CustomerOrganisationSerializer, CustomerSerializer
-from public_api.services import scoping
+from public_api import services
+from public_api.models import ApiKey, OAuthClient, WebhookDelivery, WebhookEndpoint, WebhookEvent
+from public_api.permissions import ALL_SCOPES
 
 User = get_user_model()
 
@@ -45,8 +51,8 @@ class ScopedRelationsMixin:
 
 class PublicQueueSerializer(ScopedRelationsMixin, QueueSerializer):
     scoped_relations = {
-        'organisation': scoping.customer_organisations,
-        'sla_policy': scoping.sla_policies,
+        'organisation': services.scoped_customer_organisations,
+        'sla_policy': services.scoped_sla_policies,
     }
 
     class Meta(QueueSerializer.Meta):
@@ -57,9 +63,9 @@ class PublicQueueSerializer(ScopedRelationsMixin, QueueSerializer):
 
 class PublicTicketSerializer(ScopedRelationsMixin, TicketSerializer):
     scoped_relations = {
-        'queue': scoping.queues,
-        'conversation': scoping.conversations,
-        'assigned_to': scoping.assignable_users,
+        'queue': services.scoped_queues,
+        'conversation': services.scoped_conversations,
+        'assigned_to': services.scoped_assignable_users,
     }
 
     def validate(self, attrs):
@@ -78,9 +84,9 @@ class PublicTicketSerializer(ScopedRelationsMixin, TicketSerializer):
 
 class PublicConversationSerializer(ScopedRelationsMixin, ConversationSerializer):
     scoped_relations = {
-        'queue': scoping.queues,
-        'customer': scoping.customers,
-        'assigned_to': scoping.agents,
+        'queue': services.scoped_queues,
+        'customer': services.scoped_customers,
+        'assigned_to': services.scoped_agents,
     }
 
     class Meta(ConversationSerializer.Meta):
@@ -93,15 +99,15 @@ class PublicConversationSerializer(ScopedRelationsMixin, ConversationSerializer)
 
 class PublicCustomerSerializer(ScopedRelationsMixin, CustomerSerializer):
     scoped_relations = {
-        'experience_group': scoping.experience_groups,
-        'region': scoping.regions,
-        'organisation': scoping.customer_organisations,
-        'status_label': scoping.status_labels,
+        'experience_group': services.scoped_experience_groups,
+        'region': services.scoped_regions,
+        'organisation': services.scoped_customer_organisations,
+        'status_label': services.scoped_status_labels,
     }
 
 
 class PublicCustomerOrganisationSerializer(ScopedRelationsMixin, CustomerOrganisationSerializer):
-    scoped_relations = {'region': scoping.regions}
+    scoped_relations = {'region': services.scoped_regions}
 
     class Meta(CustomerOrganisationSerializer.Meta):
         # No nested customer list (unbounded); `organization` is the credential's workspace.
@@ -109,7 +115,7 @@ class PublicCustomerOrganisationSerializer(ScopedRelationsMixin, CustomerOrganis
         read_only_fields = ['id', 'organization', 'created_at', 'updated_at']
 
     def validate_name(self, value):
-        qs = scoping.customer_organisations(self.context['principal']).filter(name__iexact=value)
+        qs = services.scoped_customer_organisations(self.context['principal']).filter(name__iexact=value)
         if self.instance:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
@@ -118,7 +124,7 @@ class PublicCustomerOrganisationSerializer(ScopedRelationsMixin, CustomerOrganis
 
 
 class PublicTemplateSerializer(ScopedRelationsMixin, QuickReplyTemplateSerializer):
-    scoped_relations = {'organisation': scoping.customer_organisations}
+    scoped_relations = {'organisation': services.scoped_customer_organisations}
 
     class Meta(QuickReplyTemplateSerializer.Meta):
         # Teams are tenant-scoped and not part of the public API.
@@ -131,15 +137,15 @@ class PublicTemplateSerializer(ScopedRelationsMixin, QuickReplyTemplateSerialize
 
 class PublicRoutingRuleWriteSerializer(ScopedRelationsMixin, RoutingRuleWriteSerializer):
     scoped_relations = {
-        'experience_group': scoping.experience_groups,
-        'target_queue': scoping.queues,
+        'experience_group': services.scoped_experience_groups,
+        'target_queue': services.scoped_queues,
     }
 
 
 class PublicAgentSerializer(ScopedRelationsMixin, CustomerUserSerializer):
     scoped_relations = {
-        'organisation': scoping.customer_organisations,
-        'queue': scoping.queues,
+        'organisation': services.scoped_customer_organisations,
+        'queue': services.scoped_queues,
     }
 
     class Meta(CustomerUserSerializer.Meta):
@@ -171,3 +177,92 @@ class PublicAgentSerializer(ScopedRelationsMixin, CustomerUserSerializer):
         attrs['user'] = user
         attrs.pop('email')
         return attrs
+
+
+# ---------------------------------------------------------------------------
+# Admin console
+# ---------------------------------------------------------------------------
+
+def _creator_name(obj):
+    user = obj.created_by
+    if user is None:
+        return None
+    return user.get_full_name() or user.email or user.username
+
+
+class CredentialWriteSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=200)
+    scopes = serializers.ListField(
+        child=serializers.ChoiceField(choices=ALL_SCOPES), allow_empty=False, max_length=len(ALL_SCOPES),
+    )
+
+    def validate_scopes(self, value):
+        # Stable order regardless of how the client sent them.
+        chosen = set(value)
+        return [scope for scope in ALL_SCOPES if scope in chosen]
+
+
+class ApiKeySerializer(serializers.ModelSerializer):
+    display_key = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+    is_active = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = ApiKey
+        fields = [
+            'id', 'name', 'display_key', 'scopes', 'is_active',
+            'created_by_name', 'created_at', 'revoked_at',
+        ]
+        read_only_fields = fields
+
+    def get_display_key(self, obj):
+        return f'zmk_{obj.prefix}_…'
+
+    def get_created_by_name(self, obj):
+        return _creator_name(obj)
+
+
+class OAuthClientSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+    is_active = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = OAuthClient
+        fields = ['id', 'name', 'client_id', 'scopes', 'is_active', 'created_by_name', 'created_at', 'revoked_at']
+        read_only_fields = fields
+
+    def get_created_by_name(self, obj):
+        return _creator_name(obj)
+
+
+class WebhookEndpointWriteSerializer(serializers.Serializer):
+    url = serializers.URLField(max_length=2000)
+    events = serializers.ListField(
+        child=serializers.ChoiceField(choices=WebhookEvent.choices), allow_empty=False,
+        max_length=len(WebhookEvent.choices),
+    )
+
+    def validate_url(self, value):
+        try:
+            services.validate_webhook_url(value)
+        except UnsafeUrlError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        return value
+
+    def validate_events(self, value):
+        chosen = set(value)
+        return [event for event in WebhookEvent.values if event in chosen]
+
+
+class WebhookEndpointSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WebhookEndpoint
+        fields = ['id', 'url', 'events', 'created_at']
+        read_only_fields = fields
+
+
+class WebhookDeliverySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = WebhookDelivery
+        fields = ['id', 'event_type', 'target_url', 'attempt', 'status', 'response_code', 'error', 'created_at']
+        read_only_fields = fields

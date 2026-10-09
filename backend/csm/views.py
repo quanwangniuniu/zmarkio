@@ -2007,7 +2007,7 @@ class TicketStatusViewSet(ProjectScopedViewSetMixin, viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         from csm.services.status_machine import tickets_using_status
         from public_api.models import WebhookEvent
-        from public_api.services.webhooks import emit_ticket_event
+        from public_api.services import emit_ticket_event
         instance = self.get_object()
         if instance.is_builtin:
             raise ValidationError(

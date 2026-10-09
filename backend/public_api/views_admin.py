@@ -15,10 +15,9 @@ from rest_framework.views import APIView
 
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from csm.services.routing_rules import project_organization_id
-from public_api.models import ApiKey, OAuthClient, WebhookDelivery, WebhookEndpoint
-from public_api.permissions import require_integrations_admin
-from public_api.scopes import vocabulary_payload
-from public_api.serializers_admin import (
+from public_api.models import ApiKey, OAuthClient, WebhookDelivery, WebhookEndpoint, WebhookEvent
+from public_api.permissions import RESOURCES, require_integrations_admin
+from public_api.serializers import (
     ApiKeySerializer,
     CredentialWriteSerializer,
     OAuthClientSerializer,
@@ -26,13 +25,13 @@ from public_api.serializers_admin import (
     WebhookEndpointSerializer,
     WebhookEndpointWriteSerializer,
 )
-from public_api.services.credentials import (
+from public_api.services import (
     create_api_key,
+    create_endpoint,
     create_oauth_client,
     revoke_api_key,
     revoke_oauth_client,
 )
-from public_api.services.webhooks import create_endpoint
 
 
 class IntegrationsAdminMixin(ProjectScopedViewSetMixin):
@@ -160,4 +159,7 @@ class IntegrationsVocabularyView(IntegrationsAdminMixin, APIView):
     """GET /api/csm/integrations/vocabulary/?project={id}: resources and webhook events the UI offers."""
 
     def get(self, request):
-        return Response(vocabulary_payload())
+        return Response({
+            'resources': [{'value': value, 'label': label} for value, label in RESOURCES.items()],
+            'events': [{'value': value, 'label': label} for value, label in WebhookEvent.choices],
+        })

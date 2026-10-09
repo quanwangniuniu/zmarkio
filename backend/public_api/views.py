@@ -25,7 +25,7 @@ from public_api.serializers import (
     PublicTemplateSerializer,
     PublicTicketSerializer,
 )
-from public_api.services import scoping
+from public_api import services
 
 
 class PublicApiMixin:
@@ -59,7 +59,7 @@ class QueueViewSet(PublicApiMixin, SoftDeleteMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.queues(self.request.user).select_related('organisation').order_by('display_order', 'id')
+        return services.scoped_queues(self.request.user).select_related('organisation').order_by('display_order', 'id')
 
     def perform_create(self, serializer):
         serializer.save(project_id=self.request.user.project_id)
@@ -78,7 +78,7 @@ class TicketViewSet(PublicApiMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.tickets(self.request.user).select_related(
+        return services.scoped_tickets(self.request.user).select_related(
             'queue', 'assigned_to', 'conversation',
         ).order_by('-created_at', '-id')
 
@@ -116,7 +116,7 @@ class ConversationViewSet(PublicApiMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.conversations(self.request.user).select_related(
+        return services.scoped_conversations(self.request.user).select_related(
             'customer', 'queue', 'assigned_to__user',
         ).order_by('-started_at', '-id')
 
@@ -132,7 +132,7 @@ class CustomerViewSet(PublicApiMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.customers(self.request.user).select_related(
+        return services.scoped_customers(self.request.user).select_related(
             'experience_group', 'status_label',
         ).order_by('-created_at', '-id')
 
@@ -157,7 +157,7 @@ class CustomerOrganisationViewSet(PublicApiMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.customer_organisations(self.request.user).order_by('name', 'id')
+        return services.scoped_customer_organisations(self.request.user).order_by('name', 'id')
 
     def perform_create(self, serializer):
         serializer.save(organization_id=self.request.user.organization_id)
@@ -184,7 +184,7 @@ class TemplateViewSet(PublicApiMixin, SoftDeleteMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.templates(self.request.user).select_related('created_by').order_by('title', 'id')
+        return services.scoped_templates(self.request.user).select_related('created_by').order_by('title', 'id')
 
     def perform_update(self, serializer):
         # Same history snapshot as the internal API; the editor is an integration, not a person.
@@ -213,7 +213,7 @@ class AgentViewSet(PublicApiMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.agents(self.request.user).select_related('user', 'queue', 'organisation').order_by('id')
+        return services.scoped_agents(self.request.user).select_related('user', 'queue', 'organisation').order_by('id')
 
     def perform_destroy(self, instance):
         if instance.is_creator:
@@ -235,7 +235,7 @@ class RoutingRuleViewSet(PublicApiMixin, viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return scoping.routing_rules(self.request.user).select_related(
+        return services.scoped_routing_rules(self.request.user).select_related(
             'target_queue',
         ).order_by('experience_group_id', 'position', 'id')
 

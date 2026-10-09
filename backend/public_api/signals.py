@@ -12,7 +12,7 @@ from django.dispatch import receiver
 
 from csm.models import Ticket
 from public_api.models import WebhookEvent
-from public_api.services.webhooks import emit_ticket_event
+from public_api.services import emit_ticket_event
 
 
 @receiver(post_init, sender=Ticket, dispatch_uid='public_api_ticket_status_snapshot')
