@@ -18,6 +18,8 @@ class DashboardLayoutAPITest(TestCase):
         self.stranger = User.objects.create_user(username='dashboard-stranger', email='stranger@example.test', password='password')
         self.project = Project.objects.create(name='Dashboard project', owner=self.owner, organization=organization)
         self.second_project = Project.objects.create(name='Other project', owner=self.owner, organization=organization)
+        ProjectMember.objects.create(project=self.project, user=self.owner, role='owner')
+        ProjectMember.objects.create(project=self.second_project, user=self.owner, role='owner')
         ProjectMember.objects.create(project=self.project, user=self.member)
         self.client = APIClient()
         self.client.force_authenticate(user=self.owner)

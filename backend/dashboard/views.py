@@ -10,7 +10,8 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import NotFound, ValidationError
 
-from core.models import Project
+from core.admin_utils import get_org_admin_org_ids
+from core.models import Project, ProjectMember
 from core.slug_mixins import resolve_project_pk
 from task.models import Task, ApprovalRecord, TaskComment
 from decision.models import Decision
@@ -550,15 +551,13 @@ class DashboardLayoutView(APIView):
         project_id = resolve_project_pk(request.query_params.get('project_id'))
         if not project_id:
             raise ValidationError({'project_id': 'A valid project is required.'})
+        member_ids = ProjectMember.objects.filter(
+            user=request.user, is_active=True
+        ).values_list('project_id', flat=True)
+        admin_org_ids = get_org_admin_org_ids(request.user)
         projects = Project.objects.filter(pk=project_id).filter(
-            Q(owner=request.user) | Q(members__user=request.user, members__is_active=True)
+            Q(pk__in=member_ids) | Q(organization_id__in=admin_org_ids)
         ).distinct()
-        organization_id = (
-            getattr(request.user, 'current_organization_id', None)
-            or getattr(request.user, 'organization_id', None)
-        )
-        if organization_id:
-            projects = projects.filter(organization_id=organization_id)
         project = projects.first()
         if project is None:
             raise NotFound('Project not found.')
