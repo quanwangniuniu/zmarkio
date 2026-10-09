@@ -26,6 +26,8 @@ describe('CopyGenerator', () => {
       baseUrl: 'http://ollama.test:11434',
       model: 'test-model',
       timeoutMs: 5000,
+      retryDelaysMs: [],
+      keepAlive: '30m',
     });
   });
 

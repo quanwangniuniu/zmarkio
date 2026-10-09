@@ -14,12 +14,10 @@ export const existingMode: SourceModeHandler = {
       parseCreativeId(body.creative_id),
       ctx.projectId
     );
-    const template = creativeToTemplate(loaded);
     return {
-      userPrompt: buildUserPrompt(template, ctx.instruction),
+      userPrompt: buildUserPrompt(creativeToTemplate(loaded), ctx.instruction),
       creativeId: loaded.id,
       sourceRef: '',
-      sourceCopy: template,
     };
   },
 };

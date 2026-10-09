@@ -3,9 +3,10 @@ import type { CopyJson } from '@/src/ai/types';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_RETRY_DELAYS_MS = '2000,4000';
+const DEFAULT_KEEP_ALIVE = '30m';
 // 429 is a rate limit; Ollama answers 503 when its request queue is full.
 const BUSY_STATUSES = [429, 503];
-const BUSY_BACKOFF_MS = [2000, 4000];
 
 const COPY_SCHEMA = {
     type: 'object',
@@ -42,6 +43,8 @@ export type OllamaConfig = {
     baseUrl: string;
     model: string;
     timeoutMs: number;
+    retryDelaysMs: number[];
+    keepAlive: string;
 };
 
 export function getOllamaConfig(): OllamaConfig {
@@ -69,10 +72,23 @@ export function getOllamaConfig(): OllamaConfig {
         );
     }
 
+    const retryDelaysMs = (
+        process.env.OLLAMA_RETRY_DELAYS_MS?.trim() || DEFAULT_RETRY_DELAYS_MS
+    ).split(',').map((value) => Number(value.trim()));
+
+    if (retryDelaysMs.some((delay) => !Number.isFinite(delay) || delay < 0)) {
+        throw new OllamaError(
+            'OLLAMA_RETRY_DELAYS_MS must be a comma-separated list of milliseconds.',
+            'configuration'
+        );
+    }
+
     return {
         baseUrl,
         model,
         timeoutMs,
+        retryDelaysMs,
+        keepAlive: process.env.OLLAMA_KEEP_ALIVE?.trim() || DEFAULT_KEEP_ALIVE,
     };
 }
 
@@ -147,6 +163,7 @@ export async function callOllamaJson(
                 ],
                 stream: false,
                 think: false,
+                keep_alive: config.keepAlive,
                 format: COPY_SCHEMA,
                 options: {
                     temperature: 0.7,
@@ -173,10 +190,10 @@ export async function callOllamaJson(
 
     if (
         BUSY_STATUSES.includes(response.status) &&
-        busyAttempt < BUSY_BACKOFF_MS.length
+        busyAttempt < config.retryDelaysMs.length
     ) {
         await new Promise((resolve) => {
-            setTimeout(resolve, BUSY_BACKOFF_MS[busyAttempt]);
+            setTimeout(resolve, config.retryDelaysMs[busyAttempt]);
         });
         return callOllamaJson(systemPrompt, userPrompt, retryParse, busyAttempt + 1);
     }

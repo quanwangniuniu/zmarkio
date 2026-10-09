@@ -20,9 +20,10 @@ logger = logging.getLogger(__name__)
 DEFAULT_BASE_URL = "http://localhost:11434"
 DEFAULT_MODEL = "qwen3:4b"
 DEFAULT_TIMEOUT_MS = 60000
+DEFAULT_RETRY_DELAYS_MS = "2000,4000"
+DEFAULT_KEEP_ALIVE = "30m"
 # 429 is a rate limit; Ollama answers 503 when its request queue is full.
 BUSY_STATUSES = (429, 503)
-BUSY_BACKOFF_SECONDS = (2, 4)
 
 COPY_SCHEMA = {
     "type": "object",
@@ -50,13 +51,20 @@ def _timeout_seconds() -> float:
     return float(_setting("OLLAMA_REQUEST_TIMEOUT_MS", str(DEFAULT_TIMEOUT_MS))) / 1000
 
 
+def _retry_delays_seconds() -> list:
+    delays = _setting("OLLAMA_RETRY_DELAYS_MS", DEFAULT_RETRY_DELAYS_MS)
+    return [float(delay) / 1000 for delay in delays.split(",")]
+
+
 def _post(payload: dict, timeout: Optional[float]) -> dict:
     url = f"{_setting('OLLAMA_BASE_URL', DEFAULT_BASE_URL).rstrip('/')}/api/chat"
-    for attempt in range(len(BUSY_BACKOFF_SECONDS) + 1):
-        response = requests.post(url, json=payload, timeout=timeout or _timeout_seconds())
-        if response.status_code not in BUSY_STATUSES or attempt == len(BUSY_BACKOFF_SECONDS):
+    timeout = timeout or _timeout_seconds()
+    delays = _retry_delays_seconds()
+    for attempt in range(len(delays) + 1):
+        response = requests.post(url, json=payload, timeout=timeout)
+        if response.status_code not in BUSY_STATUSES or attempt == len(delays):
             break
-        time.sleep(BUSY_BACKOFF_SECONDS[attempt])
+        time.sleep(delays[attempt])
     if response.status_code != 200:
         logger.error(
             "Ollama call failed status=%s body=%s",
@@ -93,6 +101,7 @@ def call_ollama(
         ],
         "stream": False,
         "think": False,
+        "keep_alive": _setting("OLLAMA_KEEP_ALIVE", DEFAULT_KEEP_ALIVE),
         "options": {"temperature": temperature},
     }
     logger.info(
@@ -135,6 +144,7 @@ def call_ollama_json(
         ],
         "stream": False,
         "think": False,
+        "keep_alive": _setting("OLLAMA_KEEP_ALIVE", DEFAULT_KEEP_ALIVE),
         "format": COPY_SCHEMA,
         "options": {"temperature": temperature},
     }

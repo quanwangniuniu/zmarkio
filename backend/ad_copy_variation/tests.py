@@ -665,28 +665,6 @@ class GenerateFromCustomTests(APITestCase):
         self.assertIn('My hook', user_prompt)
         self.assertIn('SUBSCRIBE', user_prompt)
 
-    @patch('ad_copy_variation.services.call_ollama_json')
-    def test_asks_again_when_source_copy_is_returned(self, mock_call):
-        base_copy = {
-            'hook': 'My hook',
-            'headline': 'My headline',
-            'description': 'My desc',
-            'cta': 'SUBSCRIBE',
-        }
-        mock_call.side_effect = [dict(base_copy), _FAKE_OLLAMA_RESPONSE]
-        resp = self.client.post(
-            self.url,
-            {
-                'source_mode': 'custom',
-                'project_id': self.project.id,
-                'base_copy': base_copy,
-            },
-            format='json',
-        )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
-        self.assertEqual(mock_call.call_count, 2)
-        self.assertEqual(resp.data['results'][0]['hook'], _FAKE_OLLAMA_RESPONSE['hook'])
-        self.assertEqual(resp.data['results'][0]['prompt_version'], services.PROMPT_VERSION)
 
 
 class GenerateFromExternalUrlTests(APITestCase):
@@ -906,15 +884,6 @@ class GenerateBatchTests(APITestCase):
         self.assertEqual(AdCopyVariation.objects.filter(project=self.project, status='draft').count(), 5)
 
     @patch('ad_copy_variation.services.call_ollama_json')
-    def test_batch_gives_each_variation_its_own_angle(self, mock_llm):
-        mock_llm.return_value = _FAKE_OLLAMA_RESPONSE
-        resp = self.client.post(self.url, self._custom_payload(count=2), format='json')
-        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
-        prompts = [call.args[1] for call in mock_llm.call_args_list]
-        self.assertTrue(any(services.VARIATION_ANGLES[0] in p for p in prompts))
-        self.assertTrue(any(services.VARIATION_ANGLES[1] in p for p in prompts))
-
-    @patch('ad_copy_variation.services.call_ollama_json')
     def test_batch_partial_failure(self, mock_llm):
         # Mix of success + RuntimeError; mock side_effect is consumed in call order
         # (Mock is thread-safe for side_effect popping).
@@ -1035,6 +1004,7 @@ class OllamaClientTests(SimpleTestCase):
         self.assertEqual(kwargs['json']['model'], 'test-model')
         self.assertEqual(kwargs['json']['format'], ollama_client.COPY_SCHEMA)
         self.assertFalse(kwargs['json']['stream'])
+        self.assertEqual(kwargs['json']['keep_alive'], '30m')
 
     @patch('ad_copy_variation.ollama_client.requests.post')
     def test_retries_invalid_json_once_and_strips_fences(self, mock_post):

@@ -19,12 +19,10 @@ function parseBaseCopy(raw: unknown): CopyJson {
 export const customMode: SourceModeHandler = {
   mode: 'custom',
   async resolve(ctx: GenerateContext, body: Record<string, unknown>): Promise<SourceModeResult> {
-    const baseCopy = parseBaseCopy(body.base_copy);
     return {
-      userPrompt: buildUserPrompt(baseCopy, ctx.instruction),
+      userPrompt: buildUserPrompt(parseBaseCopy(body.base_copy), ctx.instruction),
       creativeId: null,
       sourceRef: '',
-      sourceCopy: baseCopy,
     };
   },
 };

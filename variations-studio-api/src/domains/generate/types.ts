@@ -11,8 +11,6 @@ export type SourceModeResult = {
   userPrompt: string;
   creativeId: bigint | null;
   sourceRef: string;
-  /** Source ad copy, when the mode has one; generation retries copies of it. */
-  sourceCopy?: CopyJson;
 };
 
 export type SourceModeEarlyReturn = {

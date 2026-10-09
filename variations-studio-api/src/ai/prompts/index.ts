@@ -1,8 +1,7 @@
 export const MAX_BATCH = 50;
 export const BATCH_CONCURRENCY = 5;
 export const MODEL_NAME = 'qwen3:4b';
-// Keep in sync with PROMPT_VERSION in backend/ad_copy_variation/services.py.
-export const PROMPT_VERSION = 'v2';
+export const PROMPT_VERSION = 'v1';
 export const AI_QUOTA_MESSAGE =
   'AI generation is temporarily rate-limited or quota-limited. Please wait '
   + 'a minute before generating more variations, or reduce the number of '
@@ -77,18 +76,7 @@ export function buildUserPrompt(template: CopyJson, instruction: string): string
     + `- Description: ${template.description}\n`
     + `- CTA: ${template.cta}\n\n`
     + `Instruction: ${focus}\n\n`
-    + 'Write one new variation of the source ad.'
+    + 'Write one new variation of the source ad. '
+    + 'The hook, headline and description must each differ from the source.'
   );
-}
-
-/** Angles rotated by each variation's batch position; each reshapes facts already in the source. */
-export const VARIATION_ANGLES = [
-  'lead with the main benefit',
-  'open with a short question about the problem',
-  'lead with the offer already in the source ad',
-  'describe how it feels to use the product',
-];
-
-export function withVariationAngle(userPrompt: string, index: number): string {
-  return `${userPrompt}\nAngle: ${VARIATION_ANGLES[index % VARIATION_ANGLES.length]}.`;
 }

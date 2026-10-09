@@ -55,5 +55,5 @@ exports[`Meta prompt compatibility preserves the template user prompt 1`] = `
 
 Instruction: Rewrite all four fields with fresh phrasing, exploring a different angle than a literal rewrite. Respect the length caps and the cta enum lock.
 
-Write one new variation of the source ad."
+Write one new variation of the source ad. The hook, headline and description must each differ from the source."
 `;

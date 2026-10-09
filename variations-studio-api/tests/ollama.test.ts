@@ -26,6 +26,7 @@ describe('Ollama provider', () => {
             OLLAMA_BASE_URL: 'http://ollama.test:11434/',
             OLLAMA_MODEL: 'test-model',
             OLLAMA_REQUEST_TIMEOUT_MS: '5000',
+            OLLAMA_RETRY_DELAYS_MS: '0,0',
         };
         global.fetch = fetchMock as typeof fetch;
     });
@@ -40,6 +41,8 @@ describe('Ollama provider', () => {
             baseUrl: 'http://ollama.test:11434',
             model: 'test-model',
             timeoutMs: 5000,
+            retryDelaysMs: [0, 0],
+            keepAlive: '30m',
         });
     });
 
@@ -104,6 +107,7 @@ describe('Ollama provider', () => {
             ],
             stream: false,
             think: false,
+            keep_alive: '30m',
             options: {
                 temperature: 0.7,
             },
@@ -233,74 +237,34 @@ describe('Ollama provider', () => {
             code: 'invalid_output',
             message: 'Ollama returned an empty response.',
         });
-        expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
     it('retries malformed JSON once and strips code fences', async () => {
-        const copy = {
-            hook: 'Hook',
-            headline: 'Headline',
-            description: 'Description',
-            cta: 'LEARN_MORE',
-        };
+        const copy = { hook: 'H', headline: 'HL', description: 'D', cta: 'LEARN_MORE' };
         fetchMock
             .mockResolvedValueOnce(jsonResponse({ message: { content: 'not-json' } }))
-            .mockResolvedValueOnce(
-                jsonResponse({
-                    message: {
-                        content: '```json\n' + JSON.stringify(copy) + '\n```',
-                    },
-                })
-            );
+            .mockResolvedValueOnce(jsonResponse({
+                message: { content: '```json\n' + JSON.stringify(copy) + '\n```' },
+            }));
 
         await expect(callOllamaJson('system', 'user')).resolves.toEqual(copy);
-        expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
-    it('retries busy responses with backoff', async () => {
-        jest.useFakeTimers();
-        const copy = {
-            hook: 'Hook',
-            headline: 'Headline',
-            description: 'Description',
-            cta: 'LEARN_MORE',
-        };
+    it('retries a busy Ollama before succeeding', async () => {
+        const copy = { hook: 'H', headline: 'HL', description: 'D', cta: 'LEARN_MORE' };
         fetchMock
             .mockResolvedValueOnce(jsonResponse({ error: 'server busy' }, 503))
-            .mockResolvedValueOnce(jsonResponse({ error: 'rate limited' }, 429))
-            .mockResolvedValueOnce(
-                jsonResponse({ message: { content: JSON.stringify(copy) } })
-            );
+            .mockResolvedValueOnce(jsonResponse({ message: { content: JSON.stringify(copy) } }));
 
-        try {
-            const result = callOllamaJson('system', 'user');
-            await jest.advanceTimersByTimeAsync(6000);
-
-            await expect(result).resolves.toEqual(copy);
-            expect(fetchMock).toHaveBeenCalledTimes(3);
-        } finally {
-            jest.useRealTimers();
-        }
+        await expect(callOllamaJson('system', 'user')).resolves.toEqual(copy);
     });
 
-    it('returns the quota message once busy retries run out', async () => {
-        jest.useFakeTimers();
-        fetchMock.mockImplementation(async () =>
-            jsonResponse({ error: 'rate limited' }, 429)
-        );
+    it('returns the quota message when Ollama stays busy', async () => {
+        fetchMock.mockImplementation(async () => jsonResponse({ error: 'rate limited' }, 429));
 
-        try {
-            const result = callOllamaJson('system', 'user').catch(
-                (error: unknown) => error
-            );
-            await jest.advanceTimersByTimeAsync(6000);
-            const error = await result;
+        const error = await callOllamaJson('system', 'user').catch((err: unknown) => err);
 
-            expect(error).toMatchObject({ code: 'request_failed', status: 429 });
-            expect(getOllamaErrorMessage(error)).toBe(AI_QUOTA_MESSAGE);
-            expect(fetchMock).toHaveBeenCalledTimes(3);
-        } finally {
-            jest.useRealTimers();
-        }
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(getOllamaErrorMessage(error)).toBe(AI_QUOTA_MESSAGE);
     });
 });

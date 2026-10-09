@@ -10,8 +10,6 @@ logger = logging.getLogger(__name__)
 
 MAX_BATCH = 50
 BATCH_CONCURRENCY = 5
-# Keep in sync with PROMPT_VERSION in variations-studio-api/src/ai/prompts/index.ts.
-PROMPT_VERSION = 'v2'
 AI_QUOTA_MESSAGE = (
     "AI generation is temporarily rate-limited or quota-limited. Please wait "
     "a minute before generating more variations, or reduce the number of "
@@ -99,37 +97,9 @@ def _build_user_prompt(template: dict, instruction: str) -> str:
         f"- Description: {template.get('description', '')}\n"
         f"- CTA: {template.get('cta', '')}\n\n"
         f"Instruction: {focus}\n\n"
-        f"Write one new variation of the source ad."
+        f"Write one new variation of the source ad. "
+        f"The hook, headline and description must each differ from the source."
     )
-
-
-# Angles rotated by each variation's batch position; each reshapes facts already in the source.
-VARIATION_ANGLES = (
-    "lead with the main benefit",
-    "open with a short question about the problem",
-    "lead with the offer already in the source ad",
-    "describe how it feels to use the product",
-)
-
-
-def _with_angle(user_prompt: str, angle_index: int) -> str:
-    return f"{user_prompt}\nAngle: {VARIATION_ANGLES[angle_index % len(VARIATION_ANGLES)]}."
-
-
-def _is_source_copy(copy: dict, template: dict) -> bool:
-    return all(
-        str(copy.get(field, '')).strip() == str(template.get(field, '')).strip()
-        for field in ('hook', 'headline', 'description')
-    )
-
-
-def _generate_new_copy(template: dict, instruction: str, angle_index: int) -> dict:
-    user_prompt = _with_angle(_build_user_prompt(template, instruction), angle_index)
-    copy = call_ollama_json(SYSTEM_PROMPT, user_prompt)
-    # Small local models sometimes hand the source back unchanged; ask once more.
-    if _is_source_copy(copy, template):
-        copy = call_ollama_json(SYSTEM_PROMPT, user_prompt)
-    return copy
 
 
 def _creative_to_template(creative: MetaAdCreative) -> dict:
@@ -143,14 +113,14 @@ def _creative_to_template(creative: MetaAdCreative) -> dict:
     }
 
 
-def generate_from_existing(creative_id: int, instruction: str = '', angle_index: int = 0) -> dict:
+def generate_from_existing(creative_id: int, instruction: str = '') -> dict:
     creative = MetaAdCreative.objects.get(pk=creative_id)
     template = _creative_to_template(creative)
-    return _generate_new_copy(template, instruction, angle_index)
+    return call_ollama_json(SYSTEM_PROMPT, _build_user_prompt(template, instruction))
 
 
-def generate_from_custom(base_copy: dict, instruction: str = '', angle_index: int = 0) -> dict:
-    return _generate_new_copy(base_copy, instruction, angle_index)
+def generate_from_custom(base_copy: dict, instruction: str = '') -> dict:
+    return call_ollama_json(SYSTEM_PROMPT, _build_user_prompt(base_copy, instruction))
 
 
 EXTERNAL_URL_PROMPT_PREFIX = (
@@ -176,35 +146,30 @@ EXTERNAL_URL_PROMPT_PREFIX = (
 )
 
 
-def generate_from_external_url(url: str, instruction: str = '', angle_index: int = 0) -> dict:
+def generate_from_external_url(url: str, instruction: str = '') -> dict:
     page_text = fetch_url_text(url)
     focus = instruction.strip() or "Rewrite all four fields with fresh phrasing, exploring a different angle than a literal rewrite. Preserve the source language. Respect the length caps and the cta enum lock."
     user_prompt = EXTERNAL_URL_PROMPT_PREFIX.format(
         page_text=page_text,
         instruction=focus,
     )
-    return call_ollama_json(SYSTEM_PROMPT, _with_angle(user_prompt, angle_index))
+    return call_ollama_json(SYSTEM_PROMPT, user_prompt)
 
 
-def _single_generate_dispatch(
-    source_mode: str,
-    source_kwargs: dict,
-    instruction: str,
-    angle_index: int = 0,
-) -> dict:
+def _single_generate_dispatch(source_mode: str, source_kwargs: dict, instruction: str) -> dict:
     if source_mode == 'existing':
         creative_id = source_kwargs.get('creative_id')
         if not creative_id:
             raise ValueError('creative_id required for source_mode=existing')
-        return generate_from_existing(int(creative_id), instruction, angle_index)
+        return generate_from_existing(int(creative_id), instruction)
     if source_mode == 'custom':
         base_copy = source_kwargs.get('base_copy') or {}
-        return generate_from_custom(base_copy, instruction, angle_index)
+        return generate_from_custom(base_copy, instruction)
     if source_mode == 'external_url':
         url = (source_kwargs.get('url') or '').strip()
         if not url:
             raise ValueError('url required for source_mode=external_url')
-        return generate_from_external_url(url, instruction, angle_index)
+        return generate_from_external_url(url, instruction)
     raise ValueError(f'unknown source_mode: {source_mode}')
 
 
@@ -224,7 +189,7 @@ def generate_batch(
 
     def _task(index: int):
         try:
-            return index, _single_generate_dispatch(source_mode, source_kwargs, instruction, index)
+            return index, _single_generate_dispatch(source_mode, source_kwargs, instruction)
         except Exception as exc:
             logger.warning('Batch generation failed batch_id=%s index=%s err=%s', batch_id, index, str(exc)[:200])
             return index, exc
