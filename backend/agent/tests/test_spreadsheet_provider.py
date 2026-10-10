@@ -286,7 +286,7 @@ class OrchestratorThroughProviderTests(TestCase):
         orch = AgentOrchestrator(self.user, self.project, self.session)
         return list(orch.analyze_spreadsheet(self.spreadsheet.id))
 
-    @patch("agent.services._run_analysis")
+    @patch("agent.services.analysis._run_analysis")
     def test_analyze_spreadsheet_end_to_end(self, mock_run):
         from agent.models import AgentWorkflowRun
 
@@ -299,7 +299,7 @@ class OrchestratorThroughProviderTests(TestCase):
         run = AgentWorkflowRun.objects.get(session=self.session)
         self.assertEqual(run.spreadsheet_id, self.spreadsheet.id)
 
-    @patch("agent.services._run_analysis")
+    @patch("agent.services.analysis._run_analysis")
     def test_analyze_spreadsheet_denied_for_non_member(self, mock_run):
         outsider = _make_user("nope@t.com")
         from agent.models import AgentSession
@@ -312,7 +312,7 @@ class OrchestratorThroughProviderTests(TestCase):
         mock_run.assert_not_called()
 
     @override_settings(AGENT_SPREADSHEET_AI_ENABLED=False)
-    @patch("agent.services._run_analysis")
+    @patch("agent.services.analysis._run_analysis")
     def test_analyze_spreadsheet_blocked_when_flag_off(self, mock_run):
         chunks = self._run()
         err = [c for c in chunks if c["type"] == "error"]
@@ -337,10 +337,15 @@ class DecouplingGuardTests(TestCase):
     def test_agent_services_has_no_spreadsheet_orm_import(self):
         import agent.services
 
-        src = Path(inspect.getfile(agent.services)).read_text()
-        self.assertNotIn("from spreadsheet.models", src)
-        self.assertNotIn("import spreadsheet.models", src)
-        self.assertNotIn("_extract_spreadsheet_data", src)
+        package_dir = Path(agent.services.__file__).parent
+        sources = sorted(package_dir.glob("*.py"))
+        self.assertIn(package_dir / "orchestrator.py", sources)
+        for path in sources:
+            with self.subTest(module=path.name):
+                src = path.read_text()
+                self.assertNotIn("from spreadsheet.models", src)
+                self.assertNotIn("import spreadsheet.models", src)
+                self.assertNotIn("_extract_spreadsheet_data", src)
 
     def test_spreadsheet_package_does_not_import_agent(self):
         import spreadsheet.import_service
