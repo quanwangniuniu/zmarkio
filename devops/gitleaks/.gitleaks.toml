@@ -48,7 +48,6 @@ paths = [
     '''Database.refactorlog''',
     '''(?:^|/)\.git$''',
     '''.env''',
-    '''env.example''',
     '''backend/.scannerwork''',
     '''frontend/.scannerwork''',
     '''(?i)^backend/[^/]+/[^/]*test[^/]*/.*''',
@@ -3212,3 +3211,18 @@ description = "Detected a Zendesk Secret Key, risking unauthorized access to cus
 regex = '''(?i)[\w.-]{0,50}?(?:zendesk)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([a-z0-9]{40})(?:[\x60'"\s;]|\\[nr]|$)'''
 keywords = ["zendesk"]
 
+[[rules]]
+id = "env-example-placeholder"
+description = "Detect non-placeholder credential values in env.example"
+path = '''^env\.example$'''
+regex = '''(?im)^(?:[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|KEY)[A-Z0-9_]*)=([^\s#]+)'''
+secretGroup = 1
+
+[[rules.allowlists]]
+description = "Allow explicit placeholder values in env.example"
+regexes = [
+  '''^<[^>]+>$''',
+  '''^your[-_][A-Za-z0-9._-]+$''',
+  '''^\.\.\.$''',
+  '''^[A-Za-z0-9_-]+_\.\.\.$'''
+]

@@ -144,6 +144,14 @@ jobs:
           rm -rf frontend/{node_modules,.next}
           gitleaks detect --config devops/gitleaks/.gitleaks.toml --source . --report-path devops/gitleaks/gitleaks-report.json --no-git || echo "gitleaks failed"
 
+      - name: Enforce env.example placeholders
+        run: |
+          gitleaks detect \
+            --config devops/gitleaks/.gitleaks.toml \
+            --source . \
+            --no-git \
+            --enable-rule env-example-placeholder
+
       - name: Check Dockerfile for USER directive
         run: |
           if ! grep "^USER" backend/Dockerfile; then
