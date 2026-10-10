@@ -431,7 +431,10 @@ class MeetingViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
                 try:
                     db_layout_config = json.loads(db_layout_config)
                 except Exception:
-                    pass
+                    logger.warning(
+                        "Meeting %s: cannot parse stored layout_config for the change diff",
+                        meeting.pk, exc_info=True,
+                    )
             before = {
                 "title": row[0],
                 "objective": row[1],
@@ -1039,7 +1042,10 @@ class ArtifactLinkViewSet(ArchivedMeetingGuardMixin, viewsets.ModelViewSet):
                 s = Spreadsheet.objects.only("name").get(pk=artifact_id)
                 return s.name or f"Spreadsheet #{artifact_id}"
         except Exception:
-            pass
+            logger.warning(
+                "Failed to resolve title for %s artifact %s; using generic label",
+                artifact_type, artifact_id, exc_info=True,
+            )
         return f"{artifact_type.capitalize()} #{artifact_id}"
 
     def perform_create(self, serializer):

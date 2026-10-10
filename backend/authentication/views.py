@@ -1295,7 +1295,10 @@ class DeleteAccountView(APIView):
                 try:
                     user.avatar.delete(save=False)
                 except Exception:
-                    pass
+                    logger.error(
+                        "Failed to delete avatar file for deleted user %s; the path is still on the user row",
+                        user.id, exc_info=True,
+                    )
 
             # 7. Blacklist the refresh token supplied in the request (best-effort)
             refresh_token = request.data.get('refresh_token')
@@ -1304,7 +1307,10 @@ class DeleteAccountView(APIView):
                     token = RefreshToken(refresh_token)
                     token.blacklist()
                 except Exception:
-                    pass
+                    logger.warning(
+                        "Failed to blacklist refresh token for deleted user %s",
+                        user.id, exc_info=True,
+                    )
 
             # 8. Anonymise and soft-delete the user record
             #    (keeps FK integrity for audit logs / chat messages etc.)

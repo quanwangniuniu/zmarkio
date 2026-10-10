@@ -542,7 +542,10 @@ def _get_image_preview_page(attachment):
             with Image.open(handle) as image:
                 page["width"], page["height"] = image.size
     except Exception:
-        pass
+        logger.warning(
+            "Comment attachment preview: could not read image dimensions attachment_id=%s",
+            attachment.id, exc_info=True,
+        )
     return page
 
 

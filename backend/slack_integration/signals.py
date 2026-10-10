@@ -102,9 +102,12 @@ def notify_on_project_creation(sender, instance, created, **kwargs):
                 connection = SlackWorkspaceConnection.objects.using('default').get(id=row[0])
                 create_default_preferences(instance.organization, connection)
     except Exception:
-        # Silently skip if slack integration table doesn't exist or any other error
+        # Skip if slack integration table doesn't exist or any other error
         # This is expected for new organizations or when slack integration is not set up
-        pass
+        logger.error(
+            "Failed to create default Slack preferences for project %s (organization %s)",
+            instance.pk, getattr(instance, "organization_id", None), exc_info=True,
+        )
 
 
 # ─── Task: created ────────────────────────────────────────────────────────────

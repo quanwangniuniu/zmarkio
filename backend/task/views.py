@@ -70,6 +70,10 @@ def _debug_log(session_id, location, message, data=None, hypothesis_id=None):
                 f.write(line)
             break
         except Exception:
+            logger.warning(
+                "_debug_log: cannot write to %s",
+                path, exc_info=True,
+            )
             continue
 # endregion
 

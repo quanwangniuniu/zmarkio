@@ -727,7 +727,10 @@ class OnlineStatusService:
         try:
             cache.touch(key, cls.ONLINE_TIMEOUT)
         except Exception:
-            pass
+            logger.warning(
+                "OnlineStatusService: failed to refresh TTL of %s",
+                key, exc_info=True,
+            )
 
     @classmethod
     def _redis(cls):
@@ -841,7 +844,10 @@ class OnlineStatusService:
             try:
                 cls._redis().delete(cls._connection_key(user_id))
             except Exception:
-                pass
+                logger.warning(
+                    "OnlineStatusService: failed to delete connection set for user_id=%s",
+                    user_id, exc_info=True,
+                )
             logger.info(f"[OnlineStatus] User {user_id} marked as OFFLINE")
             return True
         except Exception:
@@ -1050,7 +1056,10 @@ class ChatService:
         try:
             cache.set(cache_key, recipient_ids, timeout=OnlineStatusService.PRESENCE_RECIPIENTS_TIMEOUT)
         except Exception:
-            pass
+            logger.warning(
+                "Failed to cache presence recipients for user_id=%s",
+                user_id, exc_info=True,
+            )
         return recipient_ids
 
     @staticmethod
@@ -2113,7 +2122,11 @@ class MessageService:
             try:
                 source_field.close()
             except Exception:
-                pass
+                # Intentional skip: cleanup in finally; raising here would mask the copy result or error.
+                logger.warning(
+                    "Failed to close source attachment file after copy",
+                    exc_info=True,
+                )
 
     @staticmethod
     def _clone_attachments_for_forward(

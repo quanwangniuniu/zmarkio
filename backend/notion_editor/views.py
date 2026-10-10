@@ -828,7 +828,11 @@ class MediaUploadView(APIView):
                 try:
                     os.unlink(temp_file_path)
                 except Exception:
-                    pass  # Ignore cleanup errors
+                    # Intentional skip: cleanup after an error; raising here would replace the 500 response below.
+                    logger.warning(
+                        "Failed to delete temporary upload file after error",
+                        exc_info=True,
+                    )
             return Response(
                 {'error': f'File upload error: {str(e)}'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
