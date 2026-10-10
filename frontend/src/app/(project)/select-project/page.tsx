@@ -245,7 +245,7 @@ export default function SelectProjectPage() {
 
         {renderPendingInvites()}
 
-        <div className="mb-6">
+        <div className="mb-6 flex items-center justify-between gap-3">
           <div className="max-w-sm w-full relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <Input
