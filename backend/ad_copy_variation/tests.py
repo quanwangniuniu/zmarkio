@@ -666,7 +666,6 @@ class GenerateFromCustomTests(APITestCase):
         self.assertIn('SUBSCRIBE', user_prompt)
 
 
-
 class GenerateFromExternalUrlTests(APITestCase):
     @classmethod
     def setUpTestData(cls):
