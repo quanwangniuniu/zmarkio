@@ -16,7 +16,8 @@ import { DashboardAPI } from '@/lib/api/dashboardApi';
 import type { RollupProjectResult } from '@/lib/api/dashboardApi';
 import { exportMatrixToXLSX } from '@/components/spreadsheets/spreadsheetImportExport';
 
-const PAGE_SIZE = 5;
+const PAGE_SIZE_OPTIONS = [5, 10, 20];
+const DEFAULT_PAGE_SIZE = 5;
 
 // Fields always fetched (primary + detail)
 const ALL_FIELDS = [
@@ -313,6 +314,7 @@ export default function CrossProjectRollupWidget({ onSelectProject }: CrossProje
 
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [windowStart, setWindowStart] = useState(0);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
   const hasFetched = useRef(false);
@@ -348,10 +350,10 @@ export default function CrossProjectRollupWidget({ onSelectProject }: CrossProje
     [allData, selectedProjectIdSet]
   );
 
-  const safeStart = Math.min(windowStart, Math.max(0, filteredData.length - PAGE_SIZE));
-  const windowedData = filteredData.slice(safeStart, safeStart + PAGE_SIZE);
+  const safeStart = Math.min(windowStart, Math.max(0, filteredData.length - pageSize));
+  const windowedData = filteredData.slice(safeStart, safeStart + pageSize);
   const canPrev = safeStart > 0;
-  const canNext = safeStart + PAGE_SIZE < filteredData.length;
+  const canNext = safeStart + pageSize < filteredData.length;
 
   const projectOptions = useMemo(
     () => allData.map((r) => ({ key: String(r.project_id), label: r.project_name as string })),
@@ -604,26 +606,41 @@ export default function CrossProjectRollupWidget({ onSelectProject }: CrossProje
         {!loading && filteredData.length > 0 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100">
             <span className="text-[12px] text-gray-400">
-              Showing {safeStart + 1}–{Math.min(safeStart + PAGE_SIZE, filteredData.length)} of{' '}
+              Showing {safeStart + 1}–{Math.min(safeStart + pageSize, filteredData.length)} of{' '}
               {filteredData.length} projects
             </span>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setWindowStart((s) => Math.max(0, s - PAGE_SIZE))}
-                disabled={!canPrev}
-                className="rounded border border-gray-200 p-1 hover:bg-gray-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            <div className="flex items-center gap-2">
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setWindowStart(0);
+                  setExpandedRows(new Set());
+                }}
+                className="h-7 rounded border border-gray-200 px-1.5 text-[12px] text-gray-600 bg-white hover:border-gray-300 transition-colors cursor-pointer"
               >
-                <ChevronLeft className="w-4 h-4 text-gray-600" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setWindowStart((s) => s + PAGE_SIZE)}
-                disabled={!canNext}
-                className="rounded border border-gray-200 p-1 hover:bg-gray-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <ChevronRight className="w-4 h-4 text-gray-600" />
-              </button>
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n} / page</option>
+                ))}
+              </select>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setWindowStart((s) => Math.max(0, s - pageSize))}
+                  disabled={!canPrev}
+                  className="rounded border border-gray-200 p-1 hover:bg-gray-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft className="w-4 h-4 text-gray-600" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWindowStart((s) => s + pageSize)}
+                  disabled={!canNext}
+                  className="rounded border border-gray-200 p-1 hover:bg-gray-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight className="w-4 h-4 text-gray-600" />
+                </button>
+              </div>
             </div>
           </div>
         )}
