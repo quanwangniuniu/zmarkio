@@ -4,14 +4,31 @@ Tests the core retrospective task lifecycle: auto-create → complete
 """
 import pytest
 from decimal import Decimal
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.contrib.auth import get_user_model
-from retrospective.models import RetrospectiveTask, Insight, RetrospectiveStatus, InsightSeverity
+from retrospective.models import CampaignMetric, RetrospectiveTask, Insight, RetrospectiveStatus, InsightSeverity
 from core.models import Project, Organization
 
 User = get_user_model()
+
+
+class TenantRegistrationTests(SimpleTestCase):
+    """
+    Regression test for MED-264: RetrospectiveTask/CampaignMetric/Insight
+    must stay registered as tenant models. See core/tenant_config.py's
+    "MED-264 tenancy fix" comment -- these were previously public-schema-only
+    despite being project-scoped.
+    """
+
+    def test_retrospective_models_are_tenant_models(self):
+        from core.tenant_config import get_tenant_models
+
+        tenant_models = get_tenant_models()
+        self.assertIn(RetrospectiveTask, tenant_models)
+        self.assertIn(CampaignMetric, tenant_models)
+        self.assertIn(Insight, tenant_models)
 
 
 @pytest.mark.timeout(600)

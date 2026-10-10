@@ -14,4 +14,6 @@ class NotionEditorConfig(AppConfig):
         except ImportError:
             pass
 
+        import notion_editor.signals  # noqa: F401
+
 

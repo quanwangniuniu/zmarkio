@@ -1,0 +1,4478 @@
+{
+  "run_metadata": {
+    "timestamp": "2026-09-08T14:27:41.759686+00:00",
+    "fixture_path": "/app/rag/tests/fixtures/project_rag_eval_dataset.json",
+    "fixture_version": "2.1.0",
+    "chunk_size": 1500,
+    "chunk_overlap": 200,
+    "embedding_provider": "local",
+    "embedding_model": "BAAI/bge-base-en-v1.5",
+    "embedding_dimensions": 768,
+    "min_similarity": null,
+    "top_k": 10,
+    "eval_org_schema": "org_rag_eval_harness",
+    "eval_project_id": 1
+  },
+  "index_outcomes": [
+    {
+      "source_ref": "meeting-001",
+      "source_type": "meeting",
+      "source_id": "-1771777911",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-002",
+      "source_type": "meeting",
+      "source_id": "-1840908246",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-003",
+      "source_type": "meeting",
+      "source_id": "-1581148036",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-004",
+      "source_type": "meeting",
+      "source_id": "-1604877319",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-005",
+      "source_type": "meeting",
+      "source_id": "-1353494817",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-006",
+      "source_type": "meeting",
+      "source_id": "-1856231474",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-007",
+      "source_type": "meeting",
+      "source_id": "-1524985860",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-008",
+      "source_type": "meeting",
+      "source_id": "-1681588191",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-009",
+      "source_type": "meeting",
+      "source_id": "-1329059990",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-010",
+      "source_type": "meeting",
+      "source_id": "-1905614721",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-011",
+      "source_type": "meeting",
+      "source_id": "-1944187447",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-012",
+      "source_type": "meeting",
+      "source_id": "-1821612789",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-001",
+      "source_type": "notion_draft",
+      "source_id": "-1952811683",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-002",
+      "source_type": "notion_draft",
+      "source_id": "-1578818069",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-003",
+      "source_type": "notion_draft",
+      "source_id": "-1592565401",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-004",
+      "source_type": "notion_draft",
+      "source_id": "-1810138572",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-005",
+      "source_type": "notion_draft",
+      "source_id": "-1639556164",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-006",
+      "source_type": "notion_draft",
+      "source_id": "-1959981006",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-007",
+      "source_type": "notion_draft",
+      "source_id": "-1422865561",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-008",
+      "source_type": "notion_draft",
+      "source_id": "-1313114950",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-001",
+      "source_type": "retrospective",
+      "source_id": "5f7f5a07-a19b-57ac-89aa-355c5939fe1b",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-002",
+      "source_type": "retrospective",
+      "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-003",
+      "source_type": "retrospective",
+      "source_id": "6ce8487a-eeec-5a5d-a1c7-56056b2f8369",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-004",
+      "source_type": "retrospective",
+      "source_id": "84037f8a-3e26-5edf-9db1-42750bd21a66",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-005",
+      "source_type": "retrospective",
+      "source_id": "71f492ef-4fd2-55ae-94b5-0badd0b6afa5",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-006",
+      "source_type": "retrospective",
+      "source_id": "c79902e0-deca-599c-bfa6-282f6326e1a3",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-013",
+      "source_type": "meeting",
+      "source_id": "-1247652756",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-014",
+      "source_type": "meeting",
+      "source_id": "-1225674207",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-015",
+      "source_type": "meeting",
+      "source_id": "-1341046350",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-016",
+      "source_type": "meeting",
+      "source_id": "-1729277584",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-017",
+      "source_type": "meeting",
+      "source_id": "-1793261339",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-018",
+      "source_type": "meeting",
+      "source_id": "-1529437712",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-019",
+      "source_type": "meeting",
+      "source_id": "-1890127441",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-020",
+      "source_type": "meeting",
+      "source_id": "-1452756575",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-021",
+      "source_type": "meeting",
+      "source_id": "-1773043510",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-022",
+      "source_type": "meeting",
+      "source_id": "-1904195200",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-023",
+      "source_type": "meeting",
+      "source_id": "-1495859823",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-024",
+      "source_type": "meeting",
+      "source_id": "-1137640613",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "meeting-025",
+      "source_type": "meeting",
+      "source_id": "-1524042661",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-009",
+      "source_type": "notion_draft",
+      "source_id": "-1360046904",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-010",
+      "source_type": "notion_draft",
+      "source_id": "-1202945772",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-011",
+      "source_type": "notion_draft",
+      "source_id": "-1844743518",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-012",
+      "source_type": "notion_draft",
+      "source_id": "-1219942096",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-013",
+      "source_type": "notion_draft",
+      "source_id": "-1712928628",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-014",
+      "source_type": "notion_draft",
+      "source_id": "-1370321670",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-015",
+      "source_type": "notion_draft",
+      "source_id": "-1527038552",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-016",
+      "source_type": "notion_draft",
+      "source_id": "-1607082095",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-017",
+      "source_type": "notion_draft",
+      "source_id": "-1969822314",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "notion-018",
+      "source_type": "notion_draft",
+      "source_id": "-1943594784",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-007",
+      "source_type": "retrospective",
+      "source_id": "8826dcf7-2f99-5a43-afdb-ec4b06baa0bd",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-008",
+      "source_type": "retrospective",
+      "source_id": "a7c8c5ba-608d-5b66-9008-528f1c50301d",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-009",
+      "source_type": "retrospective",
+      "source_id": "08333ef7-7485-586d-8f5a-b84756db44f1",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-010",
+      "source_type": "retrospective",
+      "source_id": "478a12f8-381d-508c-89e4-d7fae9348989",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-011",
+      "source_type": "retrospective",
+      "source_id": "03df79f6-1802-5fb0-9a29-c90507282f17",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-012",
+      "source_type": "retrospective",
+      "source_id": "69c378c5-940f-5318-b798-7fdd65a60a2c",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-013",
+      "source_type": "retrospective",
+      "source_id": "c00e9c49-03b3-58a3-a492-4c281b38e134",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-014",
+      "source_type": "retrospective",
+      "source_id": "535e3eef-3e60-58e3-a937-68546effeaf6",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    },
+    {
+      "source_ref": "retro-015",
+      "source_type": "retrospective",
+      "source_id": "990b7a8a-efaf-5192-9959-1d9f5f4f9e41",
+      "outcome": "skipped_unchanged",
+      "detail": ""
+    }
+  ],
+  "metrics": {
+    "single_source": {
+      "n": 24,
+      "hit@1": 0.9166666666666666,
+      "hit@3": 0.9583333333333334,
+      "hit@5": 0.9583333333333334,
+      "mrr": 0.9444444444444443
+    },
+    "multi_source": {
+      "n": 15,
+      "recall@3": 0.8166666666666667,
+      "recall@5": 0.9,
+      "recall@10": 0.9333333333333333,
+      "full_coverage@3": 0.6,
+      "full_coverage@5": 0.7333333333333333,
+      "full_coverage@10": 0.8,
+      "precision@3": 0.6888888888888888,
+      "precision@5": 0.45333333333333325,
+      "source_precision@3_diagnostic": 0.6888888888888888,
+      "source_precision@5_diagnostic": 0.45333333333333325,
+      "aux_mrr_first_relevant": 0.9666666666666667
+    },
+    "no_answer": {
+      "n": 5,
+      "note": "excluded from Hit@K/MRR/Recall/Precision by design; see per-question diagnostics"
+    }
+  },
+  "per_question": [
+    {
+      "id": "q01",
+      "question_type": "single-source",
+      "question": "What purchase order number was confirmed for the holiday gift-card inserts?",
+      "tags": [
+        "exact-id"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-008",
+          "evidence": [
+            "purchase order PO-88214"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-008",
+          "source_type": "meeting",
+          "source_id": "-1681588191",
+          "chunk_index": 0,
+          "similarity": 0.7452,
+          "content_snippet": "Vendor Call \u2014 Print Supplier\n\nVendor Call \u2014 Print Supplier \u2014 Sept 8, 2026\nAttendees: Marcus, print supplier rep Alan Cho.\nAlan confirmed purchase order PO-88214 for the holiday gift-card inserts has s"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-009",
+          "source_type": "notion_draft",
+          "source_id": "-1360046904",
+          "chunk_index": 0,
+          "similarity": 0.6544,
+          "content_snippet": "Main Push Email Copy \u2014 Aurora Retail\n\nMain Push Email Copy \u2014 Aurora Retail\nStatus: Approved\nSubject line: Your gift card is calling \ud83c\udf81\n\nBody: The Aurora Retail holiday gift-card sale is live through No"
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-013",
+          "source_type": "notion_draft",
+          "source_id": "-1712928628",
+          "chunk_index": 0,
+          "similarity": 0.6456,
+          "content_snippet": "Last-Chance Reminder Email Series \u2014 Aurora Retail\n\nLast-Chance Reminder Email Series \u2014 Aurora Retail\nStatus: Approved\n\nThree-email sequence for the Dec 15-24 window, branded as stretch-goal messaging "
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.6168,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-020",
+          "source_type": "meeting",
+          "source_id": "-1452756575",
+          "chunk_index": 0,
+          "similarity": 0.6031,
+          "content_snippet": "Weekly Standup \u2014 Nov 18, 2026\n\nWeekly Standup \u2014 Nov 18, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Last-chance phase creative for the Dec 15-24 reminders is in progress.\nMarcus: Gift-card sales tally "
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-008",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "purchase order PO-88214": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q02",
+      "question_type": "single-source",
+      "question": "What promo code was included in the approved welcome email that Marketing signed off on sending?",
+      "tags": [
+        "exact-id",
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-005",
+          "evidence": [
+            "code WELCOME15"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.6393,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-005",
+          "source_type": "notion_draft",
+          "source_id": "-1639556164",
+          "chunk_index": 0,
+          "similarity": 0.6354,
+          "content_snippet": "Email Draft v2: Welcome Series \u2014 Step 1 (Revised)\n\nEmail Draft v2: Welcome Series \u2014 Step 1 (Revised)\nStatus: Approved for send\nSubject line: Welcome to Aurora Retail \u2014 here's 15% off\n\nBody: Thanks for"
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-002",
+          "source_type": "notion_draft",
+          "source_id": "-1578818069",
+          "chunk_index": 0,
+          "similarity": 0.6332,
+          "content_snippet": "Email Draft v1: Welcome Series \u2014 Step 1\n\nEmail Draft v1: Welcome Series \u2014 Step 1\nStatus: Draft \u2014 needs revision\nSubject line: Welcome to Aurora Retail!\n\nBody: Thanks for joining Aurora Retail. As a we"
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-007",
+          "source_type": "notion_draft",
+          "source_id": "-1422865561",
+          "chunk_index": 0,
+          "similarity": 0.5722,
+          "content_snippet": "Case Study Draft: Aurora Retail Results\n\nCase Study Draft: Aurora Retail Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the Q3 loyalty-program launch for Aurora Retail.\n\n"
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-013",
+          "source_type": "notion_draft",
+          "source_id": "-1712928628",
+          "chunk_index": 0,
+          "similarity": 0.5657,
+          "content_snippet": "Last-Chance Reminder Email Series \u2014 Aurora Retail\n\nLast-Chance Reminder Email Series \u2014 Aurora Retail\nStatus: Approved\n\nThree-email sequence for the Dec 15-24 window, branded as stretch-goal messaging "
+        }
+      ],
+      "evidence_complete_rank": 2,
+      "per_expected_source": [
+        {
+          "source_ref": "notion-005",
+          "evidence_complete_rank": 2,
+          "evidence_covered": {
+            "code WELCOME15": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q03",
+      "question_type": "single-source",
+      "question": "On what date is Aurora Retail's Q3 loyalty-program landing page launching?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-003",
+          "evidence": [
+            "will launch on October 15, 2026"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-003",
+          "source_type": "meeting",
+          "source_id": "-1581148036",
+          "chunk_index": 0,
+          "similarity": 0.8423,
+          "content_snippet": "Q3 Marketing Sync \u2014 Launch Timeline\n\nQ3 Marketing Sync \u2014 Launch Timeline \u2014 Aug 12, 2026\nAttendees: Priya, Marcus, Jade.\nMarcus confirmed the Aurora Retail Q3 loyalty-program landing page will launch o"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-006",
+          "source_type": "notion_draft",
+          "source_id": "-1959981006",
+          "chunk_index": 0,
+          "similarity": 0.797,
+          "content_snippet": "Press Release Snippet \u2014 Product Launch\n\nPress Release Snippet \u2014 Product Launch\nStatus: Draft\n\n\"Aurora Retail today announced the launch of its redesigned loyalty program, giving members early access t"
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-007",
+          "source_type": "notion_draft",
+          "source_id": "-1422865561",
+          "chunk_index": 0,
+          "similarity": 0.7776,
+          "content_snippet": "Case Study Draft: Aurora Retail Results\n\nCase Study Draft: Aurora Retail Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the Q3 loyalty-program launch for Aurora Retail.\n\n"
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-004",
+          "source_type": "notion_draft",
+          "source_id": "-1810138572",
+          "chunk_index": 0,
+          "similarity": 0.7529,
+          "content_snippet": "Landing Page Copy: Aurora Retail Winter Sale\n\nLanding Page Copy: Aurora Retail Winter Sale\nStatus: Client review\nAuthor: Priya, edited by Marcus\n\nHero Section\nHeadline: \"Winter Savings Start Here\"\nSub"
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-015",
+          "source_type": "notion_draft",
+          "source_id": "-1527038552",
+          "chunk_index": 0,
+          "similarity": 0.744,
+          "content_snippet": "Case Study Draft: Aurora Retail Full-Year Results\n\nCase Study Draft: Aurora Retail Full-Year Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the full Q3-Q4 Aurora Retail e"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-003",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "will launch on October 15, 2026": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q04",
+      "question_type": "single-source",
+      "question": "Who did Corinne confirm would be promoted to Head of Creative, and effective when?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": [
+            "Priya will be promoted to Head of Creative effective Nov 1"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-010",
+          "source_type": "meeting",
+          "source_id": "-1905614721",
+          "chunk_index": 0,
+          "similarity": 0.58,
+          "content_snippet": "All-Hands: FY26 Planning\n\nAll-Hands: FY26 Planning \u2014 Oct 1, 2026\nAttendees: Full agency team, led by Corinne Blake (Managing Director).\n\nAgency Goals\nCorinne outlined three company-wide goals for FY26"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-016",
+          "source_type": "meeting",
+          "source_id": "-1729277584",
+          "chunk_index": 0,
+          "similarity": 0.5759,
+          "content_snippet": "New Copywriter \u2014 Hiring Debrief\n\nNew Copywriter \u2014 Hiring Debrief \u2014 Oct 12, 2026\nAttendees: Priya, Corinne.\nPriya reported a shortlist of 4 candidates ready, meeting the Oct 10 deadline set at the Q3 q"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 0,
+          "similarity": 0.571,
+          "content_snippet": "Quarterly Business Review \u2014 Full Transcript\n\nQuarterly Business Review \u2014 Full Transcript \u2014 Sept 25, 2026\nAttendees: Jade (Account Manager), Priya (Creative Lead), Marcus (Strategy), Dev (Engineering),"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-024",
+          "source_type": "meeting",
+          "source_id": "-1137640613",
+          "chunk_index": 0,
+          "similarity": 0.555,
+          "content_snippet": "1:1 \u2014 Jade & Manager (Nov)\n\n1:1 \u2014 Jade & Manager (Nov) \u2014 Nov 21, 2026\nAttendees: Jade, Corinne.\nJade reported the second account coordinator, added Oct 1, has cut her average weekly overtime from 6 ho"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-011",
+          "source_type": "meeting",
+          "source_id": "-1944187447",
+          "chunk_index": 0,
+          "similarity": 0.5429,
+          "content_snippet": "1:1 \u2014 Jade & Manager\n\n1:1 \u2014 Jade & Manager \u2014 Sept 12, 2026\nAttendees: Jade, Corinne.\nJade raised concerns about bandwidth on the Aurora Retail account given the upcoming winter sale push.\nCorinne agre"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-010",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "Priya will be promoted to Head of Creative effective Nov 1": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q05",
+      "question_type": "single-source",
+      "question": "What was the total agency spend for Q3 according to the quarterly business review?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-005",
+          "evidence": [
+            "total agency spend was $412,000"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 0,
+          "similarity": 0.7051,
+          "content_snippet": "Quarterly Business Review \u2014 Full Transcript\n\nQuarterly Business Review \u2014 Full Transcript \u2014 Sept 25, 2026\nAttendees: Jade (Account Manager), Priya (Creative Lead), Marcus (Strategy), Dev (Engineering),"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-004",
+          "source_type": "retrospective",
+          "source_id": "84037f8a-3e26-5edf-9db1-42750bd21a66",
+          "chunk_index": 0,
+          "similarity": 0.631,
+          "content_snippet": "Decision: Quarterly Retrospective \u2014 Q3 Wrap-up\nConfidence level: 3/5\nPrimary assumption: Quarterly Retrospective \u2014 Q3 Wrap-up \u2014 Sept 28, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat "
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-012",
+          "source_type": "retrospective",
+          "source_id": "69c378c5-940f-5318-b798-7fdd65a60a2c",
+          "chunk_index": 0,
+          "similarity": 0.6255,
+          "content_snippet": "Decision: Quarterly Retrospective \u2014 Q4 Wrap-up\nConfidence level: 3/5\nPrimary assumption: Quarterly Retrospective \u2014 Q4 Wrap-up \u2014 Dec 3, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat we"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-016",
+          "source_type": "meeting",
+          "source_id": "-1729277584",
+          "chunk_index": 0,
+          "similarity": 0.593,
+          "content_snippet": "New Copywriter \u2014 Hiring Debrief\n\nNew Copywriter \u2014 Hiring Debrief \u2014 Oct 12, 2026\nAttendees: Priya, Corinne.\nPriya reported a shortlist of 4 candidates ready, meeting the Oct 10 deadline set at the Q3 q"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-015",
+          "source_type": "retrospective",
+          "source_id": "990b7a8a-efaf-5192-9959-1d9f5f4f9e41",
+          "chunk_index": 0,
+          "similarity": 0.5902,
+          "content_snippet": "Decision: Retro: FY26 Turnaround Time Progress\nConfidence level: 3/5\nPrimary assumption: Retro: FY26 Turnaround Time Progress \u2014 Dec 6, 2026\nParticipants: Corinne, Jade, Marcus.\n\nWhat went well: The ca"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-005",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "total agency spend was $412,000": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q06",
+      "question_type": "single-source",
+      "question": "How did the winter-sale teaser campaign perform against its landing-page visit goal, per the Q3 wrap-up retro?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-004",
+          "evidence": [
+            "generating only 1,100 landing-page visits against a goal of 3,000"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-004",
+          "source_type": "retrospective",
+          "source_id": "84037f8a-3e26-5edf-9db1-42750bd21a66",
+          "chunk_index": 0,
+          "similarity": 0.7028,
+          "content_snippet": "Decision: Quarterly Retrospective \u2014 Q3 Wrap-up\nConfidence level: 3/5\nPrimary assumption: Quarterly Retrospective \u2014 Q3 Wrap-up \u2014 Sept 28, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat "
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.6749,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-015",
+          "source_type": "notion_draft",
+          "source_id": "-1527038552",
+          "chunk_index": 0,
+          "similarity": 0.6694,
+          "content_snippet": "Case Study Draft: Aurora Retail Full-Year Results\n\nCase Study Draft: Aurora Retail Full-Year Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the full Q3-Q4 Aurora Retail e"
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-007",
+          "source_type": "notion_draft",
+          "source_id": "-1422865561",
+          "chunk_index": 0,
+          "similarity": 0.6572,
+          "content_snippet": "Case Study Draft: Aurora Retail Results\n\nCase Study Draft: Aurora Retail Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the Q3 loyalty-program launch for Aurora Retail.\n\n"
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-004",
+          "source_type": "notion_draft",
+          "source_id": "-1810138572",
+          "chunk_index": 0,
+          "similarity": 0.6418,
+          "content_snippet": "Landing Page Copy: Aurora Retail Winter Sale\n\nLanding Page Copy: Aurora Retail Winter Sale\nStatus: Client review\nAuthor: Priya, edited by Marcus\n\nHero Section\nHeadline: \"Winter Savings Start Here\"\nSub"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "retro-004",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "generating only 1,100 landing-page visits against a goal of 3,000": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q07",
+      "question_type": "single-source",
+      "question": "What root cause did Dev trace the Sprint 15 checkout flow bug to?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-002",
+          "evidence": [
+            "session-timeout misconfiguration on Aurora Retail's checkout server"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-002",
+          "source_type": "retrospective",
+          "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+          "chunk_index": 0,
+          "similarity": 0.7608,
+          "content_snippet": "Decision: Sprint 15 Retrospective \u2014 Checkout Flow Bug\nConfidence level: 3/5\nPrimary assumption: Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went "
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-005",
+          "source_type": "retrospective",
+          "source_id": "71f492ef-4fd2-55ae-94b5-0badd0b6afa5",
+          "chunk_index": 0,
+          "similarity": 0.6891,
+          "content_snippet": "Decision: Sprint 18 Retrospective \u2014 Checkout Flow Regression\nConfidence level: 3/5\nPrimary assumption: Sprint 18 Retrospective \u2014 Checkout Flow Regression \u2014 Oct 27, 2026\nParticipants: Dev, Jade.\n\nWhat "
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-008",
+          "source_type": "retrospective",
+          "source_id": "a7c8c5ba-608d-5b66-9008-528f1c50301d",
+          "chunk_index": 0,
+          "similarity": 0.6746,
+          "content_snippet": "Decision: Sprint 20 Retrospective \u2014 Checkout Flow Fix Deployed\nConfidence level: 3/5\nPrimary assumption: Sprint 20 Retrospective \u2014 Checkout Flow Fix Deployed \u2014 Nov 21, 2026\nParticipants: Dev, Jade.\n\nW"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 1,
+          "similarity": 0.643,
+          "content_snippet": "es under high traffic, which caused a partial outage during the loyalty-program launch on October 15. Dev is coordinating with Aurora Retail's engineering team on a fix before the Q4 holiday push. Cor"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-014",
+          "source_type": "retrospective",
+          "source_id": "535e3eef-3e60-58e3-a937-68546effeaf6",
+          "chunk_index": 0,
+          "similarity": 0.6063,
+          "content_snippet": "Decision: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback\nConfidence level: 3/5\nPrimary assumption: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback \u2014 Dec 8, 2026\nParticipants: Dev, Priya, Jade.\n\nW"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "retro-002",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "session-timeout misconfiguration on Aurora Retail's checkout server": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q08",
+      "question_type": "single-source",
+      "question": "What is the pending client quote drafted for the Aurora Retail case study?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-007",
+          "evidence": [
+            "The team's execution on the loyalty launch exceeded every benchmark we set."
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "notion-007",
+          "source_type": "notion_draft",
+          "source_id": "-1422865561",
+          "chunk_index": 0,
+          "similarity": 0.7222,
+          "content_snippet": "Case Study Draft: Aurora Retail Results\n\nCase Study Draft: Aurora Retail Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the Q3 loyalty-program launch for Aurora Retail.\n\n"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-006",
+          "source_type": "meeting",
+          "source_id": "-1856231474",
+          "chunk_index": 0,
+          "similarity": 0.7149,
+          "content_snippet": "Client Check-in \u2014 Aurora Retail\n\nClient Check-in \u2014 Aurora Retail \u2014 Sept 30, 2026\nAttendees: Jade, Lena Ortiz (Aurora Retail).\nLena approved the final homepage banner concept, Option B (blue gradient w"
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-015",
+          "source_type": "notion_draft",
+          "source_id": "-1527038552",
+          "chunk_index": 0,
+          "similarity": 0.7082,
+          "content_snippet": "Case Study Draft: Aurora Retail Full-Year Results\n\nCase Study Draft: Aurora Retail Full-Year Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the full Q3-Q4 Aurora Retail e"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-015",
+          "source_type": "meeting",
+          "source_id": "-1341046350",
+          "chunk_index": 0,
+          "similarity": 0.6857,
+          "content_snippet": "Client Check-in \u2014 Aurora Retail Nov\n\nClient Check-in \u2014 Aurora Retail Nov \u2014 Nov 10, 2026\nAttendees: Jade, Lena Ortiz (Aurora Retail).\nLena requested an extra Instagram carousel ad promoting the last-ch"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-002",
+          "source_type": "retrospective",
+          "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+          "chunk_index": 0,
+          "similarity": 0.6808,
+          "content_snippet": "Decision: Sprint 15 Retrospective \u2014 Checkout Flow Bug\nConfidence level: 3/5\nPrimary assumption: Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went "
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "notion-007",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "The team's execution on the loyalty launch exceeded every benchmark we set.": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q09",
+      "question_type": "single-source",
+      "question": "When does early access for loyalty members start on the winter sale landing page, ahead of the public sale date?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-004",
+          "evidence": [
+            "starting November 12, before it opens to the public on November 15"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "notion-004",
+          "source_type": "notion_draft",
+          "source_id": "-1810138572",
+          "chunk_index": 0,
+          "similarity": 0.7729,
+          "content_snippet": "Landing Page Copy: Aurora Retail Winter Sale\n\nLanding Page Copy: Aurora Retail Winter Sale\nStatus: Client review\nAuthor: Priya, edited by Marcus\n\nHero Section\nHeadline: \"Winter Savings Start Here\"\nSub"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.7172,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-003",
+          "source_type": "meeting",
+          "source_id": "-1581148036",
+          "chunk_index": 0,
+          "similarity": 0.6843,
+          "content_snippet": "Q3 Marketing Sync \u2014 Launch Timeline\n\nQ3 Marketing Sync \u2014 Launch Timeline \u2014 Aug 12, 2026\nAttendees: Priya, Marcus, Jade.\nMarcus confirmed the Aurora Retail Q3 loyalty-program landing page will launch o"
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-006",
+          "source_type": "notion_draft",
+          "source_id": "-1959981006",
+          "chunk_index": 0,
+          "similarity": 0.6703,
+          "content_snippet": "Press Release Snippet \u2014 Product Launch\n\nPress Release Snippet \u2014 Product Launch\nStatus: Draft\n\n\"Aurora Retail today announced the launch of its redesigned loyalty program, giving members early access t"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-002",
+          "source_type": "retrospective",
+          "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+          "chunk_index": 0,
+          "similarity": 0.6481,
+          "content_snippet": "Decision: Sprint 15 Retrospective \u2014 Checkout Flow Bug\nConfidence level: 3/5\nPrimary assumption: Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went "
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "notion-004",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "starting November 12, before it opens to the public on November 15": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q10",
+      "question_type": "single-source",
+      "question": "What campaign budget did Jade confirm at the Aurora Retail Q4 kickoff?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-002",
+          "evidence": [
+            "confirming the campaign budget of $85,000 for Q4"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-002",
+          "source_type": "meeting",
+          "source_id": "-1840908246",
+          "chunk_index": 0,
+          "similarity": 0.8679,
+          "content_snippet": "Kickoff: Aurora Retail Q4 Campaign\n\nKickoff: Aurora Retail Q4 Campaign \u2014 Sept 3, 2026\nAttendees: Priya (Creative Lead), Marcus (Strategy), Jade (Account Manager), client stakeholders Lena Ortiz and Sa"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 0,
+          "similarity": 0.769,
+          "content_snippet": "Quarterly Business Review \u2014 Full Transcript\n\nQuarterly Business Review \u2014 Full Transcript \u2014 Sept 25, 2026\nAttendees: Jade (Account Manager), Priya (Creative Lead), Marcus (Strategy), Dev (Engineering),"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.7441,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-012",
+          "source_type": "retrospective",
+          "source_id": "69c378c5-940f-5318-b798-7fdd65a60a2c",
+          "chunk_index": 0,
+          "similarity": 0.7351,
+          "content_snippet": "Decision: Quarterly Retrospective \u2014 Q4 Wrap-up\nConfidence level: 3/5\nPrimary assumption: Quarterly Retrospective \u2014 Q4 Wrap-up \u2014 Dec 3, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat we"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-011",
+          "source_type": "meeting",
+          "source_id": "-1944187447",
+          "chunk_index": 0,
+          "similarity": 0.7152,
+          "content_snippet": "1:1 \u2014 Jade & Manager\n\n1:1 \u2014 Jade & Manager \u2014 Sept 12, 2026\nAttendees: Jade, Corinne.\nJade raised concerns about bandwidth on the Aurora Retail account given the upcoming winter sale push.\nCorinne agre"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-002",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "confirming the campaign budget of $85,000 for Q4": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q11",
+      "question_type": "single-source",
+      "question": "Which homepage banner option did Priya recommend during the creative review?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-007",
+          "evidence": [
+            "Priya recommended Option B as the strongest fit for Aurora Retail's brand guidelines."
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-007",
+          "source_type": "meeting",
+          "source_id": "-1524985860",
+          "chunk_index": 0,
+          "similarity": 0.7288,
+          "content_snippet": "Creative Review \u2014 Homepage Banner Concepts\n\nCreative Review \u2014 Homepage Banner Concepts \u2014 Sept 18, 2026\nAttendees: Priya, Marcus, Jade, freelance designer Theo Nkemelu.\nTheo presented three homepage ba"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-001",
+          "source_type": "retrospective",
+          "source_id": "5f7f5a07-a19b-57ac-89aa-355c5939fe1b",
+          "chunk_index": 0,
+          "similarity": 0.6088,
+          "content_snippet": "Decision: Sprint 14 Retrospective\nConfidence level: 3/5\nPrimary assumption: Sprint 14 Retrospective \u2014 Sept 1, 2026\nParticipants: Dev, Priya, Marcus, Jade.\n\nWhat went well: The homepage banner concepts"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-006",
+          "source_type": "meeting",
+          "source_id": "-1856231474",
+          "chunk_index": 0,
+          "similarity": 0.5655,
+          "content_snippet": "Client Check-in \u2014 Aurora Retail\n\nClient Check-in \u2014 Aurora Retail \u2014 Sept 30, 2026\nAttendees: Jade, Lena Ortiz (Aurora Retail).\nLena approved the final homepage banner concept, Option B (blue gradient w"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-001",
+          "source_type": "meeting",
+          "source_id": "-1771777911",
+          "chunk_index": 0,
+          "similarity": 0.5635,
+          "content_snippet": "Weekly Standup \u2014 Sept 2, 2026\n\nWeekly Standup \u2014 Sept 2, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Finished the homepage banner mockups, sent to client for review.\nMarcus: Blocked on stock photography"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-013",
+          "source_type": "meeting",
+          "source_id": "-1247652756",
+          "chunk_index": 0,
+          "similarity": 0.5563,
+          "content_snippet": "Weekly Standup \u2014 Oct 7, 2026\n\nWeekly Standup \u2014 Oct 7, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Finalizing Nov main-push social creative.\nMarcus: Confirmed the main-push paid social budget allocation"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-007",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "Priya recommended Option B as the strongest fit for Aurora Retail's brand guidelines.": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q12",
+      "question_type": "single-source",
+      "question": "What was the average landing page load time for the Project Nova campaign, per the post-launch debrief?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-012",
+          "evidence": [
+            "landing page load time averaged 2.1 seconds"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-012",
+          "source_type": "meeting",
+          "source_id": "-1821612789",
+          "chunk_index": 0,
+          "similarity": 0.8151,
+          "content_snippet": "Post-Launch Debrief \u2014 Nova Campaign\n\nPost-Launch Debrief \u2014 Nova Campaign \u2014 Sept 5, 2026\nAttendees: Priya, Marcus, Dev, Jade.\nThe team reviewed the Project Nova product-launch campaign, which ran Aug 1"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-003",
+          "source_type": "retrospective",
+          "source_id": "6ce8487a-eeec-5a5d-a1c7-56056b2f8369",
+          "chunk_index": 0,
+          "similarity": 0.7159,
+          "content_snippet": "Decision: Retro: Nova Launch Week\nConfidence level: 3/5\nPrimary assumption: Retro: Nova Launch Week \u2014 Sept 6, 2026\nParticipants: Priya, Marcus, Dev, Jade.\n\nWent well: Landing page load time stayed und"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.6202,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-025",
+          "source_type": "meeting",
+          "source_id": "-1524042661",
+          "chunk_index": 0,
+          "similarity": 0.5895,
+          "content_snippet": "FY26 Progress Check-in\n\nFY26 Progress Check-in \u2014 Dec 5, 2026\nAttendees: Full agency team, led by Corinne Blake.\nCorinne reviewed FY26 goals progress: revenue growth tracking at 11% year-to-date agains"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-002",
+          "source_type": "retrospective",
+          "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+          "chunk_index": 0,
+          "similarity": 0.5872,
+          "content_snippet": "Decision: Sprint 15 Retrospective \u2014 Checkout Flow Bug\nConfidence level: 3/5\nPrimary assumption: Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went "
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-012",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "landing page load time averaged 2.1 seconds": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q13",
+      "question_type": "single-source",
+      "question": "What effect did the new onboarding checklist have on kickoff prep time for the Willow & Pine account?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-006",
+          "evidence": [
+            "cut kickoff prep time roughly in half for the Willow & Pine account"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-006",
+          "source_type": "retrospective",
+          "source_id": "c79902e0-deca-599c-bfa6-282f6326e1a3",
+          "chunk_index": 0,
+          "similarity": 0.7886,
+          "content_snippet": "Decision: Retro: Client Onboarding Process\nConfidence level: 3/5\nPrimary assumption: Retro: Client Onboarding Process \u2014 Oct 20, 2026\nParticipants: Jade, Marcus.\n\nWent well: The new onboarding checklis"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-009",
+          "source_type": "retrospective",
+          "source_id": "08333ef7-7485-586d-8f5a-b84756db44f1",
+          "chunk_index": 0,
+          "similarity": 0.7633,
+          "content_snippet": "Decision: Retro: Willow & Pine Onboarding \u2014 First Month\nConfidence level: 3/5\nPrimary assumption: Retro: Willow & Pine Onboarding \u2014 First Month \u2014 Nov 18, 2026\nParticipants: Jade, Marcus.\n\nWhat went we"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-017",
+          "source_type": "meeting",
+          "source_id": "-1793261339",
+          "chunk_index": 0,
+          "similarity": 0.7441,
+          "content_snippet": "Willow & Pine Kickoff\n\nWillow & Pine Kickoff \u2014 Oct 20, 2026\nAttendees: Jade, Marcus, Willow & Pine stakeholder Ben Alden (Marketing Director).\nBudget confirmed at $52,000 for the Q4 onboarding phase a"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-022",
+          "source_type": "meeting",
+          "source_id": "-1904195200",
+          "chunk_index": 0,
+          "similarity": 0.6752,
+          "content_snippet": "Client Check-in \u2014 Willow & Pine\n\nClient Check-in \u2014 Willow & Pine \u2014 Nov 15, 2026\nAttendees: Jade, Ben Alden (Willow & Pine).\nBen approved the re-engagement email subject-line test plan.\nFirst send sche"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-005",
+          "source_type": "retrospective",
+          "source_id": "71f492ef-4fd2-55ae-94b5-0badd0b6afa5",
+          "chunk_index": 0,
+          "similarity": 0.6731,
+          "content_snippet": "Decision: Sprint 18 Retrospective \u2014 Checkout Flow Regression\nConfidence level: 3/5\nPrimary assumption: Sprint 18 Retrospective \u2014 Checkout Flow Regression \u2014 Oct 27, 2026\nParticipants: Dev, Jade.\n\nWhat "
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "retro-006",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "cut kickoff prep time roughly in half for the Willow & Pine account": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q14",
+      "question_type": "single-source",
+      "question": "What is the approved Instagram caption scheduled for October 17?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-003",
+          "evidence": [
+            "First dibs go to loyalty members. Join free today."
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "notion-003",
+          "source_type": "notion_draft",
+          "source_id": "-1592565401",
+          "chunk_index": 0,
+          "similarity": 0.7358,
+          "content_snippet": "Social Caption Bank \u2014 October\n\nSocial Caption Bank \u2014 October\nStatus: Approved\n\n1. \"Cozy season, cozy savings. \ud83c\udf42\" \u2014 Instagram, Oct 3\n2. \"Your holiday list called \u2014 it wants Aurora Retail.\" \u2014 Instagram,"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-014",
+          "source_type": "notion_draft",
+          "source_id": "-1370321670",
+          "chunk_index": 0,
+          "similarity": 0.7024,
+          "content_snippet": "Social Caption Bank \u2014 November\n\nSocial Caption Bank \u2014 November\nStatus: Approved\n\n1. \"Main push is on. Grab your gift card today.\" \u2014 Instagram, Nov 1\n2. \"Halfway to the season's biggest savings.\" \u2014 Ins"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-001",
+          "source_type": "meeting",
+          "source_id": "-1771777911",
+          "chunk_index": 0,
+          "similarity": 0.631,
+          "content_snippet": "Weekly Standup \u2014 Sept 2, 2026\n\nWeekly Standup \u2014 Sept 2, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Finished the homepage banner mockups, sent to client for review.\nMarcus: Blocked on stock photography"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-020",
+          "source_type": "meeting",
+          "source_id": "-1452756575",
+          "chunk_index": 0,
+          "similarity": 0.6139,
+          "content_snippet": "Weekly Standup \u2014 Nov 18, 2026\n\nWeekly Standup \u2014 Nov 18, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Last-chance phase creative for the Dec 15-24 reminders is in progress.\nMarcus: Gift-card sales tally "
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-015",
+          "source_type": "meeting",
+          "source_id": "-1341046350",
+          "chunk_index": 0,
+          "similarity": 0.6121,
+          "content_snippet": "Client Check-in \u2014 Aurora Retail Nov\n\nClient Check-in \u2014 Aurora Retail Nov \u2014 Nov 10, 2026\nAttendees: Jade, Lena Ortiz (Aurora Retail).\nLena requested an extra Instagram carousel ad promoting the last-ch"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "notion-003",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "First dibs go to loyalty members. Join free today.": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "mq01",
+      "question_type": "multi-source",
+      "question": "Why was the welcome email discount changed from 10% to 15%, and starting when was the revised version actually sent?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-002",
+          "evidence": [
+            "Marketing flagged that 10% is too low compared to competitor welcome offers"
+          ]
+        },
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-005",
+          "evidence": [
+            "This is the version to send starting Oct 1."
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "notion-002",
+          "source_type": "notion_draft",
+          "source_id": "-1578818069",
+          "chunk_index": 0,
+          "similarity": 0.6514,
+          "content_snippet": "Email Draft v1: Welcome Series \u2014 Step 1\n\nEmail Draft v1: Welcome Series \u2014 Step 1\nStatus: Draft \u2014 needs revision\nSubject line: Welcome to Aurora Retail!\n\nBody: Thanks for joining Aurora Retail. As a we"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-005",
+          "source_type": "notion_draft",
+          "source_id": "-1639556164",
+          "chunk_index": 0,
+          "similarity": 0.643,
+          "content_snippet": "Email Draft v2: Welcome Series \u2014 Step 1 (Revised)\n\nEmail Draft v2: Welcome Series \u2014 Step 1 (Revised)\nStatus: Approved for send\nSubject line: Welcome to Aurora Retail \u2014 here's 15% off\n\nBody: Thanks for"
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.5869,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-002",
+          "source_type": "retrospective",
+          "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+          "chunk_index": 0,
+          "similarity": 0.5821,
+          "content_snippet": "Decision: Sprint 15 Retrospective \u2014 Checkout Flow Bug\nConfidence level: 3/5\nPrimary assumption: Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went "
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-001",
+          "source_type": "retrospective",
+          "source_id": "5f7f5a07-a19b-57ac-89aa-355c5939fe1b",
+          "chunk_index": 0,
+          "similarity": 0.5754,
+          "content_snippet": "Decision: Sprint 14 Retrospective\nConfidence level: 3/5\nPrimary assumption: Sprint 14 Retrospective \u2014 Sept 1, 2026\nParticipants: Dev, Priya, Marcus, Jade.\n\nWhat went well: The homepage banner concepts"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "notion-002",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "Marketing flagged that 10% is too low compared to competitor welcome offers": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "notion-005",
+          "evidence_complete_rank": 2,
+          "evidence_covered": {
+            "This is the version to send starting Oct 1.": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 1.0,
+      "full_coverage@3": 1.0,
+      "precision@3": 0.6666666666666666,
+      "source_precision@3": 0.6666666666666666,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.4,
+      "source_precision@5": 0.4,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq02",
+      "question_type": "multi-source",
+      "question": "What checkout flow issue recurred between Sprint 15 and Sprint 18, and had Aurora Retail's engineering team deployed the fix by Sprint 18?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-002",
+          "evidence": [
+            "session-timeout misconfiguration on Aurora Retail's checkout server"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-005",
+          "evidence": [
+            "Aurora Retail's engineering team had not yet deployed the session-timeout fix discussed in Sprint 15"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-002",
+          "source_type": "retrospective",
+          "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+          "chunk_index": 0,
+          "similarity": 0.7991,
+          "content_snippet": "Decision: Sprint 15 Retrospective \u2014 Checkout Flow Bug\nConfidence level: 3/5\nPrimary assumption: Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went "
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-008",
+          "source_type": "retrospective",
+          "source_id": "a7c8c5ba-608d-5b66-9008-528f1c50301d",
+          "chunk_index": 0,
+          "similarity": 0.7834,
+          "content_snippet": "Decision: Sprint 20 Retrospective \u2014 Checkout Flow Fix Deployed\nConfidence level: 3/5\nPrimary assumption: Sprint 20 Retrospective \u2014 Checkout Flow Fix Deployed \u2014 Nov 21, 2026\nParticipants: Dev, Jade.\n\nW"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-005",
+          "source_type": "retrospective",
+          "source_id": "71f492ef-4fd2-55ae-94b5-0badd0b6afa5",
+          "chunk_index": 0,
+          "similarity": 0.7758,
+          "content_snippet": "Decision: Sprint 18 Retrospective \u2014 Checkout Flow Regression\nConfidence level: 3/5\nPrimary assumption: Sprint 18 Retrospective \u2014 Checkout Flow Regression \u2014 Oct 27, 2026\nParticipants: Dev, Jade.\n\nWhat "
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 1,
+          "similarity": 0.6873,
+          "content_snippet": "es under high traffic, which caused a partial outage during the loyalty-program launch on October 15. Dev is coordinating with Aurora Retail's engineering team on a fix before the Q4 holiday push. Cor"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-004",
+          "source_type": "retrospective",
+          "source_id": "84037f8a-3e26-5edf-9db1-42750bd21a66",
+          "chunk_index": 0,
+          "similarity": 0.6714,
+          "content_snippet": "Decision: Quarterly Retrospective \u2014 Q3 Wrap-up\nConfidence level: 3/5\nPrimary assumption: Quarterly Retrospective \u2014 Q3 Wrap-up \u2014 Sept 28, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat "
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "retro-002",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "session-timeout misconfiguration on Aurora Retail's checkout server": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "retro-005",
+          "evidence_complete_rank": 3,
+          "evidence_covered": {
+            "Aurora Retail's engineering team had not yet deployed the session-timeout fix discussed in Sprint 15": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 1.0,
+      "full_coverage@3": 1.0,
+      "precision@3": 0.6666666666666666,
+      "source_precision@3": 0.6666666666666666,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.4,
+      "source_precision@5": 0.4,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq03",
+      "question_type": "multi-source",
+      "question": "Which homepage banner option did the creative review recommend, and did the client end up approving that option?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-007",
+          "evidence": [
+            "Priya recommended Option B as the strongest fit for Aurora Retail's brand guidelines."
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-006",
+          "evidence": [
+            "Lena approved the final homepage banner concept, Option B (blue gradient with gift-card imagery)."
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-007",
+          "source_type": "meeting",
+          "source_id": "-1524985860",
+          "chunk_index": 0,
+          "similarity": 0.7205,
+          "content_snippet": "Creative Review \u2014 Homepage Banner Concepts\n\nCreative Review \u2014 Homepage Banner Concepts \u2014 Sept 18, 2026\nAttendees: Priya, Marcus, Jade, freelance designer Theo Nkemelu.\nTheo presented three homepage ba"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-001",
+          "source_type": "retrospective",
+          "source_id": "5f7f5a07-a19b-57ac-89aa-355c5939fe1b",
+          "chunk_index": 0,
+          "similarity": 0.6319,
+          "content_snippet": "Decision: Sprint 14 Retrospective\nConfidence level: 3/5\nPrimary assumption: Sprint 14 Retrospective \u2014 Sept 1, 2026\nParticipants: Dev, Priya, Marcus, Jade.\n\nWhat went well: The homepage banner concepts"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-006",
+          "source_type": "meeting",
+          "source_id": "-1856231474",
+          "chunk_index": 0,
+          "similarity": 0.5828,
+          "content_snippet": "Client Check-in \u2014 Aurora Retail\n\nClient Check-in \u2014 Aurora Retail \u2014 Sept 30, 2026\nAttendees: Jade, Lena Ortiz (Aurora Retail).\nLena approved the final homepage banner concept, Option B (blue gradient w"
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.5758,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-014",
+          "source_type": "retrospective",
+          "source_id": "535e3eef-3e60-58e3-a937-68546effeaf6",
+          "chunk_index": 0,
+          "similarity": 0.5638,
+          "content_snippet": "Decision: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback\nConfidence level: 3/5\nPrimary assumption: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback \u2014 Dec 8, 2026\nParticipants: Dev, Priya, Jade.\n\nW"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-007",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "Priya recommended Option B as the strongest fit for Aurora Retail's brand guidelines.": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "meeting-006",
+          "evidence_complete_rank": 3,
+          "evidence_covered": {
+            "Lena approved the final homepage banner concept, Option B (blue gradient with gift-card imagery).": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 1.0,
+      "full_coverage@3": 1.0,
+      "precision@3": 0.6666666666666666,
+      "source_precision@3": 0.6666666666666666,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.4,
+      "source_precision@5": 0.4,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq04",
+      "question_type": "multi-source",
+      "question": "What is the maximum combined discount when stacking a loyalty coupon with the winter sale, and which ad variant promotes the loyalty early-access date?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-004",
+          "evidence": [
+            "up to a maximum combined discount of 50%"
+          ]
+        },
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-008",
+          "evidence": [
+            "Early access starts Nov 12 for loyalty members."
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "notion-004",
+          "source_type": "notion_draft",
+          "source_id": "-1810138572",
+          "chunk_index": 0,
+          "similarity": 0.7623,
+          "content_snippet": "Landing Page Copy: Aurora Retail Winter Sale\n\nLanding Page Copy: Aurora Retail Winter Sale\nStatus: Client review\nAuthor: Priya, edited by Marcus\n\nHero Section\nHeadline: \"Winter Savings Start Here\"\nSub"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.7597,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 1,
+          "similarity": 0.638,
+          "content_snippet": "es under high traffic, which caused a partial outage during the loyalty-program launch on October 15. Dev is coordinating with Aurora Retail's engineering team on a fix before the Q4 holiday push. Cor"
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-015",
+          "source_type": "notion_draft",
+          "source_id": "-1527038552",
+          "chunk_index": 0,
+          "similarity": 0.621,
+          "content_snippet": "Case Study Draft: Aurora Retail Full-Year Results\n\nCase Study Draft: Aurora Retail Full-Year Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the full Q3-Q4 Aurora Retail e"
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-007",
+          "source_type": "notion_draft",
+          "source_id": "-1422865561",
+          "chunk_index": 0,
+          "similarity": 0.6202,
+          "content_snippet": "Case Study Draft: Aurora Retail Results\n\nCase Study Draft: Aurora Retail Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the Q3 loyalty-program launch for Aurora Retail.\n\n"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "notion-004",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "up to a maximum combined discount of 50%": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "notion-008",
+          "evidence_complete_rank": 2,
+          "evidence_covered": {
+            "Early access starts Nov 12 for loyalty members.": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 1.0,
+      "full_coverage@3": 1.0,
+      "precision@3": 0.6666666666666666,
+      "source_precision@3": 0.6666666666666666,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.4,
+      "source_precision@5": 0.4,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq05",
+      "question_type": "multi-source",
+      "question": "What Q4 campaign budget did Jade confirm at kickoff, and how much of Q3 agency spend did the Aurora Retail account alone account for?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-002",
+          "evidence": [
+            "confirming the campaign budget of $85,000 for Q4"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-005",
+          "evidence": [
+            "the Aurora Retail account alone accounted for $138,000 of that spend"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-002",
+          "source_type": "meeting",
+          "source_id": "-1840908246",
+          "chunk_index": 0,
+          "similarity": 0.8426,
+          "content_snippet": "Kickoff: Aurora Retail Q4 Campaign\n\nKickoff: Aurora Retail Q4 Campaign \u2014 Sept 3, 2026\nAttendees: Priya (Creative Lead), Marcus (Strategy), Jade (Account Manager), client stakeholders Lena Ortiz and Sa"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 0,
+          "similarity": 0.7833,
+          "content_snippet": "Quarterly Business Review \u2014 Full Transcript\n\nQuarterly Business Review \u2014 Full Transcript \u2014 Sept 25, 2026\nAttendees: Jade (Account Manager), Priya (Creative Lead), Marcus (Strategy), Dev (Engineering),"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-012",
+          "source_type": "retrospective",
+          "source_id": "69c378c5-940f-5318-b798-7fdd65a60a2c",
+          "chunk_index": 0,
+          "similarity": 0.7367,
+          "content_snippet": "Decision: Quarterly Retrospective \u2014 Q4 Wrap-up\nConfidence level: 3/5\nPrimary assumption: Quarterly Retrospective \u2014 Q4 Wrap-up \u2014 Dec 3, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat we"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-004",
+          "source_type": "retrospective",
+          "source_id": "84037f8a-3e26-5edf-9db1-42750bd21a66",
+          "chunk_index": 0,
+          "similarity": 0.7316,
+          "content_snippet": "Decision: Quarterly Retrospective \u2014 Q3 Wrap-up\nConfidence level: 3/5\nPrimary assumption: Quarterly Retrospective \u2014 Q3 Wrap-up \u2014 Sept 28, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat "
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.7243,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-002",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "confirming the campaign budget of $85,000 for Q4": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "meeting-005",
+          "evidence_complete_rank": 2,
+          "evidence_covered": {
+            "the Aurora Retail account alone accounted for $138,000 of that spend": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 1.0,
+      "full_coverage@3": 1.0,
+      "precision@3": 0.6666666666666666,
+      "source_precision@3": 0.6666666666666666,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.4,
+      "source_precision@5": 0.4,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq06",
+      "question_type": "multi-source",
+      "question": "What gap in the onboarding checklist did the retro flag, and which new credit-union client does that gap need to be closed before?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-006",
+          "evidence": [
+            "The checklist doesn't yet cover credit union clients"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": [
+            "a regional credit union, Northbridge Financial"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-006",
+          "source_type": "retrospective",
+          "source_id": "c79902e0-deca-599c-bfa6-282f6326e1a3",
+          "chunk_index": 0,
+          "similarity": 0.6933,
+          "content_snippet": "Decision: Retro: Client Onboarding Process\nConfidence level: 3/5\nPrimary assumption: Retro: Client Onboarding Process \u2014 Oct 20, 2026\nParticipants: Jade, Marcus.\n\nWent well: The new onboarding checklis"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-010",
+          "source_type": "retrospective",
+          "source_id": "478a12f8-381d-508c-89e4-d7fae9348989",
+          "chunk_index": 0,
+          "similarity": 0.6486,
+          "content_snippet": "Decision: Retro: Northbridge Financial Compliance Process\nConfidence level: 3/5\nPrimary assumption: Retro: Northbridge Financial Compliance Process \u2014 Nov 25, 2026\nParticipants: Marcus, Jade.\n\nWhat wen"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-009",
+          "source_type": "retrospective",
+          "source_id": "08333ef7-7485-586d-8f5a-b84756db44f1",
+          "chunk_index": 0,
+          "similarity": 0.6387,
+          "content_snippet": "Decision: Retro: Willow & Pine Onboarding \u2014 First Month\nConfidence level: 3/5\nPrimary assumption: Retro: Willow & Pine Onboarding \u2014 First Month \u2014 Nov 18, 2026\nParticipants: Jade, Marcus.\n\nWhat went we"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-013",
+          "source_type": "retrospective",
+          "source_id": "c00e9c49-03b3-58a3-a492-4c281b38e134",
+          "chunk_index": 0,
+          "similarity": 0.6337,
+          "content_snippet": "Decision: Retro: New Copywriter Onboarding\nConfidence level: 3/5\nPrimary assumption: Retro: New Copywriter Onboarding \u2014 Nov 9, 2026\nParticipants: Priya, Nadia Reyes.\n\nWent well: Nadia Reyes's first we"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-002",
+          "source_type": "retrospective",
+          "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+          "chunk_index": 0,
+          "similarity": 0.6031,
+          "content_snippet": "Decision: Sprint 15 Retrospective \u2014 Checkout Flow Bug\nConfidence level: 3/5\nPrimary assumption: Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went "
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "retro-006",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "The checklist doesn't yet cover credit union clients": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "meeting-010",
+          "evidence_complete_rank": null,
+          "evidence_covered": {
+            "a regional credit union, Northbridge Financial": false
+          },
+          "fail_category": "source_not_retrieved"
+        }
+      ],
+      "outcome": "partial",
+      "fail_reason": "expected source(s) not satisfied: meeting-010 (source_not_retrieved)",
+      "first_relevant_rank": 1,
+      "recall@3": 0.5,
+      "full_coverage@3": 0.0,
+      "precision@3": 0.3333333333333333,
+      "source_precision@3": 0.3333333333333333,
+      "recall@5": 0.5,
+      "full_coverage@5": 0.0,
+      "precision@5": 0.2,
+      "source_precision@5": 0.2,
+      "recall@10": 0.5,
+      "full_coverage@10": 0.0
+    },
+    {
+      "id": "nq01",
+      "question_type": "no-answer",
+      "question": "What is the office's policy on how many remote work days employees get per week?",
+      "tags": [
+        "topic-absent"
+      ],
+      "expected_sources": [],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-024",
+          "source_type": "meeting",
+          "source_id": "-1137640613",
+          "chunk_index": 0,
+          "similarity": 0.5213,
+          "content_snippet": "1:1 \u2014 Jade & Manager (Nov)\n\n1:1 \u2014 Jade & Manager (Nov) \u2014 Nov 21, 2026\nAttendees: Jade, Corinne.\nJade reported the second account coordinator, added Oct 1, has cut her average weekly overtime from 6 ho"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-025",
+          "source_type": "meeting",
+          "source_id": "-1524042661",
+          "chunk_index": 0,
+          "similarity": 0.4863,
+          "content_snippet": "FY26 Progress Check-in\n\nFY26 Progress Check-in \u2014 Dec 5, 2026\nAttendees: Full agency team, led by Corinne Blake.\nCorinne reviewed FY26 goals progress: revenue growth tracking at 11% year-to-date agains"
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.4725,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-010",
+          "source_type": "meeting",
+          "source_id": "-1905614721",
+          "chunk_index": 0,
+          "similarity": 0.4714,
+          "content_snippet": "All-Hands: FY26 Planning\n\nAll-Hands: FY26 Planning \u2014 Oct 1, 2026\nAttendees: Full agency team, led by Corinne Blake (Managing Director).\n\nAgency Goals\nCorinne outlined three company-wide goals for FY26"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-009",
+          "source_type": "meeting",
+          "source_id": "-1329059990",
+          "chunk_index": 0,
+          "similarity": 0.4683,
+          "content_snippet": "Retrospective Planning Meeting\n\nRetrospective Planning Meeting \u2014 Sept 10, 2026\nAttendees: Dev, Priya, Jade.\nThe team agreed to hold sprint retrospectives every two weeks going forward, alternating bet"
+        }
+      ],
+      "top_retrieved": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-024",
+          "source_type": "meeting",
+          "source_id": "-1137640613",
+          "chunk_index": 0,
+          "similarity": 0.5213,
+          "content_snippet": "1:1 \u2014 Jade & Manager (Nov)\n\n1:1 \u2014 Jade & Manager (Nov) \u2014 Nov 21, 2026\nAttendees: Jade, Corinne.\nJade reported the second account coordinator, added Oct 1, has cut her average weekly overtime from 6 ho"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-025",
+          "source_type": "meeting",
+          "source_id": "-1524042661",
+          "chunk_index": 0,
+          "similarity": 0.4863,
+          "content_snippet": "FY26 Progress Check-in\n\nFY26 Progress Check-in \u2014 Dec 5, 2026\nAttendees: Full agency team, led by Corinne Blake.\nCorinne reviewed FY26 goals progress: revenue growth tracking at 11% year-to-date agains"
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.4725,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-010",
+          "source_type": "meeting",
+          "source_id": "-1905614721",
+          "chunk_index": 0,
+          "similarity": 0.4714,
+          "content_snippet": "All-Hands: FY26 Planning\n\nAll-Hands: FY26 Planning \u2014 Oct 1, 2026\nAttendees: Full agency team, led by Corinne Blake (Managing Director).\n\nAgency Goals\nCorinne outlined three company-wide goals for FY26"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-009",
+          "source_type": "meeting",
+          "source_id": "-1329059990",
+          "chunk_index": 0,
+          "similarity": 0.4683,
+          "content_snippet": "Retrospective Planning Meeting\n\nRetrospective Planning Meeting \u2014 Sept 10, 2026\nAttendees: Dev, Priya, Jade.\nThe team agreed to hold sprint retrospectives every two weeks going forward, alternating bet"
+        }
+      ],
+      "agent_abstained": null,
+      "outcome": null,
+      "fail_reason": null
+    },
+    {
+      "id": "nq02",
+      "question_type": "no-answer",
+      "question": "What are the finalized FY26 pricing changes?",
+      "tags": [
+        "topic-present-unresolved"
+      ],
+      "expected_sources": [],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-015",
+          "source_type": "retrospective",
+          "source_id": "990b7a8a-efaf-5192-9959-1d9f5f4f9e41",
+          "chunk_index": 0,
+          "similarity": 0.5787,
+          "content_snippet": "Decision: Retro: FY26 Turnaround Time Progress\nConfidence level: 3/5\nPrimary assumption: Retro: FY26 Turnaround Time Progress \u2014 Dec 6, 2026\nParticipants: Corinne, Jade, Marcus.\n\nWhat went well: The ca"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.5705,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-013",
+          "source_type": "meeting",
+          "source_id": "-1247652756",
+          "chunk_index": 0,
+          "similarity": 0.5623,
+          "content_snippet": "Weekly Standup \u2014 Oct 7, 2026\n\nWeekly Standup \u2014 Oct 7, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Finalizing Nov main-push social creative.\nMarcus: Confirmed the main-push paid social budget allocation"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 1,
+          "similarity": 0.5566,
+          "content_snippet": "es under high traffic, which caused a partial outage during the loyalty-program launch on October 15. Dev is coordinating with Aurora Retail's engineering team on a fix before the Q4 holiday push. Cor"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.5534,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        }
+      ],
+      "top_retrieved": [
+        {
+          "rank": 1,
+          "source_ref": "retro-015",
+          "source_type": "retrospective",
+          "source_id": "990b7a8a-efaf-5192-9959-1d9f5f4f9e41",
+          "chunk_index": 0,
+          "similarity": 0.5787,
+          "content_snippet": "Decision: Retro: FY26 Turnaround Time Progress\nConfidence level: 3/5\nPrimary assumption: Retro: FY26 Turnaround Time Progress \u2014 Dec 6, 2026\nParticipants: Corinne, Jade, Marcus.\n\nWhat went well: The ca"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.5705,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-013",
+          "source_type": "meeting",
+          "source_id": "-1247652756",
+          "chunk_index": 0,
+          "similarity": 0.5623,
+          "content_snippet": "Weekly Standup \u2014 Oct 7, 2026\n\nWeekly Standup \u2014 Oct 7, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Finalizing Nov main-push social creative.\nMarcus: Confirmed the main-push paid social budget allocation"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 1,
+          "similarity": 0.5566,
+          "content_snippet": "es under high traffic, which caused a partial outage during the loyalty-program launch on October 15. Dev is coordinating with Aurora Retail's engineering team on a fix before the Q4 holiday push. Cor"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.5534,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        }
+      ],
+      "agent_abstained": null,
+      "outcome": null,
+      "fail_reason": null
+    },
+    {
+      "id": "q15",
+      "question_type": "single-source",
+      "question": "What was the confirmed budget for the Aurora Retail main-push paid social allocation?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-013",
+          "evidence": [
+            "paid social budget allocation of $32,000"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.7515,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 0,
+          "similarity": 0.7264,
+          "content_snippet": "Quarterly Business Review \u2014 Full Transcript\n\nQuarterly Business Review \u2014 Full Transcript \u2014 Sept 25, 2026\nAttendees: Jade (Account Manager), Priya (Creative Lead), Marcus (Strategy), Dev (Engineering),"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-002",
+          "source_type": "meeting",
+          "source_id": "-1840908246",
+          "chunk_index": 0,
+          "similarity": 0.7152,
+          "content_snippet": "Kickoff: Aurora Retail Q4 Campaign\n\nKickoff: Aurora Retail Q4 Campaign \u2014 Sept 3, 2026\nAttendees: Priya (Creative Lead), Marcus (Strategy), Jade (Account Manager), client stakeholders Lena Ortiz and Sa"
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-015",
+          "source_type": "notion_draft",
+          "source_id": "-1527038552",
+          "chunk_index": 0,
+          "similarity": 0.6922,
+          "content_snippet": "Case Study Draft: Aurora Retail Full-Year Results\n\nCase Study Draft: Aurora Retail Full-Year Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the full Q3-Q4 Aurora Retail e"
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-007",
+          "source_type": "notion_draft",
+          "source_id": "-1422865561",
+          "chunk_index": 0,
+          "similarity": 0.6657,
+          "content_snippet": "Case Study Draft: Aurora Retail Results\n\nCase Study Draft: Aurora Retail Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the Q3 loyalty-program launch for Aurora Retail.\n\n"
+        }
+      ],
+      "evidence_complete_rank": 6,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-013",
+          "evidence_complete_rank": 6,
+          "evidence_covered": {
+            "paid social budget allocation of $32,000": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q16",
+      "question_type": "single-source",
+      "question": "How many gift cards had been sold as of the Nov 1 main-push launch readiness review?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-014",
+          "evidence": [
+            "1,200 gift cards sold toward the 4,000 goal"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-014",
+          "source_type": "meeting",
+          "source_id": "-1225674207",
+          "chunk_index": 0,
+          "similarity": 0.8235,
+          "content_snippet": "Main Push Launch Readiness Review\n\nMain Push Launch Readiness Review \u2014 Nov 1, 2026\nAttendees: Priya, Marcus, Jade, Dev.\nJade confirmed the main push phase officially launched Nov 1 across email, paid "
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.7542,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-009",
+          "source_type": "notion_draft",
+          "source_id": "-1360046904",
+          "chunk_index": 0,
+          "similarity": 0.7112,
+          "content_snippet": "Main Push Email Copy \u2014 Aurora Retail\n\nMain Push Email Copy \u2014 Aurora Retail\nStatus: Approved\nSubject line: Your gift card is calling \ud83c\udf81\n\nBody: The Aurora Retail holiday gift-card sale is live through No"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-011",
+          "source_type": "retrospective",
+          "source_id": "03df79f6-1802-5fb0-9a29-c90507282f17",
+          "chunk_index": 0,
+          "similarity": 0.6947,
+          "content_snippet": "Decision: Sprint 21 Retrospective \u2014 Main Push Goal Reached\nConfidence level: 3/5\nPrimary assumption: Sprint 21 Retrospective \u2014 Main Push Goal Reached \u2014 Nov 30, 2026\nParticipants: Marcus, Priya, Dev, J"
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-015",
+          "source_type": "notion_draft",
+          "source_id": "-1527038552",
+          "chunk_index": 0,
+          "similarity": 0.6882,
+          "content_snippet": "Case Study Draft: Aurora Retail Full-Year Results\n\nCase Study Draft: Aurora Retail Full-Year Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the full Q3-Q4 Aurora Retail e"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-014",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "1,200 gift cards sold toward the 4,000 goal": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q17",
+      "question_type": "single-source",
+      "question": "Who did the team recommend for the new Q4 copywriter role?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-016",
+          "evidence": [
+            "The team recommend Nadia Reyes for the Q4 copywriter role"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-016",
+          "source_type": "meeting",
+          "source_id": "-1729277584",
+          "chunk_index": 0,
+          "similarity": 0.6992,
+          "content_snippet": "New Copywriter \u2014 Hiring Debrief\n\nNew Copywriter \u2014 Hiring Debrief \u2014 Oct 12, 2026\nAttendees: Priya, Corinne.\nPriya reported a shortlist of 4 candidates ready, meeting the Oct 10 deadline set at the Q3 q"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-013",
+          "source_type": "retrospective",
+          "source_id": "c00e9c49-03b3-58a3-a492-4c281b38e134",
+          "chunk_index": 0,
+          "similarity": 0.6326,
+          "content_snippet": "Decision: Retro: New Copywriter Onboarding\nConfidence level: 3/5\nPrimary assumption: Retro: New Copywriter Onboarding \u2014 Nov 9, 2026\nParticipants: Priya, Nadia Reyes.\n\nWent well: Nadia Reyes's first we"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-001",
+          "source_type": "retrospective",
+          "source_id": "5f7f5a07-a19b-57ac-89aa-355c5939fe1b",
+          "chunk_index": 0,
+          "similarity": 0.5785,
+          "content_snippet": "Decision: Sprint 14 Retrospective\nConfidence level: 3/5\nPrimary assumption: Sprint 14 Retrospective \u2014 Sept 1, 2026\nParticipants: Dev, Priya, Marcus, Jade.\n\nWhat went well: The homepage banner concepts"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 0,
+          "similarity": 0.5755,
+          "content_snippet": "Quarterly Business Review \u2014 Full Transcript\n\nQuarterly Business Review \u2014 Full Transcript \u2014 Sept 25, 2026\nAttendees: Jade (Account Manager), Priya (Creative Lead), Marcus (Strategy), Dev (Engineering),"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-012",
+          "source_type": "retrospective",
+          "source_id": "69c378c5-940f-5318-b798-7fdd65a60a2c",
+          "chunk_index": 0,
+          "similarity": 0.566,
+          "content_snippet": "Decision: Quarterly Retrospective \u2014 Q4 Wrap-up\nConfidence level: 3/5\nPrimary assumption: Quarterly Retrospective \u2014 Q4 Wrap-up \u2014 Dec 3, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat we"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-016",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "The team recommend Nadia Reyes for the Q4 copywriter role": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q18",
+      "question_type": "single-source",
+      "question": "What is Willow & Pine's confirmed budget for the Q4 onboarding phase and Q1 campaign prep?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-017",
+          "evidence": [
+            "Budget confirmed at $52,000 for the Q4 onboarding phase and Q1 campaign prep"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-017",
+          "source_type": "meeting",
+          "source_id": "-1793261339",
+          "chunk_index": 0,
+          "similarity": 0.8372,
+          "content_snippet": "Willow & Pine Kickoff\n\nWillow & Pine Kickoff \u2014 Oct 20, 2026\nAttendees: Jade, Marcus, Willow & Pine stakeholder Ben Alden (Marketing Director).\nBudget confirmed at $52,000 for the Q4 onboarding phase a"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-009",
+          "source_type": "retrospective",
+          "source_id": "08333ef7-7485-586d-8f5a-b84756db44f1",
+          "chunk_index": 0,
+          "similarity": 0.7664,
+          "content_snippet": "Decision: Retro: Willow & Pine Onboarding \u2014 First Month\nConfidence level: 3/5\nPrimary assumption: Retro: Willow & Pine Onboarding \u2014 First Month \u2014 Nov 18, 2026\nParticipants: Jade, Marcus.\n\nWhat went we"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-002",
+          "source_type": "meeting",
+          "source_id": "-1840908246",
+          "chunk_index": 0,
+          "similarity": 0.7093,
+          "content_snippet": "Kickoff: Aurora Retail Q4 Campaign\n\nKickoff: Aurora Retail Q4 Campaign \u2014 Sept 3, 2026\nAttendees: Priya (Creative Lead), Marcus (Strategy), Jade (Account Manager), client stakeholders Lena Ortiz and Sa"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-010",
+          "source_type": "meeting",
+          "source_id": "-1905614721",
+          "chunk_index": 0,
+          "similarity": 0.7004,
+          "content_snippet": "All-Hands: FY26 Planning\n\nAll-Hands: FY26 Planning \u2014 Oct 1, 2026\nAttendees: Full agency team, led by Corinne Blake (Managing Director).\n\nAgency Goals\nCorinne outlined three company-wide goals for FY26"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-006",
+          "source_type": "retrospective",
+          "source_id": "c79902e0-deca-599c-bfa6-282f6326e1a3",
+          "chunk_index": 0,
+          "similarity": 0.6961,
+          "content_snippet": "Decision: Retro: Client Onboarding Process\nConfidence level: 3/5\nPrimary assumption: Retro: Client Onboarding Process \u2014 Oct 20, 2026\nParticipants: Jade, Marcus.\n\nWent well: The new onboarding checklis"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-017",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "Budget confirmed at $52,000 for the Q4 onboarding phase and Q1 campaign prep": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q19",
+      "question_type": "single-source",
+      "question": "What compliance turnaround requirement did Northbridge Financial's kickoff establish for member communications?",
+      "tags": [
+        "exact-id"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-018",
+          "evidence": [
+            "all member communications must be reviewed by Northbridge's compliance team with a 5-business-day turnaround before send"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-018",
+          "source_type": "meeting",
+          "source_id": "-1529437712",
+          "chunk_index": 0,
+          "similarity": 0.7874,
+          "content_snippet": "Northbridge Financial Kickoff\n\nNorthbridge Financial Kickoff \u2014 Nov 3, 2026\nAttendees: Jade, Marcus, Corinne, Northbridge stakeholder Grace Whitfield (VP Member Experience).\nCompliance requirement flag"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-010",
+          "source_type": "retrospective",
+          "source_id": "478a12f8-381d-508c-89e4-d7fae9348989",
+          "chunk_index": 0,
+          "similarity": 0.7224,
+          "content_snippet": "Decision: Retro: Northbridge Financial Compliance Process\nConfidence level: 3/5\nPrimary assumption: Retro: Northbridge Financial Compliance Process \u2014 Nov 25, 2026\nParticipants: Marcus, Jade.\n\nWhat wen"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-023",
+          "source_type": "meeting",
+          "source_id": "-1495859823",
+          "chunk_index": 0,
+          "similarity": 0.7091,
+          "content_snippet": "Compliance Review Sync \u2014 Northbridge Financial\n\nCompliance Review Sync \u2014 Northbridge Financial \u2014 Nov 20, 2026\nAttendees: Marcus, Jade, Grace Whitfield (Northbridge Financial).\nGrace's compliance team "
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-011",
+          "source_type": "notion_draft",
+          "source_id": "-1844743518",
+          "chunk_index": 0,
+          "similarity": 0.6888,
+          "content_snippet": "Northbridge Financial Welcome Series \u2014 v1\n\nNorthbridge Financial Welcome Series \u2014 v1\nStatus: Draft \u2014 needs compliance revision\nSubject line: Welcome to Northbridge Financial\n\nBody: Thanks for joining "
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-012",
+          "source_type": "notion_draft",
+          "source_id": "-1219942096",
+          "chunk_index": 0,
+          "similarity": 0.6767,
+          "content_snippet": "Northbridge Financial Welcome Series \u2014 v2 (Compliance-Approved)\n\nNorthbridge Financial Welcome Series \u2014 v2 (Compliance-Approved)\nStatus: Approved for send\nSubject line: Welcome to Northbridge Financia"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-018",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "all member communications must be reviewed by Northbridge's compliance team with a 5-business-day turnaround before send": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q20",
+      "question_type": "single-source",
+      "question": "Which account team is the first user group for the RAG tool beta pilot?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-019",
+          "evidence": [
+            "the Aurora Retail team as the first user group"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-019",
+          "source_type": "meeting",
+          "source_id": "-1890127441",
+          "chunk_index": 0,
+          "similarity": 0.7253,
+          "content_snippet": "RAG Tool Beta Kickoff \u2014 Aurora Retail Pilot\n\nRAG Tool Beta Kickoff \u2014 Aurora Retail Pilot \u2014 Nov 5, 2026\nAttendees: Dev, Priya, Marcus, Jade.\nDev presented the beta RAG-assisted knowledge tool, per the "
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-016",
+          "source_type": "notion_draft",
+          "source_id": "-1607082095",
+          "chunk_index": 0,
+          "similarity": 0.7001,
+          "content_snippet": "RAG Tool Beta \u2014 Internal FAQ Draft\n\nRAG Tool Beta \u2014 Internal FAQ Draft\nStatus: Draft\nAuthor: Dev\n\nQ: What is the RAG tool beta?\nA: An internal tool that lets account teams ask natural-language questio"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-014",
+          "source_type": "retrospective",
+          "source_id": "535e3eef-3e60-58e3-a937-68546effeaf6",
+          "chunk_index": 0,
+          "similarity": 0.6583,
+          "content_snippet": "Decision: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback\nConfidence level: 3/5\nPrimary assumption: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback \u2014 Dec 8, 2026\nParticipants: Dev, Priya, Jade.\n\nW"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-025",
+          "source_type": "meeting",
+          "source_id": "-1524042661",
+          "chunk_index": 0,
+          "similarity": 0.6287,
+          "content_snippet": "FY26 Progress Check-in\n\nFY26 Progress Check-in \u2014 Dec 5, 2026\nAttendees: Full agency team, led by Corinne Blake.\nCorinne reviewed FY26 goals progress: revenue growth tracking at 11% year-to-date agains"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-010",
+          "source_type": "meeting",
+          "source_id": "-1905614721",
+          "chunk_index": 0,
+          "similarity": 0.5339,
+          "content_snippet": "All-Hands: FY26 Planning\n\nAll-Hands: FY26 Planning \u2014 Oct 1, 2026\nAttendees: Full agency team, led by Corinne Blake (Managing Director).\n\nAgency Goals\nCorinne outlined three company-wide goals for FY26"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-019",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "the Aurora Retail team as the first user group": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q21",
+      "question_type": "single-source",
+      "question": "What discount did the Willow & Pine re-engagement email offer lapsed subscribers?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-010",
+          "evidence": [
+            "20% off your next order"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "notion-010",
+          "source_type": "notion_draft",
+          "source_id": "-1202945772",
+          "chunk_index": 0,
+          "similarity": 0.8163,
+          "content_snippet": "Willow & Pine Re-engagement Email Draft\n\nWillow & Pine Re-engagement Email Draft\nStatus: Client review\nSubject line: We miss you at Willow & Pine\n\nBody: It's been a while! Come back and enjoy 20% off "
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-022",
+          "source_type": "meeting",
+          "source_id": "-1904195200",
+          "chunk_index": 0,
+          "similarity": 0.6651,
+          "content_snippet": "Client Check-in \u2014 Willow & Pine\n\nClient Check-in \u2014 Willow & Pine \u2014 Nov 15, 2026\nAttendees: Jade, Ben Alden (Willow & Pine).\nBen approved the re-engagement email subject-line test plan.\nFirst send sche"
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-017",
+          "source_type": "notion_draft",
+          "source_id": "-1969822314",
+          "chunk_index": 0,
+          "similarity": 0.6467,
+          "content_snippet": "Ad Copy Variations \u2014 Willow & Pine Meta Feed\n\nAd Copy Variations \u2014 Willow & Pine Meta Feed\nStatus: Approved\n\nVariant A: \"We miss you. Here's 20% off to come back.\"\nVariant B: \"Your home, refreshed. We"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-017",
+          "source_type": "meeting",
+          "source_id": "-1793261339",
+          "chunk_index": 0,
+          "similarity": 0.6345,
+          "content_snippet": "Willow & Pine Kickoff\n\nWillow & Pine Kickoff \u2014 Oct 20, 2026\nAttendees: Jade, Marcus, Willow & Pine stakeholder Ben Alden (Marketing Director).\nBudget confirmed at $52,000 for the Q4 onboarding phase a"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-009",
+          "source_type": "retrospective",
+          "source_id": "08333ef7-7485-586d-8f5a-b84756db44f1",
+          "chunk_index": 0,
+          "similarity": 0.6107,
+          "content_snippet": "Decision: Retro: Willow & Pine Onboarding \u2014 First Month\nConfidence level: 3/5\nPrimary assumption: Retro: Willow & Pine Onboarding \u2014 First Month \u2014 Nov 18, 2026\nParticipants: Jade, Marcus.\n\nWhat went we"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "notion-010",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "20% off your next order": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q22",
+      "question_type": "single-source",
+      "question": "What federally-insured disclosure line was added to the compliance-approved Northbridge welcome series?",
+      "tags": [
+        "exact-id",
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-012",
+          "evidence": [
+            "Northbridge Financial Credit Union is federally insured by NCUA."
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "notion-012",
+          "source_type": "notion_draft",
+          "source_id": "-1219942096",
+          "chunk_index": 0,
+          "similarity": 0.7624,
+          "content_snippet": "Northbridge Financial Welcome Series \u2014 v2 (Compliance-Approved)\n\nNorthbridge Financial Welcome Series \u2014 v2 (Compliance-Approved)\nStatus: Approved for send\nSubject line: Welcome to Northbridge Financia"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-011",
+          "source_type": "notion_draft",
+          "source_id": "-1844743518",
+          "chunk_index": 0,
+          "similarity": 0.7373,
+          "content_snippet": "Northbridge Financial Welcome Series \u2014 v1\n\nNorthbridge Financial Welcome Series \u2014 v1\nStatus: Draft \u2014 needs compliance revision\nSubject line: Welcome to Northbridge Financial\n\nBody: Thanks for joining "
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-023",
+          "source_type": "meeting",
+          "source_id": "-1495859823",
+          "chunk_index": 0,
+          "similarity": 0.6955,
+          "content_snippet": "Compliance Review Sync \u2014 Northbridge Financial\n\nCompliance Review Sync \u2014 Northbridge Financial \u2014 Nov 20, 2026\nAttendees: Marcus, Jade, Grace Whitfield (Northbridge Financial).\nGrace's compliance team "
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-018",
+          "source_type": "meeting",
+          "source_id": "-1529437712",
+          "chunk_index": 0,
+          "similarity": 0.6777,
+          "content_snippet": "Northbridge Financial Kickoff\n\nNorthbridge Financial Kickoff \u2014 Nov 3, 2026\nAttendees: Jade, Marcus, Corinne, Northbridge stakeholder Grace Whitfield (VP Member Experience).\nCompliance requirement flag"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-010",
+          "source_type": "retrospective",
+          "source_id": "478a12f8-381d-508c-89e4-d7fae9348989",
+          "chunk_index": 0,
+          "similarity": 0.6706,
+          "content_snippet": "Decision: Retro: Northbridge Financial Compliance Process\nConfidence level: 3/5\nPrimary assumption: Retro: Northbridge Financial Compliance Process \u2014 Nov 25, 2026\nParticipants: Marcus, Jade.\n\nWhat wen"
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "notion-012",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "Northbridge Financial Credit Union is federally insured by NCUA.": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q23",
+      "question_type": "single-source",
+      "question": "When was Aurora Retail's engineering team's session-timeout fix finally deployed?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-008",
+          "evidence": [
+            "deployed the session-timeout fix on Nov 20"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-008",
+          "source_type": "retrospective",
+          "source_id": "a7c8c5ba-608d-5b66-9008-528f1c50301d",
+          "chunk_index": 0,
+          "similarity": 0.7579,
+          "content_snippet": "Decision: Sprint 20 Retrospective \u2014 Checkout Flow Fix Deployed\nConfidence level: 3/5\nPrimary assumption: Sprint 20 Retrospective \u2014 Checkout Flow Fix Deployed \u2014 Nov 21, 2026\nParticipants: Dev, Jade.\n\nW"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 1,
+          "similarity": 0.7035,
+          "content_snippet": "es under high traffic, which caused a partial outage during the loyalty-program launch on October 15. Dev is coordinating with Aurora Retail's engineering team on a fix before the Q4 holiday push. Cor"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-002",
+          "source_type": "retrospective",
+          "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+          "chunk_index": 0,
+          "similarity": 0.6901,
+          "content_snippet": "Decision: Sprint 15 Retrospective \u2014 Checkout Flow Bug\nConfidence level: 3/5\nPrimary assumption: Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went "
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-005",
+          "source_type": "retrospective",
+          "source_id": "71f492ef-4fd2-55ae-94b5-0badd0b6afa5",
+          "chunk_index": 0,
+          "similarity": 0.69,
+          "content_snippet": "Decision: Sprint 18 Retrospective \u2014 Checkout Flow Regression\nConfidence level: 3/5\nPrimary assumption: Sprint 18 Retrospective \u2014 Checkout Flow Regression \u2014 Oct 27, 2026\nParticipants: Dev, Jade.\n\nWhat "
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-019",
+          "source_type": "meeting",
+          "source_id": "-1890127441",
+          "chunk_index": 0,
+          "similarity": 0.6508,
+          "content_snippet": "RAG Tool Beta Kickoff \u2014 Aurora Retail Pilot\n\nRAG Tool Beta Kickoff \u2014 Aurora Retail Pilot \u2014 Nov 5, 2026\nAttendees: Dev, Priya, Marcus, Jade.\nDev presented the beta RAG-assisted knowledge tool, per the "
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "retro-008",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "deployed the session-timeout fix on Nov 20": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "q24",
+      "question_type": "single-source",
+      "question": "What early limitation did Dev flag with the RAG tool beta during the Sprint 22 retro?",
+      "tags": [
+        "topic-present-unresolved"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-014",
+          "evidence": [
+            "answers got noticeably shakier whenever a question needed to pull facts from several different meetings and documents at once, rather than just one"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-014",
+          "source_type": "retrospective",
+          "source_id": "535e3eef-3e60-58e3-a937-68546effeaf6",
+          "chunk_index": 0,
+          "similarity": 0.7234,
+          "content_snippet": "Decision: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback\nConfidence level: 3/5\nPrimary assumption: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback \u2014 Dec 8, 2026\nParticipants: Dev, Priya, Jade.\n\nW"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-019",
+          "source_type": "meeting",
+          "source_id": "-1890127441",
+          "chunk_index": 0,
+          "similarity": 0.7006,
+          "content_snippet": "RAG Tool Beta Kickoff \u2014 Aurora Retail Pilot\n\nRAG Tool Beta Kickoff \u2014 Aurora Retail Pilot \u2014 Nov 5, 2026\nAttendees: Dev, Priya, Marcus, Jade.\nDev presented the beta RAG-assisted knowledge tool, per the "
+        },
+        {
+          "rank": 3,
+          "source_ref": "notion-016",
+          "source_type": "notion_draft",
+          "source_id": "-1607082095",
+          "chunk_index": 0,
+          "similarity": 0.6947,
+          "content_snippet": "RAG Tool Beta \u2014 Internal FAQ Draft\n\nRAG Tool Beta \u2014 Internal FAQ Draft\nStatus: Draft\nAuthor: Dev\n\nQ: What is the RAG tool beta?\nA: An internal tool that lets account teams ask natural-language questio"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-025",
+          "source_type": "meeting",
+          "source_id": "-1524042661",
+          "chunk_index": 0,
+          "similarity": 0.6156,
+          "content_snippet": "FY26 Progress Check-in\n\nFY26 Progress Check-in \u2014 Dec 5, 2026\nAttendees: Full agency team, led by Corinne Blake.\nCorinne reviewed FY26 goals progress: revenue growth tracking at 11% year-to-date agains"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-002",
+          "source_type": "retrospective",
+          "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+          "chunk_index": 0,
+          "similarity": 0.6139,
+          "content_snippet": "Decision: Sprint 15 Retrospective \u2014 Checkout Flow Bug\nConfidence level: 3/5\nPrimary assumption: Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went "
+        }
+      ],
+      "evidence_complete_rank": 1,
+      "per_expected_source": [
+        {
+          "source_ref": "retro-014",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "answers got noticeably shakier whenever a question needed to pull facts from several different meetings and documents at once, rather than just one": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null
+    },
+    {
+      "id": "mq07",
+      "question_type": "multi-source",
+      "question": "What was the paid social budget overage during the main push phase, and what mid-sprint issue foreshadowed it?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-021",
+          "evidence": [
+            "a $2,500 overage attributed to a mid-month bid increase to counter rising CPMs"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-007",
+          "evidence": [
+            "CPMs rose faster than forecast"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.6813,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-013",
+          "source_type": "meeting",
+          "source_id": "-1247652756",
+          "chunk_index": 0,
+          "similarity": 0.6742,
+          "content_snippet": "Weekly Standup \u2014 Oct 7, 2026\n\nWeekly Standup \u2014 Oct 7, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Finalizing Nov main-push social creative.\nMarcus: Confirmed the main-push paid social budget allocation"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-011",
+          "source_type": "retrospective",
+          "source_id": "03df79f6-1802-5fb0-9a29-c90507282f17",
+          "chunk_index": 0,
+          "similarity": 0.6692,
+          "content_snippet": "Decision: Sprint 21 Retrospective \u2014 Main Push Goal Reached\nConfidence level: 3/5\nPrimary assumption: Sprint 21 Retrospective \u2014 Main Push Goal Reached \u2014 Nov 30, 2026\nParticipants: Marcus, Priya, Dev, J"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-007",
+          "source_type": "retrospective",
+          "source_id": "8826dcf7-2f99-5a43-afdb-ec4b06baa0bd",
+          "chunk_index": 0,
+          "similarity": 0.655,
+          "content_snippet": "Decision: Sprint 19 Retrospective \u2014 Main Push Kickoff\nConfidence level: 3/5\nPrimary assumption: Sprint 19 Retrospective \u2014 Main Push Kickoff \u2014 Nov 3, 2026\nParticipants: Marcus, Priya, Dev, Jade.\n\nWhat "
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 0,
+          "similarity": 0.598,
+          "content_snippet": "Quarterly Business Review \u2014 Full Transcript\n\nQuarterly Business Review \u2014 Full Transcript \u2014 Sept 25, 2026\nAttendees: Jade (Account Manager), Priya (Creative Lead), Marcus (Strategy), Dev (Engineering),"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-021",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "a $2,500 overage attributed to a mid-month bid increase to counter rising CPMs": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "retro-007",
+          "evidence_complete_rank": 4,
+          "evidence_covered": {
+            "CPMs rose faster than forecast": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 0.5,
+      "full_coverage@3": 0.0,
+      "precision@3": 0.3333333333333333,
+      "source_precision@3": 0.3333333333333333,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.4,
+      "source_precision@5": 0.4,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq08",
+      "question_type": "multi-source",
+      "question": "How many gift cards did the main push phase sell on its own, and per the Q4 wrap-up retro, what was the final result against the goal?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-021",
+          "evidence": [
+            "2,900 gift cards sold during main push alone"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-012",
+          "evidence": [
+            "exceeded its gift-card goal (4,100 vs 4,000, reached Nov 28)"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.7718,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-011",
+          "source_type": "retrospective",
+          "source_id": "03df79f6-1802-5fb0-9a29-c90507282f17",
+          "chunk_index": 0,
+          "similarity": 0.7341,
+          "content_snippet": "Decision: Sprint 21 Retrospective \u2014 Main Push Goal Reached\nConfidence level: 3/5\nPrimary assumption: Sprint 21 Retrospective \u2014 Main Push Goal Reached \u2014 Nov 30, 2026\nParticipants: Marcus, Priya, Dev, J"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-014",
+          "source_type": "meeting",
+          "source_id": "-1225674207",
+          "chunk_index": 0,
+          "similarity": 0.7114,
+          "content_snippet": "Main Push Launch Readiness Review\n\nMain Push Launch Readiness Review \u2014 Nov 1, 2026\nAttendees: Priya, Marcus, Jade, Dev.\nJade confirmed the main push phase officially launched Nov 1 across email, paid "
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-015",
+          "source_type": "notion_draft",
+          "source_id": "-1527038552",
+          "chunk_index": 0,
+          "similarity": 0.6977,
+          "content_snippet": "Case Study Draft: Aurora Retail Full-Year Results\n\nCase Study Draft: Aurora Retail Full-Year Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the full Q3-Q4 Aurora Retail e"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-012",
+          "source_type": "retrospective",
+          "source_id": "69c378c5-940f-5318-b798-7fdd65a60a2c",
+          "chunk_index": 0,
+          "similarity": 0.6649,
+          "content_snippet": "Decision: Quarterly Retrospective \u2014 Q4 Wrap-up\nConfidence level: 3/5\nPrimary assumption: Quarterly Retrospective \u2014 Q4 Wrap-up \u2014 Dec 3, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat we"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-021",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "2,900 gift cards sold during main push alone": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "retro-012",
+          "evidence_complete_rank": 5,
+          "evidence_covered": {
+            "exceeded its gift-card goal (4,100 vs 4,000, reached Nov 28)": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 0.5,
+      "full_coverage@3": 0.0,
+      "precision@3": 0.3333333333333333,
+      "source_precision@3": 0.3333333333333333,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.4,
+      "source_precision@5": 0.4,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq09",
+      "question_type": "multi-source",
+      "question": "What gap did the Northbridge compliance retro flag in the original welcome-series timeline, and how many required disclosure lines did compliance ask to add?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-010",
+          "evidence": [
+            "The extra 5-business-day compliance turnaround wasn't factored into the original welcome-series timeline"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-023",
+          "evidence": [
+            "Two required disclosure lines must be added per NCUA guidance"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-010",
+          "source_type": "retrospective",
+          "source_id": "478a12f8-381d-508c-89e4-d7fae9348989",
+          "chunk_index": 0,
+          "similarity": 0.7405,
+          "content_snippet": "Decision: Retro: Northbridge Financial Compliance Process\nConfidence level: 3/5\nPrimary assumption: Retro: Northbridge Financial Compliance Process \u2014 Nov 25, 2026\nParticipants: Marcus, Jade.\n\nWhat wen"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-011",
+          "source_type": "notion_draft",
+          "source_id": "-1844743518",
+          "chunk_index": 0,
+          "similarity": 0.6662,
+          "content_snippet": "Northbridge Financial Welcome Series \u2014 v1\n\nNorthbridge Financial Welcome Series \u2014 v1\nStatus: Draft \u2014 needs compliance revision\nSubject line: Welcome to Northbridge Financial\n\nBody: Thanks for joining "
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-023",
+          "source_type": "meeting",
+          "source_id": "-1495859823",
+          "chunk_index": 0,
+          "similarity": 0.6518,
+          "content_snippet": "Compliance Review Sync \u2014 Northbridge Financial\n\nCompliance Review Sync \u2014 Northbridge Financial \u2014 Nov 20, 2026\nAttendees: Marcus, Jade, Grace Whitfield (Northbridge Financial).\nGrace's compliance team "
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-018",
+          "source_type": "meeting",
+          "source_id": "-1529437712",
+          "chunk_index": 0,
+          "similarity": 0.6476,
+          "content_snippet": "Northbridge Financial Kickoff\n\nNorthbridge Financial Kickoff \u2014 Nov 3, 2026\nAttendees: Jade, Marcus, Corinne, Northbridge stakeholder Grace Whitfield (VP Member Experience).\nCompliance requirement flag"
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-012",
+          "source_type": "notion_draft",
+          "source_id": "-1219942096",
+          "chunk_index": 0,
+          "similarity": 0.6344,
+          "content_snippet": "Northbridge Financial Welcome Series \u2014 v2 (Compliance-Approved)\n\nNorthbridge Financial Welcome Series \u2014 v2 (Compliance-Approved)\nStatus: Approved for send\nSubject line: Welcome to Northbridge Financia"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "retro-010",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "The extra 5-business-day compliance turnaround wasn't factored into the original welcome-series timeline": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "meeting-023",
+          "evidence_complete_rank": 3,
+          "evidence_covered": {
+            "Two required disclosure lines must be added per NCUA guidance": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 1.0,
+      "full_coverage@3": 1.0,
+      "precision@3": 0.6666666666666666,
+      "source_precision@3": 0.6666666666666666,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.4,
+      "source_precision@5": 0.4,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq10",
+      "question_type": "multi-source",
+      "question": "Trace the checkout-flow issue from its Sprint 15 root cause through its Sprint 18 recurrence to when it was finally fixed.",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-002",
+          "evidence": [
+            "session-timeout misconfiguration on Aurora Retail's checkout server"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-005",
+          "evidence": [
+            "Aurora Retail's engineering team had not yet deployed the session-timeout fix discussed in Sprint 15"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-008",
+          "evidence": [
+            "deployed the session-timeout fix on Nov 20"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-002",
+          "source_type": "retrospective",
+          "source_id": "49ff0eae-f941-54db-a763-dafc28f605d2",
+          "chunk_index": 0,
+          "similarity": 0.7554,
+          "content_snippet": "Decision: Sprint 15 Retrospective \u2014 Checkout Flow Bug\nConfidence level: 3/5\nPrimary assumption: Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went "
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-005",
+          "source_type": "retrospective",
+          "source_id": "71f492ef-4fd2-55ae-94b5-0badd0b6afa5",
+          "chunk_index": 0,
+          "similarity": 0.7182,
+          "content_snippet": "Decision: Sprint 18 Retrospective \u2014 Checkout Flow Regression\nConfidence level: 3/5\nPrimary assumption: Sprint 18 Retrospective \u2014 Checkout Flow Regression \u2014 Oct 27, 2026\nParticipants: Dev, Jade.\n\nWhat "
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-008",
+          "source_type": "retrospective",
+          "source_id": "a7c8c5ba-608d-5b66-9008-528f1c50301d",
+          "chunk_index": 0,
+          "similarity": 0.7028,
+          "content_snippet": "Decision: Sprint 20 Retrospective \u2014 Checkout Flow Fix Deployed\nConfidence level: 3/5\nPrimary assumption: Sprint 20 Retrospective \u2014 Checkout Flow Fix Deployed \u2014 Nov 21, 2026\nParticipants: Dev, Jade.\n\nW"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-014",
+          "source_type": "retrospective",
+          "source_id": "535e3eef-3e60-58e3-a937-68546effeaf6",
+          "chunk_index": 0,
+          "similarity": 0.5896,
+          "content_snippet": "Decision: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback\nConfidence level: 3/5\nPrimary assumption: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback \u2014 Dec 8, 2026\nParticipants: Dev, Priya, Jade.\n\nW"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 1,
+          "similarity": 0.5895,
+          "content_snippet": "es under high traffic, which caused a partial outage during the loyalty-program launch on October 15. Dev is coordinating with Aurora Retail's engineering team on a fix before the Q4 holiday push. Cor"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "retro-002",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "session-timeout misconfiguration on Aurora Retail's checkout server": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "retro-005",
+          "evidence_complete_rank": 2,
+          "evidence_covered": {
+            "Aurora Retail's engineering team had not yet deployed the session-timeout fix discussed in Sprint 15": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "retro-008",
+          "evidence_complete_rank": 3,
+          "evidence_covered": {
+            "deployed the session-timeout fix on Nov 20": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 1.0,
+      "full_coverage@3": 1.0,
+      "precision@3": 1.0,
+      "source_precision@3": 1.0,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.6,
+      "source_precision@5": 0.6,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq11",
+      "question_type": "multi-source",
+      "question": "What onboarding gap did an earlier retro flag for credit-union clients, how was the checklist updated for Northbridge's kickoff, and what compliance benefit did that update deliver?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-006",
+          "evidence": [
+            "The checklist doesn't yet cover credit union clients"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-018",
+          "evidence": [
+            "Marcus confirms updated onboarding checklist now covers a credit-union compliance review step"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-010",
+          "evidence": [
+            "caught the missing NCUA disclosures before external send, avoiding a compliance issue"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-006",
+          "source_type": "retrospective",
+          "source_id": "c79902e0-deca-599c-bfa6-282f6326e1a3",
+          "chunk_index": 0,
+          "similarity": 0.76,
+          "content_snippet": "Decision: Retro: Client Onboarding Process\nConfidence level: 3/5\nPrimary assumption: Retro: Client Onboarding Process \u2014 Oct 20, 2026\nParticipants: Jade, Marcus.\n\nWent well: The new onboarding checklis"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-010",
+          "source_type": "retrospective",
+          "source_id": "478a12f8-381d-508c-89e4-d7fae9348989",
+          "chunk_index": 0,
+          "similarity": 0.7376,
+          "content_snippet": "Decision: Retro: Northbridge Financial Compliance Process\nConfidence level: 3/5\nPrimary assumption: Retro: Northbridge Financial Compliance Process \u2014 Nov 25, 2026\nParticipants: Marcus, Jade.\n\nWhat wen"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-018",
+          "source_type": "meeting",
+          "source_id": "-1529437712",
+          "chunk_index": 0,
+          "similarity": 0.7164,
+          "content_snippet": "Northbridge Financial Kickoff\n\nNorthbridge Financial Kickoff \u2014 Nov 3, 2026\nAttendees: Jade, Marcus, Corinne, Northbridge stakeholder Grace Whitfield (VP Member Experience).\nCompliance requirement flag"
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-023",
+          "source_type": "meeting",
+          "source_id": "-1495859823",
+          "chunk_index": 0,
+          "similarity": 0.668,
+          "content_snippet": "Compliance Review Sync \u2014 Northbridge Financial\n\nCompliance Review Sync \u2014 Northbridge Financial \u2014 Nov 20, 2026\nAttendees: Marcus, Jade, Grace Whitfield (Northbridge Financial).\nGrace's compliance team "
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-009",
+          "source_type": "retrospective",
+          "source_id": "08333ef7-7485-586d-8f5a-b84756db44f1",
+          "chunk_index": 0,
+          "similarity": 0.6548,
+          "content_snippet": "Decision: Retro: Willow & Pine Onboarding \u2014 First Month\nConfidence level: 3/5\nPrimary assumption: Retro: Willow & Pine Onboarding \u2014 First Month \u2014 Nov 18, 2026\nParticipants: Jade, Marcus.\n\nWhat went we"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "retro-006",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "The checklist doesn't yet cover credit union clients": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "meeting-018",
+          "evidence_complete_rank": 3,
+          "evidence_covered": {
+            "Marcus confirms updated onboarding checklist now covers a credit-union compliance review step": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "retro-010",
+          "evidence_complete_rank": 2,
+          "evidence_covered": {
+            "caught the missing NCUA disclosures before external send, avoiding a compliance issue": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 1.0,
+      "full_coverage@3": 1.0,
+      "precision@3": 1.0,
+      "source_precision@3": 1.0,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.6,
+      "source_precision@5": 0.6,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq12",
+      "question_type": "multi-source",
+      "question": "What FY26 goal did Corinne set for campaign turnaround time, what was the progress as of her December check-in, and what did the team attribute the remaining gap to?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": [
+            "reduce average campaign turnaround time from 21 days to 14 days"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-025",
+          "evidence": [
+            "Average campaign turnaround time has improved from 21 days to 17 days, short of the 14-day target"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-015",
+          "evidence": [
+            "the team attributes the gap partly to the external-dependency delays flagged in the Q4 wrap-up"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-015",
+          "source_type": "retrospective",
+          "source_id": "990b7a8a-efaf-5192-9959-1d9f5f4f9e41",
+          "chunk_index": 0,
+          "similarity": 0.8001,
+          "content_snippet": "Decision: Retro: FY26 Turnaround Time Progress\nConfidence level: 3/5\nPrimary assumption: Retro: FY26 Turnaround Time Progress \u2014 Dec 6, 2026\nParticipants: Corinne, Jade, Marcus.\n\nWhat went well: The ca"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-025",
+          "source_type": "meeting",
+          "source_id": "-1524042661",
+          "chunk_index": 0,
+          "similarity": 0.7195,
+          "content_snippet": "FY26 Progress Check-in\n\nFY26 Progress Check-in \u2014 Dec 5, 2026\nAttendees: Full agency team, led by Corinne Blake.\nCorinne reviewed FY26 goals progress: revenue growth tracking at 11% year-to-date agains"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-010",
+          "source_type": "meeting",
+          "source_id": "-1905614721",
+          "chunk_index": 0,
+          "similarity": 0.7139,
+          "content_snippet": "All-Hands: FY26 Planning\n\nAll-Hands: FY26 Planning \u2014 Oct 1, 2026\nAttendees: Full agency team, led by Corinne Blake (Managing Director).\n\nAgency Goals\nCorinne outlined three company-wide goals for FY26"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-011",
+          "source_type": "retrospective",
+          "source_id": "03df79f6-1802-5fb0-9a29-c90507282f17",
+          "chunk_index": 0,
+          "similarity": 0.6605,
+          "content_snippet": "Decision: Sprint 21 Retrospective \u2014 Main Push Goal Reached\nConfidence level: 3/5\nPrimary assumption: Sprint 21 Retrospective \u2014 Main Push Goal Reached \u2014 Nov 30, 2026\nParticipants: Marcus, Priya, Dev, J"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-005",
+          "source_type": "meeting",
+          "source_id": "-1353494817",
+          "chunk_index": 0,
+          "similarity": 0.6429,
+          "content_snippet": "Quarterly Business Review \u2014 Full Transcript\n\nQuarterly Business Review \u2014 Full Transcript \u2014 Sept 25, 2026\nAttendees: Jade (Account Manager), Priya (Creative Lead), Marcus (Strategy), Dev (Engineering),"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-010",
+          "evidence_complete_rank": 3,
+          "evidence_covered": {
+            "reduce average campaign turnaround time from 21 days to 14 days": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "meeting-025",
+          "evidence_complete_rank": 2,
+          "evidence_covered": {
+            "Average campaign turnaround time has improved from 21 days to 17 days, short of the 14-day target": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "retro-015",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "the team attributes the gap partly to the external-dependency delays flagged in the Q4 wrap-up": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 1.0,
+      "full_coverage@3": 1.0,
+      "precision@3": 1.0,
+      "source_precision@3": 1.0,
+      "recall@5": 1.0,
+      "full_coverage@5": 1.0,
+      "precision@5": 0.6,
+      "source_precision@5": 0.6,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "mq13",
+      "question_type": "multi-source",
+      "question": "Walk through the Aurora Retail Q4 gift-card campaign end-to-end: the original goal, how many cards had sold by Nov 1, how many the main push phase sold on its own, and the final cumulative confirmation in the quarterly retro.",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-002",
+          "evidence": [
+            "a target of 4,000 gift cards sold by December 24"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-014",
+          "evidence": [
+            "1,200 gift cards sold toward the 4,000 goal"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-021",
+          "evidence": [
+            "2,900 gift cards sold during main push alone"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-012",
+          "evidence": [
+            "exceeded its gift-card goal (4,100 vs 4,000, reached Nov 28)"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "notion-015",
+          "source_type": "notion_draft",
+          "source_id": "-1527038552",
+          "chunk_index": 0,
+          "similarity": 0.7898,
+          "content_snippet": "Case Study Draft: Aurora Retail Full-Year Results\n\nCase Study Draft: Aurora Retail Full-Year Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the full Q3-Q4 Aurora Retail e"
+        },
+        {
+          "rank": 2,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.7753,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-002",
+          "source_type": "meeting",
+          "source_id": "-1840908246",
+          "chunk_index": 0,
+          "similarity": 0.7687,
+          "content_snippet": "Kickoff: Aurora Retail Q4 Campaign\n\nKickoff: Aurora Retail Q4 Campaign \u2014 Sept 3, 2026\nAttendees: Priya (Creative Lead), Marcus (Strategy), Jade (Account Manager), client stakeholders Lena Ortiz and Sa"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-012",
+          "source_type": "retrospective",
+          "source_id": "69c378c5-940f-5318-b798-7fdd65a60a2c",
+          "chunk_index": 0,
+          "similarity": 0.7455,
+          "content_snippet": "Decision: Quarterly Retrospective \u2014 Q4 Wrap-up\nConfidence level: 3/5\nPrimary assumption: Quarterly Retrospective \u2014 Q4 Wrap-up \u2014 Dec 3, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat we"
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-009",
+          "source_type": "notion_draft",
+          "source_id": "-1360046904",
+          "chunk_index": 0,
+          "similarity": 0.7411,
+          "content_snippet": "Main Push Email Copy \u2014 Aurora Retail\n\nMain Push Email Copy \u2014 Aurora Retail\nStatus: Approved\nSubject line: Your gift card is calling \ud83c\udf81\n\nBody: The Aurora Retail holiday gift-card sale is live through No"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-002",
+          "evidence_complete_rank": 3,
+          "evidence_covered": {
+            "a target of 4,000 gift cards sold by December 24": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "meeting-014",
+          "evidence_complete_rank": null,
+          "evidence_covered": {
+            "1,200 gift cards sold toward the 4,000 goal": false
+          },
+          "fail_category": "source_not_retrieved"
+        },
+        {
+          "source_ref": "meeting-021",
+          "evidence_complete_rank": 2,
+          "evidence_covered": {
+            "2,900 gift cards sold during main push alone": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "retro-012",
+          "evidence_complete_rank": 4,
+          "evidence_covered": {
+            "exceeded its gift-card goal (4,100 vs 4,000, reached Nov 28)": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "partial",
+      "fail_reason": "expected source(s) not satisfied: meeting-014 (source_not_retrieved)",
+      "first_relevant_rank": 2,
+      "recall@3": 0.5,
+      "full_coverage@3": 0.0,
+      "precision@3": 0.6666666666666666,
+      "source_precision@3": 0.6666666666666666,
+      "recall@5": 0.75,
+      "full_coverage@5": 0.0,
+      "precision@5": 0.6,
+      "source_precision@5": 0.6,
+      "recall@10": 0.75,
+      "full_coverage@10": 0.0
+    },
+    {
+      "id": "mq14",
+      "question_type": "multi-source",
+      "question": "Trace the Q4 copywriter hire from the original headcount plan through to their first deliverable: what start date was planned, who was recommended, how did their first week go, and what was their first deliverable?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-005",
+          "evidence": [
+            "an anticipated start date of November 2"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-016",
+          "evidence": [
+            "The team recommend Nadia Reyes for the Q4 copywriter role"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-013",
+          "evidence": [
+            "Nadia Reyes's first week ramped quickly using the brand-guideline changelog"
+          ]
+        },
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-018",
+          "evidence": [
+            "First deliverable from new copywriter Nadia Reyes"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-016",
+          "source_type": "meeting",
+          "source_id": "-1729277584",
+          "chunk_index": 0,
+          "similarity": 0.6755,
+          "content_snippet": "New Copywriter \u2014 Hiring Debrief\n\nNew Copywriter \u2014 Hiring Debrief \u2014 Oct 12, 2026\nAttendees: Priya, Corinne.\nPriya reported a shortlist of 4 candidates ready, meeting the Oct 10 deadline set at the Q3 q"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-013",
+          "source_type": "retrospective",
+          "source_id": "c00e9c49-03b3-58a3-a492-4c281b38e134",
+          "chunk_index": 0,
+          "similarity": 0.6734,
+          "content_snippet": "Decision: Retro: New Copywriter Onboarding\nConfidence level: 3/5\nPrimary assumption: Retro: New Copywriter Onboarding \u2014 Nov 9, 2026\nParticipants: Priya, Nadia Reyes.\n\nWent well: Nadia Reyes's first we"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-001",
+          "source_type": "retrospective",
+          "source_id": "5f7f5a07-a19b-57ac-89aa-355c5939fe1b",
+          "chunk_index": 0,
+          "similarity": 0.5891,
+          "content_snippet": "Decision: Sprint 14 Retrospective\nConfidence level: 3/5\nPrimary assumption: Sprint 14 Retrospective \u2014 Sept 1, 2026\nParticipants: Dev, Priya, Marcus, Jade.\n\nWhat went well: The homepage banner concepts"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-009",
+          "source_type": "retrospective",
+          "source_id": "08333ef7-7485-586d-8f5a-b84756db44f1",
+          "chunk_index": 0,
+          "similarity": 0.5829,
+          "content_snippet": "Decision: Retro: Willow & Pine Onboarding \u2014 First Month\nConfidence level: 3/5\nPrimary assumption: Retro: Willow & Pine Onboarding \u2014 First Month \u2014 Nov 18, 2026\nParticipants: Jade, Marcus.\n\nWhat went we"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-007",
+          "source_type": "retrospective",
+          "source_id": "8826dcf7-2f99-5a43-afdb-ec4b06baa0bd",
+          "chunk_index": 0,
+          "similarity": 0.5781,
+          "content_snippet": "Decision: Sprint 19 Retrospective \u2014 Main Push Kickoff\nConfidence level: 3/5\nPrimary assumption: Sprint 19 Retrospective \u2014 Main Push Kickoff \u2014 Nov 3, 2026\nParticipants: Marcus, Priya, Dev, Jade.\n\nWhat "
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-005",
+          "evidence_complete_rank": 7,
+          "evidence_covered": {
+            "an anticipated start date of November 2": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "meeting-016",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "The team recommend Nadia Reyes for the Q4 copywriter role": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "retro-013",
+          "evidence_complete_rank": 2,
+          "evidence_covered": {
+            "Nadia Reyes's first week ramped quickly using the brand-guideline changelog": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "notion-018",
+          "evidence_complete_rank": null,
+          "evidence_covered": {
+            "First deliverable from new copywriter Nadia Reyes": false
+          },
+          "fail_category": "source_not_retrieved"
+        }
+      ],
+      "outcome": "partial",
+      "fail_reason": "expected source(s) not satisfied: notion-018 (source_not_retrieved)",
+      "first_relevant_rank": 1,
+      "recall@3": 0.5,
+      "full_coverage@3": 0.0,
+      "precision@3": 0.6666666666666666,
+      "source_precision@3": 0.6666666666666666,
+      "recall@5": 0.5,
+      "full_coverage@5": 0.0,
+      "precision@5": 0.4,
+      "source_precision@5": 0.4,
+      "recall@10": 0.75,
+      "full_coverage@10": 0.0
+    },
+    {
+      "id": "mq15",
+      "question_type": "multi-source",
+      "question": "Trace the RAG-assisted knowledge tool from its FY26 goal announcement, through which team piloted the beta first, to what the beta feedback will determine next, and what limitation Sprint 22 surfaced along the way.",
+      "tags": [
+        "long-document",
+        "multi-chunk",
+        "topic-present-unresolved"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": [
+            "launch a formal RAG-assisted internal knowledge tool for account teams"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-019",
+          "evidence": [
+            "the Aurora Retail team as the first user group"
+          ]
+        },
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-016",
+          "evidence": [
+            "Beta feedback will shape the full FY26 rollout decision."
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-014",
+          "evidence": [
+            "answers got noticeably shakier whenever a question needed to pull facts from several different meetings and documents at once, rather than just one"
+          ]
+        }
+      ],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "retro-014",
+          "source_type": "retrospective",
+          "source_id": "535e3eef-3e60-58e3-a937-68546effeaf6",
+          "chunk_index": 0,
+          "similarity": 0.7783,
+          "content_snippet": "Decision: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback\nConfidence level: 3/5\nPrimary assumption: Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback \u2014 Dec 8, 2026\nParticipants: Dev, Priya, Jade.\n\nW"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-016",
+          "source_type": "notion_draft",
+          "source_id": "-1607082095",
+          "chunk_index": 0,
+          "similarity": 0.7399,
+          "content_snippet": "RAG Tool Beta \u2014 Internal FAQ Draft\n\nRAG Tool Beta \u2014 Internal FAQ Draft\nStatus: Draft\nAuthor: Dev\n\nQ: What is the RAG tool beta?\nA: An internal tool that lets account teams ask natural-language questio"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-019",
+          "source_type": "meeting",
+          "source_id": "-1890127441",
+          "chunk_index": 0,
+          "similarity": 0.724,
+          "content_snippet": "RAG Tool Beta Kickoff \u2014 Aurora Retail Pilot\n\nRAG Tool Beta Kickoff \u2014 Aurora Retail Pilot \u2014 Nov 5, 2026\nAttendees: Dev, Priya, Marcus, Jade.\nDev presented the beta RAG-assisted knowledge tool, per the "
+        },
+        {
+          "rank": 4,
+          "source_ref": "meeting-025",
+          "source_type": "meeting",
+          "source_id": "-1524042661",
+          "chunk_index": 0,
+          "similarity": 0.6752,
+          "content_snippet": "FY26 Progress Check-in\n\nFY26 Progress Check-in \u2014 Dec 5, 2026\nAttendees: Full agency team, led by Corinne Blake.\nCorinne reviewed FY26 goals progress: revenue growth tracking at 11% year-to-date agains"
+        },
+        {
+          "rank": 5,
+          "source_ref": "retro-011",
+          "source_type": "retrospective",
+          "source_id": "03df79f6-1802-5fb0-9a29-c90507282f17",
+          "chunk_index": 0,
+          "similarity": 0.624,
+          "content_snippet": "Decision: Sprint 21 Retrospective \u2014 Main Push Goal Reached\nConfidence level: 3/5\nPrimary assumption: Sprint 21 Retrospective \u2014 Main Push Goal Reached \u2014 Nov 30, 2026\nParticipants: Marcus, Priya, Dev, J"
+        }
+      ],
+      "per_expected_source": [
+        {
+          "source_ref": "meeting-010",
+          "evidence_complete_rank": 8,
+          "evidence_covered": {
+            "launch a formal RAG-assisted internal knowledge tool for account teams": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "meeting-019",
+          "evidence_complete_rank": 3,
+          "evidence_covered": {
+            "the Aurora Retail team as the first user group": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "notion-016",
+          "evidence_complete_rank": 2,
+          "evidence_covered": {
+            "Beta feedback will shape the full FY26 rollout decision.": true
+          },
+          "fail_category": null
+        },
+        {
+          "source_ref": "retro-014",
+          "evidence_complete_rank": 1,
+          "evidence_covered": {
+            "answers got noticeably shakier whenever a question needed to pull facts from several different meetings and documents at once, rather than just one": true
+          },
+          "fail_category": null
+        }
+      ],
+      "outcome": "pass",
+      "fail_reason": null,
+      "first_relevant_rank": 1,
+      "recall@3": 0.75,
+      "full_coverage@3": 0.0,
+      "precision@3": 1.0,
+      "source_precision@3": 1.0,
+      "recall@5": 0.75,
+      "full_coverage@5": 0.0,
+      "precision@5": 0.6,
+      "source_precision@5": 0.6,
+      "recall@10": 1.0,
+      "full_coverage@10": 1.0
+    },
+    {
+      "id": "nq03",
+      "question_type": "no-answer",
+      "question": "What is the referral bonus amount for employees who bring in new clients?",
+      "tags": [
+        "topic-absent"
+      ],
+      "expected_sources": [],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-016",
+          "source_type": "meeting",
+          "source_id": "-1729277584",
+          "chunk_index": 0,
+          "similarity": 0.5853,
+          "content_snippet": "New Copywriter \u2014 Hiring Debrief\n\nNew Copywriter \u2014 Hiring Debrief \u2014 Oct 12, 2026\nAttendees: Priya, Corinne.\nPriya reported a shortlist of 4 candidates ready, meeting the Oct 10 deadline set at the Q3 q"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.5617,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-013",
+          "source_type": "retrospective",
+          "source_id": "c00e9c49-03b3-58a3-a492-4c281b38e134",
+          "chunk_index": 0,
+          "similarity": 0.5569,
+          "content_snippet": "Decision: Retro: New Copywriter Onboarding\nConfidence level: 3/5\nPrimary assumption: Retro: New Copywriter Onboarding \u2014 Nov 9, 2026\nParticipants: Priya, Nadia Reyes.\n\nWent well: Nadia Reyes's first we"
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-007",
+          "source_type": "notion_draft",
+          "source_id": "-1422865561",
+          "chunk_index": 0,
+          "similarity": 0.5565,
+          "content_snippet": "Case Study Draft: Aurora Retail Results\n\nCase Study Draft: Aurora Retail Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the Q3 loyalty-program launch for Aurora Retail.\n\n"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-008",
+          "source_type": "meeting",
+          "source_id": "-1681588191",
+          "chunk_index": 0,
+          "similarity": 0.5442,
+          "content_snippet": "Vendor Call \u2014 Print Supplier\n\nVendor Call \u2014 Print Supplier \u2014 Sept 8, 2026\nAttendees: Marcus, print supplier rep Alan Cho.\nAlan confirmed purchase order PO-88214 for the holiday gift-card inserts has s"
+        }
+      ],
+      "top_retrieved": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-016",
+          "source_type": "meeting",
+          "source_id": "-1729277584",
+          "chunk_index": 0,
+          "similarity": 0.5853,
+          "content_snippet": "New Copywriter \u2014 Hiring Debrief\n\nNew Copywriter \u2014 Hiring Debrief \u2014 Oct 12, 2026\nAttendees: Priya, Corinne.\nPriya reported a shortlist of 4 candidates ready, meeting the Oct 10 deadline set at the Q3 q"
+        },
+        {
+          "rank": 2,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.5617,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-013",
+          "source_type": "retrospective",
+          "source_id": "c00e9c49-03b3-58a3-a492-4c281b38e134",
+          "chunk_index": 0,
+          "similarity": 0.5569,
+          "content_snippet": "Decision: Retro: New Copywriter Onboarding\nConfidence level: 3/5\nPrimary assumption: Retro: New Copywriter Onboarding \u2014 Nov 9, 2026\nParticipants: Priya, Nadia Reyes.\n\nWent well: Nadia Reyes's first we"
+        },
+        {
+          "rank": 4,
+          "source_ref": "notion-007",
+          "source_type": "notion_draft",
+          "source_id": "-1422865561",
+          "chunk_index": 0,
+          "similarity": 0.5565,
+          "content_snippet": "Case Study Draft: Aurora Retail Results\n\nCase Study Draft: Aurora Retail Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the Q3 loyalty-program launch for Aurora Retail.\n\n"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-008",
+          "source_type": "meeting",
+          "source_id": "-1681588191",
+          "chunk_index": 0,
+          "similarity": 0.5442,
+          "content_snippet": "Vendor Call \u2014 Print Supplier\n\nVendor Call \u2014 Print Supplier \u2014 Sept 8, 2026\nAttendees: Marcus, print supplier rep Alan Cho.\nAlan confirmed purchase order PO-88214 for the holiday gift-card inserts has s"
+        }
+      ],
+      "agent_abstained": null,
+      "outcome": null,
+      "fail_reason": null
+    },
+    {
+      "id": "nq04",
+      "question_type": "no-answer",
+      "question": "What is the final, finalized FY26 revenue growth percentage for the year?",
+      "tags": [
+        "topic-present-unresolved"
+      ],
+      "expected_sources": [],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-025",
+          "source_type": "meeting",
+          "source_id": "-1524042661",
+          "chunk_index": 0,
+          "similarity": 0.6684,
+          "content_snippet": "FY26 Progress Check-in\n\nFY26 Progress Check-in \u2014 Dec 5, 2026\nAttendees: Full agency team, led by Corinne Blake.\nCorinne reviewed FY26 goals progress: revenue growth tracking at 11% year-to-date agains"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-015",
+          "source_type": "retrospective",
+          "source_id": "990b7a8a-efaf-5192-9959-1d9f5f4f9e41",
+          "chunk_index": 0,
+          "similarity": 0.6522,
+          "content_snippet": "Decision: Retro: FY26 Turnaround Time Progress\nConfidence level: 3/5\nPrimary assumption: Retro: FY26 Turnaround Time Progress \u2014 Dec 6, 2026\nParticipants: Corinne, Jade, Marcus.\n\nWhat went well: The ca"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-010",
+          "source_type": "meeting",
+          "source_id": "-1905614721",
+          "chunk_index": 0,
+          "similarity": 0.5905,
+          "content_snippet": "All-Hands: FY26 Planning\n\nAll-Hands: FY26 Planning \u2014 Oct 1, 2026\nAttendees: Full agency team, led by Corinne Blake (Managing Director).\n\nAgency Goals\nCorinne outlined three company-wide goals for FY26"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-011",
+          "source_type": "retrospective",
+          "source_id": "03df79f6-1802-5fb0-9a29-c90507282f17",
+          "chunk_index": 0,
+          "similarity": 0.5878,
+          "content_snippet": "Decision: Sprint 21 Retrospective \u2014 Main Push Goal Reached\nConfidence level: 3/5\nPrimary assumption: Sprint 21 Retrospective \u2014 Main Push Goal Reached \u2014 Nov 30, 2026\nParticipants: Marcus, Priya, Dev, J"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.5742,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        }
+      ],
+      "top_retrieved": [
+        {
+          "rank": 1,
+          "source_ref": "meeting-025",
+          "source_type": "meeting",
+          "source_id": "-1524042661",
+          "chunk_index": 0,
+          "similarity": 0.6684,
+          "content_snippet": "FY26 Progress Check-in\n\nFY26 Progress Check-in \u2014 Dec 5, 2026\nAttendees: Full agency team, led by Corinne Blake.\nCorinne reviewed FY26 goals progress: revenue growth tracking at 11% year-to-date agains"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-015",
+          "source_type": "retrospective",
+          "source_id": "990b7a8a-efaf-5192-9959-1d9f5f4f9e41",
+          "chunk_index": 0,
+          "similarity": 0.6522,
+          "content_snippet": "Decision: Retro: FY26 Turnaround Time Progress\nConfidence level: 3/5\nPrimary assumption: Retro: FY26 Turnaround Time Progress \u2014 Dec 6, 2026\nParticipants: Corinne, Jade, Marcus.\n\nWhat went well: The ca"
+        },
+        {
+          "rank": 3,
+          "source_ref": "meeting-010",
+          "source_type": "meeting",
+          "source_id": "-1905614721",
+          "chunk_index": 0,
+          "similarity": 0.5905,
+          "content_snippet": "All-Hands: FY26 Planning\n\nAll-Hands: FY26 Planning \u2014 Oct 1, 2026\nAttendees: Full agency team, led by Corinne Blake (Managing Director).\n\nAgency Goals\nCorinne outlined three company-wide goals for FY26"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-011",
+          "source_type": "retrospective",
+          "source_id": "03df79f6-1802-5fb0-9a29-c90507282f17",
+          "chunk_index": 0,
+          "similarity": 0.5878,
+          "content_snippet": "Decision: Sprint 21 Retrospective \u2014 Main Push Goal Reached\nConfidence level: 3/5\nPrimary assumption: Sprint 21 Retrospective \u2014 Main Push Goal Reached \u2014 Nov 30, 2026\nParticipants: Marcus, Priya, Dev, J"
+        },
+        {
+          "rank": 5,
+          "source_ref": "meeting-021",
+          "source_type": "meeting",
+          "source_id": "-1773043510",
+          "chunk_index": 0,
+          "similarity": 0.5742,
+          "content_snippet": "Post-Launch Debrief \u2014 Main Push Phase\n\nPost-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during mai"
+        }
+      ],
+      "agent_abstained": null,
+      "outcome": null,
+      "fail_reason": null
+    },
+    {
+      "id": "nq05",
+      "question_type": "no-answer",
+      "question": "What is the agency's standard invoice payment-terms window for new clients?",
+      "tags": [
+        "topic-absent"
+      ],
+      "expected_sources": [],
+      "retrieved_top5": [
+        {
+          "rank": 1,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.5609,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-013",
+          "source_type": "retrospective",
+          "source_id": "c00e9c49-03b3-58a3-a492-4c281b38e134",
+          "chunk_index": 0,
+          "similarity": 0.551,
+          "content_snippet": "Decision: Retro: New Copywriter Onboarding\nConfidence level: 3/5\nPrimary assumption: Retro: New Copywriter Onboarding \u2014 Nov 9, 2026\nParticipants: Priya, Nadia Reyes.\n\nWent well: Nadia Reyes's first we"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-006",
+          "source_type": "retrospective",
+          "source_id": "c79902e0-deca-599c-bfa6-282f6326e1a3",
+          "chunk_index": 0,
+          "similarity": 0.5506,
+          "content_snippet": "Decision: Retro: Client Onboarding Process\nConfidence level: 3/5\nPrimary assumption: Retro: Client Onboarding Process \u2014 Oct 20, 2026\nParticipants: Jade, Marcus.\n\nWent well: The new onboarding checklis"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-010",
+          "source_type": "retrospective",
+          "source_id": "478a12f8-381d-508c-89e4-d7fae9348989",
+          "chunk_index": 0,
+          "similarity": 0.5468,
+          "content_snippet": "Decision: Retro: Northbridge Financial Compliance Process\nConfidence level: 3/5\nPrimary assumption: Retro: Northbridge Financial Compliance Process \u2014 Nov 25, 2026\nParticipants: Marcus, Jade.\n\nWhat wen"
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-011",
+          "source_type": "notion_draft",
+          "source_id": "-1844743518",
+          "chunk_index": 0,
+          "similarity": 0.5451,
+          "content_snippet": "Northbridge Financial Welcome Series \u2014 v1\n\nNorthbridge Financial Welcome Series \u2014 v1\nStatus: Draft \u2014 needs compliance revision\nSubject line: Welcome to Northbridge Financial\n\nBody: Thanks for joining "
+        }
+      ],
+      "top_retrieved": [
+        {
+          "rank": 1,
+          "source_ref": "notion-008",
+          "source_type": "notion_draft",
+          "source_id": "-1313114950",
+          "chunk_index": 0,
+          "similarity": 0.5609,
+          "content_snippet": "Ad Copy Variations \u2014 Meta Feed\n\nAd Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off s"
+        },
+        {
+          "rank": 2,
+          "source_ref": "retro-013",
+          "source_type": "retrospective",
+          "source_id": "c00e9c49-03b3-58a3-a492-4c281b38e134",
+          "chunk_index": 0,
+          "similarity": 0.551,
+          "content_snippet": "Decision: Retro: New Copywriter Onboarding\nConfidence level: 3/5\nPrimary assumption: Retro: New Copywriter Onboarding \u2014 Nov 9, 2026\nParticipants: Priya, Nadia Reyes.\n\nWent well: Nadia Reyes's first we"
+        },
+        {
+          "rank": 3,
+          "source_ref": "retro-006",
+          "source_type": "retrospective",
+          "source_id": "c79902e0-deca-599c-bfa6-282f6326e1a3",
+          "chunk_index": 0,
+          "similarity": 0.5506,
+          "content_snippet": "Decision: Retro: Client Onboarding Process\nConfidence level: 3/5\nPrimary assumption: Retro: Client Onboarding Process \u2014 Oct 20, 2026\nParticipants: Jade, Marcus.\n\nWent well: The new onboarding checklis"
+        },
+        {
+          "rank": 4,
+          "source_ref": "retro-010",
+          "source_type": "retrospective",
+          "source_id": "478a12f8-381d-508c-89e4-d7fae9348989",
+          "chunk_index": 0,
+          "similarity": 0.5468,
+          "content_snippet": "Decision: Retro: Northbridge Financial Compliance Process\nConfidence level: 3/5\nPrimary assumption: Retro: Northbridge Financial Compliance Process \u2014 Nov 25, 2026\nParticipants: Marcus, Jade.\n\nWhat wen"
+        },
+        {
+          "rank": 5,
+          "source_ref": "notion-011",
+          "source_type": "notion_draft",
+          "source_id": "-1844743518",
+          "chunk_index": 0,
+          "similarity": 0.5451,
+          "content_snippet": "Northbridge Financial Welcome Series \u2014 v1\n\nNorthbridge Financial Welcome Series \u2014 v1\nStatus: Draft \u2014 needs compliance revision\nSubject line: Welcome to Northbridge Financial\n\nBody: Thanks for joining "
+        }
+      ],
+      "agent_abstained": null,
+      "outcome": null,
+      "fail_reason": null
+    }
+  ]
+}
