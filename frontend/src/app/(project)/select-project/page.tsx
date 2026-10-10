@@ -245,17 +245,16 @@ export default function SelectProjectPage() {
 
         {renderPendingInvites()}
 
-        <div className="mb-6 flex items-center justify-between gap-3">
-          <div className="max-w-sm w-full relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <Input
-              placeholder="Search by name, owner, or description"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-9 text-sm border-gray-200 focus:border-[#3CCED7] focus:ring-[#3CCED7]/20"
-            />
-          </div>
+        <div className="mb-6 max-w-sm relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Input
+            placeholder="Search by name, owner, or description"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9 h-9 text-sm border-gray-200 focus:border-[#3CCED7] focus:ring-[#3CCED7]/20"
+          />
         </div>
+
 
         {loading && projects.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-gray-500">
