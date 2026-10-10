@@ -195,6 +195,57 @@ def evaluate_scaling_rules(self):
         raise Exception(error_msg)
 
 
+@shared_task(bind=True, max_retries=2, default_retry_delay=600)
+def recompute_all_pacing_forecasts(self):
+    """
+    Nightly task to recompute budget pacing forecasts for active campaigns.
+
+    Scheduled after the Meta daily fan-out so it reads fresh insight rows.
+    One campaign failing does not abort the run; failures are collected and
+    reported in the summary.
+
+    Returns:
+        dict: Task execution summary
+    """
+    from campaign.models import Campaign
+    from .services import PacingService
+
+    logger.info("Starting nightly pacing forecast recomputation")
+
+    today = timezone.now().date()
+
+    # Archived campaigns are read-only and no longer worth pacing.
+    campaigns = Campaign.objects.filter(
+        is_deleted=False
+    ).exclude(
+        status=Campaign.Status.ARCHIVED
+    ).only('id', 'start_date', 'end_date', 'budget_estimate')
+
+    recomputed = 0
+    failed = []
+
+    for campaign in campaigns.iterator():
+        try:
+            PacingService.recompute_for_campaign(campaign, today=today)
+            recomputed += 1
+        except Exception as e:
+            logger.error(
+                f"Failed to recompute pacing for campaign {campaign.id}: {e}"
+            )
+            failed.append({'campaign_id': campaign.id, 'error': str(e)})
+
+    result = {
+        'status': 'completed',
+        'recomputed': recomputed,
+        'failed': failed,
+        'computed_for_date': today.isoformat(),
+        'timestamp': timezone.now().isoformat(),
+    }
+
+    logger.info(f"Pacing forecast recomputation completed: {result}")
+    return result
+
+
 # ==================== HELPER FUNCTIONS ====================
 
 def _fetch_platform_metrics(experiment: OptimizationExperiment) -> Dict[str, Dict[str, float]]:

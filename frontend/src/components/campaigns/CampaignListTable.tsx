@@ -6,6 +6,7 @@ import type { CampaignData, CampaignStatus } from '@/types/campaign';
 import { useProjectStore } from '@/lib/projectStore';
 import { nestedProjectPathFromProject } from '@/lib/projectNestedRoutes';
 import CampaignStatusPill from './pills/CampaignStatusPill';
+import CampaignPacingBadge from './CampaignPacingBadge';
 
 interface Props {
   campaigns: CampaignData[];
@@ -85,12 +86,13 @@ export default function CampaignListTable({
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[940px] text-sm">
             <thead className="border-b border-gray-100 bg-gray-50/60 text-[11px] uppercase tracking-wider text-gray-500">
               <tr>
                 <th className="w-10 px-4 py-3 text-left"></th>
                 <th className="px-4 py-3 text-left">Name</th>
                 <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Pacing</th>
                 <th className="px-4 py-3 text-left">Objective</th>
                 <th className="px-4 py-3 text-left">Platforms</th>
                 <th className="px-4 py-3 text-left">Owner</th>
@@ -119,6 +121,9 @@ export default function CampaignListTable({
                     </td>
                     <td className="px-4 py-3">
                       <CampaignStatusPill status={c.status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <CampaignPacingBadge pacing={c.pacing} />
                     </td>
                     <td className="px-4 py-3 text-xs uppercase tracking-wide text-gray-500">
                       {OBJECTIVE_LABEL[c.objective] || c.objective || '—'}
