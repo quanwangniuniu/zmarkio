@@ -299,7 +299,6 @@ export default function SelectProjectPage() {
         {projects.length > 1 && (
           <div className="mt-8">
             <CrossProjectRollupWidget
-              projects={projects}
               onSelectProject={async (id) => {
                 await handleSelect(id);
               }}

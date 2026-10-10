@@ -14,7 +14,6 @@ import {
 import { Card, CardContent } from '@/components/ui/card';
 import { DashboardAPI } from '@/lib/api/dashboardApi';
 import type { RollupProjectResult } from '@/lib/api/dashboardApi';
-import type { ProjectData } from '@/lib/api/projectApi';
 import { exportMatrixToXLSX } from '@/components/spreadsheets/spreadsheetImportExport';
 
 const PAGE_SIZE = 5;
@@ -304,36 +303,30 @@ function MultiSelectDropdown({ label, options, value, onChange }: MultiSelectPro
 // ---------------------------------------------------------------------------
 
 interface CrossProjectRollupWidgetProps {
-  projects: ProjectData[];
   onSelectProject?: (id: number, name: string) => void;
 }
 
-export default function CrossProjectRollupWidget({ projects, onSelectProject }: CrossProjectRollupWidgetProps) {
+export default function CrossProjectRollupWidget({ onSelectProject }: CrossProjectRollupWidgetProps) {
   const [allData, setAllData] = useState<RollupProjectResult[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [windowStart, setWindowStart] = useState(0);
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
   const hasFetched = useRef(false);
-  const projectsRef = useRef(projects);
-  useEffect(() => { projectsRef.current = projects; }, [projects]);
 
-  const doFetch = useCallback(async (projectIds: number[]) => {
-    if (projectIds.length === 0) return;
+  const doFetch = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const data = await DashboardAPI.getRollup(projectIds, ALL_FIELDS);
+      const data = await DashboardAPI.getRollup();
       setAllData(data.results);
+      setSelectedProjectIds(data.results.map((r) => String(r.project_id)));
       setWindowStart(0);
     } catch {
-      const fallback = projectsRef.current
-        .filter((p) => projectIds.includes(Number(p.id)))
-        .map((p) => ({ project_id: Number(p.id), project_name: p.name || '' }));
-      setAllData(fallback);
-      setWindowStart(0);
+      setError('Failed to load comparison data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -341,12 +334,9 @@ export default function CrossProjectRollupWidget({ projects, onSelectProject }: 
 
   useEffect(() => {
     if (hasFetched.current) return;
-    if (projects.length === 0) return;
-    const allIds = projects.map((p) => Number(p.id));
-    setSelectedProjectIds(allIds.map(String));
     hasFetched.current = true;
-    doFetch(allIds);
-  }, [projects, doFetch]);
+    doFetch();
+  }, [doFetch]);
 
   const selectedProjectIdSet = useMemo(
     () => new Set(selectedProjectIds.map(Number)),
@@ -364,11 +354,14 @@ export default function CrossProjectRollupWidget({ projects, onSelectProject }: 
   const canNext = safeStart + PAGE_SIZE < filteredData.length;
 
   const projectOptions = useMemo(
-    () => projects.map((p) => ({ key: String(p.id), label: p.name || `Project ${p.id}` })),
-    [projects]
+    () => allData.map((r) => ({ key: String(r.project_id), label: r.project_name as string })),
+    [allData]
   );
 
-  const handleRefresh = () => doFetch(selectedProjectIds.map(Number));
+  const handleRefresh = () => {
+    hasFetched.current = false;
+    doFetch();
+  };
 
   const handleExport = async () => {
     if (filteredData.length === 0) return;
@@ -424,7 +417,7 @@ export default function CrossProjectRollupWidget({ projects, onSelectProject }: 
     });
   };
 
-  if (projects.length === 0) return null;
+  if (!loading && allData.length === 0 && !error) return null;
 
   return (
     <Card className="border-[0.5px] border-gray-200 bg-white shadow-none overflow-hidden">

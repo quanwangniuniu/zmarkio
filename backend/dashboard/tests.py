@@ -622,18 +622,15 @@ class RollupServicesTest(TestCase):
         project = project or self.project
         return Spreadsheet.objects.create(name=f"sheet-{self._uid()}", project=project)
 
-    # ── get_available_fields ──────────────────────────────────────────────────
+    # ── ALL_FIELDS / FIELD_REGISTRY ──────────────────────────────────────────
 
-    def test_get_available_fields_returns_list_of_dicts(self):
-        fields = services.get_available_fields()
-        self.assertIsInstance(fields, list)
-        self.assertTrue(len(fields) > 0)
+    def test_all_fields_is_non_empty_list(self):
+        self.assertIsInstance(services.ALL_FIELDS, list)
+        self.assertTrue(len(services.ALL_FIELDS) > 0)
 
-    def test_get_available_fields_each_has_key_label_group(self):
-        for f in services.get_available_fields():
-            self.assertIn('key', f)
-            self.assertIn('label', f)
-            self.assertIn('group', f)
+    def test_all_fields_keys_exist_in_registry(self):
+        for key in services.ALL_FIELDS:
+            self.assertIn(key, services.FIELD_REGISTRY)
 
     # ── get_rollup — structure ────────────────────────────────────────────────
 

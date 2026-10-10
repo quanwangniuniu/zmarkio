@@ -127,6 +127,14 @@ def _query_spreadsheet_total(project_ids):
 # fallback (used only when a field is requested in isolation during testing).
 # ---------------------------------------------------------------------------
 
+ALL_FIELDS = [
+    'task_total', 'task_done', 'task_overdue', 'task_blocked',
+    'task_under_review', 'task_rejected', 'task_due_soon',
+    'task_created_7d', 'task_completed_7d',
+    'decision_total', 'decision_pending', 'decision_high_risk',
+    'spreadsheet_total', 'campaign_active', 'meeting_upcoming',
+]
+
 FIELD_REGISTRY = {
     # Tasks — primary metrics
     'task_total':        {'label': 'Total Tasks',         'group': 'Tasks',      'group_fn': _query_task_group},
@@ -148,14 +156,6 @@ FIELD_REGISTRY = {
     'campaign_active':   {'label': 'Active Campaigns',    'group': 'Campaigns',  'group_fn': _query_campaign_active},
     'meeting_upcoming':  {'label': 'Upcoming Meetings',   'group': 'Meetings',   'group_fn': _query_meeting_upcoming},
 }
-
-
-def get_available_fields() -> list[dict]:
-    """Return all available field definitions for the frontend."""
-    return [
-        {'key': key, 'label': meta['label'], 'group': meta['group']}
-        for key, meta in FIELD_REGISTRY.items()
-    ]
 
 
 def get_rollup(project_ids: list[int], fields: list[str]) -> dict:
