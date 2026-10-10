@@ -11,9 +11,9 @@ from task.models import Task, ApprovalRecord, TaskComment
 from decision.models import Decision
 from spreadsheet.models import Spreadsheet
 from core.slug_mixins import resolve_project_pk
+from core.viewset_mixins import ProjectScopedViewSetMixin
 from .serializers import DashboardSummarySerializer, ProjectWorkspaceDashboardSerializer
 from .services import get_rollup, ALL_FIELDS
-from core.models import ProjectMember
 
 
 logger = logging.getLogger(__name__)
@@ -536,7 +536,7 @@ class ProjectWorkspaceDashboardView(APIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class CrossProjectRollupView(APIView):
+class CrossProjectRollupView(ProjectScopedViewSetMixin, APIView):
     """
     GET /api/dashboard/rollup/
 
@@ -547,11 +547,6 @@ class CrossProjectRollupView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        project_ids = list(
-            ProjectMember.objects.filter(
-                user=request.user,
-                is_active=True,
-            ).values_list('project_id', flat=True)
-        )
+        project_ids = self._accessible_project_ids()
         data = get_rollup(project_ids, ALL_FIELDS)
         return Response(data)
