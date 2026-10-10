@@ -12,7 +12,7 @@ import type {
 
 const BASE = '/api/ad_copy_variation/variations';
 
-/** Generate waits on Vertex; the shared axios client is 10s and is too short. */
+/** Generate waits on the Ollama model; the shared axios client is 10s and is too short. */
 const GENERATE_TIMEOUT_MS = LLM_BATCH_TIMEOUT_MS;
 
 function parseBatchGenerateResponse(data: unknown): BatchGenerateResponse | null {

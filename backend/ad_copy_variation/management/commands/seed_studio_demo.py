@@ -1,4 +1,4 @@
-"""Seed local Variations Studio drafts so AI Drafts can be walked without Gemini."""
+"""Seed local Variations Studio drafts so AI Drafts can be walked without Ollama."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ User = get_user_model()
 class Command(BaseCommand):
     help = (
         'Insert demo AdCopyVariation rows for local QA. '
-        'Does not call Gemini. Safe to re-run with --reset.'
+        'Does not call Ollama. Safe to re-run with --reset.'
     )
 
     def add_arguments(self, parser):
@@ -95,7 +95,7 @@ class Command(BaseCommand):
                     project=project,
                     created_by=user,
                     instruction=SEED_INSTRUCTION,
-                    model_name='gemini-2.5-flash-lite',
+                    model_name='qwen3:4b',
                     prompt_version='v1',
                     **payload,
                 )
@@ -112,7 +112,7 @@ class Command(BaseCommand):
         else:
             self.stdout.write(self.style.WARNING('No Meta creative on this project; existing-creative rows have creative=null.'))
         self.stdout.write(
-            'Open Variations Studio → AI Drafts (Generate still needs Gemini).'
+            'Open Variations Studio → AI Drafts (Generate still needs Ollama).'
         )
 
 

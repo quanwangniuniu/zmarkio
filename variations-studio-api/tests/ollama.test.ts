@@ -1,6 +1,8 @@
+import { AI_QUOTA_MESSAGE } from '@/src/ai/prompts';
 import {
     callOllamaJson,
     getOllamaConfig,
+    getOllamaErrorMessage,
 } from '@/src/ai/providers/ollama';
 
 const originalEnv = process.env;
@@ -18,12 +20,13 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 describe('Ollama provider', () => {
     beforeEach(() => {
-        jest.clearAllMocks();
+        jest.resetAllMocks();
         process.env = {
             ...originalEnv,
             OLLAMA_BASE_URL: 'http://ollama.test:11434/',
             OLLAMA_MODEL: 'test-model',
             OLLAMA_REQUEST_TIMEOUT_MS: '5000',
+            OLLAMA_RETRY_DELAYS_MS: '0,0',
         };
         global.fetch = fetchMock as typeof fetch;
     });
@@ -38,6 +41,8 @@ describe('Ollama provider', () => {
             baseUrl: 'http://ollama.test:11434',
             model: 'test-model',
             timeoutMs: 5000,
+            retryDelaysMs: [0, 0],
+            keepAlive: '30m',
         });
     });
 
@@ -102,6 +107,7 @@ describe('Ollama provider', () => {
             ],
             stream: false,
             think: false,
+            keep_alive: '30m',
             options: {
                 temperature: 0.7,
             },
@@ -179,7 +185,7 @@ describe('Ollama provider', () => {
     });
 
     it('rejects malformed copy JSON', async () => {
-        fetchMock.mockResolvedValueOnce(
+        fetchMock.mockImplementation(async () =>
             jsonResponse({
                 message: {
                     content: 'not-json',
@@ -196,7 +202,7 @@ describe('Ollama provider', () => {
     });
 
     it('rejects copy with a missing required field', async () => {
-        fetchMock.mockResolvedValueOnce(
+        fetchMock.mockImplementation(async () =>
             jsonResponse({
                 message: {
                     content: JSON.stringify({
@@ -217,7 +223,7 @@ describe('Ollama provider', () => {
     });
 
     it('rejects an empty Ollama response', async () => {
-        fetchMock.mockResolvedValueOnce(
+        fetchMock.mockImplementation(async () =>
             jsonResponse({
                 message: {
                     content: '',
@@ -231,5 +237,32 @@ describe('Ollama provider', () => {
             code: 'invalid_output',
             message: 'Ollama returned an empty response.',
         });
+    });
+
+    it('retries malformed JSON once', async () => {
+        const copy = { hook: 'H', headline: 'HL', description: 'D', cta: 'LEARN_MORE' };
+        fetchMock
+            .mockResolvedValueOnce(jsonResponse({ message: { content: 'not-json' } }))
+            .mockResolvedValueOnce(jsonResponse({ message: { content: JSON.stringify(copy) } }));
+
+        await expect(callOllamaJson('system', 'user')).resolves.toEqual(copy);
+    });
+
+    it('retries a busy Ollama before succeeding', async () => {
+        const copy = { hook: 'H', headline: 'HL', description: 'D', cta: 'LEARN_MORE' };
+        fetchMock
+            .mockResolvedValueOnce(jsonResponse({ error: 'server busy' }, 503))
+            .mockResolvedValueOnce(jsonResponse({ message: { content: JSON.stringify(copy) } }));
+
+        await expect(callOllamaJson('system', 'user')).resolves.toEqual(copy);
+    });
+
+    it('returns the quota message when Ollama stays busy', async () => {
+        fetchMock.mockImplementation(async () => jsonResponse({ error: 'rate limited' }, 429));
+
+        const error = await callOllamaJson('system', 'user').catch((err: unknown) => err);
+
+        expect(fetchMock).toHaveBeenCalledTimes(3);
+        expect(getOllamaErrorMessage(error)).toBe(AI_QUOTA_MESSAGE);
     });
 });

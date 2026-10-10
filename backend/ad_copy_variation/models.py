@@ -44,7 +44,7 @@ class AdCopyVariation(SluggedResourceModelMixin, TimeStampedModel):
     cta = models.CharField(max_length=64, blank=True, default='')
 
     instruction = models.TextField(blank=True, default='')
-    model_name = models.CharField(max_length=64, default='gemini-2.5-flash-lite')
+    model_name = models.CharField(max_length=64, default='qwen3:4b')
     prompt_version = models.CharField(max_length=32, default='v1')
 
     batch_id = models.UUIDField(

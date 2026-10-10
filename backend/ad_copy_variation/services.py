@@ -2,7 +2,7 @@ import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .aistudio_client import call_aistudio_json
+from .ollama_client import BUSY_STATUSES, call_ollama_json, ollama_model
 from .url_fetcher import fetch_url_text
 from meta_ads.models import MetaAdCreative
 
@@ -85,19 +85,20 @@ SYSTEM_PROMPT = (
 def is_ai_quota_error(exc: Exception) -> bool:
     response = getattr(exc, 'response', None)
     status_code = getattr(response, 'status_code', None)
-    return status_code == 429
+    return status_code in BUSY_STATUSES
 
 
 def _build_user_prompt(template: dict, instruction: str) -> str:
     focus = instruction.strip() or "Rewrite all four fields with fresh phrasing, exploring a different angle than a literal rewrite. Respect the length caps and the cta enum lock."
     return (
-        f"Template ad copy:\n"
+        f"Source ad (reference only; every text field you return must use NEW wording):\n"
         f"- Hook: {template.get('hook', '')}\n"
         f"- Headline: {template.get('headline', '')}\n"
         f"- Description: {template.get('description', '')}\n"
         f"- CTA: {template.get('cta', '')}\n\n"
         f"Instruction: {focus}\n\n"
-        f"Return JSON: {{\"hook\": \"...\", \"headline\": \"...\", \"description\": \"...\", \"cta\": \"...\"}}"
+        f"Write one new variation of the source ad. "
+        f"The hook, headline and description must each differ from the source."
     )
 
 
@@ -115,11 +116,11 @@ def _creative_to_template(creative: MetaAdCreative) -> dict:
 def generate_from_existing(creative_id: int, instruction: str = '') -> dict:
     creative = MetaAdCreative.objects.get(pk=creative_id)
     template = _creative_to_template(creative)
-    return call_aistudio_json(SYSTEM_PROMPT, _build_user_prompt(template, instruction))
+    return call_ollama_json(SYSTEM_PROMPT, _build_user_prompt(template, instruction))
 
 
 def generate_from_custom(base_copy: dict, instruction: str = '') -> dict:
-    return call_aistudio_json(SYSTEM_PROMPT, _build_user_prompt(base_copy, instruction))
+    return call_ollama_json(SYSTEM_PROMPT, _build_user_prompt(base_copy, instruction))
 
 
 EXTERNAL_URL_PROMPT_PREFIX = (
@@ -152,7 +153,7 @@ def generate_from_external_url(url: str, instruction: str = '') -> dict:
         page_text=page_text,
         instruction=focus,
     )
-    return call_aistudio_json(SYSTEM_PROMPT, user_prompt)
+    return call_ollama_json(SYSTEM_PROMPT, user_prompt)
 
 
 def _single_generate_dispatch(source_mode: str, source_kwargs: dict, instruction: str) -> dict:

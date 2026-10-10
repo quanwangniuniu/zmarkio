@@ -1,6 +1,6 @@
 export const MAX_BATCH = 50;
 export const BATCH_CONCURRENCY = 5;
-export const MODEL_NAME = 'gemini-2.5-flash-lite';
+export const MODEL_NAME = 'qwen3:4b';
 export const PROMPT_VERSION = 'v1';
 export const AI_QUOTA_MESSAGE =
   'AI generation is temporarily rate-limited or quota-limited. Please wait '
@@ -70,12 +70,13 @@ export function buildUserPrompt(template: CopyJson, instruction: string): string
   const focus = instruction.trim()
     || 'Rewrite all four fields with fresh phrasing, exploring a different angle than a literal rewrite. Respect the length caps and the cta enum lock.';
   return (
-    'Template ad copy:\n'
+    'Source ad (reference only; every text field you return must use NEW wording):\n'
     + `- Hook: ${template.hook}\n`
     + `- Headline: ${template.headline}\n`
     + `- Description: ${template.description}\n`
     + `- CTA: ${template.cta}\n\n`
     + `Instruction: ${focus}\n\n`
-    + 'Return JSON: {"hook": "...", "headline": "...", "description": "...", "cta": "..."}'
+    + 'Write one new variation of the source ad. '
+    + 'The hook, headline and description must each differ from the source.'
   );
 }

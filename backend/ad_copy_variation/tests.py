@@ -1,9 +1,10 @@
+import json
 import uuid
 from unittest.mock import patch
 
 import requests
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -12,7 +13,7 @@ from facebook_integration.models import FacebookConnection, MetaAdAccount
 from core.models import Organization, Project, ProjectMember
 from meta_ads.models import MetaAdCreative
 
-from . import services
+from . import ollama_client, services
 from .models import AdCopyVariation
 
 
@@ -21,6 +22,17 @@ def _http_error(status_code: int) -> requests.HTTPError:
     response.status_code = status_code
     exc = requests.HTTPError(f'{status_code} Client Error', response=response)
     return exc
+
+
+def _ollama_response(status_code: int, body: dict) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = json.dumps(body).encode()
+    return response
+
+
+def _ollama_chat(content: str) -> requests.Response:
+    return _ollama_response(200, {'message': {'content': content}})
 
 
 def _make_user(username='copy_user', email='copy_user@example.com'):
@@ -61,7 +73,7 @@ def _make_creative(user, *, project=None, meta_creative_id='cra-1', title='Headl
     )
 
 
-_FAKE_GEMINI_RESPONSE = {
+_FAKE_OLLAMA_RESPONSE = {
     'hook': 'Generated hook line',
     'headline': 'Generated headline',
     'description': 'Generated description',
@@ -557,9 +569,9 @@ class GenerateFromExistingTests(APITestCase):
         self.client.force_authenticate(user=self.user)
         self.url = reverse('ad-copy-variation-generate')
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_returns_json_shape(self, mock_call):
-        mock_call.return_value = _FAKE_GEMINI_RESPONSE
+        mock_call.return_value = _FAKE_OLLAMA_RESPONSE
         resp = self.client.post(
             self.url,
             {
@@ -577,9 +589,10 @@ class GenerateFromExistingTests(APITestCase):
         self.assertEqual(resp.data['results'][0]['status'], 'draft')
         self.assertEqual(mock_call.call_count, 1)
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @override_settings(OLLAMA_MODEL='test-model')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_persists_draft(self, mock_call):
-        mock_call.return_value = _FAKE_GEMINI_RESPONSE
+        mock_call.return_value = _FAKE_OLLAMA_RESPONSE
         before = AdCopyVariation.objects.count()
         resp = self.client.post(
             self.url,
@@ -595,11 +608,12 @@ class GenerateFromExistingTests(APITestCase):
         row = AdCopyVariation.objects.latest('id')
         self.assertEqual(row.project_id, self.project.id)
         self.assertEqual(row.status, 'draft')
+        self.assertEqual(row.model_name, 'test-model')
         self.assertEqual(str(row.batch_id), resp.data['batch_id'])
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_template_is_built_from_creative(self, mock_call):
-        mock_call.return_value = _FAKE_GEMINI_RESPONSE
+        mock_call.return_value = _FAKE_OLLAMA_RESPONSE
         self.client.post(
             self.url,
             {
@@ -625,9 +639,9 @@ class GenerateFromCustomTests(APITestCase):
         self.client.force_authenticate(user=self.user)
         self.url = reverse('ad-copy-variation-generate')
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_returns_json_shape(self, mock_call):
-        mock_call.return_value = _FAKE_GEMINI_RESPONSE
+        mock_call.return_value = _FAKE_OLLAMA_RESPONSE
         resp = self.client.post(
             self.url,
             {
@@ -662,11 +676,11 @@ class GenerateFromExternalUrlTests(APITestCase):
         self.client.force_authenticate(user=self.user)
         self.url = reverse('ad-copy-variation-generate')
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     @patch('ad_copy_variation.services.fetch_url_text')
     def test_happy_path(self, mock_fetch, mock_llm):
         mock_fetch.return_value = 'rendered ad page text with hook + body + cta'
-        mock_llm.return_value = _FAKE_GEMINI_RESPONSE
+        mock_llm.return_value = _FAKE_OLLAMA_RESPONSE
         resp = self.client.post(
             self.url,
             {
@@ -690,7 +704,7 @@ class GenerateFromExternalUrlTests(APITestCase):
             ).exists()
         )
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     @patch('ad_copy_variation.services.fetch_url_text')
     def test_missing_url(self, mock_fetch, mock_llm):
         resp = self.client.post(
@@ -702,7 +716,7 @@ class GenerateFromExternalUrlTests(APITestCase):
         mock_fetch.assert_not_called()
         mock_llm.assert_not_called()
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     @patch('ad_copy_variation.services.fetch_url_text')
     def test_invalid_url_scheme(self, mock_fetch, mock_llm):
         resp = self.client.post(
@@ -718,7 +732,7 @@ class GenerateFromExternalUrlTests(APITestCase):
         mock_fetch.assert_not_called()
         mock_llm.assert_not_called()
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     @patch('ad_copy_variation.services.fetch_url_text')
     def test_fetch_failure_returns_502(self, mock_fetch, mock_llm):
         mock_fetch.side_effect = RuntimeError('Browserless fetch failed: status=500')
@@ -736,7 +750,7 @@ class GenerateFromExternalUrlTests(APITestCase):
         self.assertNotIn('error', resp.data)
         mock_llm.assert_not_called()
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     @patch('ad_copy_variation.services.fetch_url_text')
     def test_llm_failure_returns_502(self, mock_fetch, mock_llm):
         mock_fetch.return_value = 'rendered text'
@@ -765,7 +779,7 @@ class GenerateBadInputTests(APITestCase):
         self.client.force_authenticate(user=self.user)
         self.url = reverse('ad-copy-variation-generate')
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_missing_creative_id_for_existing(self, mock_call):
         resp = self.client.post(
             self.url,
@@ -775,7 +789,7 @@ class GenerateBadInputTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         mock_call.assert_not_called()
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_unknown_source_mode(self, mock_call):
         resp = self.client.post(
             self.url,
@@ -846,9 +860,9 @@ class GenerateBatchTests(APITestCase):
         base.update(overrides)
         return base
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_batch_custom_happy_path(self, mock_llm):
-        mock_llm.return_value = _FAKE_GEMINI_RESPONSE
+        mock_llm.return_value = _FAKE_OLLAMA_RESPONSE
         resp = self.client.post(
             self.url,
             self._custom_payload(count=5),
@@ -868,15 +882,15 @@ class GenerateBatchTests(APITestCase):
             self.assertEqual(r['project'], self.project.id)
         self.assertEqual(AdCopyVariation.objects.filter(project=self.project, status='draft').count(), 5)
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_batch_partial_failure(self, mock_llm):
         # Mix of success + RuntimeError; mock side_effect is consumed in call order
         # (Mock is thread-safe for side_effect popping).
         mock_llm.side_effect = [
-            _FAKE_GEMINI_RESPONSE,
+            _FAKE_OLLAMA_RESPONSE,
             RuntimeError('mocked transient'),
-            _FAKE_GEMINI_RESPONSE,
-            _FAKE_GEMINI_RESPONSE,
+            _FAKE_OLLAMA_RESPONSE,
+            _FAKE_OLLAMA_RESPONSE,
         ]
         resp = self.client.post(
             self.url,
@@ -890,7 +904,7 @@ class GenerateBatchTests(APITestCase):
         self.assertEqual(len(resp.data['results']), 3)
         self.assertEqual(len(resp.data['failed_indices']), 1)
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_batch_all_fail_returns_502(self, mock_llm):
         mock_llm.side_effect = RuntimeError('always fail')
         resp = self.client.post(
@@ -903,7 +917,7 @@ class GenerateBatchTests(APITestCase):
         self.assertEqual(resp.data['count_failed'], 3)
         self.assertEqual(resp.data['results'], [])
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_count_too_large_returns_400(self, mock_llm):
         resp = self.client.post(
             self.url,
@@ -913,7 +927,7 @@ class GenerateBatchTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         mock_llm.assert_not_called()
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_count_zero_returns_400(self, mock_llm):
         resp = self.client.post(
             self.url,
@@ -923,7 +937,7 @@ class GenerateBatchTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         mock_llm.assert_not_called()
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_count_non_integer_returns_400(self, mock_llm):
         resp = self.client.post(
             self.url,
@@ -933,9 +947,9 @@ class GenerateBatchTests(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         mock_llm.assert_not_called()
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_count_one_returns_persisted_batch_shape(self, mock_llm):
-        mock_llm.return_value = _FAKE_GEMINI_RESPONSE
+        mock_llm.return_value = _FAKE_OLLAMA_RESPONSE
         # Send count=1 explicitly
         resp = self.client.post(
             self.url,
@@ -948,9 +962,9 @@ class GenerateBatchTests(APITestCase):
         self.assertEqual(len(resp.data['results']), 1)
         self.assertEqual(resp.data['results'][0]['status'], 'draft')
 
-    @patch('ad_copy_variation.services.call_aistudio_json')
+    @patch('ad_copy_variation.services.call_ollama_json')
     def test_count_omitted_returns_persisted_batch_shape(self, mock_llm):
-        mock_llm.return_value = _FAKE_GEMINI_RESPONSE
+        mock_llm.return_value = _FAKE_OLLAMA_RESPONSE
         # Omit count entirely
         resp = self.client.post(
             self.url,
@@ -968,3 +982,59 @@ class TenantRegistrationTests(SimpleTestCase):
         from core.tenant_config import get_tenant_models
 
         self.assertIn(AdCopyVariation, get_tenant_models())
+
+
+@override_settings(
+    OLLAMA_BASE_URL='http://ollama.test:11434/',
+    OLLAMA_MODEL='test-model',
+    OLLAMA_REQUEST_TIMEOUT_MS='5000',
+)
+class OllamaClientTests(SimpleTestCase):
+    @patch('ad_copy_variation.ollama_client.requests.post')
+    def test_posts_copy_schema_to_configured_model(self, mock_post):
+        mock_post.return_value = _ollama_chat(json.dumps(_FAKE_OLLAMA_RESPONSE))
+
+        result = ollama_client.call_ollama_json('system', 'user')
+
+        self.assertEqual(result, _FAKE_OLLAMA_RESPONSE)
+        args, kwargs = mock_post.call_args
+        self.assertEqual(args[0], 'http://ollama.test:11434/api/chat')
+        self.assertEqual(kwargs['timeout'], 5.0)
+        self.assertEqual(kwargs['json']['model'], 'test-model')
+        self.assertEqual(kwargs['json']['format'], ollama_client.COPY_SCHEMA)
+        self.assertFalse(kwargs['json']['stream'])
+        self.assertEqual(kwargs['json']['keep_alive'], '30m')
+
+    @patch('ad_copy_variation.ollama_client.requests.post')
+    def test_retries_invalid_json_once(self, mock_post):
+        mock_post.side_effect = [_ollama_chat('[]'), _ollama_chat(json.dumps(_FAKE_OLLAMA_RESPONSE))]
+
+        result = ollama_client.call_ollama_json('system', 'user')
+
+        self.assertEqual(result, _FAKE_OLLAMA_RESPONSE)
+        self.assertEqual(mock_post.call_count, 2)
+
+    @patch('ad_copy_variation.ollama_client.time.sleep')
+    @patch('ad_copy_variation.ollama_client.requests.post')
+    def test_retries_busy_responses_with_backoff(self, mock_post, mock_sleep):
+        mock_post.side_effect = [
+            _ollama_response(503, {'error': 'server busy'}),
+            _ollama_response(429, {'error': 'rate limited'}),
+            _ollama_chat(json.dumps(_FAKE_OLLAMA_RESPONSE)),
+        ]
+
+        result = ollama_client.call_ollama_json('system', 'user')
+
+        self.assertEqual(result, _FAKE_OLLAMA_RESPONSE)
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], [2, 4])
+
+    @patch('ad_copy_variation.ollama_client.time.sleep')
+    @patch('ad_copy_variation.ollama_client.requests.post')
+    def test_busy_after_retries_is_a_quota_error(self, mock_post, mock_sleep):
+        mock_post.return_value = _ollama_response(503, {'error': 'server busy'})
+
+        with self.assertRaises(requests.HTTPError) as ctx:
+            ollama_client.call_ollama_json('system', 'user')
+
+        self.assertEqual(mock_post.call_count, 3)
+        self.assertTrue(services.is_ai_quota_error(ctx.exception))

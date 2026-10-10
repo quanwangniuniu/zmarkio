@@ -20,13 +20,6 @@ export {
   getOllamaErrorMessage,
 } from './providers/ollama';
 
-export {
-  GeminiError,
-  callGeminiJson,
-  isGeminiQuotaError,
-  geminiCopyGenerator,
-} from './providers/gemini';
-
 /**
  * Build the default CopyGenerator for Ads Generation.
  * Configuration is read lazily so unrelated endpoints can start even when

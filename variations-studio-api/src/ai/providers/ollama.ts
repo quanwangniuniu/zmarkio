@@ -1,7 +1,12 @@
+import { AI_QUOTA_MESSAGE } from '@/src/ai/prompts';
 import type { CopyJson } from '@/src/ai/types';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 const DEFAULT_TIMEOUT_MS = 60_000;
+const DEFAULT_RETRY_DELAYS_MS = '2000,4000';
+const DEFAULT_KEEP_ALIVE = '30m';
+// 429 is a rate limit; Ollama answers 503 when its request queue is full.
+const BUSY_STATUSES = [429, 503];
 
 const COPY_SCHEMA = {
     type: 'object',
@@ -38,6 +43,8 @@ export type OllamaConfig = {
     baseUrl: string;
     model: string;
     timeoutMs: number;
+    retryDelaysMs: number[];
+    keepAlive: string;
 };
 
 export function getOllamaConfig(): OllamaConfig {
@@ -65,10 +72,23 @@ export function getOllamaConfig(): OllamaConfig {
         );
     }
 
+    const retryDelaysMs = (
+        process.env.OLLAMA_RETRY_DELAYS_MS?.trim() || DEFAULT_RETRY_DELAYS_MS
+    ).split(',').map((value) => Number(value.trim()));
+
+    if (retryDelaysMs.some((delay) => !Number.isFinite(delay) || delay < 0)) {
+        throw new OllamaError(
+            'OLLAMA_RETRY_DELAYS_MS must be a comma-separated list of milliseconds.',
+            'configuration'
+        );
+    }
+
     return {
         baseUrl,
         model,
         timeoutMs,
+        retryDelaysMs,
+        keepAlive: process.env.OLLAMA_KEEP_ALIVE?.trim() || DEFAULT_KEEP_ALIVE,
     };
 }
 
@@ -111,7 +131,9 @@ async function readErrorMessage(response: Response): Promise<string | null> {
 
 export async function callOllamaJson(
     systemPrompt: string,
-    userPrompt: string
+    userPrompt: string,
+    retryParse = true,
+    busyAttempt = 0
 ): Promise<CopyJson> {
     const config = getOllamaConfig();
 
@@ -131,6 +153,7 @@ export async function callOllamaJson(
                 ],
                 stream: false,
                 think: false,
+                keep_alive: config.keepAlive,
                 format: COPY_SCHEMA,
                 options: {
                     temperature: 0.7,
@@ -155,8 +178,23 @@ export async function callOllamaJson(
         );
     }
 
+    if (
+        BUSY_STATUSES.includes(response.status) &&
+        busyAttempt < config.retryDelaysMs.length
+    ) {
+        await new Promise((resolve) => {
+            setTimeout(resolve, config.retryDelaysMs[busyAttempt]);
+        });
+        return callOllamaJson(systemPrompt, userPrompt, retryParse, busyAttempt + 1);
+    }
+
     if (!response.ok) {
         const detail = await readErrorMessage(response);
+        console.error(
+            'Ollama request failed status=%s error=%s',
+            response.status,
+            detail
+        );
 
         if (response.status === 404) {
             throw new OllamaError(
@@ -195,16 +233,20 @@ export async function callOllamaJson(
             ? (payload as { message: { content: string } }).message.content
             : null;
 
-    if (!content) {
-        throw new OllamaError(
-            'Ollama returned an empty response.',
-            'invalid_output'
-        );
-    }
-
     try {
+        if (!content) {
+            throw new OllamaError(
+                'Ollama returned an empty response.',
+                'invalid_output'
+            );
+        }
+
         return asCopy(JSON.parse(content));
     } catch (error) {
+        if (retryParse) {
+            return callOllamaJson(systemPrompt, userPrompt, false);
+        }
+
         if (error instanceof OllamaError) {
             throw error;
         }
@@ -217,5 +259,12 @@ export async function callOllamaJson(
 }
 
 export function getOllamaErrorMessage(error: unknown): string | null {
+    if (
+        error instanceof OllamaError &&
+        error.status !== undefined &&
+        BUSY_STATUSES.includes(error.status)
+    ) {
+        return AI_QUOTA_MESSAGE;
+    }
     return error instanceof OllamaError ? error.message : null;
 }
