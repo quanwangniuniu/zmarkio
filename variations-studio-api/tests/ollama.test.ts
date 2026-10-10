@@ -239,13 +239,11 @@ describe('Ollama provider', () => {
         });
     });
 
-    it('retries malformed JSON once and strips code fences', async () => {
+    it('retries malformed JSON once', async () => {
         const copy = { hook: 'H', headline: 'HL', description: 'D', cta: 'LEARN_MORE' };
         fetchMock
             .mockResolvedValueOnce(jsonResponse({ message: { content: 'not-json' } }))
-            .mockResolvedValueOnce(jsonResponse({
-                message: { content: '```json\n' + JSON.stringify(copy) + '\n```' },
-            }));
+            .mockResolvedValueOnce(jsonResponse({ message: { content: JSON.stringify(copy) } }));
 
         await expect(callOllamaJson('system', 'user')).resolves.toEqual(copy);
     });

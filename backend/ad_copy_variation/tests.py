@@ -1006,9 +1006,8 @@ class OllamaClientTests(SimpleTestCase):
         self.assertEqual(kwargs['json']['keep_alive'], '30m')
 
     @patch('ad_copy_variation.ollama_client.requests.post')
-    def test_retries_invalid_json_once_and_strips_fences(self, mock_post):
-        fenced = '```json\n' + json.dumps(_FAKE_OLLAMA_RESPONSE) + '\n```'
-        mock_post.side_effect = [_ollama_chat('[]'), _ollama_chat(fenced)]
+    def test_retries_invalid_json_once(self, mock_post):
+        mock_post.side_effect = [_ollama_chat('[]'), _ollama_chat(json.dumps(_FAKE_OLLAMA_RESPONSE))]
 
         result = ollama_client.call_ollama_json('system', 'user')
 

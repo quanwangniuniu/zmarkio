@@ -82,48 +82,6 @@ def _message_text(data: dict) -> str:
     return message["content"]
 
 
-def call_ollama(
-    system_prompt: str,
-    user_prompt: str,
-    model: Optional[str] = None,
-    # 0.7 chosen for diversity: at 0.3 successive calls produced near-duplicate
-    # variations; mediabuyers want fresh angles on regenerate.
-    temperature: float = 0.7,
-    timeout: Optional[float] = None,
-) -> str:
-    """Plain-text completion against Ollama."""
-    model = model or ollama_model()
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "stream": False,
-        "think": False,
-        "keep_alive": _setting("OLLAMA_KEEP_ALIVE", DEFAULT_KEEP_ALIVE),
-        "options": {"temperature": temperature},
-    }
-    logger.info(
-        "Calling Ollama model=%s system_chars=%d user_chars=%d",
-        model,
-        len(system_prompt),
-        len(user_prompt),
-    )
-    return _message_text(_post(payload, timeout))
-
-
-def strip_json_fences(text: str) -> str:
-    stripped = text.strip()
-    if stripped.startswith("```"):
-        first_newline = stripped.find("\n")
-        if first_newline != -1:
-            stripped = stripped[first_newline + 1 :]
-        if stripped.endswith("```"):
-            stripped = stripped[: -3]
-    return stripped.strip()
-
-
 def call_ollama_json(
     system_prompt: str,
     user_prompt: str,
@@ -154,7 +112,7 @@ def call_ollama_json(
         len(system_prompt),
         len(user_prompt),
     )
-    text = strip_json_fences(_message_text(_post(payload, timeout)))
+    text = _message_text(_post(payload, timeout))
     try:
         copy = json.loads(text)
         if not isinstance(copy, dict):

@@ -92,16 +92,6 @@ export function getOllamaConfig(): OllamaConfig {
     };
 }
 
-function stripJsonFences(text: string): string {
-    let stripped = text.trim();
-    if (stripped.startsWith('```')) {
-        const firstNewline = stripped.indexOf('\n');
-        if (firstNewline !== -1) stripped = stripped.slice(firstNewline + 1);
-        if (stripped.endsWith('```')) stripped = stripped.slice(0, -3);
-    }
-    return stripped.trim();
-}
-
 function asCopy(raw: unknown): CopyJson {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         throw new OllamaError(
@@ -251,7 +241,7 @@ export async function callOllamaJson(
             );
         }
 
-        return asCopy(JSON.parse(stripJsonFences(content)));
+        return asCopy(JSON.parse(content));
     } catch (error) {
         if (retryParse) {
             return callOllamaJson(systemPrompt, userPrompt, false);
