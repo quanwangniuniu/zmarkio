@@ -591,6 +591,33 @@ class PerformanceSnapshot(TimeStampedModel):
 # Integration & Relationship Models (Section 3.4)
 # ============================================================================
 
+class CampaignPlatformIntegration(models.Model):
+    """Sync health for a campaign's project-linked Meta ad account.
+
+    Meta is currently the only metrics provider with a sync worker. Keep state
+    per account so a successful account cannot hide another account's failure.
+    """
+
+    class SyncError(models.TextChoices):
+        NONE = '', 'No error'
+        AUTH = 'auth', 'Reconnect required'
+        TRANSIENT = 'transient', 'Temporary failure'
+        UNKNOWN = 'unknown', 'Sync failed'
+
+    campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name='platform_integrations')
+    ad_account = models.ForeignKey('facebook_integration.MetaAdAccount', on_delete=models.CASCADE)
+    last_sync_error = models.CharField(max_length=16, choices=SyncError.choices, blank=True, default='')
+    # Start of the failed attempt, used to order overlapping sync results.
+    last_sync_error_at = models.DateTimeField(null=True, blank=True)
+    last_sync_attempted_at = models.DateTimeField(null=True, blank=True)
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['campaign', 'ad_account'], name='campaign_platform_account_unique'),
+        ]
+
+
 class CampaignTaskLink(TimeStampedModel):
     """
     Campaign-Task relationship tracking.

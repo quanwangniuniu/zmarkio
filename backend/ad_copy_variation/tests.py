@@ -211,6 +211,44 @@ class AdCopyVariationCRUDTests(APITestCase):
         self.assertEqual(resp.data['error'], 'creative does not belong to project')
         self.assertEqual(AdCopyVariation.objects.count(), 0)
 
+    @patch('ad_copy_variation.services.call_aistudio_json')
+    def test_create_and_generate_reject_same_project_id_in_another_schema(self, mock_call):
+        from core.services.tenant import slug_to_schema_name
+        from core.tenant_context import tenant_schema_context
+
+        schema = slug_to_schema_name(self.project.organization.slug)
+        with tenant_schema_context(schema):
+            Project.objects.create(
+                id=self.project.pk, name='Same ID in tenant',
+                organization=self.project.organization, owner=self.user,
+            )
+        MetaAdAccount.objects.filter(pk=self.creative.ad_account_id).update(project_schema=schema)
+        mock_call.return_value = _FAKE_GEMINI_RESPONSE
+        before = AdCopyVariation.objects.count()
+        for route, payload in [
+            ('ad-copy-variation-list', self._payload()),
+            ('ad-copy-variation-generate', {
+                'source_mode': 'existing', 'project_id': self.project.pk,
+                'creative_id': self.creative.pk,
+            }),
+        ]:
+            with self.subTest(route=route):
+                response = self.client.post(reverse(route), payload, format='json')
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.data)
+        self.assertEqual(AdCopyVariation.objects.count(), before)
+        mock_call.assert_not_called()
+
+    def test_demo_seed_ignores_same_project_id_in_another_schema(self):
+        from io import StringIO
+        from ad_copy_variation.management.commands.seed_studio_demo import Command
+
+        MetaAdAccount.objects.filter(pk=self.creative.ad_account_id).update(project_schema='org_elsewhere')
+        command = Command(stdout=StringIO())
+        command._seed(self.project.pk, self.user, False)
+        existing = AdCopyVariation.objects.filter(source_mode='existing')
+        self.assertTrue(existing.exists())
+        self.assertFalse(existing.filter(creative__isnull=False).exists())
+
     def test_filter_by_creative(self):
         other_user = _make_user(username='other', email='other@example.com')
         other_project = _make_project(other_user, name='Other Project')

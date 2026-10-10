@@ -111,6 +111,19 @@ describe('generate input validation', () => {
 });
 
 describe('generate creative ownership', () => {
+  it('rejects the same project id in another schema before generating', async () => {
+    await prisma.$executeRaw`UPDATE public.meta_ad_accounts SET project_schema = 'public' WHERE id = ${fixture.accountA}`;
+    try {
+      const response = await generateRequest(
+        customBody({ source_mode: 'existing', creative_id: Number(fixture.creativeA) })
+      );
+      expect(response.status).toBe(400);
+      await expect(readJson(response)).resolves.toEqual({ error: 'creative_id does not belong to project_id' });
+    } finally {
+      await prisma.$executeRaw`UPDATE public.meta_ad_accounts SET project_schema = ${fixture.schema} WHERE id = ${fixture.accountA}`;
+    }
+  });
+
   it('rejects a creative owned by a different project', async () => {
     const response = await generateRequest(
       customBody({ source_mode: 'existing', creative_id: Number(fixture.creativeB) })

@@ -28,9 +28,18 @@ class MetaAdAccountAdmin(admin.ModelAdmin):
         "account_status",
         "is_owned",
         "connection",
-        "project",
+        "project_link",
         "updated_at",
     )
     list_filter = ("is_owned", "currency", "account_status")
     search_fields = ("meta_account_id", "name", "business_id")
-    raw_id_fields = ("project",)
+    # A bare project FK cannot represent a tenant-local project safely. Relink
+    # through the integration endpoint, which saves schema and ID together.
+    exclude = ("project",)
+    readonly_fields = ("project_link",)
+
+    @admin.display(description="Project (schema / ID)")
+    def project_link(self, obj):
+        if obj.project_id is None:
+            return "—"
+        return f"{obj.project_schema} / {obj.project_id}"

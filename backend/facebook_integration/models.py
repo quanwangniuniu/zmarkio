@@ -8,6 +8,13 @@ from .crypto import DecryptionError, decrypt_token, encrypt_token
 logger = logging.getLogger(__name__)
 
 
+def unlink_project_accounts(collector, field, sub_objs, using):
+    """A tenant-local project ID must not unlink another tenant's accounts."""
+    from core.tenant_context import current_tenant_schema
+
+    collector.add_field_update(field, None, sub_objs.filter(project_schema=current_tenant_schema()))
+
+
 class FacebookConnection(models.Model):
     """Per-user Meta OAuth connection.
 
@@ -86,11 +93,14 @@ class MetaAdAccount(models.Model):
     # Link to a MediaJira project (set by user later in UI)
     project = models.ForeignKey(
         "core.Project",
-        on_delete=models.SET_NULL,
+        on_delete=unlink_project_accounts,
         null=True,
         blank=True,
         related_name="linked_meta_accounts",
+        db_constraint=False,  # Project lives in the schema identified below.
     )
+    # Persist the link's tenant; the connector's current organization can change.
+    project_schema = models.CharField(max_length=255, default="public", editable=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -11,6 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.models import Project, ProjectMember
+from core.tenant_context import current_tenant_schema
 from core.slug_backfill import _generate_slug
 from meta_ads.models import MetaAdCreative
 
@@ -123,8 +124,10 @@ class AdCopyVariationViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         creative_id = request.data.get('creative')
         if creative_id:
             creative = get_object_or_404(MetaAdCreative, pk=creative_id)
-            creative_project_id = getattr(creative.ad_account, 'project_id', None)
-            if creative_project_id and creative_project_id != project.id:
+            account = creative.ad_account
+            if account.project_id and (
+                account.project_id != project.id or account.project_schema != current_tenant_schema()
+            ):
                 return Response(
                     {'error': 'creative does not belong to project'},
                     status=status.HTTP_400_BAD_REQUEST,
@@ -187,8 +190,10 @@ class AdCopyVariationViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
             )
         if source_mode == 'existing':
             creative = get_object_or_404(MetaAdCreative, pk=source_kwargs['creative_id'])
-            creative_project_id = getattr(creative.ad_account, 'project_id', None)
-            if creative_project_id and creative_project_id != project.id:
+            account = creative.ad_account
+            if account.project_id and (
+                account.project_id != project.id or account.project_schema != current_tenant_schema()
+            ):
                 return Response(
                     {'error': 'creative_id does not belong to project_id'},
                     status=status.HTTP_400_BAD_REQUEST,
