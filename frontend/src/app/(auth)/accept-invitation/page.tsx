@@ -23,7 +23,6 @@ function AcceptInvitationContent() {
 
   const currentUser = useAuthStore((state) => state.user);
   const setToken = useAuthStore((state) => state.setToken);
-  const setRefreshToken = useAuthStore((state) => state.setRefreshToken);
   const setUser = useAuthStore((state) => state.setUser);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
@@ -78,13 +77,12 @@ function AcceptInvitationContent() {
       );
 
       const newJwt: string | undefined = response?.token;
-      const newRefresh: string | undefined = response?.refresh;
       const createdUser = !!response?.user_created;
       const projectName: string = response?.project?.name || 'your project';
 
       if (createdUser && newJwt) {
+        // The refresh token came back as an HttpOnly cookie.
         setToken(newJwt);
-        if (newRefresh) setRefreshToken(newRefresh);
         if (response?.user) setUser(response.user);
       }
 

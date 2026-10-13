@@ -36,7 +36,12 @@ from google_auth_oauthlib.flow import Flow  # For OAuth start (generating auth U
 from requests_oauthlib import OAuth2Session  # For OAuth callback (token exchange)
 from django.core.mail import send_mail
 from django.utils import timezone, translation
-from core.services.auth_tokens import build_user_refresh_token
+from core.services.auth_tokens import (
+    build_user_refresh_token,
+    clear_refresh_cookie,
+    read_refresh_token,
+    set_refresh_cookie,
+)
 from core.models import CustomUser
 from authentication.session_registry import SessionRegistry
 import datetime
@@ -220,14 +225,13 @@ class RegisterView(APIView):
         response_data = {
             "message": "User registered successfully. Account is ready to use.",
             "token": str(refresh.access_token),
-            "refresh": str(refresh),
             "user": profile_data,
         }
 
         if custom_access_token:
             response_data["organization_access_token"] = custom_access_token
 
-        return Response(response_data, status=201)
+        return set_refresh_cookie(Response(response_data, status=201), refresh)
     
 class VerifyEmailView(APIView):
     def get(self, request):
@@ -362,7 +366,6 @@ class LoginView(APIView):
         response_data = {
             'message': 'Login successful',
             'token': str(refresh.access_token),
-            'refresh': str(refresh),
             'user': profile_data
         }
         
@@ -372,7 +375,7 @@ class LoginView(APIView):
 
         LoginSecurityService.clear_successful_login(login_identifiers)
         
-        return Response(response_data, status=status.HTTP_200_OK)
+        return set_refresh_cookie(Response(response_data, status=status.HTTP_200_OK), refresh)
 
 
 class OrganizationTokenRefreshView(APIView):
@@ -477,12 +480,11 @@ class SsoCallbackView(APIView):
                 refresh = build_user_refresh_token(user)
                 profile_data = UserProfileSerializer(user).data
                 
-                return Response({
+                return set_refresh_cookie(Response({
                     'message': 'SSO authentication successful',
                     'token': str(refresh.access_token),
-                    'refresh': str(refresh),
                     'user': profile_data
-                }, status=status.HTTP_200_OK)
+                }, status=status.HTTP_200_OK), refresh)
                 
         except Exception as e:
             print(f"[SSO ERROR] {str(e)}")
@@ -832,7 +834,6 @@ class GoogleOAuthCallbackView(APIView):
                     import base64
                     auth_data = {
                         'token': str(refresh.access_token),
-                        'refresh': str(refresh),
                         'user': profile_data,
                         'organization_access_token': custom_access_token
                     }
@@ -843,7 +844,9 @@ class GoogleOAuthCallbackView(APIView):
                     
                     # HTTP redirect to frontend auth callback handler with encoded auth data
                     redirect_url = f"{settings.FRONTEND_URL}/auth/google/callback?auth_data={auth_data_encoded}"
-                    return redirect(redirect_url)
+                    # The refresh token rides on the redirect as an HttpOnly cookie,
+                    # never in the URL (history, logs, Referer).
+                    return set_refresh_cookie(redirect(redirect_url), refresh)
                 
                 else:
                     # New user - create account
@@ -956,14 +959,13 @@ class GoogleSetPasswordView(APIView):
             response_data = {
                 'message': 'Password set successfully. You can now log in.',
                 'token': str(refresh.access_token),
-                'refresh': str(refresh),
                 'user': profile_data
             }
             
             if custom_access_token:
                 response_data['organization_access_token'] = custom_access_token
             
-            return Response(response_data, status=status.HTTP_200_OK)
+            return set_refresh_cookie(Response(response_data, status=status.HTTP_200_OK), refresh)
         
         except Exception as e:
             print(f"[GOOGLE OAUTH ERROR] {str(e)}")
@@ -1192,33 +1194,57 @@ class ResetPasswordView(APIView):
 
 
 class LogoutView(APIView):
-    """POST /auth/logout/ — best-effort token blacklist plus websocket session close."""
-    permission_classes = [IsAuthenticated]
+    """POST /auth/logout/ — end the session and clear the refresh cookie.
+
+    No authentication: the access token may already have expired, and a 401
+    here would leave the refresh cookie in the browser. The session is
+    identified by the refresh token instead (it is SameSite=Strict, so a
+    cross-site request can't log anyone out).
+    """
+    authentication_classes = []
+    permission_classes = []
 
     def post(self, request):
+        user_id, refresh_jti = self._session_from_refresh_token(request)
+
+        if user_id is not None:
+            try:
+                if refresh_jti:
+                    SessionRegistry.remove_session(user_id, refresh_jti)
+            except Exception:
+                logger.exception("Failed to remove session from registry during logout for user %s", user_id)
+
+            try:
+                from asgiref.sync import async_to_sync
+                from channels.layers import get_channel_layer
+
+                channel_layer = get_channel_layer()
+                async_to_sync(channel_layer.group_send)(
+                    f'chat_user_{user_id}',
+                    {
+                        'type': 'user_session_revoked',
+                        'reason': 'logout',
+                    },
+                )
+            except Exception:
+                logger.exception("Failed to emit logout websocket revoke for user %s", user_id)
+
+        response = Response({'message': 'Logged out successfully.'}, status=status.HTTP_200_OK)
+        return clear_refresh_cookie(response)
+
+    @staticmethod
+    def _session_from_refresh_token(request):
+        from rest_framework_simplejwt.exceptions import TokenError
+        from rest_framework_simplejwt.settings import api_settings as jwt_settings
+
+        raw = read_refresh_token(request)
+        if not raw:
+            return None, None
         try:
-            refresh_jti = request.auth.get("refresh_jti") if request.auth else None
-            if refresh_jti:
-                SessionRegistry.remove_session(request.user.pk, refresh_jti)
-        except Exception:
-            logger.exception("Failed to remove session from registry during logout for user %s", request.user.id)
-
-        try:
-            from asgiref.sync import async_to_sync
-            from channels.layers import get_channel_layer
-
-            channel_layer = get_channel_layer()
-            async_to_sync(channel_layer.group_send)(
-                f'chat_user_{request.user.id}',
-                {
-                    'type': 'user_session_revoked',
-                    'reason': 'logout',
-                },
-            )
-        except Exception:
-            logger.exception("Failed to emit logout websocket revoke for user %s", request.user.id)
-
-        return Response({'message': 'Logged out successfully.'}, status=status.HTTP_200_OK)
+            refresh = RefreshToken(raw)
+        except TokenError:
+            return None, None
+        return refresh.get(jwt_settings.USER_ID_CLAIM), refresh.get("refresh_jti")
 
 
 class DeleteAccountView(APIView):
@@ -1297,8 +1323,8 @@ class DeleteAccountView(APIView):
                 except Exception:
                     pass
 
-            # 7. Blacklist the refresh token supplied in the request (best-effort)
-            refresh_token = request.data.get('refresh_token')
+            # 7. Blacklist the session's refresh token (best-effort)
+            refresh_token = read_refresh_token(request)
             if refresh_token:
                 try:
                     token = RefreshToken(refresh_token)
@@ -1337,7 +1363,8 @@ class DeleteAccountView(APIView):
         except Exception:
             logger.exception("Failed to emit account-delete websocket revoke for user %s", user.id)
 
-        return Response({'message': 'Account deleted successfully.'}, status=status.HTTP_200_OK)
+        response = Response({'message': 'Account deleted successfully.'}, status=status.HTTP_200_OK)
+        return clear_refresh_cookie(response)
 
 
 class SessionTokenRefreshView(APIView):
@@ -1345,22 +1372,51 @@ class SessionTokenRefreshView(APIView):
     POST /auth/token/refresh/
     Wraps SimpleJWT's TokenRefreshView to propagate refresh_jti into the new
     access token, so session revocation remains effective after token refresh.
+    The refresh token comes from the HttpOnly cookie, not the request body.
     """
+    # Identified by the refresh cookie alone; an expired Bearer header must not 401 it.
+    authentication_classes = []
     permission_classes = []
 
     def post(self, request):
+        from django.core.exceptions import ObjectDoesNotExist
+        from rest_framework.exceptions import AuthenticationFailed
         from rest_framework_simplejwt.serializers import TokenRefreshSerializer
         from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 
-        serializer = TokenRefreshSerializer(data=request.data)
+        raw_refresh = read_refresh_token(request)
+        if not raw_refresh:
+            return clear_refresh_cookie(Response(
+                {'detail': 'No refresh token.', 'code': 'token_not_valid'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            ))
+
+        serializer = TokenRefreshSerializer(data={'refresh': raw_refresh})
         try:
             serializer.is_valid(raise_exception=True)
         except TokenError as e:
-            raise InvalidToken(e.args[0])
+            response = Response(
+                InvalidToken(e.args[0]).detail, status=status.HTTP_401_UNAUTHORIZED
+            )
+            return clear_refresh_cookie(response)
+        except (AuthenticationFailed, ObjectDoesNotExist):
+            # A valid token for a user who is deactivated (incl. soft-deleted
+            # accounts) or no longer exists. Uncaught, these became a 403 that
+            # kept the cookie, or a 500 the frontend retries forever.
+            response = Response(
+                {'detail': 'No active account found for the given token.', 'code': 'no_active_account'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+            return clear_refresh_cookie(response)
 
         # refresh_jti is already embedded in the refresh token payload and
         # auto-copied to the new access token by SimpleJWT — no manual injection needed.
-        return Response(serializer.validated_data, status=status.HTTP_200_OK)
+        # The refresh token itself only ever goes back as the cookie: re-setting it
+        # moves sessions that sent it in the body onto the cookie, and picks up a
+        # rotated token if ROTATE_REFRESH_TOKENS is ever turned on.
+        data = dict(serializer.validated_data)
+        new_refresh = data.pop('refresh', raw_refresh)
+        return set_refresh_cookie(Response(data, status=status.HTTP_200_OK), new_refresh)
 
 
 class SessionListView(APIView):

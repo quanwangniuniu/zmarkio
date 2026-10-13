@@ -1,4 +1,4 @@
-import api, { readPersistedAuthState } from '../api';
+import api, { getValidAccessToken, readPersistedAuthState } from '../api';
 import {
   AgentSession,
   AgentSessionDetail,
@@ -32,11 +32,12 @@ function dispatchQuotaRefresh(): void {
 }
 
 /** Build auth headers for SSE fetch requests (mirrors Axios interceptor logic). */
-function getSSEAuthHeaders(): Record<string, string> {
+async function getSSEAuthHeaders(): Promise<Record<string, string>> {
   const headers: Record<string, string> = {};
+  // fetch() skips the axios 401 refresh, so refresh up front if the token is expiring.
+  const token = await getValidAccessToken();
   const authData = readPersistedAuthState();
   if (authData) {
-    const token = authData.state?.token;
     const orgToken = authData.state?.organizationAccessToken;
     if (token) headers['Authorization'] = `Bearer ${token}`;
     if (orgToken) headers['X-Organization-Token'] = orgToken;
@@ -101,7 +102,6 @@ export const AgentAPI = {
     const controller = new AbortController();
 
     const headers: Record<string, string> = {
-      ...getSSEAuthHeaders(),
       'Content-Type': 'application/json',
       'Accept': 'text/event-stream',
     };
@@ -112,12 +112,13 @@ export const AgentAPI = {
         process.env?.NEXT_PUBLIC_API_URL?.trim()) ||
       '';
 
-    fetch(`${baseURL}/api/agent/sessions/${sessionId}/chat/`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(data),
-      signal: controller.signal,
-    })
+    getSSEAuthHeaders()
+      .then((authHeaders) => fetch(`${baseURL}/api/agent/sessions/${sessionId}/chat/`, {
+        method: 'POST',
+        headers: { ...authHeaders, ...headers },
+        body: JSON.stringify(data),
+        signal: controller.signal,
+      }))
       .then(async (response) => {
         if (!response.ok) {
           const errText = await response.text().catch(() => '');
@@ -237,7 +238,6 @@ export const AgentAPI = {
     const controller = new AbortController();
 
     const headers: Record<string, string> = {
-      ...getSSEAuthHeaders(),
       'Accept': 'text/event-stream',
     };
 
@@ -252,12 +252,13 @@ export const AgentAPI = {
         process.env?.NEXT_PUBLIC_API_URL?.trim()) ||
       '';
 
-    fetch(`${baseURL}/api/agent/upload-analyze/`, {
-      method: 'POST',
-      headers,
-      body: formData,
-      signal: controller.signal,
-    })
+    getSSEAuthHeaders()
+      .then((authHeaders) => fetch(`${baseURL}/api/agent/upload-analyze/`, {
+        method: 'POST',
+        headers: { ...authHeaders, ...headers },
+        body: formData,
+        signal: controller.signal,
+      }))
       .then(async (response) => {
         if (!response.ok) {
           const errText = await response.text().catch(() => '');

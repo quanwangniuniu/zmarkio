@@ -1,6 +1,7 @@
 import unittest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 from django.urls import reverse
@@ -10,6 +11,7 @@ from django.contrib.auth import get_user_model
 
 from authentication.login_security import LoginSecurityService
 from authentication.models import AuthenticationLockout
+from core.services.auth_tokens import build_user_refresh_token
 
 User = get_user_model()
 
@@ -207,8 +209,9 @@ class LoginViewTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.data)
 
+    @patch('authentication.views.SessionRegistry.remove_session')
     @patch('channels.layers.get_channel_layer')
-    def test_logout_emits_session_revoked_event(self, mock_get_channel_layer):
+    def test_logout_emits_session_revoked_event(self, mock_get_channel_layer, mock_remove_session):
         calls = []
 
         class FakeChannelLayer:
@@ -216,12 +219,15 @@ class LoginViewTests(APITestCase):
                 calls.append((group, message))
 
         mock_get_channel_layer.return_value = FakeChannelLayer()
-        self.client.force_authenticate(user=self.user)
+        # Logout identifies the session by the refresh cookie, not the access token.
+        refresh = build_user_refresh_token(self.user)
+        self.client.cookies[settings.REFRESH_COOKIE_NAME] = str(refresh)
 
         response = self.client.post(reverse('logout'), {})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['message'], 'Logged out successfully.')
+        mock_remove_session.assert_called_once_with(str(self.user.id), refresh['refresh_jti'])
         self.assertEqual(calls, [(
             f'chat_user_{self.user.id}',
             {
@@ -229,3 +235,16 @@ class LoginViewTests(APITestCase):
                 'reason': 'logout',
             },
         )])
+        self.assertEqual(response.cookies[settings.REFRESH_COOKIE_NAME]['max-age'], 0)
+
+    @patch('authentication.views.SessionRegistry.remove_session')
+    @patch('channels.layers.get_channel_layer')
+    def test_logout_without_refresh_cookie_still_succeeds(self, mock_get_channel_layer, mock_remove_session):
+        # e.g. the cookie already expired: nothing to end server-side, but the
+        # response must still be 200 and still clear the cookie.
+        response = self.client.post(reverse('logout'), {})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_remove_session.assert_not_called()
+        mock_get_channel_layer.assert_not_called()
+        self.assertEqual(response.cookies[settings.REFRESH_COOKIE_NAME]['max-age'], 0)

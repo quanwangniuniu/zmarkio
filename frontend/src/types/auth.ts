@@ -43,9 +43,9 @@ export interface LoginRequest {
   password: string;
 }
 
+// The refresh token is never in these bodies: the server sets it as an HttpOnly cookie.
 export interface LoginResponse {
   token: string;
-  refresh: string;
   user: User;
   message: string;
   organization_access_token?: string;
@@ -69,7 +69,6 @@ export interface RegisterRequest {
 export interface RegisterResponse {
   message: string;
   token: string;
-  refresh: string;
   user: User;
   organization_access_token?: string;
 }
@@ -85,7 +84,6 @@ export interface PasswordValidationRule {
 export interface GoogleAuthResponse {
   message: string;
   token?: string;
-  refresh?: string;
   user?: User;
   requires_password_setup?: boolean;
   temp_token?: string;

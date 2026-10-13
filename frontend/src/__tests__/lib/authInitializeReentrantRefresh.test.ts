@@ -9,17 +9,15 @@ describe('initializeAuth re-entrant refresh guard', () => {
     // persist middleware writes the store's current state to the same
     // localStorage key persistAuthTokens uses, so reset the store FIRST —
     // otherwise this setState would fire after persistAuthTokens and wipe
-    // the seeded refreshToken back to null.
+    // the seeded session back to null.
     useAuthStore.setState({
       ...initialState,
       token: null,
-      refreshToken: null,
       user: null,
       initialized: false,
     });
     persistAuthTokens({
       token: 'old-access-token',
-      refreshToken: 'valid-refresh-token',
       user: { id: 1, roles: [] } as any,
     });
   });

@@ -36,7 +36,6 @@ describe('single-flight token refresh', () => {
   beforeEach(() => {
     persistAuthTokens({
       token: 'old-access-token',
-      refreshToken: 'valid-refresh-token',
       user: { id: 1, roles: [] } as any,
     });
   });
@@ -64,7 +63,7 @@ describe('single-flight token refresh', () => {
     api.defaults.adapter = mockAdapter as unknown as AxiosAdapter;
 
     const refreshSpy = jest.spyOn(axios, 'post').mockResolvedValue({
-      data: { access: 'new-access-token', refresh: 'new-refresh-token' },
+      data: { access: 'new-access-token' },
     } as any);
 
     const results = await Promise.all([
@@ -132,7 +131,7 @@ describe('single-flight token refresh', () => {
       });
 
       expect(onSessionEnded).not.toHaveBeenCalled();
-      expect(readPersistedAuthState()?.state?.refreshToken).toBe('valid-refresh-token');
+      expect(readPersistedAuthState()?.state?.token).toBe('old-access-token');
     });
 
     // Scenario: Google Docs reports its own integration token expired. That is
@@ -175,7 +174,7 @@ describe('single-flight token refresh', () => {
     preferencesApiClient.defaults.adapter = mockPreferencesAdapter as unknown as AxiosAdapter;
 
     const refreshSpy = jest.spyOn(axios, 'post').mockResolvedValue({
-      data: { access: 'new-access-token', refresh: 'new-refresh-token' },
+      data: { access: 'new-access-token' },
     } as any);
 
     const results = await Promise.all([

@@ -30,7 +30,6 @@ function SetPasswordContent() {
   const searchParams = useSearchParams();
   const setUser = useAuthStore((s) => s.setUser);
   const setAuthToken = useAuthStore((s) => s.setToken);
-  const setRefreshToken = useAuthStore((s) => s.setRefreshToken);
   const setOrganizationAccessToken = useAuthStore((s) => s.setOrganizationAccessToken);
   const getUserTeams = useAuthStore((s) => s.getUserTeams);
   const [token, setToken] = useState<string>('');
@@ -117,16 +116,12 @@ function SetPasswordContent() {
           });
 
       const accessToken = 'token' in response ? response.token : undefined;
-      const refresh = 'refresh' in response ? response.refresh : undefined;
       const organization_access_token =
         'organization_access_token' in response ? response.organization_access_token : undefined;
       const { user } = response;
 
       if (accessToken) {
         setAuthToken(accessToken);
-      }
-      if (refresh) {
-        setRefreshToken(refresh);
       }
       if (organization_access_token) {
         setOrganizationAccessToken(organization_access_token);

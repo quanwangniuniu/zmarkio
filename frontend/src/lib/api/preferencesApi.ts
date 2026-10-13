@@ -1,6 +1,6 @@
 import axios from 'axios';
 import type { AxiosError, InternalAxiosRequestConfig } from 'axios';
-import { endSession, getSharedRefreshedToken, readPersistedAuthState, resolveApiBaseUrl } from '../api';
+import { getSharedRefreshedToken, readPersistedAuthState, resolveApiBaseUrl } from '../api';
 import {
   UserPreferences,
   UserPreferencesUpdate,
@@ -48,17 +48,14 @@ api.interceptors.response.use(
     const config = error.config as RetriableRequestConfig | undefined;
 
     if (error.response?.status === 401 && typeof window !== 'undefined' && config && !config._retry) {
-      const refreshToken = readPersistedAuthState()?.state?.refreshToken;
-      const accessToken = refreshToken ? await getSharedRefreshedToken(refreshToken) : null;
+      // A rejected refresh (no or invalid cookie) ends the session inside getSharedRefreshedToken.
+      const accessToken = config.headers.Authorization ? await getSharedRefreshedToken() : null;
 
       config._retry = true;
       if (accessToken) {
         config.headers.Authorization = `Bearer ${accessToken}`;
         return api(config);
       }
-      // Sent a token but have nothing to refresh it with: the session is dead.
-      // (A rejected refresh already ended it inside getSharedRefreshedToken.)
-      if (!refreshToken && config.headers.Authorization) endSession();
     }
     return Promise.reject(error);
   }

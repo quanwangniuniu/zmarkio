@@ -11,7 +11,6 @@ beforeEach(() => {
   useAuthStore.setState({
     user: null,
     token: null,
-    refreshToken: null,
     organizationAccessToken: null,
     isAuthenticated: false,
     loading: false,
@@ -90,7 +89,8 @@ it('authStore migrates data from legacy auth-storage key when new key is absent'
 
   const state = useAuthStore.getState();
   expect(state.token).toBe('legacy-tok');
-  expect(state.refreshToken).toBe('legacy-ref');
+  // The refresh token now lives only in the server's HttpOnly cookie.
+  expect('refreshToken' in state).toBe(false);
   expect(state.userTeams).toEqual([10]);
 });
 

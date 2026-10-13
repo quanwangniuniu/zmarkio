@@ -7,6 +7,8 @@ import {
   readPersistedAuthState,
   LEGACY_AUTH_STORAGE_KEY,
   SESSION_ENDED_EVENT,
+  ACCESS_TOKEN_REFRESHED_EVENT,
+  type AccessTokenRefreshedDetail,
 } from './api';
 import { User } from '../types/auth';
 import TeamAPI from './api/teamApi';
@@ -18,7 +20,7 @@ interface AuthState {
   // User data and authentication state
   user: User | null;
   token: string | null;
-  refreshToken: string | null;
+  // No refreshToken: it lives only in the server's HttpOnly cookie.
   organizationAccessToken: string | null;
   isAuthenticated: boolean;
   loading: boolean;
@@ -32,7 +34,6 @@ interface AuthState {
   // Actions
   setUser: (user: User | null) => void;
   setToken: (token: string | null) => void;
-  setRefreshToken: (refreshToken: string | null) => void;
   setOrganizationAccessToken: (token: string | null) => void;
   setLoading: (loading: boolean) => void;
   setInitialized: (initialized: boolean) => void;
@@ -66,9 +67,9 @@ interface AuthState {
 // don't each fire their own /auth/token/refresh/ request.
 let sharedInitAuthRefreshPromise: Promise<string | null> | null = null;
 
-function getSharedInitAuthRefreshedToken(refreshToken: string): Promise<string | null> {
+function getSharedInitAuthRefreshedToken(): Promise<string | null> {
   if (!sharedInitAuthRefreshPromise) {
-    sharedInitAuthRefreshPromise = authAPI.refreshToken(refreshToken);
+    sharedInitAuthRefreshPromise = authAPI.refreshToken();
   }
   return sharedInitAuthRefreshPromise.finally(() => {
     sharedInitAuthRefreshPromise = null;
@@ -82,7 +83,6 @@ export const useAuthStore = create<AuthState>()(
       // Initial state
       user: null,
       token: null,
-      refreshToken: null,
       organizationAccessToken: null,
       isAuthenticated: false,
       loading: false,
@@ -94,7 +94,6 @@ export const useAuthStore = create<AuthState>()(
       // State setters
       setUser: (user) => set({ user, isAuthenticated: !!user }),
       setToken: (token) => set({ token }),
-      setRefreshToken: (refreshToken) => set({ refreshToken }),
       setOrganizationAccessToken: (organizationAccessToken) => set({ organizationAccessToken }),
       setLoading: (loading) => set({ loading }),
       setInitialized: (initialized) => set({ initialized }),
@@ -107,13 +106,13 @@ export const useAuthStore = create<AuthState>()(
         set({ loading: true });
         try {
           const response = await authAPI.login({ email, password });
-          const { token, refresh, user, organization_access_token } = response;
+          // The refresh token arrived as an HttpOnly cookie, not in the body.
+          const { token, user, organization_access_token } = response;
 
           // Persist auth data immediately so downstream requests include the token
           set({
             user,
             token,
-            refreshToken: refresh,
             organizationAccessToken: organization_access_token || null,
             isAuthenticated: true,
           });
@@ -208,7 +207,8 @@ export const useAuthStore = create<AuthState>()(
       logout: async () => {
         try {
           // Try to call logout API (optional)
-          await authAPI.logout(get().refreshToken);
+          // Ends the server session and clears the refresh cookie.
+          await authAPI.logout();
         } catch (error) {
           // Ignore logout API errors
           console.warn('Logout API call failed:', error);
@@ -223,17 +223,14 @@ export const useAuthStore = create<AuthState>()(
         try {
           const user = await authAPI.getCurrentUser();
           let persistedToken = get().token;
-          let persistedRefreshToken = get().refreshToken;
           let persistedOrganizationToken = get().organizationAccessToken;
           const authData = readPersistedAuthState();
           persistedToken = authData?.state?.token ?? persistedToken;
-          persistedRefreshToken = authData?.state?.refreshToken ?? persistedRefreshToken;
           persistedOrganizationToken =
             authData?.state?.organizationAccessToken ?? persistedOrganizationToken;
           set({
             user,
             token: persistedToken,
-            refreshToken: persistedRefreshToken,
             organizationAccessToken: persistedOrganizationToken,
             isAuthenticated: true,
           });
@@ -288,26 +285,26 @@ export const useAuthStore = create<AuthState>()(
 
       // Initialize authentication state on app startup
       initializeAuth: async () => {
-        let { token, refreshToken, user: persistedUser } = get();
+        let { token, user: persistedUser } = get();
         const persistedAuth = readPersistedAuthState();
         token = token ?? persistedAuth?.state?.token ?? null;
-        refreshToken = refreshToken ?? persistedAuth?.state?.refreshToken ?? null;
         persistedUser = persistedUser ?? persistedAuth?.state?.user ?? null;
         const organizationAccessToken =
           get().organizationAccessToken ??
           persistedAuth?.state?.organizationAccessToken ??
           null;
-        if (token || refreshToken || organizationAccessToken || persistedUser) {
+        if (token || organizationAccessToken || persistedUser) {
           set({
             token,
-            refreshToken,
             organizationAccessToken,
             user: persistedUser,
             isAuthenticated: Boolean(token && persistedUser),
           });
         }
 
-        if (!token && !refreshToken) {
+        // Nothing to restore (a signed-out visitor): don't call refresh for them.
+        // Otherwise the HttpOnly refresh cookie, which we can't see, may revive the session.
+        if (!token && !persistedUser) {
           set({ initialized: true });
           return;
         }
@@ -315,15 +312,13 @@ export const useAuthStore = create<AuthState>()(
         set({ loading: true });
  
         try {
-          if (refreshToken) {
-            const refreshedToken = await getSharedInitAuthRefreshedToken(refreshToken);
-            if (refreshedToken) {
-              token = refreshedToken;
-              set({
-                token: refreshedToken,
-                isAuthenticated: Boolean(refreshedToken && (get().user || persistedUser)),
-              });
-            }
+          const refreshedToken = await getSharedInitAuthRefreshedToken();
+          if (refreshedToken) {
+            token = refreshedToken;
+            set({
+              token: refreshedToken,
+              isAuthenticated: Boolean(refreshedToken && (get().user || persistedUser)),
+            });
           }
 
           if (!token) {
@@ -333,8 +328,8 @@ export const useAuthStore = create<AuthState>()(
           // Validate token by calling /auth/me
           let userResult = await get().getCurrentUser();
 
-          if (!userResult.success && refreshToken && !userResult.retryable) {
-            const refreshedToken = await getSharedInitAuthRefreshedToken(refreshToken);
+          if (!userResult.success && !userResult.retryable) {
+            const refreshedToken = await getSharedInitAuthRefreshedToken();
             if (refreshedToken) {
               token = refreshedToken;
               set({ token: refreshedToken });
@@ -387,7 +382,6 @@ export const useAuthStore = create<AuthState>()(
         set({
           user: null,
           token: null,
-          refreshToken: null,
           organizationAccessToken: null,
           isAuthenticated: false,
           loading: false,
@@ -423,7 +417,6 @@ export const useAuthStore = create<AuthState>()(
           if (!old) return;
           useAuthStore.setState({
             token: old.token ?? null,
-            refreshToken: old.refreshToken ?? null,
             organizationAccessToken: old.organizationAccessToken ?? null,
             user: old.user ?? null,
             isAuthenticated: old.isAuthenticated ?? false,
@@ -437,7 +430,6 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({
         // Only persist these fields to localStorage
         token: state.token,
-        refreshToken: state.refreshToken,
         organizationAccessToken: state.organizationAccessToken,
         user: state.user,
         isAuthenticated: !!state.token && !!state.user,
@@ -453,5 +445,9 @@ export const useAuthStore = create<AuthState>()(
 if (typeof window !== 'undefined') {
   window.addEventListener(SESSION_ENDED_EVENT, () => {
     useAuthStore.getState().clearAuth();
+  });
+  window.addEventListener(ACCESS_TOKEN_REFRESHED_EVENT, (event) => {
+    const { accessToken } = (event as CustomEvent<AccessTokenRefreshedDetail>).detail;
+    useAuthStore.setState({ token: accessToken });
   });
 }

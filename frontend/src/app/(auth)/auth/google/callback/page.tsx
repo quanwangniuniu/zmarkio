@@ -12,7 +12,6 @@ function GoogleCallbackContent() {
   const {
     setUser,
     setToken,
-    setRefreshToken,
     setOrganizationAccessToken,
     getUserTeams
   } = useAuthStore();
@@ -36,9 +35,6 @@ function GoogleCallbackContent() {
             // Store tokens and user in Zustand
             if (authData.token) {
               setToken(authData.token);
-            }
-            if (authData.refresh) {
-              setRefreshToken(authData.refresh);
             }
             if (authData.organization_access_token) {
               setOrganizationAccessToken(authData.organization_access_token);
@@ -139,7 +135,6 @@ function GoogleCallbackContent() {
     router,
     getUserTeams,
     setOrganizationAccessToken,
-    setRefreshToken,
     setToken,
     setUser,
   ]);

@@ -81,11 +81,11 @@ const AUTH_STORAGE_KEY = 'auth-storage-v1';
 /** Old key — read once for migration, never written. Removed by follow-up cleanup ticket. */
 export const LEGACY_AUTH_STORAGE_KEY = 'auth-storage';
 const AUTH_COOKIE_KEY = 'ms_auth';
-const AUTH_COOKIE_MAX_AGE_SECONDS = 4 * 24 * 60 * 60;
 
 type PersistedAuthState = {
   state?: {
     token?: string | null;
+    /** TRANSITION: only in storage written before the HttpOnly refresh cookie. */
     refreshToken?: string | null;
     organizationAccessToken?: string | null;
     user?: User | null;
@@ -95,24 +95,14 @@ type PersistedAuthState = {
   version?: number;
 };
 
-function getCookieValue(name: string): string | null {
-  if (typeof document === 'undefined') return null;
-  const encodedName = `${encodeURIComponent(name)}=`;
-  const match = document.cookie
-    .split('; ')
-    .find((part) => part.startsWith(encodedName));
-  return match ? decodeURIComponent(match.slice(encodedName.length)) : null;
-}
-
-function writeCookieValue(name: string, value: string, maxAgeSeconds = AUTH_COOKIE_MAX_AGE_SECONDS) {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; Max-Age=${maxAgeSeconds}; Path=/; SameSite=Lax`;
-}
-
 function clearCookieValue(name: string) {
   if (typeof document === 'undefined') return;
   document.cookie = `${encodeURIComponent(name)}=; Max-Age=0; Path=/; SameSite=Lax`;
 }
+
+// Tokens used to be copied into this script-readable cookie; nothing reads it
+// any more, so delete any copy left from before.
+clearCookieValue(AUTH_COOKIE_KEY);
 
 function canUseLocalStorage(): boolean {
   if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
@@ -171,36 +161,6 @@ function clearAuthSessionStorage() {
   }
 }
 
-function readAuthCookie(): PersistedAuthState | null {
-  const raw = getCookieValue(AUTH_COOKIE_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    console.warn('Failed to parse auth cookie:', error);
-    return null;
-  }
-}
-
-function writeAuthCookie(authData: PersistedAuthState) {
-  const state = authData.state;
-  if (!state?.token && !state?.refreshToken) {
-    clearCookieValue(AUTH_COOKIE_KEY);
-    return;
-  }
-  writeCookieValue(
-    AUTH_COOKIE_KEY,
-    JSON.stringify({
-      state: {
-        token: state.token ?? null,
-        refreshToken: state.refreshToken ?? null,
-        organizationAccessToken: state.organizationAccessToken ?? null,
-      },
-      version: authData.version ?? 0,
-    }),
-  );
-}
-
 export function readPersistedAuthState() {
   if (typeof window === 'undefined') return null;
   if (canUseLocalStorage()) {
@@ -213,14 +173,30 @@ export function readPersistedAuthState() {
       console.warn('Failed to read auth storage:', error);
     }
   }
-  const sessionAuth = readAuthSessionStorage();
-  if (sessionAuth) return sessionAuth;
-  return readAuthCookie();
+  return readAuthSessionStorage();
+}
+
+// TRANSITION: sessions from before the refresh cookie still hold the refresh
+// token in storage. Capture it now, before authStore's persist middleware
+// rewrites storage without it, so the first refresh can send it once; the
+// server answers by setting the HttpOnly cookie. Remove one refresh-token
+// lifetime (4 days) after deploying, together with the server's body fallback.
+let legacyRefreshToken: string | null = readLegacyRefreshToken();
+
+function readLegacyRefreshToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  const fromNewKey = readPersistedAuthState()?.state?.refreshToken;
+  if (fromNewKey) return fromNewKey;
+  try {
+    const raw = canUseLocalStorage() ? window.localStorage.getItem(LEGACY_AUTH_STORAGE_KEY) : null;
+    return (raw && JSON.parse(raw)?.state?.refreshToken) || null;
+  } catch {
+    return null;
+  }
 }
 
 export function persistAuthTokens(tokens: {
   token?: string | null;
-  refreshToken?: string | null;
   organizationAccessToken?: string | null;
   user?: User | null;
 }) {
@@ -228,7 +204,6 @@ export function persistAuthTokens(tokens: {
   authData.state = {
     ...(authData.state ?? {}),
     token: tokens.token ?? authData.state?.token ?? null,
-    refreshToken: tokens.refreshToken ?? authData.state?.refreshToken ?? null,
     organizationAccessToken:
       tokens.organizationAccessToken ?? authData.state?.organizationAccessToken ?? null,
     user: tokens.user !== undefined ? tokens.user : authData.state?.user ?? null,
@@ -245,7 +220,6 @@ export function persistAuthTokens(tokens: {
     }
   }
   writeAuthSessionStorage(authData);
-  writeAuthCookie(authData);
 }
 
 export function clearPersistedAuthState() {
@@ -257,7 +231,7 @@ export function clearPersistedAuthState() {
     }
   }
   clearAuthSessionStorage();
-  clearCookieValue(AUTH_COOKIE_KEY);
+  legacyRefreshToken = null;
 }
 
 export const authPersistStorage = {
@@ -278,7 +252,7 @@ export const authPersistStorage = {
         console.warn('Failed to read persisted auth session item:', error);
       }
     }
-    return name === AUTH_STORAGE_KEY ? getCookieValue(AUTH_COOKIE_KEY) : null;
+    return null;
   },
   setItem: (name: string, value: string): void => {
     if (canUseLocalStorage()) {
@@ -294,14 +268,6 @@ export const authPersistStorage = {
       } catch (error) {
         console.warn('Failed to write persisted auth session item:', error);
       }
-    }
-    // Always write cookie (not just as localStorage fallback) so SSR requests
-    // have an up-to-date token without needing a separate persistAuthTokens call.
-    if (name !== AUTH_STORAGE_KEY) return;
-    try {
-      writeAuthCookie(JSON.parse(value));
-    } catch (error) {
-      console.warn('Failed to persist auth cookie:', error);
     }
   },
   removeItem: (name: string): void => {
@@ -325,13 +291,18 @@ export const authPersistStorage = {
   },
 };
 
-export function updatePersistedAccessToken(accessToken: string, refreshToken?: string) {
+// authStore listens for this to keep its in-memory token in sync; otherwise it
+// would keep (and re-persist) the expired token after a refresh.
+export const ACCESS_TOKEN_REFRESHED_EVENT = 'auth:access-token-refreshed';
+
+export type AccessTokenRefreshedDetail = { accessToken: string };
+
+export function updatePersistedAccessToken(accessToken: string) {
   const authData: PersistedAuthState = readPersistedAuthState() ?? { state: {}, version: 0 };
   authData.state = authData.state ?? {};
   authData.state.token = accessToken;
-  if (refreshToken) {
-    authData.state.refreshToken = refreshToken;
-  }
+  // The server now holds the refresh token in its HttpOnly cookie.
+  delete authData.state.refreshToken;
   if (canUseLocalStorage()) {
     try {
       window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authData));
@@ -340,15 +311,21 @@ export function updatePersistedAccessToken(accessToken: string, refreshToken?: s
     }
   }
   writeAuthSessionStorage(authData);
-  writeAuthCookie(authData);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(ACCESS_TOKEN_REFRESHED_EVENT, { detail: { accessToken } }),
+    );
+  }
 }
 
+// The refresh token is the HttpOnly cookie the browser attaches by itself.
 // Throws on failure so callers can tell a rejected refresh token from an unreachable server.
-async function requestTokenRefresh(refreshToken: string): Promise<string | null> {
+async function requestTokenRefresh(): Promise<string | null> {
   const response = await axios.post(
     `${API_BASE_URL}/auth/token/refresh/`,
-    { refresh: refreshToken },
+    legacyRefreshToken ? { refresh: legacyRefreshToken } : {},
     {
+      withCredentials: true,
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json, text/plain, */*',
@@ -357,13 +334,16 @@ async function requestTokenRefresh(refreshToken: string): Promise<string | null>
   );
   const accessToken = response.data?.access || response.data?.token;
   if (!accessToken) return null;
-  updatePersistedAccessToken(accessToken, response.data?.refresh);
+  // The response set the cookie, so the stored copy is no longer needed.
+  legacyRefreshToken = null;
+  learnServerClockOffset(accessToken);
+  updatePersistedAccessToken(accessToken);
   return accessToken;
 }
 
-export async function refreshAccessToken(refreshToken: string): Promise<string | null> {
+export async function refreshAccessToken(): Promise<string | null> {
   try {
-    return await requestTokenRefresh(refreshToken);
+    return await requestTokenRefresh();
   } catch (error) {
     console.warn('Failed to refresh auth token:', error);
     return null;
@@ -386,9 +366,9 @@ export function endSession() {
 
 // Shared across every caller (this file's interceptor, other axios instances
 // like preferencesApi.ts) so concurrent 401s trigger exactly one refresh call.
-export function getSharedRefreshedToken(refreshToken: string): Promise<string | null> {
+export function getSharedRefreshedToken(): Promise<string | null> {
   if (!sharedRefreshPromise) {
-    sharedRefreshPromise = requestTokenRefresh(refreshToken).catch((error) => {
+    sharedRefreshPromise = requestTokenRefresh().catch((error) => {
       console.warn('Failed to refresh auth token:', error);
       // Network errors and 5xx may recover; a 4xx means the server rejected the refresh token.
       // Runs once per refresh, not once per waiting request.
@@ -399,6 +379,45 @@ export function getSharedRefreshedToken(refreshToken: string): Promise<string | 
   return sharedRefreshPromise.finally(() => {
     sharedRefreshPromise = null;
   });
+}
+
+// Refresh this many seconds early so the token can't expire in flight.
+const ACCESS_TOKEN_EXPIRY_BUFFER_SECONDS = 30;
+
+// Server clock minus this browser's clock, in seconds. Token exp/iat are in
+// server time, so a fast or slow local clock would otherwise make every token
+// look expired (endless refreshes) or never expiring.
+let serverClockOffsetSeconds = 0;
+
+function readJwtPayload(token: string): { exp?: unknown; iat?: unknown } | null {
+  try {
+    return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  } catch {
+    return null;
+  }
+}
+
+// Only call with a token that was minted just now (i.e. a refresh response):
+// its iat is then the server's current time.
+function learnServerClockOffset(freshToken: string) {
+  const iat = readJwtPayload(freshToken)?.iat;
+  if (typeof iat === 'number') serverClockOffsetSeconds = iat - Date.now() / 1000;
+}
+
+export function isAccessTokenExpiring(token: string): boolean {
+  const exp = readJwtPayload(token)?.exp;
+  // Unreadable token: send it as-is and let the server decide.
+  if (typeof exp !== 'number') return false;
+  const serverNow = Date.now() / 1000 + serverClockOffsetSeconds;
+  return serverNow > exp - ACCESS_TOKEN_EXPIRY_BUFFER_SECONDS;
+}
+
+// For requests that bypass the axios 401 interceptor (fetch, EventSource):
+// returns the stored access token, refreshing it first if it is about to expire.
+export async function getValidAccessToken(): Promise<string | null> {
+  const token = readPersistedAuthState()?.state?.token ?? null;
+  if (!token || !isAccessTokenExpiring(token)) return token;
+  return getSharedRefreshedToken();
 }
 
 // Prevent duplicate banners when the interceptor fires more than once for the
@@ -487,9 +506,9 @@ api.interceptors.response.use(
 
     if (status === 401 && !isAuthEndpoint && !shouldBypassGlobalLogout) {
       if (typeof window !== 'undefined' && config && !config._retry) {
-        const authData = readPersistedAuthState();
-        const refreshToken = authData?.state?.refreshToken;
-        const accessToken = refreshToken ? await getSharedRefreshedToken(refreshToken) : null;
+        // Only a signed-in request has a session to refresh. A rejected refresh
+        // (no or invalid cookie) ends the session inside getSharedRefreshedToken.
+        const accessToken = config.headers.Authorization ? await getSharedRefreshedToken() : null;
 
         // Mark the request as retried so we don't end up in an infinite loop.
         config._retry = true;
@@ -497,9 +516,6 @@ api.interceptors.response.use(
           config.headers.Authorization = `Bearer ${accessToken}`;
           return api(config);
         }
-        // Sent a token but have nothing to refresh it with: the session is dead.
-        // (A rejected refresh already ended it inside getSharedRefreshedToken.)
-        if (!refreshToken && config.headers.Authorization) endSession();
       }
 
       // Session was explicitly revoked or exceeded concurrent limit.
@@ -569,8 +585,11 @@ export const authAPI = {
     return response.data;
   },
   
-  logout: async (refreshToken?: string | null): Promise<{ message: string }> => {
-    const response = await api.post('/auth/logout/', refreshToken ? { refresh_token: refreshToken } : {});
+  // The server ends the session named by the refresh cookie and clears it.
+  logout: async (): Promise<{ message: string }> => {
+    const response = await api.post('/auth/logout/', legacyRefreshToken ? { refresh_token: legacyRefreshToken } : {}, {
+      withCredentials: true,
+    });
     return response.data;
   },
   
@@ -585,8 +604,8 @@ export const authAPI = {
     return response.data;
   },
 
-  refreshToken: async (refreshToken: string): Promise<string | null> => {
-    return refreshAccessToken(refreshToken);
+  refreshToken: async (): Promise<string | null> => {
+    return refreshAccessToken();
   },
 
   // Profile update endpoint (handles both JSON and FormData for avatar uploads)
@@ -619,9 +638,13 @@ export const authAPI = {
     return response.data;
   },
 
-  deleteAccount: async (refreshToken: string): Promise<{ message: string }> => {
+  deleteAccount: async (): Promise<{ message: string }> => {
     const response = await api.delete('/auth/me/delete/', {
-      data: { confirm: 'DELETE MY ACCOUNT', refresh_token: refreshToken },
+      data: {
+        confirm: 'DELETE MY ACCOUNT',
+        ...(legacyRefreshToken ? { refresh_token: legacyRefreshToken } : {}),
+      },
+      withCredentials: true,
     });
     return response.data;
   },
