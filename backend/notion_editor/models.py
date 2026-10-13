@@ -548,3 +548,37 @@ class NotionConnection(models.Model):
             ]
         )
 
+
+class DraftProjectLink(models.Model):
+    """
+    Assigns a Draft to at most one Project at a time.
+
+    Draft intentionally has no `project` FK on the model itself (Drafts predate
+    project scoping and most existing rows have no project). This is a
+    persisted ownership record, not derived/rebuildable RAG index state, which
+    is why it lives here next to Draft rather than in the `rag` app.
+
+    `draft` is a OneToOneField (not a FK) because a Draft can belong to at
+    most one Project at a time; `project` is a plain FK because a Project can
+    have many linked Drafts. A Draft with no row here is unassigned, and RAG
+    indexing must skip it rather than guess a project.
+    """
+
+    draft = models.OneToOneField(
+        Draft,
+        on_delete=models.CASCADE,
+        related_name='project_link',
+        help_text="The draft assigned to a project.",
+    )
+    project = models.ForeignKey(
+        'core.Project',
+        on_delete=models.CASCADE,
+        related_name='draft_links',
+        help_text="The project this draft is assigned to.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return f"Draft {self.draft_id} -> Project {self.project_id}"
+
