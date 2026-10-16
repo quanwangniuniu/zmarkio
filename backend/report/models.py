@@ -9,6 +9,10 @@ from report.prompt_registry import (
 )
 
 
+def default_cross_platforms():
+    return ["meta", "google", "tiktok"]
+
+
 def _order_index_range_constraint() -> models.CheckConstraint:
     q = models.Q(order_index__gte=1, order_index__lte=6)
     # Django 4.2 uses `check=`, newer versions may prefer `condition=`.
@@ -203,6 +207,75 @@ class CustomKPI(models.Model):
         # this closes every other path.
         self.full_clean()
         super().save(*args, **kwargs)
+
+
+class CrossPlatformReportDefinition(models.Model):
+    """Configuration and latest scheduled result for the Overview report."""
+
+    project = models.OneToOneField(
+        "core.Project",
+        on_delete=models.CASCADE,
+        related_name="cross_platform_report",
+    )
+    platforms = models.JSONField(default=default_cross_platforms, blank=True)
+    lookback_days = models.PositiveSmallIntegerField(default=30)
+    is_active = models.BooleanField(default=True)
+    rolled_up_data = models.JSONField(default=dict, blank=True)
+    last_rolled_up_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "report_cross_platform_definition"
+
+    def __str__(self) -> str:
+        return f"CrossPlatformReportDefinition(project={self.project_id})"
+
+
+class AdsDraftPerformanceDaily(models.Model):
+    """Development performance input for the three Ads Draft platforms.
+
+    ``metrics`` deliberately keeps each platform's raw field names so the
+    report normalization layer is exercised before a real connector replaces
+    these database-backed inputs.
+    """
+
+    class Platform(models.TextChoices):
+        FACEBOOK_META = "facebook_meta", "Facebook Meta"
+        GOOGLE_ADS = "google_ads", "Google Ads"
+        TIKTOK = "tiktok", "TikTok"
+
+    project = models.ForeignKey(
+        "core.Project",
+        on_delete=models.CASCADE,
+        related_name="ads_draft_performance",
+    )
+    platform = models.CharField(max_length=20, choices=Platform.choices)
+    date = models.DateField(db_index=True)
+    metrics = models.JSONField(
+        default=dict,
+        help_text=(
+            "Raw platform metrics. Facebook Meta: amount_spent, impressions, "
+            "clicks, purchase_value. Google Ads: cost_micros, impressions, "
+            "clicks, conversions_value. TikTok: spend, impressions, clicks, "
+            "total_purchase_value."
+        ),
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "report_ads_draft_performance_daily"
+        ordering = ["date", "platform"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "platform", "date"],
+                name="uniq_ads_draft_performance_day",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"AdsDraftPerformanceDaily({self.platform}, {self.date})"
 
 
 class ReportTaskKeyAction(models.Model):

@@ -14,7 +14,13 @@ from core.models import ProjectMember
 from core.services.tenant import slug_to_schema_name
 from core.tenant_context import tenant_schema_context
 from report import kpi_registry
-from report.models import CustomKPI, ReportTask, ReportTaskKeyAction
+from report.models import (
+    CrossPlatformReportDefinition,
+    CustomKPI,
+    ReportTask,
+    ReportTaskKeyAction,
+)
+from report.tasks import rollup_definition
 from report.services import (
     ShareLinkExpired,
     ShareLinkNotFound,
@@ -412,6 +418,23 @@ class KPIMetricCatalogView(APIView):
 
     def get(self, request):
         return Response({"metrics": kpi_registry.list_metrics()})
+
+
+class CrossPlatformReportView(APIView):
+    """GET /api/report/cross-platform/?project=<slug|id>."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        raw_project = request.query_params.get("project")
+        if not raw_project:
+            raise DRFValidationError({"project": "Project is required."})
+        project = _resolve_member_project(request.user, raw_project)
+        definition, _ = CrossPlatformReportDefinition.objects.get_or_create(
+            project=project
+        )
+        payload = definition.rolled_up_data or rollup_definition(definition)
+        return Response(payload)
 
 
 def _kpi_payload_for_project(project_id):

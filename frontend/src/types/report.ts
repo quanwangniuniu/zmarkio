@@ -187,3 +187,27 @@ export interface PublicKPIShare {
   expires_at: string;
   kpis: PublicCustomKPI[];
 }
+
+export type CrossPlatformName = "meta" | "google" | "tiktok";
+export type CrossPlatformKPI = "cpm" | "cpc" | "ctr" | "roas";
+
+export interface CrossPlatformReportRow {
+  platform: CrossPlatformName;
+  status: "ready" | "empty" | "unavailable";
+  spend: string | null;
+  impressions: number | null;
+  clicks: number | null;
+  revenue: string | null;
+  cpm: string | null;
+  cpc: string | null;
+  ctr: string | null;
+  roas: string | null;
+}
+
+export interface CrossPlatformReport {
+  status: "ready" | "pending";
+  start_date: string;
+  end_date: string;
+  rows: CrossPlatformReportRow[];
+  last_updated_at?: string;
+}

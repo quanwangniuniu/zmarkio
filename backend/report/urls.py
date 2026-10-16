@@ -5,6 +5,11 @@ app_name = "report"
 
 urlpatterns = [
     path(
+        "cross-platform/",
+        views.CrossPlatformReportView.as_view(),
+        name="cross-platform-report",
+    ),
+    path(
         "reports/",
         views.ReportListCreateView.as_view(),
         name="report-list-create",

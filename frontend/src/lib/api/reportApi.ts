@@ -1,6 +1,7 @@
 import api from "../api";
 import type {
   CustomKPI,
+  CrossPlatformReport,
   CustomKPICreateRequest,
   CustomKPIUpdateRequest,
   KPIMetric,
@@ -21,6 +22,11 @@ const BASE = "/api/report/reports";
 const KPI_BASE = "/api/report/kpis";
 
 export const ReportAPI = {
+  getCrossPlatformReport: (project: string) =>
+    api.get<CrossPlatformReport>("/api/report/cross-platform/", {
+      params: { project },
+    }),
+
   listReports: (params?: { task?: number }) =>
     api.get<ReportTask[]>(`${BASE}/`, { params }),
 

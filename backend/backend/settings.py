@@ -694,6 +694,11 @@ CHAT_RECONNECT_REPLAY_MAX_MESSAGES = config(
 
 # Celery Beat Configuration for Periodic Tasks
 CELERY_BEAT_SCHEDULE = {
+    'rollup-cross-platform-reports': {
+        'task': 'report.tasks.rollup_all_cross_platform_reports',
+        'schedule': crontab(minute=17),
+        'options': {'timezone': 'UTC'},
+    },
     'dispatch-pending-chat-outbox': {
         'task': 'chat.tasks.dispatch_pending_chat_outbox',
         'schedule': timedelta(seconds=1),

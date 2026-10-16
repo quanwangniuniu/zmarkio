@@ -5,6 +5,7 @@ import RecentActivityCard from './RecentActivityCard';
 import TeamManagementSection from './TeamManagementSection';
 import WorkspaceDashboard from '@/components/projects/WorkspaceDashboard';
 import CustomKPIPanel from '@/components/dashboard/kpi/CustomKPIPanel';
+import CrossPlatformPerformanceWidget from '@/components/dashboard/CrossPlatformPerformanceWidget';
 import type { OverviewMock } from '@/types/overview';
 import AuditCard from './AuditCard';
 
@@ -34,6 +35,9 @@ export default function OverviewContent({
       </div>
       <div className="xl:col-span-2 scroll-mt-24" id="custom-kpis">
         <CustomKPIPanel projectSlug={projectSlug} />
+      </div>
+      <div className="xl:col-span-2">
+        <CrossPlatformPerformanceWidget projectSlug={projectSlug} />
       </div>
       <MeetingsCard upcoming={data.upcomingMeetings} actions={data.actionItems} />
       <RecentActivityCard activities={data.taskSummary.recent_activity} />
