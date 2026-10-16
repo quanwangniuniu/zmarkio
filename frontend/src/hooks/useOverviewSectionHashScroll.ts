@@ -14,7 +14,7 @@ export function useOverviewSectionHashScroll(ready: boolean) {
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!ready || pathname !== '/overview') return;
+    if (!ready || (pathname !== '/overview' && !pathname?.endsWith('/overview'))) return;
 
     const scrollToSection = () => {
       const sectionId = resolveOverviewSectionId();

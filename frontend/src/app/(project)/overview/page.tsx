@@ -2,7 +2,7 @@
 
 import ChatFAB from '@/components/global-chat/ChatFAB';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
-import OverviewContent from '@/components/overview/OverviewContent';
+import DashboardBuilder from '@/components/dashboard/builder/DashboardBuilder';
 import { useOverviewData } from '@/hooks/useOverviewData';
 import { useOverviewSectionHashScroll } from '@/hooks/useOverviewSectionHashScroll';
 import { useProjectStore } from '@/lib/projectStore';
@@ -48,13 +48,16 @@ export default function OverviewPage() {
     <DashboardLayout
       alerts={alerts}
       upcomingMeetings={data.upcomingMeetings}
-      mainClassName="dashboard-scrollbar"
+      mainClassName="dashboard-scrollbar [overflow-anchor:none]"
     >
       <ErrorBanner errors={errors} />
       {loading ? (
         <OverviewSkeleton />
+      ) : projectId == null ? (
+        <p className="rounded-lg border bg-white p-4 text-sm text-gray-600">Select a project to view its overview.</p>
       ) : (
-        <OverviewContent
+        <DashboardBuilder
+          key={String(projectId)}
           data={data}
           projectId={projectId}
           projectName={activeProject?.name}

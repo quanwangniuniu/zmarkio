@@ -1,19 +1,26 @@
 import logging
+from datetime import timedelta, date
 
+from django.db import transaction
+from django.db.models import Count, Q
+from django.utils import timezone
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Count, Q
-from django.utils import timezone
-from datetime import timedelta, date
+from rest_framework.exceptions import NotFound, ValidationError
+
+from core.models import Project
+from core.slug_mixins import resolve_project_pk
+from core.viewset_mixins import ProjectScopedViewSetMixin
 from task.models import Task, ApprovalRecord, TaskComment
 from decision.models import Decision
 from spreadsheet.models import Spreadsheet
-from core.slug_mixins import resolve_project_pk
-from core.viewset_mixins import ProjectScopedViewSetMixin
-from .serializers import DashboardSummarySerializer, ProjectWorkspaceDashboardSerializer
+
+from .models import DashboardLayout
+from .serializers import DashboardSummarySerializer, ProjectWorkspaceDashboardSerializer, DashboardLayoutSerializer
 from .services import get_rollup, ALL_FIELDS
+from .widget_catalog import GRID_COLUMNS, MAX_ROWS, MIN_WIDGET_WIDTH, WIDGET_CATALOG, WIDGET_BY_ID, DEFAULT_WIDGETS
 
 
 logger = logging.getLogger(__name__)
@@ -535,6 +542,112 @@ class ProjectWorkspaceDashboardView(APIView):
         serializer = ProjectWorkspaceDashboardSerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+
+class DashboardLayoutView(ProjectScopedViewSetMixin, APIView):
+    """Load or replace the requesting user's layout for one accessible project."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get_project(self, request):
+        project_id = resolve_project_pk(request.query_params.get('project_id'))
+        if not project_id:
+            raise ValidationError({'project_id': 'A valid project is required.'})
+        project = Project.objects.filter(
+            pk=project_id, pk__in=self._accessible_project_ids()
+        ).first()
+        if project is None:
+            raise NotFound('Project not found.')
+        return project
+
+    def response_data(self, project, widgets, updated_at=None):
+        return {
+            'project_id': project.pk,
+            'project_slug': project.slug,
+            'widgets': widgets,
+            'catalog': WIDGET_CATALOG,
+            'columns': GRID_COLUMNS,
+            'min_width': MIN_WIDGET_WIDTH,
+            'max_rows': MAX_ROWS,
+            'updated_at': updated_at,
+        }
+
+    @staticmethod
+    def merge_missing_widgets(saved_widgets):
+        """Keep saved positions and place newly registered cards in free grid cells."""
+        placed = list(saved_widgets)
+        known_ids = {widget['id'] for widget in placed}
+
+        def overlaps(left, right):
+            return (left['x'] < right['x'] + right['w']
+                    and right['x'] < left['x'] + left['w']
+                    and left['y'] < right['y'] + right['h']
+                    and right['y'] < left['y'] + left['h'])
+
+        for default in DEFAULT_WIDGETS:
+            if default['id'] in known_ids:
+                continue
+            candidate = default.copy()
+            for y in list(range(default['y'], MAX_ROWS - default['h'] + 1)) + list(range(default['y'])):
+                candidate['y'] = y
+                if all(not overlaps(candidate, widget) for widget in placed):
+                    placed.append(candidate)
+                    break
+        return sorted(placed, key=lambda widget: (widget['y'], widget['x']))
+
+    def get(self, request):
+        project = self.get_project(request)
+        rows = list(
+            DashboardLayout.objects.filter(
+                project=project, user=request.user, widget_id__in=WIDGET_BY_ID,
+            )
+            .order_by('y', 'x')
+            .values('widget_id', 'x', 'y', 'w', 'h', 'updated_at')
+        )
+        widgets = [
+            {key: row[key] for key in ('x', 'y', 'w', 'h')} | {'id': row['widget_id']}
+            for row in rows
+        ]
+        return Response(
+            self.response_data(
+                project,
+                self.merge_missing_widgets(widgets),
+                max(row['updated_at'] for row in rows) if rows else None,
+            ),
+            headers={'Cache-Control': 'private, no-store'},
+        )
+
+    def put(self, request):
+        project = self.get_project(request)
+        serializer = DashboardLayoutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        widgets = serializer.validated_data['widgets']
+        with transaction.atomic():
+            # Acquire widget row locks in a stable order across concurrent saves.
+            DashboardLayout.objects.bulk_create(
+                [
+                    DashboardLayout(
+                        project=project, user=request.user, widget_id=widget['id'],
+                        **{key: widget[key] for key in ('x', 'y', 'w', 'h')},
+                    )
+                    for widget in sorted(widgets, key=lambda item: item['id'])
+                ],
+                update_conflicts=True,
+                unique_fields=['project', 'user', 'widget_id'],
+                update_fields=['x', 'y', 'w', 'h', 'updated_at'],
+            )
+            saved_rows = DashboardLayout.objects.filter(
+                project=project, user=request.user, widget_id__in=[item['id'] for item in widgets],
+            ).values('widget_id', 'x', 'y', 'w', 'h', 'updated_at')
+            saved_by_id = {row['widget_id']: row for row in saved_rows}
+            saved_widgets = [
+                {'id': item['id'], **{key: saved_by_id[item['id']][key] for key in ('x', 'y', 'w', 'h')}}
+                for item in widgets
+            ]
+            updated_at = max(row['updated_at'] for row in saved_by_id.values())
+        return Response(
+            self.response_data(project, saved_widgets, updated_at),
+            headers={'Cache-Control': 'private, no-store'},
+        )
 
 class CrossProjectRollupView(ProjectScopedViewSetMixin, APIView):
     """

@@ -1,0 +1,128 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(var(--dashboard-columns), minmax(0, 1fr));
+  grid-auto-rows: 24px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.widget {
+  grid-column: var(--widget-column);
+  grid-row: var(--widget-row);
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 12px;
+}
+
+.dropPreview {
+  grid-column: var(--widget-column);
+  grid-row: var(--widget-row);
+  z-index: 2;
+  pointer-events: none;
+  border: 2px dashed #14b8a6;
+  border-radius: 12px;
+  background: rgb(20 184 166 / 8%);
+}
+
+.widgetContent {
+  height: 100%;
+  overflow: auto;
+  border-radius: 12px;
+}
+
+.widgetContent > * {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.widgetContent > [data-dashboard-summary-card] > div {
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.dragHandle,
+.resizeHandle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  touch-action: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.widget:hover .dragHandle,
+.widget:hover .resizeHandle,
+.widget:focus-within .dragHandle,
+.widget:focus-within .resizeHandle,
+.dragging .dragHandle,
+.resizeHandle:active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dragHandle {
+  position: absolute;
+  z-index: 3;
+  top: 6px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 90%);
+  cursor: grab;
+}
+
+.dragHandle:hover,
+.dragHandle:focus-visible {
+  background: #e6f7f7;
+  color: #0f766e;
+}
+
+.dragHandle:active {
+  cursor: grabbing;
+}
+
+.resizeHandle {
+  position: absolute;
+  z-index: 3;
+  right: 8px;
+  bottom: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 90%);
+  cursor: nwse-resize;
+}
+
+@media (max-width: 767px) {
+  /* TODO: Keep the mobile stack in saved (y, x) order; mobile drag polish is a separate ticket. */
+  .grid {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .widget {
+    min-height: 320px;
+  }
+
+  .dropPreview {
+    display: none;
+  }
+
+  .widget[data-section='overview'] {
+    order: 1;
+  }
+
+  .widget[data-section='module'] {
+    order: 3;
+  }
+
+  .dragHandle,
+  .resizeHandle {
+    display: none;
+  }
+}
