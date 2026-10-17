@@ -52,7 +52,7 @@ class _OrchestratorStub:
 
 class LLMRetryPolicyTests(TestCase):
     @patch('agent.executors.time.sleep')
-    @patch('agent.services._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     def test_call_llm_retries_out_success(self, mock_run_analysis, mock_sleep):
         step = _StepStub('analyze_data')
         orchestrator = _OrchestratorStub()
@@ -66,7 +66,7 @@ class LLMRetryPolicyTests(TestCase):
 
 
     @patch('agent.executors.time.sleep')
-    @patch('agent.services._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     def test_call_llm_retries_respects_per_step_config_override(self, mock_run_analysis, mock_sleep):
         """
         step.config overrides the decorator's default max_retries.
@@ -90,7 +90,7 @@ class LLMRetryPolicyTests(TestCase):
 
 
     @patch('agent.executors.time.sleep')
-    @patch('agent.services._run_analysis')
+    @patch('agent.services.analysis._run_analysis')
     def test_call_llm_retries_out_failure_failed_step(self, mock_run_analysis, mock_sleep):
         step = _StepStub('analyze_data')
         orchestrator = _OrchestratorStub()
@@ -124,7 +124,7 @@ class LLMRetryPolicyTests(TestCase):
     
     # The executor now uses the unified caller; patch its local import alias.
     @patch('agent.executors._call_llm_unified', autospec=True)
-    @patch('agent.services._get_llm_client')
+    @patch('agent.services.analysis._get_llm_client')
     def test_call_llm_success_unused_retries(self, mock_get_client, mock_call_llm):
         mock_get_client.return_value = MagicMock()
         mock_call_llm.return_value = {
@@ -185,7 +185,7 @@ class LLMRetryPolicyTests(TestCase):
 
     @patch('agent.executors.time.sleep')
     @patch('agent.executors._call_llm_unified', autospec=True)
-    @patch('agent.services._get_llm_client')
+    @patch('agent.services.analysis._get_llm_client')
     def test_call_llm_anthropic_timeout_no_extra_retries(
         self, mock_get_client, mock_call_llm, mock_sleep,
     ):

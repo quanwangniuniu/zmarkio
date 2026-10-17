@@ -68,7 +68,7 @@ class SpreadsheetInsightsSecurityTests(TestCase):
         grant_ai_consent(self.user, self.spreadsheet)
         # Stub the key check so CI without GEMINI_API_KEY still reaches the mocked LLM.
         with patch("core.services.gemini_client._get_api_key", return_value="test-key"), patch(
-            "agent.services._call_gemini_spreadsheet_insights"
+            "agent.services.insights._call_gemini_spreadsheet_insights"
         ) as mock_call:
             mock_call.return_value = {
                 "summary": "ok", "recommendations": [], "anomalies": [],
@@ -78,7 +78,7 @@ class SpreadsheetInsightsSecurityTests(TestCase):
         self.assertFalse([c for c in chunks if c["type"] == "error"])
 
     @patch("core.services.gemini_client._get_api_key", return_value="test-key")
-    @patch("agent.services._call_gemini_spreadsheet_insights")
+    @patch("agent.services.insights._call_gemini_spreadsheet_insights")
     def test_insights_routes_through_call_llm_and_audits(self, mock_call, _mock_key):
         grant_ai_consent(self.user, self.spreadsheet)
         mock_call.return_value = {
@@ -99,7 +99,7 @@ class SpreadsheetInsightsSecurityTests(TestCase):
             ).exists()
         )
 
-    @patch("agent.services._run_spreadsheet_insights")
+    @patch("agent.services.insights._run_spreadsheet_insights")
     def test_quota_error_surfaces_not_masked(self, mock_run):
         grant_ai_consent(self.user, self.spreadsheet)
         mock_run.side_effect = QuotaError(
@@ -108,7 +108,7 @@ class SpreadsheetInsightsSecurityTests(TestCase):
         with self.assertRaises(QuotaError):
             self._run_insights()
 
-    @patch("agent.services._run_spreadsheet_insights")
+    @patch("agent.services.insights._run_spreadsheet_insights")
     def test_audit_context_has_no_cell_values(self, mock_run):
         grant_ai_consent(self.user, self.spreadsheet)
         mock_run.return_value = {

@@ -14,7 +14,7 @@ from stripe_meta.models import LLMCallLog, Plan, Subscription
 
 from .executors import CallLLMExecutor
 from .models import AgentSession
-from .services import _run_analysis
+from .services.analysis import _run_analysis
 
 
 @patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-anthropic-key"})
