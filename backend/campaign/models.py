@@ -8,9 +8,11 @@ from core.slug_mixins import SluggedResourceModelMixin
 from django.contrib.auth import get_user_model
 from django_fsm import FSMField, transition
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from django.utils import timezone
 from core.models import TimeStampedModel, Project
 import uuid
+from decimal import Decimal
 
 User = get_user_model()
 
@@ -146,6 +148,7 @@ class Campaign(SluggedResourceModelMixin, TimeStampedModel):
         decimal_places=2,
         null=True,
         blank=True,
+        validators=[MinValueValidator(Decimal("0.01"))],
         help_text="Budget estimate (optional)"
     )
 
@@ -179,6 +182,15 @@ class Campaign(SluggedResourceModelMixin, TimeStampedModel):
             models.Index(fields=['assignee', 'status']),
             models.Index(fields=['start_date', 'end_date']),
             models.Index(fields=['project', 'start_date']),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(budget_estimate__isnull=True)
+                    | models.Q(budget_estimate__gt=0)
+                ),
+                name='campaign_budget_estimate_positive',
+            ),
         ]
 
     def __str__(self):

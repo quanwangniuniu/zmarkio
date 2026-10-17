@@ -15,6 +15,7 @@ mediaJira/
 *test*.sh
 /node_modules/
 backend/coverate_report.txt
+backend/coverage.json
 *.tar.gz
 backend/.scannerwork/
 frontend/.scannerwork/

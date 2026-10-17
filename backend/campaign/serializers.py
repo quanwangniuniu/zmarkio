@@ -54,6 +54,7 @@ class CampaignSerializer(serializers.ModelSerializer):
     assignee_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     project = ProjectSummarySerializer(read_only=True)
     project_id = serializers.IntegerField(write_only=True, required=True)
+    pacing = serializers.SerializerMethodField(read_only=True)
     
     class Meta:
         model = Campaign
@@ -63,12 +64,29 @@ class CampaignSerializer(serializers.ModelSerializer):
             'owner', 'owner_id', 'creator', 'assignee', 'assignee_id',
             'project', 'project_id', 'budget_estimate',
             'status', 'status_note', 'latest_performance_summary',
+            'pacing',
             'created_at', 'updated_at', 'is_deleted'
         ]
         read_only_fields = ['slug', 
             'id', 'creator', 'status', 'actual_completion_date',
-            'latest_performance_summary', 'created_at', 'updated_at', 'is_deleted'
+            'latest_performance_summary', 'pacing',
+            'created_at', 'updated_at', 'is_deleted'
         ]
+
+    def get_pacing(self, obj):
+        """Latest budget pacing forecast, or None if never computed.
+
+        Read-only passenger on the campaign payload so campaign lists can render
+        pacing badges without a request per row. Callers that need a fresh
+        number use the optimization pacing recompute endpoint.
+        """
+        from optimization.serializers import CampaignPacingForecastSerializer
+
+        # Reverse OneToOne raises an AttributeError subclass when absent.
+        forecast = getattr(obj, 'pacing_forecast', None)
+        if forecast is None:
+            return None
+        return CampaignPacingForecastSerializer(forecast).data
 
     def validate_platforms(self, value):
         """Validate platforms list"""
@@ -81,6 +99,12 @@ class CampaignSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 f"Invalid platforms: {invalid_platforms}. Must be one of: {valid_platforms}"
             )
+        return value
+
+    def validate_budget_estimate(self, value):
+        """A configured budget must be strictly positive."""
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Budget estimate must be greater than zero.")
         return value
 
     def validate(self, data):
@@ -195,6 +219,18 @@ class CampaignSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+class CampaignListSerializer(CampaignSerializer):
+    """Campaign rows with only the pacing fields needed by the table badge."""
+
+    def get_pacing(self, obj):
+        from optimization.serializers import CampaignPacingSummarySerializer
+
+        forecast = getattr(obj, 'pacing_forecast', None)
+        if forecast is None:
+            return None
+        return CampaignPacingSummarySerializer(forecast).data
+
+
 class CampaignCreateSerializer(CampaignSerializer):
     """Serializer for campaign creation with required fields"""
     class Meta(CampaignSerializer.Meta):
@@ -212,7 +248,7 @@ class CampaignUpdateSerializer(serializers.ModelSerializer):
         model = Campaign
         fields = [
             'name', 'objective', 'platforms', 'hypothesis', 'tags',
-            'end_date', 'budget_estimate', 'status_note',
+            'start_date', 'end_date', 'budget_estimate', 'status_note',
             'assignee_id'
         ]
         extra_kwargs = {
@@ -233,6 +269,22 @@ class CampaignUpdateSerializer(serializers.ModelSerializer):
                     f"Invalid platforms: {invalid_platforms}. Must be one of: {valid_platforms}"
                 )
         return value
+
+    def validate_budget_estimate(self, value):
+        """Keep the budget rule identical for create and partial-update APIs."""
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Budget estimate must be greater than zero.")
+        return value
+
+    def validate(self, data):
+        """Validate the effective period, including values omitted by PATCH."""
+        start_date = data.get('start_date', self.instance.start_date if self.instance else None)
+        end_date = data.get('end_date', self.instance.end_date if self.instance else None)
+        if start_date and end_date and end_date < start_date:
+            raise serializers.ValidationError({
+                'end_date': 'End date must be after start date'
+            })
+        return data
 
 
 class CampaignStatusHistorySerializer(serializers.ModelSerializer):

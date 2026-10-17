@@ -33,6 +33,14 @@ const formatDateForInput = (dateString: string | null | undefined): string => {
   return `${year}-${month}-${day}`;
 };
 
+const normalizeDate = (dateString: string | null | undefined): string | null => {
+  if (!dateString || dateString.trim() === '') return null;
+  return dateString.split('T')[0] || null;
+};
+
+const NO_PENDING_SAVE = Symbol('no-pending-date-save');
+type PendingSave = string | null | typeof NO_PENDING_SAVE;
+
 function InlineDateController({
   value: initialValue,
   onSave,
@@ -50,6 +58,10 @@ function InlineDateController({
   const originalValueRef = useRef<string | null | undefined>(initialValue);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  // Duplicate events are de-duplicated, while a genuinely newer value is kept
+  // and drained after the in-flight request completes.
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef<PendingSave>(NO_PENDING_SAVE);
 
   // Sync value when initialValue changes externally (only when not editing)
   useEffect(() => {
@@ -67,9 +79,35 @@ function InlineDateController({
     }
   }, [isEditing]);
 
-  const handleSave = useCallback(async () => {
-    const newValue = dateValue.trim() || null;
+  const drainSaveQueue = useCallback(async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setIsLoading(true);
+    setError(null);
 
+    try {
+      while (pendingSaveRef.current !== NO_PENDING_SAVE) {
+        const valueToSave = pendingSaveRef.current;
+        pendingSaveRef.current = NO_PENDING_SAVE;
+
+        if (normalizeDate(valueToSave) === normalizeDate(originalValueRef.current)) {
+          continue;
+        }
+
+        await onSave(valueToSave);
+        originalValueRef.current = valueToSave;
+      }
+      setIsEditing(false);
+    } catch (err) {
+      pendingSaveRef.current = NO_PENDING_SAVE;
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      savingRef.current = false;
+      setIsLoading(false);
+    }
+  }, [onSave]);
+
+  const queueSave = useCallback((newValue: string | null) => {
     // Validate
     if (validate) {
       const validationError = validate(newValue);
@@ -90,38 +128,22 @@ function InlineDateController({
       setError('Date must be before maximum date');
       return;
     }
-
-    // If value hasn't changed, just exit edit mode
-    // Normalize comparison - ensure both sides are normalized
-    const normalizeDate = (dateStr: string | null | undefined): string | null => {
-      if (!dateStr || (typeof dateStr === 'string' && dateStr.trim() === '')) return null;
-      // If it's ISO format, take only the date part
-      const normalized = typeof dateStr === 'string' ? dateStr.split('T')[0] : null;
-      return normalized || null;
-    };
     
     const normalizedNew = normalizeDate(newValue);
     const normalizedOriginal = normalizeDate(originalValueRef.current);
     
-    if (normalizedNew === normalizedOriginal) {
+    if (normalizedNew === normalizedOriginal && !savingRef.current) {
       setIsEditing(false);
       return;
     }
 
-    // Save
-    try {
-      setIsLoading(true);
-      setError(null);
-      await onSave(newValue);
-      // Update originalValueRef with the actual saved value for future comparisons
-      originalValueRef.current = newValue;
-      setIsEditing(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [dateValue, validate, onSave, minDate, maxDate]);
+    pendingSaveRef.current = newValue;
+    void drainSaveQueue();
+  }, [drainSaveQueue, maxDate, minDate, validate]);
+
+  const handleSave = useCallback(() => {
+    queueSave(dateValue.trim() || null);
+  }, [dateValue, queueSave]);
 
   // Close on outside click
   useEffect(() => {
@@ -145,23 +167,11 @@ function InlineDateController({
     setError(null);
   }, []);
 
-  const handleClear = useCallback(async () => {
+  const handleClear = useCallback(() => {
     setDateValue('');
-    const newValue = null;
     
-    // Save
-    try {
-      setIsLoading(true);
-      setError(null);
-      await onSave(newValue);
-      originalValueRef.current = newValue;
-      setIsEditing(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [onSave]);
+    queueSave(null);
+  }, [queueSave]);
 
   const startEdit = useCallback(() => {
     originalValueRef.current = initialValue;
@@ -182,11 +192,12 @@ function InlineDateController({
             min={minDate}
             max={maxDate}
             onChange={(e) => {
+              // Only track the value here — don't save. The native picker also
+              // changes the value while the user moves between months (it carries
+              // the selected day along), and typing a year passes through 0002,
+              // 0020, 0202. Enter, blur or a click outside commits, the same as
+              // the inline text editors.
               setDateValue(e.target.value);
-              // Auto-save on change
-              setTimeout(() => {
-                handleSave();
-              }, 100);
             }}
             onBlur={handleSave}
             onKeyDown={(e) => {
@@ -199,7 +210,6 @@ function InlineDateController({
               }
             }}
             className="px-2 py-1 border border-blue-500 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled={isLoading}
           />
           {dateValue && (
             <button

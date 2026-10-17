@@ -92,6 +92,12 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     )
 
     # ------------------------------------------------------------------
+    # optimization — campaign pacing is tenant-scoped because its one-to-one
+    # FK must target the Campaign table in the same org schema.
+    # ------------------------------------------------------------------
+    from optimization.models import CampaignPacingForecast
+
+    # ------------------------------------------------------------------
     # decision
     # ------------------------------------------------------------------
     from decision.models import (
@@ -282,6 +288,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         BudgetRequest,              # depends on BudgetPool + Task + AdChannel
         # campaign (base + non-cross-linking)
         Campaign,
+        CampaignPacingForecast,  # depends on Campaign
         CampaignStatusHistory,
         PerformanceCheckIn,
         PerformanceSnapshot,

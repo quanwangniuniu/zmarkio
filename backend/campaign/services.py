@@ -200,7 +200,7 @@ class TemplateService:
 
         # Create campaign - FSMField will use default value (PLANNING) automatically
         # Don't set status explicitly as it's protected
-        campaign = Campaign.objects.create(
+        campaign = Campaign(
             name=name,
             project=project,
             owner=owner,
@@ -220,7 +220,11 @@ class TemplateService:
         # Exclude 'status' field from validation to avoid FSM protection errors.
         # Note: clean() method is still called and can access self.status for business logic
         # validation (e.g., PLANNING status date checks, COMPLETED status end_date requirement).
-        campaign.full_clean(exclude=['status'])
+        try:
+            campaign.full_clean(exclude=['status'])
+        except ValidationError as exc:
+            raise DRFValidationError(exc.message_dict)
+        campaign.save()
 
         return campaign
 

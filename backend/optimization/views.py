@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404
 
 from core.slug_mixins import resolve_pk_for
 from task.models import Task
-from .services import ExperimentService, RollbackHistoryService
+from .services import ExperimentService, PacingService, RollbackHistoryService
 from .models import (
     OptimizationExperiment,
     ExperimentMetric,
@@ -20,6 +20,7 @@ from .models import (
     Optimization,
 )
 from core.models import ProjectMember
+from core.services.audit_events import safe_emit_audit_event
 
 User = get_user_model()
 from .serializers import (
@@ -32,6 +33,7 @@ from .serializers import (
     ScalingPlanSerializer,
     ScalingStepSerializer,
     OptimizationSerializer,
+    CampaignPacingForecastSerializer,
 )
 
 
@@ -551,3 +553,109 @@ class OptimizationRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIVie
         return Optimization.objects.select_related("task", "task__project").filter(
             task__project_id__in=accessible_project_ids
         )
+
+
+# ==================== BUDGET PACING VIEWS ====================
+
+def _get_accessible_campaign(user, slug):
+    """Resolve a campaign by slug, scoped to the user's project memberships.
+
+    Mirrors CampaignViewSet.get_queryset so pacing cannot leak a campaign the
+    user would not otherwise be able to read. Returns None when not found or
+    not accessible — callers answer 404 either way, so membership is not
+    disclosed.
+    """
+    from campaign.models import Campaign
+
+    accessible_project_ids = set(
+        ProjectMember.objects.filter(
+            user=user,
+            is_active=True
+        ).values_list('project_id', flat=True)
+    )
+    if not accessible_project_ids:
+        return None
+
+    return Campaign.objects.filter(
+        slug=slug,
+        project_id__in=accessible_project_ids,
+        is_deleted=False
+    ).first()
+
+
+def _can_recompute_campaign(user, campaign):
+    """Manual financial recomputes require responsibility, not just visibility."""
+    if getattr(user, 'is_superuser', False):
+        return True
+    if user.id in {campaign.owner_id, campaign.assignee_id, campaign.project.owner_id}:
+        return True
+    return ProjectMember.objects.filter(
+        user=user,
+        project=campaign.project,
+        is_active=True,
+        role__iexact='owner',
+    ).exists() or ProjectMember.objects.filter(
+        user=user,
+        project=campaign.project,
+        is_active=True,
+        role__in=['admin', 'manager', 'ADMIN', 'MANAGER'],
+    ).exists()
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def campaign_pacing(request, slug):
+    """
+    GET /optimization/campaigns/{slug}/pacing/
+    """
+    campaign = _get_accessible_campaign(request.user, slug)
+    if campaign is None:
+        return Response(
+            {'detail': 'Campaign not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    # Reverse OneToOne raises an AttributeError subclass when absent, so getattr
+    # with a default is safe here.
+    forecast = getattr(campaign, 'pacing_forecast', None)
+    if forecast is None:
+        # No nightly run has covered this campaign yet (newly created, or first
+        # deploy) — compute once now so the UI is never blank.
+        forecast = PacingService.recompute_for_campaign(campaign)
+
+    return Response(CampaignPacingForecastSerializer(forecast).data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def recompute_campaign_pacing(request, slug):
+    """
+    POST /optimization/campaigns/{slug}/pacing/recompute/
+    """
+    campaign = _get_accessible_campaign(request.user, slug)
+    if campaign is None:
+        return Response(
+            {'detail': 'Campaign not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    if not _can_recompute_campaign(request.user, campaign):
+        raise PermissionDenied('Only campaign owners, assignees, or project managers can recompute pacing.')
+
+    previous = getattr(campaign, 'pacing_forecast', None)
+    before = CampaignPacingForecastSerializer(previous).data if previous is not None else None
+    forecast, changed = PacingService.recompute_for_campaign_with_change(campaign)
+    serialized = CampaignPacingForecastSerializer(forecast).data
+    safe_emit_audit_event(
+        event_type='campaign.pacing_recomputed',
+        actor=request.user,
+        organization=campaign.project.organization,
+        project=campaign.project,
+        target_type='campaign',
+        target_id=campaign.id,
+        before=before,
+        after=serialized,
+        context={'changed': changed, 'trigger': 'manual'},
+        request=request,
+    )
+    return Response({'forecast': serialized, 'changed': changed})
