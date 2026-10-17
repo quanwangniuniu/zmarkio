@@ -55,14 +55,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
           cache: npm
@@ -76,7 +76,7 @@ jobs:
       # Key matches chromatic.yml so the two jobs share one entry.
       - name: Cache frontend node_modules
         id: frontend-node-modules
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: frontend/node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
@@ -107,7 +107,7 @@ jobs:
           npm run build
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
           cache: pip
@@ -169,7 +169,7 @@ jobs:
           fi
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.5.7 
 
@@ -182,7 +182,7 @@ jobs:
 
       - name: Upload security reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: 
           name: code-scan-reports-${{ github.sha }}
           path: |
@@ -198,7 +198,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - name: Guard against deleting historical migrations
@@ -250,7 +250,7 @@ jobs:
       packages: write
     steps:
       - name: Free disk space on runner
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@36e9a5af4eddb91fc11aec4c6f6f79b3cc0cb523 # main
         with:
           tool-cache: false
           android: true
@@ -260,13 +260,13 @@ jobs:
           docker-images: true
           swap-storage: false
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -293,7 +293,7 @@ jobs:
       # flight stay warm during the switchover; drop it once prod-preview has
       # built once on the scoped tags.
       - name: Build backend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: ./backend
           tags: mediajira-backend:latest
@@ -309,7 +309,7 @@ jobs:
         run: docker buildx prune -af --keep-storage 2GB
 
       - name: Build frontend image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: ./frontend
           tags: mediajira-frontend:latest
@@ -336,7 +336,7 @@ jobs:
           ls -lh "$RUNNER_TEMP/ci-images"
 
       - name: Upload backend image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ci-image-backend
           path: ${{ runner.temp }}/ci-images/backend.tar.zst
@@ -345,7 +345,7 @@ jobs:
           overwrite: true
 
       - name: Upload frontend image
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ci-image-frontend
           path: ${{ runner.temp }}/ci-images/frontend.tar.zst
@@ -354,7 +354,7 @@ jobs:
           overwrite: true
 
       - name: Upload database images
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ci-image-db
           path: ${{ runner.temp }}/ci-images/db.tar.zst
@@ -369,7 +369,7 @@ jobs:
       contents: read
     steps:
       - name: Free disk space on runner
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@36e9a5af4eddb91fc11aec4c6f6f79b3cc0cb523 # main
         with:
           tool-cache: false
           android: true
@@ -379,7 +379,7 @@ jobs:
           docker-images: true
           swap-storage: false
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
       - name: Load CI images
@@ -413,7 +413,7 @@ jobs:
 
       - name: Upload Trivy reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: trivy-scan-reports-${{ github.sha }}
           path: |
@@ -434,7 +434,7 @@ jobs:
         shard: [0, 1, 2, 3]
     steps:
       - name: Free disk space on runner
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@36e9a5af4eddb91fc11aec4c6f6f79b3cc0cb523 # main
         with:
           tool-cache: false
           android: true
@@ -444,7 +444,7 @@ jobs:
           docker-images: true
           swap-storage: false
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
       - name: Load CI images
@@ -486,7 +486,7 @@ jobs:
           docker compose cp backend:/app/.coverage coverage-data/.coverage.shard-${{ matrix.shard }}
 
       - name: Upload coverage data
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: backend-coverage-shard-${{ matrix.shard }}
           path: coverage-data/
@@ -512,7 +512,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
       - name: Load CI images
@@ -521,7 +521,7 @@ jobs:
           images: backend
 
       - name: Download shard coverage data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: backend-coverage-shard-*
           path: coverage-data
@@ -547,7 +547,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Free disk space on runner
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@36e9a5af4eddb91fc11aec4c6f6f79b3cc0cb523 # main
         with:
           tool-cache: false
           android: true
@@ -557,7 +557,7 @@ jobs:
           docker-images: true
           swap-storage: false
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
       - name: Load CI images
@@ -630,7 +630,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Free disk space on runner
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@36e9a5af4eddb91fc11aec4c6f6f79b3cc0cb523 # main
         with:
           tool-cache: false
           android: true
@@ -640,7 +640,7 @@ jobs:
           docker-images: true
           swap-storage: false
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
       - name: Load CI images
@@ -673,7 +673,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Free disk space on runner
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@36e9a5af4eddb91fc11aec4c6f6f79b3cc0cb523 # main
         with:
           tool-cache: false
           android: true
@@ -683,7 +683,7 @@ jobs:
           docker-images: true
           swap-storage: false
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
       - name: Load CI images
@@ -781,7 +781,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Free disk space on runner
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@36e9a5af4eddb91fc11aec4c6f6f79b3cc0cb523 # main
         with:
           tool-cache: false
           android: true
@@ -791,7 +791,7 @@ jobs:
           docker-images: true
           swap-storage: false
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
       - name: Load CI images
@@ -928,7 +928,7 @@ jobs:
           "
 
       - name: Set up Node for budget Playwright E2E
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: npm
@@ -938,7 +938,7 @@ jobs:
       # skips npm ci; see the code_scan step for why ~/.npm is not enough.
       - name: Cache frontend node_modules
         id: frontend-node-modules
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: frontend/node_modules
           key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
@@ -954,7 +954,7 @@ jobs:
 
       - name: Cache Playwright browsers
         id: playwright-cache
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ env.PLAYWRIGHT_VERSION }}
@@ -1076,7 +1076,7 @@ jobs:
 
       - name: Upload budget E2E Playwright artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: budget-e2e-playwright-${{ github.sha }}
           path: |
@@ -1108,7 +1108,7 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: Free disk space on runner
-        uses: jlumbroso/free-disk-space@main
+        uses: jlumbroso/free-disk-space@36e9a5af4eddb91fc11aec4c6f6f79b3cc0cb523 # main
         with:
           tool-cache: false
           android: true
@@ -1118,7 +1118,7 @@ jobs:
           docker-images: true
           swap-storage: false
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
       - name: Load CI images
@@ -1173,7 +1173,7 @@ jobs:
           exit 1
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "20"
           cache: npm
@@ -1191,7 +1191,7 @@ jobs:
 
       - name: Upload Lighthouse reports
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: lighthouse-reports-${{ github.sha }}
           path: frontend/.lighthouseci/
@@ -1290,7 +1290,7 @@ jobs:
       #       -H "Content-Type: application/json" \
       #       -d '{"action": "deploy", "source": "github"}'
       # - name: Configure AWS credentials
-      #   uses: aws-actions/configure-aws-credentials@v4
+      #   uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
       #   with:
       #     aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
       #     aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -1316,17 +1316,17 @@ jobs:
       contents: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.11'
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
@@ -1366,13 +1366,13 @@ jobs:
           PY
 
       - name: Upload SBOM workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mediajira-sboms-${{ github.ref_name }}
           path: sbom/*.cdx.json
 
       - name: Publish SBOMs to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: sbom/*.cdx.json
 
