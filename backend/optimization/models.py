@@ -475,9 +475,157 @@ class Optimization(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         db_table = "optimization"
-    
+
     def __str__(self) -> str:
         return f"Optimization(task={self.task_id}, status={self.execution_status})"
+
+
+# --- Models for Budget Pacing Forecast ---
+class PacingStatus(models.TextChoices):
+    """Pacing verdict for a campaign's budget burn.
+
+    The three "actionable" states (under/on_track/over) are only reachable once
+    the campaign has a budget, an end date and a linked daily spend series.
+    The rest tell the UI why there is no forecast to show.
+    """
+
+    NOT_CONFIGURED = "not_configured", "Not Configured"
+    NOT_STARTED = "not_started", "Not Started"
+    NO_DATA = "no_data", "No Data"
+    UNDER_PACING = "under_pacing", "Under Pacing"
+    ON_TRACK = "on_track", "On Track"
+    OVER_PACING = "over_pacing", "Over Pacing"
+
+
+class PacingReason(models.TextChoices):
+    """Machine-readable explanation for a non-actionable pacing status."""
+
+    MISSING_BUDGET = "missing_budget", "Missing Budget"
+    MISSING_END_DATE = "missing_end_date", "Missing End Date"
+    MISSING_BUDGET_AND_END_DATE = "missing_budget_and_end_date", "Missing Budget And End Date"
+    INVALID_PERIOD = "invalid_period", "Invalid Period"
+    NO_LINKED_SPEND = "no_linked_spend", "No Linked Spend"
+
+
+class CampaignPacingForecast(models.Model):
+    """Latest budget pacing forecast for a campaign.
+
+    Recomputed nightly by `optimization.tasks.recompute_all_pacing_forecasts`
+    and on demand via the pacing recompute endpoint. Kept in its own table
+    rather than as columns on `campaigns` so the forecast can be recomputed
+    and reasoned about independently of the campaign record itself.
+    """
+
+    campaign = models.OneToOneField(
+        "campaign.Campaign",
+        on_delete=models.CASCADE,
+        related_name="pacing_forecast",
+        help_text="The campaign this forecast describes",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=PacingStatus.choices,
+        default=PacingStatus.NO_DATA,
+        help_text="Pacing verdict for the campaign",
+    )
+    reason = models.CharField(
+        max_length=32,
+        choices=PacingReason.choices,
+        blank=True,
+        default="",
+        help_text="Why no actionable forecast is available (blank when one is)",
+    )
+
+    # --- Money (campaign currency; all nullable when not computable) ---
+    budget = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Budget the forecast was computed against",
+    )
+    spend_to_date = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+        help_text="Actual spend from campaign start through the computed date",
+    )
+    expected_spend_to_date = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Spend a perfectly linear burn would have reached by now",
+    )
+    projected_total_spend = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Forecast spend at period end if current pace continues",
+    )
+    suggested_daily_cap = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Baseline daily cap that would land exactly on budget",
+    )
+    avg_daily_spend = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0,
+        help_text="Trailing average daily spend used to project forward",
+    )
+
+    pace_ratio = models.DecimalField(
+        max_digits=8,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text="projected_total_spend / budget (1.0 lands exactly on budget)",
+    )
+
+    # --- Period ---
+    total_days = models.IntegerField(
+        default=0, help_text="Length of the campaign period in days (inclusive)"
+    )
+    days_elapsed = models.IntegerField(
+        default=0, help_text="Days of the period elapsed through the computed date"
+    )
+    days_remaining = models.IntegerField(
+        default=0, help_text="Days of the period left after the computed date"
+    )
+
+    # --- Seasonality ---
+    seasonality_applied = models.BooleanField(
+        default=False,
+        help_text="Whether day-of-week factors were applied (false = pure linear)",
+    )
+    dow_factors = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Day-of-week spend factors keyed by weekday '0'-'6' (Monday=0)",
+    )
+
+    computed_for_date = models.DateField(
+        help_text="The 'today' the forecast was computed for"
+    )
+    computed_at = models.DateTimeField(
+        auto_now=True, help_text="When this forecast was last recomputed"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "campaign_pacing_forecast"
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["computed_for_date"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"CampaignPacingForecast(campaign={self.campaign_id}, status={self.status})"

@@ -5,6 +5,50 @@ export type CampaignStatus = 'PLANNING' | 'TESTING' | 'SCALING' | 'OPTIMIZING' |
 export type CampaignObjective = 'AWARENESS' | 'CONSIDERATION' | 'CONVERSION' | 'RETENTION' | 'ENGAGEMENT' | 'TRAFFIC' | 'LEAD_GENERATION' | 'APP_PROMOTION';
 export type CampaignPlatform = 'META' | 'GOOGLE_ADS' | 'TIKTOK' | 'LINKEDIN' | 'SNAPCHAT' | 'TWITTER' | 'PINTEREST' | 'REDDIT' | 'PROGRAMMATIC' | 'EMAIL';
 
+// Budget pacing (MED-271)
+export type PacingStatus =
+  | 'not_configured'
+  | 'not_started'
+  | 'no_data'
+  | 'under_pacing'
+  | 'on_track'
+  | 'over_pacing';
+
+export type PacingReason =
+  | 'missing_budget'
+  | 'missing_end_date'
+  | 'missing_budget_and_end_date'
+  | 'invalid_period'
+  | 'no_linked_spend';
+
+/**
+ * Latest budget pacing forecast for a campaign.
+ *
+ * Money and ratio fields arrive as strings — DRF serializes DecimalField that
+ * way by default — so parse before doing arithmetic on them.
+ */
+export interface CampaignPacingForecast {
+  id: number;
+  campaign: string;
+  campaign_slug: string;
+  status: PacingStatus;
+  reason: PacingReason | '';
+  budget: string | null;
+  spend_to_date: string;
+  expected_spend_to_date: string | null;
+  projected_total_spend: string | null;
+  suggested_daily_cap: string | null;
+  avg_daily_spend: string;
+  pace_ratio: string | null;
+  total_days: number;
+  days_elapsed: number;
+  days_remaining: number;
+  seasonality_applied: boolean;
+  dow_factors: Record<string, number>;
+  computed_for_date: string;
+  computed_at: string;
+}
+
 // User and Project summaries (reuse from task types if available)
 export interface UserSummary {
   id: number;
@@ -43,6 +87,8 @@ export interface CampaignData {
   status: CampaignStatus;
   status_note?: string;
   latest_performance_summary?: Record<string, any>;
+  /** Read-only passenger from the campaigns endpoint; null until first computed. */
+  pacing?: CampaignPacingForecast | null;
   created_at: string;
   updated_at: string;
   is_deleted?: boolean;
@@ -69,7 +115,8 @@ export interface UpdateCampaignData {
   end_date?: string;
   hypothesis?: string;
   tags?: string[];
-  budget_estimate?: number;
+  /** null clears the budget. */
+  budget_estimate?: number | null;
   status_note?: string;
   assignee_id?: number;
   owner_id?: number;

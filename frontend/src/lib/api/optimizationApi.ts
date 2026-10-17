@@ -1,4 +1,5 @@
 import api from "../api";
+import type { CampaignPacingForecast } from "@/types/campaign";
 
 export interface Optimization {
   id: number;
@@ -74,5 +75,17 @@ export const OptimizationAPI = {
 
   deleteOptimization: (id: number) =>
     api.delete(`/api/optimization/optimizations/${id}/`),
+
+  // ==================== BUDGET PACING ====================
+
+  /** Latest pacing forecast for a campaign, computed on first read if missing. */
+  getCampaignPacing: (slug: string) =>
+    api.get<CampaignPacingForecast>(`/api/optimization/campaigns/${slug}/pacing/`),
+
+  /** Force a fresh forecast rather than waiting for the nightly recomputation. */
+  recomputeCampaignPacing: (slug: string) =>
+    api.post<CampaignPacingForecast>(
+      `/api/optimization/campaigns/${slug}/pacing/recompute/`
+    ),
 };
 
