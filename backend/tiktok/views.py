@@ -1,5 +1,6 @@
 import os
 import hashlib
+import logging
 import mimetypes
 import tempfile
 import subprocess
@@ -21,6 +22,8 @@ from django.db.models import Prefetch
 from PIL import Image, UnidentifiedImageError
 import uuid
 import secrets
+
+logger = logging.getLogger(__name__)
 
 # ----------------------
 # Centralized constants
@@ -301,7 +304,11 @@ def upload_video_ad(request):
                 try:
                     os.unlink(temp_path)
                 except Exception:
-                    pass
+                    # Intentional skip: cleanup in finally; raising here would mask the upload response or error.
+                    logger.warning(
+                        "TikTok upload: failed to delete temporary video file",
+                        exc_info=True,
+                    )
         
         # Validate duration (5-600 seconds)
         violations = []
@@ -672,7 +679,10 @@ def material_delete(request, id):
         try:
             default_storage.delete(creative.storage_path)
         except Exception:
-            pass
+            logger.error(
+                "TikTok material %s: failed to delete stored file %s; file is now orphaned",
+                creative.id, creative.storage_path, exc_info=True,
+            )
 
     creative.delete()
     return Response({'success': True}, status=status.HTTP_200_OK)

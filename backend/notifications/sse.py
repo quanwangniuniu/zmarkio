@@ -233,7 +233,11 @@ def publish_notification_to_redis(user_id: int, notification) -> None:
             try:
                 r.close()
             except Exception:
-                pass
+                # Intentional skip: cleanup in finally; raising here would mask the publish outcome.
+                logger.warning(
+                    "SSE: failed to close Redis client for user_id=%s",
+                    user_id, exc_info=True,
+                )
 
 
 # ── async SSE generator ───────────────────────────────────────────────────────
@@ -364,5 +368,9 @@ async def sse_event_generator(
                 await pubsub.unsubscribe(channel)
             await r.aclose()
         except Exception:
-            pass
+            # Intentional skip: cleanup in finally; raising here would mask how the stream ended.
+            logger.warning(
+                "SSE: failed to close pubsub for user_id=%s",
+                user_id, exc_info=True,
+            )
         logger.info("SSE: connection closed for user_id=%s", user_id)

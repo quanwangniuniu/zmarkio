@@ -1098,7 +1098,10 @@ def send_scheduled_message(
                 try:
                     MessageMention.objects.get_or_create(message=message, mentioned_user_id=uid)
                 except Exception:
-                    pass
+                    logger.error(
+                        "send_scheduled_message %s: failed to create mention for user_id=%s",
+                        scheduled_message_id, uid, exc_info=True,
+                    )
 
             MessageService._create_recipient_statuses(message, sm.sender)
             MessageService._schedule_new_message_side_effects(message, sm.sender)
@@ -1120,7 +1123,11 @@ def send_scheduled_message(
                 sm.error_message = str(exc)
                 sm.save(update_fields=['status', 'error_message', 'updated_at'])
             except Exception:
-                pass
+                # Intentional skip: cleanup after the send failed; raising here would mask the send error.
+                logger.error(
+                    "send_scheduled_message %s: failed to mark FAILED; row may be stuck in SENDING",
+                    scheduled_message_id, exc_info=True,
+                )
         if isinstance(exc, ValueError):
             return
         raise self.retry(exc=exc)

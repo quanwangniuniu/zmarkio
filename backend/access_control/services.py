@@ -1,3 +1,4 @@
+import logging
 import math
 from typing import Dict, List, Optional, TypedDict
 
@@ -9,6 +10,8 @@ from django.utils import timezone
 
 from core.models import Permission, Project, ProjectMember, Role
 from access_control.models import RolePermission, UserRole
+
+logger = logging.getLogger(__name__)
 
 
 class PermissionBundle(TypedDict):
@@ -24,7 +27,10 @@ def invalidate_user_permission_cache(schema_name: str, user_id: int) -> None:
     try:
         cache.delete(permission_cache_key(schema_name, user_id))
     except Exception:
-        pass
+        logger.error(
+            "Failed to invalidate permission cache for user_id=%s schema=%s; cached permissions may stay stale",
+            user_id, schema_name, exc_info=True,
+        )
 
 
 def _set_permission_cache(
@@ -35,7 +41,10 @@ def _set_permission_cache(
     try:
         cache.set(key, bundle, timeout)
     except Exception:
-        pass
+        logger.warning(
+            "Failed to cache permission bundle %s",
+            key, exc_info=True,
+        )
 
 
 def get_user_permission_bundle(

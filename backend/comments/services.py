@@ -1,3 +1,4 @@
+import logging
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -14,6 +15,7 @@ from comments.permissions import CommentPermissionService
 from comments.registry import CommentTargetRegistry
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 UNSET = object()
 
 
@@ -125,7 +127,10 @@ def _delete_storage_path(path):
     except Exception:
         # Storage cleanup should not block database cleanup; leaked files can be
         # swept by the next run or by object-storage lifecycle policies.
-        pass
+        logger.error(
+            "Comment attachment storage cleanup failed; file is now orphaned: path=%s",
+            path, exc_info=True,
+        )
 
 
 def _storage_path_from_url(url):

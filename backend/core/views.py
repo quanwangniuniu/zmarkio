@@ -667,7 +667,11 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
                 )
                 calendar_ids = [row[0] for row in cursor.fetchall()]
         except Exception:
-            pass
+            logger.error(
+                "perform_destroy: could not load calendars for project %s; its "
+                "GoogleCalendarConnection rows in public are not deleted",
+                project_id, exc_info=True,
+            )
 
         # Switch to public schema and delete cross-schema related records
         with connection.cursor() as cursor:
@@ -695,7 +699,11 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
                             calendar_ids
                         )
         except Exception:
-            pass
+            logger.error(
+                "perform_destroy: failed to delete Slack preferences / GoogleCalendar connections "
+                "for project %s; rows in public are not deleted",
+                project_id, exc_info=True,
+            )
         finally:
             # Restore tenant schema – the outer transaction is clean because any
             # SQL error above was contained within a savepoint.
@@ -743,7 +751,10 @@ class ProjectViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
                         [project_id]
                     )
                 except Exception:
-                    pass
+                    logger.error(
+                        "perform_destroy: failed to delete invitations for project %s",
+                        project_id, exc_info=True,
+                    )
 
                 # Finally delete the project itself
                 cursor.execute(

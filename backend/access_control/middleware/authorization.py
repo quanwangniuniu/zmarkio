@@ -1,3 +1,5 @@
+import logging
+
 from django.http import JsonResponse
 from django.utils import timezone
 from django.db.models import Q
@@ -10,6 +12,8 @@ from access_control.services import get_user_permission_bundle
 from typing import Optional, Callable, Any
 from functools import wraps
 from core.models import Team, TeamMember, TeamRole
+
+logger = logging.getLogger(__name__)
 
 class AuthorizationMiddleware:
     """
@@ -105,7 +109,10 @@ class AuthorizationMiddleware:
                     self._log_override(request, user, 'ORG_ADMIN', module_key, action_key)
                 return None
         except Exception:
-            pass
+            logger.warning(
+                "Org-admin bypass lookup failed for user_id=%s route=%s; falling back to RBAC",
+                getattr(user, "id", None), getattr(request.resolver_match, "route", None), exc_info=True,
+            )
 
         if not has_permission_gate:
             return None
@@ -134,7 +141,10 @@ class AuthorizationMiddleware:
             return None
 
         except Exception:
-            pass
+            logger.warning(
+                "Permission cache fast path failed for user_id=%s route=%s; falling back to the database check",
+                getattr(user, "id", None), getattr(request.resolver_match, "route", None), exc_info=True,
+            )
 
         # CRITICAL: After multi-organization restructuring, UserRole and RolePermission
         # tables now live in TENANT schemas, not public schema. TenantSchemaMiddleware
@@ -233,7 +243,11 @@ class AuthorizationMiddleware:
                 reason=request.META.get('HTTP_X_OVERRIDE_REASON', ''),
             )
         except Exception:
-            pass
+            logger.error(
+                "Failed to write AdminOverrideAudit user_id=%s type=%s module=%s action=%s method=%s route=%s",
+                getattr(user, "id", None), override_type, module_key, action_key,
+                request.method, getattr(request.resolver_match, "route", None), exc_info=True,
+            )
 
     # Authorization decorator for team endpoints
     
