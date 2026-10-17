@@ -12,8 +12,10 @@ import InlineUserSelector from '@/inline-edit/InlineUserSelector';
 import UserAvatar from '@/people/UserAvatar';
 import { User } from '@/people/UserPicker';
 import Button from '@/components/button/Button';
-import { Calendar, User as UserIcon, FolderOpen, Settings, Save } from 'lucide-react';
+import { Calendar, User as UserIcon, FolderOpen, Settings, Save, AlertTriangle } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { ProjectAPI } from '@/lib/api/projectApi';
+import { facebookApi } from '@/lib/api/facebookApi';
 import { DecorativeGlow } from '@/components/ui/decorative-glow';
 
 interface CampaignHeaderProps {
@@ -157,6 +159,15 @@ export default function CampaignHeader({ campaign, onUpdate, loading, onChangeSt
       return; // No change
     }
     await onUpdate({ platforms: newPlatforms });
+  };
+
+  const handleReconnectMeta = async () => {
+    try {
+      const { authorize_url } = await facebookApi.connect(campaign.project.id);
+      window.location.assign(authorize_url);
+    } catch {
+      toast.error('Unable to start reconnection. Please try again.');
+    }
   };
 
   const handleStartDateSave = async (newStartDate: string | null) => {
@@ -333,6 +344,15 @@ export default function CampaignHeader({ campaign, onUpdate, loading, onChangeSt
               validate={validatePlatforms}
               className="text-sm"
             />
+          )}
+          {campaign.last_sync_error === 'auth' && (
+            <span role="alert" className="flex items-center gap-2 text-sm text-amber-800">
+              <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+              Meta authorization expired, metrics may be out of date.
+              <Button variant="secondary" size="sm" onClick={handleReconnectMeta}>
+                Reconnect
+              </Button>
+            </span>
           )}
         </div>
 

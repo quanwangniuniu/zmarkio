@@ -211,6 +211,7 @@ def sync_ad_account(ad_account: MetaAdAccount, access_token: str, *, days: int =
     run = MetaSyncRun.objects.create(ad_account=ad_account, kind=kind, status="running")
     counts: dict[str, int] = {}
     error_message = ""
+    sync_error = None
     try:
         _set_phase(run.id, "campaigns", "Fetching campaigns")
         counts["campaigns"] = sync_campaigns(ad_account, access_token)
@@ -248,10 +249,12 @@ def sync_ad_account(ad_account: MetaAdAccount, access_token: str, *, days: int =
         counts["insights_rows"] = sync_insights(ad_account, access_token, days=days)
         status = "ok"
     except MetaApiError as err:
+        sync_error = err
         logger.warning("sync_ad_account %s failed: %s", ad_account.meta_account_id, err)
         error_message = str(err)[:2000]
         status = "error"
     except Exception as err:  # pragma: no cover - defensive
+        sync_error = err
         logger.exception("sync_ad_account %s exploded", ad_account.meta_account_id)
         error_message = f"unhandled: {err}"[:2000]
         status = "error"
@@ -265,6 +268,13 @@ def sync_ad_account(ad_account: MetaAdAccount, access_token: str, *, days: int =
         updated_at=timezone.now(),
     )
     run.refresh_from_db()
+    from campaign.services import CampaignSyncService
+
+    try:
+        # Surface the outcome on linked campaigns; never fail the sync because of it.
+        CampaignSyncService.record_sync_result(ad_account=ad_account, error=sync_error)
+    except Exception:
+        logger.exception("Recording campaign sync health failed for %s", ad_account.meta_account_id)
     return run
 
 

@@ -43,6 +43,8 @@ export interface CampaignData {
   status: CampaignStatus;
   status_note?: string;
   latest_performance_summary?: Record<string, any>;
+  last_sync_error?: '' | 'auth' | 'transient';
+  last_sync_attempted_at?: string | null;
   created_at: string;
   updated_at: string;
   is_deleted?: boolean;

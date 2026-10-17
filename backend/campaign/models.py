@@ -68,6 +68,12 @@ class Campaign(SluggedResourceModelMixin, TimeStampedModel):
         PROGRAMMATIC = 'PROGRAMMATIC', 'Programmatic DSP'
         EMAIL = 'EMAIL', 'Email Marketing'
 
+    class SyncError(models.TextChoices):
+        """Outcome of the last Meta sync for the campaign's project"""
+        NONE = '', 'No error'
+        AUTH = 'auth', 'Reconnect required'
+        TRANSIENT = 'transient', 'Temporary failure'
+
     # === Identification ===
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(
@@ -169,6 +175,10 @@ class Campaign(SluggedResourceModelMixin, TimeStampedModel):
         blank=True,
         help_text="Latest performance snapshot data for quick dashboard display"
     )
+
+    # === Platform Sync Health (Meta) ===
+    last_sync_error = models.CharField(max_length=16, choices=SyncError.choices, blank=True, default='')
+    last_sync_attempted_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'campaigns'

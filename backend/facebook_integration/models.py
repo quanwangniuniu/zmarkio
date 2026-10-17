@@ -90,6 +90,8 @@ class MetaAdAccount(models.Model):
         null=True,
         blank=True,
         related_name="linked_meta_accounts",
+        # Project lives in the organization schema; a public FK can never match.
+        db_constraint=False,
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
