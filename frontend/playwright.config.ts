@@ -22,6 +22,7 @@ const budgetRealE2eSpecs = [
 const mockOnlyE2eSpecs = [
   /e2e[\\/]budget[\\/]budget-admin-override\.spec\.ts$/,
   /e2e[\\/]meta-ads[\\/]meta-ads-preview-account-switch\.spec\.ts$/,
+  /e2e[\\/]profile[\\/]erasure-request\.spec\.ts$/,
 ];
 
 /**
@@ -147,6 +148,11 @@ export default defineConfig({
         /e2e[\\/]messages[\\/]messages-ordering-jitter\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-participant-removal\.spec\.ts$/,
       ],
+    },
+    {
+      name: 'profile-mock',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /e2e[\\/]profile[\\/]erasure-request\.spec\.ts$/,
     },
     {
       /* Load/perf specs: need the running Docker stack (and the load fixture

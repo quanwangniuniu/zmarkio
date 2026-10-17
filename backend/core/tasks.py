@@ -12,8 +12,15 @@ from django.utils import timezone
 from core.models import DataExportRequest
 from core.crypto import DecryptionError, decrypt_token, encrypt_token, needs_rotation
 from core.services.privacy_export import assemble_data_export_zip
+from core.services.erasure import erase_user_data
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task(autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 3})
+def perform_user_erasure(user_id):
+    """Apply the documented GDPR cascade after account access is disabled."""
+    return erase_user_data(user_id)
 
 
 # ---------------------------------------------------------------------------

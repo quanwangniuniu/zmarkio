@@ -619,9 +619,9 @@ export const authAPI = {
     return response.data;
   },
 
-  deleteAccount: async (refreshToken: string): Promise<{ message: string }> => {
+  deleteAccount: async (): Promise<{ message: string }> => {
     const response = await api.delete('/auth/me/delete/', {
-      data: { confirm: 'DELETE MY ACCOUNT', refresh_token: refreshToken },
+      data: { confirm: 'DELETE MY ACCOUNT' },
     });
     return response.data;
   },

@@ -14,7 +14,6 @@ from django.contrib.auth.password_validation import (
     validate_password,
 )
 from django.core.exceptions import ValidationError
-from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import UserProfileSerializer, OrganizationTokenRefreshSerializer, PasswordValidationSerializer
 from .login_security import LoginSecurityService
 from .password_rotation import get_password_rotation_status
@@ -1224,21 +1223,12 @@ class LogoutView(APIView):
 class DeleteAccountView(APIView):
     """
     DELETE /auth/me/delete/
-    Permanently removes all personal data for the authenticated user.
-    Projects and tasks created by the user are kept; owner/current_approver set to null.
+    Accept an erasure request and immediately disable account access.
+    The Celery worker applies the documented per-app cascade asynchronously.
     """
     permission_classes = [IsAuthenticated]
 
     def delete(self, request):
-        user = request.user
-        audit_context = {
-            "user_id": user.id,
-            "email": user.email,
-            "username": user.username,
-            "current_organization_id": user.current_organization_id,
-            "active_project_id": user.active_project_id,
-        }
-
         # Require the user to confirm deletion by typing the exact phrase below.
         confirm = request.data.get('confirm', '')
         if confirm != 'DELETE MY ACCOUNT':
@@ -1247,80 +1237,25 @@ class DeleteAccountView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        with transaction.atomic():
-            from core.models import TeamMember, ProjectMember, Project
-            from access_control.models import UserRole, ModuleApprover
-            from task.models import Task
+        from core.services.erasure import request_user_erasure
 
-            # A deleted project can leave a stale cross-schema reference on the user.
-            try:
-                active_project = user.active_project
-            except Project.DoesNotExist:
-                active_project = None
+        try:
+            request_user_erasure(request.user.pk)
+        except ValueError:
+            return Response({'error': 'Account is already inactive.'}, status=status.HTTP_409_CONFLICT)
+        except Exception:
+            logger.exception("Failed to queue account erasure for user %s", request.user.pk)
+            return Response({'error': 'Could not submit erasure request. Please try again.'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-            safe_emit_audit_event(
-                event_type="authentication.account_deleted",
-                actor=user,
-                organization=getattr(user, "current_organization", None),
-                project=active_project,
-                target_type="user",
-                target_id=user.id,
-                before=audit_context,
-                after={"is_active": False, "is_deleted": True},
-                context={"confirm": "DELETE MY ACCOUNT"},
-                request=request,
-            )
-
-            # 1. Remove user from all teams
-            TeamMember.objects.filter(user=user).delete()
-
-            # 2. Remove all role assignments
-            UserRole.objects.filter(user=user).delete()
-
-            # 3. Remove all project memberships
-            ProjectMember.objects.filter(user=user).delete()
-
-            # 4. Remove module approver assignments
-            ModuleApprover.objects.filter(user=user).delete()
-
-            # 5. Detach user from owned projects (keep the projects intact)
-            Project.objects.filter(owner=user).update(owner=None)
-
-            # 6. Detach user from tasks they own or are approving (keep the tasks intact)
-            Task.objects.filter(owner=user).update(owner=None)
-            Task.objects.filter(current_approver=user).update(current_approver=None)
-
-            # 6. Delete avatar file if it exists
-            if user.avatar:
-                try:
-                    user.avatar.delete(save=False)
-                except Exception:
-                    pass
-
-            # 7. Blacklist the refresh token supplied in the request (best-effort)
-            refresh_token = request.data.get('refresh_token')
-            if refresh_token:
-                try:
-                    token = RefreshToken(refresh_token)
-                    token.blacklist()
-                except Exception:
-                    pass
-
-            # 8. Anonymise and soft-delete the user record
-            #    (keeps FK integrity for audit logs / chat messages etc.)
-            anon_id = user.id
-            user.email = f'deleted_{anon_id}@removed.invalid'
-            user.username = f'deleted_{anon_id}'
-            user.first_name = ''
-            user.last_name = ''
-            user.google_id = None
-            user.verification_token = None
-            user.password_reset_token = None
-            user.password_reset_token_expires_at = None
-            user.is_active = False
-            user.is_deleted = True
-            user.set_unusable_password()
-            user.save()
+        safe_emit_audit_event(
+            event_type="privacy.erasure.requested",
+            actor=request.user,
+            organization=getattr(request.user, "current_organization", None),
+            target_type="user",
+            target_id=request.user.pk,
+            after={"is_active": False, "phase": "account_anonymization_queued"},
+            request=request,
+        )
 
         try:
             from asgiref.sync import async_to_sync
@@ -1328,16 +1263,16 @@ class DeleteAccountView(APIView):
 
             channel_layer = get_channel_layer()
             async_to_sync(channel_layer.group_send)(
-                f'chat_user_{user.id}',
+                f'chat_user_{request.user.pk}',
                 {
                     'type': 'user_session_revoked',
                     'reason': 'account_deleted',
                 },
             )
         except Exception:
-            logger.exception("Failed to emit account-delete websocket revoke for user %s", user.id)
+            logger.exception("Failed to emit account-delete websocket revoke for user %s", request.user.pk)
 
-        return Response({'message': 'Account deleted successfully.'}, status=status.HTTP_200_OK)
+        return Response({'message': 'Account erasure request submitted.'}, status=status.HTTP_202_ACCEPTED)
 
 
 class SessionTokenRefreshView(APIView):
