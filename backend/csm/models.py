@@ -6,6 +6,7 @@ from django.conf import settings
 from django.utils import timezone
 from core.models import TimeStampedModel, Project, Team
 from core.slug_mixins import SluggedResourceModelMixin
+from csm.signals import ticket_created, ticket_status_changed
 
 
 def default_operating_hours():
@@ -275,7 +276,24 @@ class Ticket(TimeStampedModel):
             merged = list(update_fields)
             merged += [f for f in touched if f not in merged]
             kwargs['update_fields'] = merged
+        creating = self._state.adding
+        previous = getattr(self, '_loaded_status', None)
         super().save(*args, **kwargs)
+        if creating:
+            ticket_created.send(sender=Ticket, ticket=self)
+        elif previous is not None and previous != self.status and (
+            update_fields is None or 'status' in update_fields
+        ):
+            ticket_status_changed.send(sender=Ticket, ticket=self, previous_status=previous)
+        self._loaded_status = self.status
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        # The status as loaded, so save() can tell a status change apart.
+        # __dict__ rather than the attribute: reading a deferred field would query.
+        instance._loaded_status = instance.__dict__.get('status')
+        return instance
 
 
 class Conversation(TimeStampedModel):

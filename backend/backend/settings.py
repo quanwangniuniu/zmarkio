@@ -129,6 +129,8 @@ INSTALLED_APPS = [
     'tracking',
     'csm',
     'portal',
+    'oauth2_provider',
+    'external_api.apps.ExternalApiConfig',
 ]
 
 MIDDLEWARE = [
@@ -513,6 +515,10 @@ REST_FRAMEWORK = {
         ),
     },
 }
+
+# External API OAuth 2.0 (client credentials). A token's access comes from external_api.OAuthClient.scopes.
+OAUTH2_PROVIDER = {'ACCESS_TOKEN_EXPIRE_SECONDS': 3600}
+OAUTH2_PROVIDER_APPLICATION_MODEL = 'oauth2_provider.Application'
 
 SPREADSHEET_WS_CONNECTION_MAX_SECONDS = config(
     'SPREADSHEET_WS_CONNECTION_MAX_SECONDS',

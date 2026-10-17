@@ -1,0 +1,119 @@
+import React from 'react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import '@testing-library/jest-dom';
+import WebhooksPanel from '@/external-api/components/WebhooksPanel';
+import { ExternalApiAdminAPI } from '@/external-api/api';
+import type { WebhookDelivery, WebhookEndpoint } from '@/external-api/types';
+
+jest.mock('@/external-api/api', () => ({
+  __esModule: true,
+  ExternalApiAdminAPI: {
+    listWebhooks: jest.fn(),
+    createWebhook: jest.fn(),
+    deleteWebhook: jest.fn(),
+    listDeliveries: jest.fn(),
+  },
+}));
+
+jest.mock('react-hot-toast', () => ({
+  __esModule: true,
+  default: { success: jest.fn(), error: jest.fn() },
+}));
+
+const api = ExternalApiAdminAPI as jest.Mocked<typeof ExternalApiAdminAPI>;
+const EVENTS = [
+  { value: 'ticket.created', label: 'Ticket created' },
+  { value: 'ticket.status_changed', label: 'Ticket status changed' },
+  { value: 'sla.breached', label: 'SLA breached' },
+];
+
+const endpoint: WebhookEndpoint = {
+  id: 5,
+  url: 'https://hooks.example.com/zmarkio',
+  events: ['sla.breached'],
+  created_at: '2026-10-01T00:00:00Z',
+};
+
+const delivery = (overrides: Partial<WebhookDelivery> = {}): WebhookDelivery => ({
+  id: 70,
+  event_type: 'sla.breached',
+  target_url: endpoint.url,
+  attempt: 4,
+  status: 'failed',
+  response_code: 503,
+  error: 'HTTP 503',
+  created_at: '2026-10-02T00:00:00Z',
+  ...overrides,
+});
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  api.listWebhooks.mockResolvedValue([endpoint]);
+  api.listDeliveries.mockResolvedValue([delivery()]);
+});
+
+const renderPanel = async () => {
+  render(<WebhooksPanel projectId={1} events={EVENTS} />);
+  await screen.findByRole('button', { name: `Delete ${endpoint.url}` });
+};
+
+describe('WebhooksPanel', () => {
+  it('lists endpoints and the delivery log with url, event, code, attempt and time', async () => {
+    await renderPanel();
+
+    const log = screen.getByRole('region', { name: 'Delivery log' });
+    expect(within(log).getByText('503')).toBeInTheDocument();
+    expect(within(log).getByText('4 / 4')).toBeInTheDocument();
+    expect(within(log).getAllByText('SLA breached').length).toBeGreaterThan(0);
+    expect(api.listDeliveries).toHaveBeenCalledWith(1);
+  });
+
+  it('registers an endpoint and reveals the signing secret once', async () => {
+    api.createWebhook.mockResolvedValue({ ...endpoint, id: 6, events: ['ticket.created'], secret: 'whsec_abc' });
+    await renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: /New webhook/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create webhook' }));
+    expect(await screen.findByText('URL is required.')).toBeInTheDocument();
+    expect(screen.getByText('Subscribe to at least one event.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/Endpoint URL/), { target: { value: 'https://hooks.example.com/new' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Ticket created/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create webhook' }));
+
+    await waitFor(() => expect(api.createWebhook).toHaveBeenCalledWith(1, {
+      url: 'https://hooks.example.com/new', events: ['ticket.created'],
+    }));
+    expect(await screen.findByTestId('revealed-Signing secret')).toHaveTextContent('whsec_abc');
+  });
+
+  it('shows the server URL error (e.g. a private host)', async () => {
+    api.createWebhook.mockRejectedValue({ response: { data: { url: ['URL resolves to a non-public address: 10.0.0.1'] } } });
+    await renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: /New webhook/ }));
+    fireEvent.change(screen.getByLabelText(/Endpoint URL/), { target: { value: 'https://internal.example.com' } });
+    fireEvent.click(screen.getByRole('checkbox', { name: /SLA breached/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create webhook' }));
+
+    expect(await screen.findByText(/non-public address/)).toBeInTheDocument();
+  });
+
+  it('deletes after confirmation', async () => {
+    api.deleteWebhook.mockResolvedValue({} as never);
+    await renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: `Delete ${endpoint.url}` }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: `Delete ${endpoint.url}` })).not.toBeInTheDocument());
+    expect(api.deleteWebhook).toHaveBeenCalledWith(1, 5);
+  });
+
+  it('shows the failure reason on the HTTP cell and refreshes on demand', async () => {
+    await renderPanel();
+
+    expect(screen.getByTitle('HTTP 503')).toHaveTextContent('503');
+    fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+    await waitFor(() => expect(api.listDeliveries).toHaveBeenCalledTimes(2));
+  });
+});
