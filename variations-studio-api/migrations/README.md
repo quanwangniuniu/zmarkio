@@ -31,3 +31,15 @@ npm run migrate:dry-run     # Also include pending SQL in plannedSql; execute no
 
 Development compose runs migrations before Studio starts; CI runs them before tests.
 An empty SQL directory creates no ledger.
+
+## Variation table
+
+- `001_ad_copy_variation_baseline.sql` creates the Django baseline if the table is
+  missing, or verifies it before adoption without changing existing data or sequence state.
+- If the table already exists, only the identity sequence name and CACHE may differ;
+  columns, constraints, indexes and all other sequence settings must match exactly.
+- `002_ad_copy_variation_project_cascade.sql` changes only the tenant-local project FK
+  to `ON DELETE CASCADE`, retaining its name and deferred checks.
+- Creative/user FKs remain `NO ACTION`; direct deletion of referenced parents is rejected.
+- Locks taken by these files, including on referenced parent tables, are held until
+  the tenant transaction ends.
