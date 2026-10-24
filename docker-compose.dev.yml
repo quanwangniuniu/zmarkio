@@ -56,18 +56,10 @@ services:
         resolved_host="$$(getent ahostsv4 "$$DB_HOST" | awk 'NR == 1 { print $$1 }')"
         test -n "$$resolved_host"
         export DB_HOST="$$resolved_host"
-        # The image emits auth_user unquoted; a role name with a space
-        # breaks the "*" connect string ("no such database" on first client).
+        # The image emits auth_user unquoted; quote it so role names with spaces work.
         /entrypoint.sh true
-        ini=/etc/pgbouncer/pgbouncer.ini
-        while IFS= read -r line; do
-          case "$$line" in
-            "* = host="*) printf "* = host=%s port=%s auth_user='%s'\n" "$$DB_HOST" "$${DB_PORT:-5432}" "$$DB_USER" ;;
-            *) printf '%s\n' "$$line" ;;
-          esac
-        done < "$$ini" > "$$ini.new"
-        mv "$$ini.new" "$$ini"
-        exec /entrypoint.sh /usr/bin/pgbouncer "$$ini"
+        sed -i "s|auth_user=.*|auth_user='$$DB_USER'|" /etc/pgbouncer/pgbouncer.ini
+        exec /entrypoint.sh /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
     extra_hosts:
       - "host.docker.internal:host-gateway"
       - "postgres-host:host-gateway"
