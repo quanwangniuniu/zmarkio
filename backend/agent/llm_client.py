@@ -38,6 +38,7 @@ def call_llm(
     temperature: float = 0.3,
     response_mime_type: str | None = None,
     call_purpose: str = 'other',
+    timeout: int | None = None,
 ) -> dict[str, Any]:
     """
     Unified LLM call.
@@ -82,7 +83,8 @@ def call_llm(
                                      max_output_tokens, temperature)
         elif provider == 'gemini':
             result = _call_gemini(model, system_prompt, user_prompt,
-                                  max_output_tokens, temperature, response_mime_type)
+                                  max_output_tokens, temperature, response_mime_type,
+                                  timeout=timeout)
         else:
             raise ValueError(f'Unknown LLM provider: {provider!r}')
 
@@ -179,6 +181,7 @@ def _call_gemini(
     max_output_tokens: int,
     temperature: float,
     response_mime_type: str | None,
+    timeout: int | None = None,
 ) -> dict:
     """
     Non-streaming generateContent endpoint — usageMetadata is stable here.
@@ -208,7 +211,9 @@ def _call_gemini(
     logger.info("_call_gemini model=%s system_chars=%d user_chars=%d",
                 model, len(system_prompt), len(user_prompt))
 
-    response = _gemini_request_with_retry(url, body, timeout=None, stream=False)
+    response = _gemini_request_with_retry(
+        url, body, timeout=timeout, stream=False, total_deadline=timeout,
+    )
     data = response.json()
 
     # Extract text

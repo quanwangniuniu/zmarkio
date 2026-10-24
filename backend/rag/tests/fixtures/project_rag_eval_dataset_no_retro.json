@@ -1,0 +1,452 @@
+{
+  "dataset_name": "project_rag_eval_dataset_no_retro",
+  "dataset_version": "1.0.0-no-retro",
+  "created_date": "2026-09-07",
+  "description": "Partial/provisional variant of project_rag_eval_dataset (MED-264) with all retrospective sources and retrospective-dependent questions removed. RetrospectiveTask/Insight are public-schema models (not in core.tenant_config.get_tenant_models()) while Meeting/Draft/DocumentChunk are per-org-schema -- that cross-schema tenancy issue is tracked separately and is intentionally NOT exercised by this fixture. Use this only to validate the Meeting + Notion Draft retrieval path; do not treat its metrics as a full MED-264 baseline.",
+  "scoring_notes": "Only questions with include_in_ranking_metrics == true (question_type in ['single-source', 'multi-source']) should feed Hit@K / MRR. The 2 no-answer questions (question_type == 'no-answer') must be scored separately (e.g. correct-abstention rate) and excluded from ranking-metric aggregation.",
+  "partial_baseline": {
+    "reason": "Meeting + Notion Draft sources only. Retrospective excluded because RetrospectiveTask/Insight are public-schema models while the rest of the RAG pipeline is per-org-schema -- that tenancy gap is tracked and fixed separately, not as part of this eval.",
+    "excluded_source_types": ["retrospective"],
+    "excluded_question_ids": ["q06", "q07", "q13", "mq02", "mq06"]
+  },
+  "expected_source_counts": {
+    "meeting": 12,
+    "notion_draft": 8
+  },
+  "expected_question_counts": {
+    "single-source": 11,
+    "multi-source": 4,
+    "no-answer": 2
+  },
+  "distractor_pairs": [
+    {
+      "pair": ["meeting-003", "meeting-004"],
+      "reason": "Both are Q3 sync meetings that mention a 'launch', but meeting-003 is the client-facing loyalty-program landing page launch (Oct 15) and meeting-004 is an unrelated internal sales-enablement deck launch (Nov 1)."
+    },
+    {
+      "pair": ["notion-002", "notion-005"],
+      "reason": "notion-002 is the rejected v1 welcome email draft (10% off, do-not-send) and notion-005 is the approved v2 revision (15% off, send starting Oct 1). Near-identical subject/body structure."
+    }
+  ],
+  "sources": [
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-001",
+      "title": "Weekly Standup — Sept 2, 2026",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Weekly Standup — Sept 2, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Finished the homepage banner mockups, sent to client for review.\nMarcus: Blocked on stock photography licensing for the Aurora Retail winter sale page.\nDev: QA pass on the new email template starts tomorrow.\nNo blockers reported for the sprint otherwise."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-002",
+      "title": "Kickoff: Aurora Retail Q4 Campaign",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Kickoff: Aurora Retail Q4 Campaign — Sept 3, 2026\nAttendees: Priya (Creative Lead), Marcus (Strategy), Jade (Account Manager), client stakeholders Lena Ortiz and Sam Petrov from Aurora Retail.\nJade opened by confirming the campaign budget of $85,000 for Q4, covering paid social, email, and landing page production.\nLena confirmed the primary goal is driving holiday gift-card sales, with a target of 4,000 gift cards sold by December 24.\nMarcus proposed a three-phase rollout: teaser (Oct 1-15), main push (Nov 1-30), and last-chance reminders (Dec 15-24).\nAction item: Priya to deliver first creative concepts by Sept 20."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-003",
+      "title": "Q3 Marketing Sync — Launch Timeline",
+      "length_tier": "medium",
+      "tags": ["distractor-heavy"],
+      "content": "Q3 Marketing Sync — Launch Timeline — Aug 12, 2026\nAttendees: Priya, Marcus, Jade.\nMarcus confirmed the Aurora Retail Q3 loyalty-program landing page will launch on October 15, 2026.\nThe launch will coincide with the loyalty program's public announcement email.\nJade noted the client wants a soft-launch email to VIP customers three days earlier, on October 12.\nPriya flagged that the hero image is still pending final approval from the client's legal team."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-004",
+      "title": "Q3 Sales Sync — Pipeline Review",
+      "length_tier": "medium",
+      "tags": ["distractor-heavy"],
+      "content": "Q3 Sales Sync — Pipeline Review — Aug 14, 2026\nAttendees: Dev, Jade, Sales team.\nThe team reviewed the Q3 pipeline and discussed the sales-enablement deck launch, which Dev confirmed will go live internally on November 1, 2026.\nJade noted this is separate from the client-facing Aurora Retail loyalty launch and should not be referenced in external materials.\nDev will circulate the finished deck to the sales team the week before launch."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-005",
+      "title": "Quarterly Business Review — Full Transcript",
+      "length_tier": "long",
+      "tags": ["long-document", "multi-chunk"],
+      "content": "Quarterly Business Review — Full Transcript — Sept 25, 2026\nAttendees: Jade (Account Manager), Priya (Creative Lead), Marcus (Strategy), Dev (Engineering), and agency leadership: Corinne Blake (Managing Director).\n\nBudget Review\nCorinne opened with the Q3 budget summary: total agency spend was $412,000 against a planned $430,000, a 4% underspend driven mainly by delayed vendor invoices from the print supplier. Marcus noted that the Aurora Retail account alone accounted for $138,000 of that spend, primarily creative production and paid media.\n\nHeadcount\nCorinne announced that the team will add one new mid-level copywriter in Q4, with an anticipated start date of November 2. Priya will lead the hiring process and expects to have a shortlist by October 10.\n\nCampaign Performance\nMarcus presented Q3 campaign results: the Aurora Retail loyalty-program launch generated 5,600 sign-ups against a goal of 4,000, a 40% overperformance. Click-through rate on the launch email was 6.2%, well above the agency's 3.5% benchmark. However, the winter-sale teaser campaign underperformed, generating only 1,100 landing-page visits against a goal of 3,000.\n\nRisks\nDev flagged a recurring risk: the checkout flow on the Aurora Retail site has intermittent failures under high traffic, which caused a partial outage during the loyalty-program launch on October 15. Dev is coordinating with Aurora Retail's engineering team on a fix before the Q4 holiday push. Corinne asked that this risk be tracked explicitly in the next retrospective."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-006",
+      "title": "Client Check-in — Aurora Retail",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Client Check-in — Aurora Retail — Sept 30, 2026\nAttendees: Jade, Lena Ortiz (Aurora Retail).\nLena approved the final homepage banner concept, Option B (blue gradient with gift-card imagery).\nJade confirmed the winter sale landing page copy is on track for review by Oct 5.\nNo new action items."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-007",
+      "title": "Creative Review — Homepage Banner Concepts",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Creative Review — Homepage Banner Concepts — Sept 18, 2026\nAttendees: Priya, Marcus, Jade, freelance designer Theo Nkemelu.\nTheo presented three homepage banner concepts: Option A (warm red/orange holiday theme), Option B (blue gradient with gift-card imagery), and Option C (minimalist white with gold accents).\nPriya recommended Option B as the strongest fit for Aurora Retail's brand guidelines.\nMarcus asked Theo to prepare a mobile-responsive version of Option B for the next review.\nJade will present all three options to the client on Sept 22."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-008",
+      "title": "Vendor Call — Print Supplier",
+      "length_tier": "short",
+      "tags": ["exact-id"],
+      "content": "Vendor Call — Print Supplier — Sept 8, 2026\nAttendees: Marcus, print supplier rep Alan Cho.\nAlan confirmed purchase order PO-88214 for the holiday gift-card inserts has shipped, with delivery expected Sept 14.\nMarcus asked Alan to send tracking details once available.\nUnit cost was confirmed at $0.42 per insert for the run of 20,000 units."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-009",
+      "title": "Retrospective Planning Meeting",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Retrospective Planning Meeting — Sept 10, 2026\nAttendees: Dev, Priya, Jade.\nThe team agreed to hold sprint retrospectives every two weeks going forward, alternating between a written retro doc and a live session.\nDev proposed adding a standing agenda item for tracking recurring bugs across sprints, specifically citing the checkout flow issue as a candidate.\nJade will own scheduling the retro calendar invites starting Sprint 15."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-010",
+      "title": "All-Hands: FY26 Planning",
+      "length_tier": "long",
+      "tags": ["long-document", "multi-chunk", "topic-present-unresolved"],
+      "content": "All-Hands: FY26 Planning — Oct 1, 2026\nAttendees: Full agency team, led by Corinne Blake (Managing Director).\n\nAgency Goals\nCorinne outlined three company-wide goals for FY26: grow revenue by 18%, launch a formal RAG-assisted internal knowledge tool for account teams, and reduce average campaign turnaround time from 21 days to 14 days.\n\nNew Client Wins\nCorinne announced two new client wins closing in October: a mid-size home goods brand, Willow & Pine, and a regional credit union, Northbridge Financial. Onboarding for Willow & Pine begins Oct 20; Northbridge Financial begins Nov 3.\n\nTooling Investment\nDev presented the roadmap for the internal RAG-assisted knowledge tool, which will let account teams ask natural-language questions across meeting notes, Notion drafts, and retrospectives instead of searching manually. Dev estimated a beta rollout to the Aurora Retail account team by end of Q4.\n\nOrg Changes\nCorinne confirmed Priya will be promoted to Head of Creative effective Nov 1, taking on hiring and creative-direction responsibilities across all accounts. Marcus will take on an additional strategy lead role for the two new client accounts.\n\nQ&A\nIn the Q&A, a team member asked about pricing changes for FY26; Corinne said pricing details would be shared in a separate finance meeting in November and were not finalized as of this all-hands."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-011",
+      "title": "1:1 — Jade & Manager",
+      "length_tier": "short",
+      "tags": [],
+      "content": "1:1 — Jade & Manager — Sept 12, 2026\nAttendees: Jade, Corinne.\nJade raised concerns about bandwidth on the Aurora Retail account given the upcoming winter sale push.\nCorinne agreed to loop in a second account coordinator starting Oct 1 to help balance the workload.\nNo other topics discussed."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-012",
+      "title": "Post-Launch Debrief — Nova Campaign",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Post-Launch Debrief — Nova Campaign — Sept 5, 2026\nAttendees: Priya, Marcus, Dev, Jade.\nThe team reviewed the Project Nova product-launch campaign, which ran Aug 1-31.\nMarcus reported the campaign generated 12,400 website visits and 890 email sign-ups, against goals of 10,000 visits and 750 sign-ups.\nDev noted the landing page load time averaged 2.1 seconds, within the 3-second target.\nPriya flagged that the paid social creative underperformed relative to organic posts and recommended revisiting the ad creative strategy for the next campaign."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-001",
+      "title": "Blog Draft: 5 Ways to Prep for Holiday Shopping",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Blog Draft: 5 Ways to Prep for Holiday Shopping\nStatus: In review\nAuthor: Priya\n\nIntro: The holidays sneak up fast, and shoppers who plan ahead save both money and stress. Here are five practical ways to get ready for the season.\n\n1. Set a gift budget early and track it.\n2. Make a list of recipients before you start browsing.\n3. Sign up for loyalty programs to unlock early-access deals — Aurora Retail's loyalty program, for example, gives members first access to sales before the public.\n4. Compare shipping deadlines across retailers.\n5. Keep gift receipts organized for easy returns.\n\nCTA: Join the Aurora Retail loyalty program today."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-002",
+      "title": "Email Draft v1: Welcome Series — Step 1",
+      "length_tier": "medium",
+      "tags": ["distractor-heavy"],
+      "content": "Email Draft v1: Welcome Series — Step 1\nStatus: Draft — needs revision\nSubject line: Welcome to Aurora Retail!\n\nBody: Thanks for joining Aurora Retail. As a welcome gift, enjoy 10% off your first order with code WELCOME10.\n\nNote from Priya: Marketing flagged that 10% is too low compared to competitor welcome offers; revised version should use 15%. Do not send this version — see v2."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-003",
+      "title": "Social Caption Bank — October",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Social Caption Bank — October\nStatus: Approved\n\n1. \"Cozy season, cozy savings. 🍂\" — Instagram, Oct 3\n2. \"Your holiday list called — it wants Aurora Retail.\" — Instagram, Oct 10\n3. \"First dibs go to loyalty members. Join free today.\" — Instagram, Oct 17"
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-004",
+      "title": "Landing Page Copy: Aurora Retail Winter Sale",
+      "length_tier": "long",
+      "tags": ["long-document", "multi-chunk"],
+      "content": "Landing Page Copy: Aurora Retail Winter Sale\nStatus: Client review\nAuthor: Priya, edited by Marcus\n\nHero Section\nHeadline: \"Winter Savings Start Here\"\nSubhead: \"Up to 40% off sitewide, plus free shipping on orders over $50.\"\nCTA button: \"Shop the Sale\"\n\nLoyalty Callout Section\nHeadline: \"Loyalty Members Get First Access\"\nBody: Loyalty members can shop the winter sale three days early, starting November 12, before it opens to the public on November 15. Sign up is free and takes less than a minute.\n\nProduct Grid Intro\nHeadline: \"Top Picks for Gift-Giving\"\nBody: From cozy home goods to statement accessories, these are the picks our stylists say will make the best gifts this season.\n\nFAQ Section\nQ: When does the sale end?\nA: The winter sale runs through December 24, while supplies last.\nQ: Can I combine the sale discount with a loyalty coupon?\nA: Yes, loyalty coupons can be stacked with the sitewide winter sale discount, up to a maximum combined discount of 50%.\nQ: Is the sale available in-store?\nA: This promotion is online-only; in-store pricing may differ.\n\nFooter CTA\nHeadline: \"Don't Miss Out\"\nBody: Join the Aurora Retail loyalty program now to unlock early access before November 12."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-005",
+      "title": "Email Draft v2: Welcome Series — Step 1 (Revised)",
+      "length_tier": "medium",
+      "tags": ["distractor-heavy", "exact-id"],
+      "content": "Email Draft v2: Welcome Series — Step 1 (Revised)\nStatus: Approved for send\nSubject line: Welcome to Aurora Retail — here's 15% off\n\nBody: Thanks for joining Aurora Retail. As a welcome gift, enjoy 15% off your first order with code WELCOME15.\n\nNote from Priya: Updated per Marketing's feedback to be competitive with industry-standard welcome offers. This is the version to send starting Oct 1."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-006",
+      "title": "Press Release Snippet — Product Launch",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Press Release Snippet — Product Launch\nStatus: Draft\n\n\"Aurora Retail today announced the launch of its redesigned loyalty program, giving members early access to seasonal sales and exclusive gift-card bonuses,\" said Lena Ortiz, VP of Marketing at Aurora Retail. The program launched October 15, 2026."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-007",
+      "title": "Case Study Draft: Aurora Retail Results",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Case Study Draft: Aurora Retail Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the Q3 loyalty-program launch for Aurora Retail.\n\nResults: The loyalty-program launch generated 5,600 sign-ups in the first month against a goal of 4,000 — a 40% overperformance. Email click-through rate hit 6.2%, compared to the agency's 3.5% benchmark average.\n\nClient quote (pending approval): \"The team's execution on the loyalty launch exceeded every benchmark we set.\" — Lena Ortiz, VP of Marketing, Aurora Retail."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-008",
+      "title": "Ad Copy Variations — Meta Feed",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Ad Copy Variations — Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off sitewide.\"\nVariant C: \"Early access starts Nov 12 for loyalty members.\""
+    }
+  ],
+  "questions": [
+    {
+      "id": "q01",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What purchase order number was confirmed for the holiday gift-card inserts?",
+      "tags": ["exact-id"],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-008",
+          "evidence": ["purchase order PO-88214"]
+        }
+      ]
+    },
+    {
+      "id": "q02",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What promo code was included in the approved welcome email that Marketing signed off on sending?",
+      "tags": ["exact-id", "distractor-heavy"],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-005",
+          "evidence": ["code WELCOME15"]
+        }
+      ]
+    },
+    {
+      "id": "q03",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "On what date is Aurora Retail's Q3 loyalty-program landing page launching?",
+      "tags": ["distractor-heavy"],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-003",
+          "evidence": ["will launch on October 15, 2026"]
+        }
+      ]
+    },
+    {
+      "id": "q04",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "Who did Corinne confirm would be promoted to Head of Creative, and effective when?",
+      "tags": ["long-document", "multi-chunk"],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": ["Priya will be promoted to Head of Creative effective Nov 1"]
+        }
+      ]
+    },
+    {
+      "id": "q05",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What was the total agency spend for Q3 according to the quarterly business review?",
+      "tags": ["long-document", "multi-chunk"],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-005",
+          "evidence": ["total agency spend was $412,000"]
+        }
+      ]
+    },
+    {
+      "id": "q08",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What is the pending client quote drafted for the Aurora Retail case study?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-007",
+          "evidence": ["The team's execution on the loyalty launch exceeded every benchmark we set."]
+        }
+      ]
+    },
+    {
+      "id": "q09",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "When does early access for loyalty members start on the winter sale landing page, ahead of the public sale date?",
+      "tags": ["long-document", "multi-chunk"],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-004",
+          "evidence": ["starting November 12, before it opens to the public on November 15"]
+        }
+      ]
+    },
+    {
+      "id": "q10",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What campaign budget did Jade confirm at the Aurora Retail Q4 kickoff?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-002",
+          "evidence": ["confirming the campaign budget of $85,000 for Q4"]
+        }
+      ]
+    },
+    {
+      "id": "q11",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "Which homepage banner option did Priya recommend during the creative review?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-007",
+          "evidence": ["Priya recommended Option B as the strongest fit for Aurora Retail's brand guidelines."]
+        }
+      ]
+    },
+    {
+      "id": "q12",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What was the average landing page load time for the Project Nova campaign, per the post-launch debrief?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-012",
+          "evidence": ["landing page load time averaged 2.1 seconds"]
+        }
+      ]
+    },
+    {
+      "id": "q14",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What is the approved Instagram caption scheduled for October 17?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-003",
+          "evidence": ["First dibs go to loyalty members. Join free today."]
+        }
+      ]
+    },
+    {
+      "id": "mq01",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "Why was the welcome email discount changed from 10% to 15%, and starting when was the revised version actually sent?",
+      "tags": ["distractor-heavy"],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-002",
+          "evidence": ["Marketing flagged that 10% is too low compared to competitor welcome offers"]
+        },
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-005",
+          "evidence": ["This is the version to send starting Oct 1."]
+        }
+      ]
+    },
+    {
+      "id": "mq03",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "Which homepage banner option did the creative review recommend, and did the client end up approving that option?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-007",
+          "evidence": ["Priya recommended Option B as the strongest fit for Aurora Retail's brand guidelines."]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-006",
+          "evidence": ["Lena approved the final homepage banner concept, Option B (blue gradient with gift-card imagery)."]
+        }
+      ]
+    },
+    {
+      "id": "mq04",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "What is the maximum combined discount when stacking a loyalty coupon with the winter sale, and which ad variant promotes the loyalty early-access date?",
+      "tags": ["long-document", "multi-chunk"],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-004",
+          "evidence": ["up to a maximum combined discount of 50%"]
+        },
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-008",
+          "evidence": ["Early access starts Nov 12 for loyalty members."]
+        }
+      ]
+    },
+    {
+      "id": "mq05",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "What Q4 campaign budget did Jade confirm at kickoff, and how much of Q3 agency spend did the Aurora Retail account alone account for?",
+      "tags": ["long-document", "multi-chunk"],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-002",
+          "evidence": ["confirming the campaign budget of $85,000 for Q4"]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-005",
+          "evidence": ["the Aurora Retail account alone accounted for $138,000 of that spend"]
+        }
+      ]
+    },
+    {
+      "id": "nq01",
+      "question_type": "no-answer",
+      "include_in_ranking_metrics": false,
+      "question": "What is the office's policy on how many remote work days employees get per week?",
+      "tags": ["topic-absent"],
+      "expected_sources": [],
+      "expected_answer_behavior": "abstain",
+      "notes": "No source in the corpus discusses remote-work policy at all; a correct retriever should return no confident match rather than hallucinating an answer."
+    },
+    {
+      "id": "nq02",
+      "question_type": "no-answer",
+      "include_in_ranking_metrics": false,
+      "question": "What are the finalized FY26 pricing changes?",
+      "tags": ["topic-present-unresolved"],
+      "expected_sources": [],
+      "related_but_unresolved_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": ["pricing details would be shared in a separate finance meeting in November and were not finalized as of this all-hands"]
+        }
+      ],
+      "expected_answer_behavior": "abstain",
+      "notes": "FY26 pricing is explicitly raised in meeting-010, so a retriever will legitimately surface that source, but no source states finalized pricing changes -- the question must not be answered as if it were resolved."
+    }
+  ]
+}
