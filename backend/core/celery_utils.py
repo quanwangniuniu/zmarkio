@@ -1,7 +1,7 @@
 """
 Timeout protection for Celery tasks running under --pool=threads, where
-Celery's native time_limit/soft_time_limit are silently inert.
-TimeoutEnforcedTask is wired in once as the app's default Task class — tasks
+Celery's native time_limit/soft_time_limit are silently inert. 
+TimeoutEnforcedTask is wired in once as the app's default Task class — tasks 
 just declare the native `time_limit=N` kwarg; no per-task decorator or import.
 """
 import concurrent.futures
@@ -9,6 +9,8 @@ import logging
 import os
 
 from celery import Task
+from celery._state import _task_stack
+from django.db import connections
 
 logger = logging.getLogger(__name__)
 
@@ -81,30 +83,6 @@ TASK_TIMEOUTS = {
 }
 
 
-def _run_task_with_db_cleanup(run, *args, **kwargs):
-    """Run a task body and always close this thread's Django DB connections.
-
-    TimeoutEnforcedTask executes ``run`` on a helper thread. Django connections
-    are thread-local, so a connection opened here is not returned to PgBouncer
-    (session pool) when the Celery worker thread moves on — unless we close it
-    on this thread.
-
-    Use ``connections.close_all()``, not ``close_old_connections()``. The latter
-    only drops unusable/obsolete connections and may leave a healthy one open,
-    which still holds a session-pool slot until the client disconnects.
-
-    If the task is stuck inside a blocking DB call, this ``finally`` only runs
-    after that call returns; a statement_timeout is the backstop for that case.
-    On timeout the helper may keep running in the background until then.
-    """
-    try:
-        return run(*args, **kwargs)
-    finally:
-        from django.db import connections
-
-        connections.close_all()
-
-
 class TimeoutEnforcedTask(Task):
     """
     Default Task class for this app (wired in backend/backend/celery.py).
@@ -113,10 +91,6 @@ class TimeoutEnforcedTask(Task):
     protect it, with whatever timeout it needs. Nothing to declare on
     the task itself, and tasks not listed in TASK_TIMEOUTS run
     unprotected, same as before this class existed.
-
-    Timed tasks run on a one-shot helper thread so the worker can abandon
-    them; that thread always closes its DB connections via
-    ``_run_task_with_db_cleanup`` when the body exits.
     """
 
     def __call__(self, *args, **kwargs):
@@ -124,9 +98,13 @@ class TimeoutEnforcedTask(Task):
         if not seconds or os.environ.get('PYTEST_CURRENT_TEST'):
             return self.run(*args, **kwargs)
 
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        request = self.request  # thread-local; hand it to the executor thread
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix=f'{self.name}.timeout_enforced',
+        )
         future = executor.submit(
-            _run_task_with_db_cleanup, self.run, *args, **kwargs,
+            self._run_in_executor_thread, request, args, kwargs,
         )
         try:
             result = future.result(timeout=seconds)
@@ -135,15 +113,14 @@ class TimeoutEnforcedTask(Task):
                 "%s exceeded its %ss timeout — abandoning. The Celery "
                 "worker is freed to pick up new work, but the "
                 "underlying call may still be running in the "
-                "background (Python cannot forcibly stop a thread).",
+                "background (Python cannot forcibly stop a thread); its "
+                "database connection is released when it finishes.",
                 self.name,
                 seconds,
             )
             # wait=False: do NOT block here waiting for the orphaned
             # thread to finish — that would defeat the entire point of
             # timing out. Let it run its course in the background.
-            # When that thread eventually exits, _run_task_with_db_cleanup
-            # still closes its Django connections in finally.
             executor.shutdown(wait=False)
             raise TaskTimeoutError(
                 f"{self.name} exceeded {seconds}s timeout"
@@ -158,3 +135,27 @@ class TimeoutEnforcedTask(Task):
         else:
             executor.shutdown(wait=True)
             return result
+
+    def _run_in_executor_thread(self, request, args, kwargs):
+        """
+        Run the body with Celery's task/request stacks on this thread, and close
+        this thread's DB connections afterwards: the Django fixup only closes the
+        pool thread's, so these would otherwise leak until a full GC.
+        """
+        _task_stack.push(self)
+        self.request_stack.push(request)
+        try:
+            return self.run(*args, **kwargs)
+        finally:
+            try:
+                connections.close_all()
+            except Exception:
+                logger.warning(
+                    "%s: could not close the database connections opened "
+                    "on its executor thread",
+                    self.name,
+                    exc_info=True,
+                )
+            finally:
+                self.request_stack.pop()
+                _task_stack.pop()

@@ -1,88 +1,146 @@
-"""TimeoutEnforcedTask: helper-thread DB cleanup and timeout behavior."""
+"""
+Regression tests for TimeoutEnforcedTask (core.celery_utils).
+
+TimeoutEnforcedTask runs bodies inline while PYTEST_CURRENT_TEST is set, and
+pytest re-sets that variable at the start of every phase, so each test
+removes it in its own body (not in a fixture) to exercise the executor path.
+"""
 import threading
 import time
-from unittest.mock import patch
 
 import pytest
+from celery import current_task
+from celery.exceptions import Retry
+from django.db import connection
+from django.db.backends.signals import connection_created
 
-from core.celery_utils import (
-    TaskTimeoutError,
-    TimeoutEnforcedTask,
-    _run_task_with_db_cleanup,
-)
+from backend.celery import app
+from core.celery_utils import TaskTimeoutError, TimeoutEnforcedTask
 
-
-class TestRunTaskWithDbCleanup:
-    def test_closes_connections_on_success(self):
-        with patch("django.db.connections.close_all") as close_all:
-            assert _run_task_with_db_cleanup(lambda: 42) == 42
-            close_all.assert_called_once()
-
-    def test_closes_connections_on_error(self):
-        def boom():
-            raise ValueError("task failed")
-
-        with patch("django.db.connections.close_all") as close_all:
-            with pytest.raises(ValueError, match="task failed"):
-                _run_task_with_db_cleanup(boom)
-            close_all.assert_called_once()
+pytestmark = pytest.mark.django_db
 
 
-class TestTimeoutEnforcedTask:
-    @pytest.fixture(autouse=True)
-    def _allow_timeout_path(self):
-        # Production path is skipped while PYTEST_CURRENT_TEST is set.
-        with patch("core.celery_utils.os.environ.get", return_value=None):
-            yield
+def _select_one():
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT 1')
+        return cursor.fetchone()[0]
 
-    def _make_task(self, run, *, time_limit=1, name="core.tests.fake_task"):
-        task = TimeoutEnforcedTask.__new__(TimeoutEnforcedTask)
-        task.name = name
-        task.time_limit = time_limit
-        task.run = run
-        return task
 
-    def test_success_closes_connections(self):
-        task = self._make_task(lambda *a, **k: "ok", time_limit=5)
-        with patch("django.db.connections.close_all") as close_all:
-            assert task() == "ok"
-            close_all.assert_called_once()
+@app.task(bind=True, time_limit=5, name='core.tests.celery_utils.succeeds')
+def succeeds(self):
+    return _select_one()
 
-    def test_error_closes_connections_and_propagates(self):
-        def boom(*a, **k):
-            raise RuntimeError("boom")
 
-        task = self._make_task(boom, time_limit=5)
-        with patch("django.db.connections.close_all") as close_all:
-            with pytest.raises(RuntimeError, match="boom"):
-                task()
-            close_all.assert_called_once()
+@app.task(bind=True, time_limit=5, name='core.tests.celery_utils.fails')
+def fails(self):
+    _select_one()
+    raise ValueError('synthetic failure')
 
-    def test_timeout_raises_then_orphan_thread_closes_connections(self):
-        """Timeout frees the worker; orphan helper still closes DB when it exits.
 
-        Patch must stay active until the orphan finishes — otherwise it would
-        call the real close_all after the test's with-block ends.
-        """
-        started = threading.Event()
-        release = threading.Event()
+@app.task(bind=True, time_limit=1, name='core.tests.celery_utils.blocks')
+def blocks(self, release):
+    _select_one()
+    release.wait(10)
+    return 'late'
 
-        def hang(*a, **k):
-            started.set()
-            # Block until the test releases us (simulates work past time_limit).
-            assert release.wait(timeout=5)
 
-        task = self._make_task(hang, time_limit=0.2, name="core.tests.hang")
-        with patch("django.db.connections.close_all") as close_all:
-            with pytest.raises(TaskTimeoutError, match="exceeded 0.2s timeout"):
-                task()
+@app.task(bind=True, time_limit=5, name='core.tests.celery_utils.reports_context')
+def reports_context(self):
+    return {
+        'thread': threading.get_ident(),
+        'request_id': self.request.id,
+        'called_directly': self.request.called_directly,
+        'current_task_is_self': current_task._get_current_object() is self,
+    }
 
-            assert started.wait(timeout=1), "helper thread never started"
-            # Still blocked inside hang — cleanup has not run yet.
-            close_all.assert_not_called()
 
-            release.set()
-            deadline = time.monotonic() + 2
-            while close_all.call_count == 0 and time.monotonic() < deadline:
-                time.sleep(0.01)
-            close_all.assert_called_once()
+@app.task(bind=True, time_limit=5, max_retries=3, name='core.tests.celery_utils.retries')
+def retries(self):
+    raise self.retry(exc=ValueError('transient'), countdown=0)
+
+
+def _use_executor_path(monkeypatch):
+    monkeypatch.delenv('PYTEST_CURRENT_TEST', raising=False)
+
+
+def _run_as_worker(task, *args):
+    """Call the task the way the worker's tracer does: request pushed on this thread."""
+    task.push_request(id=f'req-{task.name}', called_directly=False)
+    try:
+        return task(*args)
+    finally:
+        task.pop_request()
+
+
+@pytest.fixture
+def executor_connections():
+    """Every DB connection opened on a thread other than the test's own thread."""
+    created = []
+    test_thread = threading.get_ident()
+
+    def on_connection_created(sender, connection, **kwargs):
+        if threading.get_ident() != test_thread:
+            created.append(connection)
+
+    connection_created.connect(on_connection_created, weak=False)
+    try:
+        yield created
+    finally:
+        connection_created.disconnect(on_connection_created)
+        for wrapper in created:
+            if wrapper.connection is not None:
+                wrapper.inc_thread_sharing()
+                wrapper.close()
+
+
+def test_task_class_is_the_app_default():
+    assert isinstance(succeeds, TimeoutEnforcedTask)
+
+
+def test_executor_thread_connection_closed_after_success(monkeypatch, executor_connections):
+    _use_executor_path(monkeypatch)
+    assert _run_as_worker(succeeds) == 1
+    assert len(executor_connections) == 1, 'body should run on the executor thread'
+    assert executor_connections[0].connection is None
+
+
+def test_executor_thread_connection_closed_after_exception(monkeypatch, executor_connections):
+    _use_executor_path(monkeypatch)
+    with pytest.raises(ValueError, match='synthetic failure'):
+        _run_as_worker(fails)
+    assert len(executor_connections) == 1
+    assert executor_connections[0].connection is None
+
+
+def test_executor_thread_connection_closed_when_body_outlives_timeout(monkeypatch, executor_connections):
+    _use_executor_path(monkeypatch)
+    release = threading.Event()
+    try:
+        with pytest.raises(TaskTimeoutError):
+            _run_as_worker(blocks, release)
+        assert len(executor_connections) == 1
+        assert executor_connections[0].connection is not None  # body still running
+    finally:
+        release.set()
+    deadline = time.monotonic() + 5
+    while executor_connections[0].connection is not None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert executor_connections[0].connection is None
+
+
+def test_executor_thread_sees_worker_request_context(monkeypatch):
+    _use_executor_path(monkeypatch)
+    seen = _run_as_worker(reports_context)
+    assert seen['thread'] != threading.get_ident()
+    assert seen['request_id'] == 'req-core.tests.celery_utils.reports_context'
+    assert seen['called_directly'] is False
+    assert seen['current_task_is_self'] is True
+
+
+def test_executor_thread_can_schedule_retry(monkeypatch):
+    _use_executor_path(monkeypatch)
+    published = []
+    monkeypatch.setattr(retries, 'apply_async', lambda *args, **kwargs: published.append(kwargs))
+    with pytest.raises(Retry):
+        _run_as_worker(retries)
+    assert len(published) == 1
