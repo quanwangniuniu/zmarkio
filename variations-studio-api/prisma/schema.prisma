@@ -10,7 +10,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// AdCopyVariation is tenant-scoped (see backend/core/tenant_config.py).
+// AdCopyVariation is tenant-scoped; its tables are managed by migrations/.
 // Prisma bakes `public` into generated SQL, so that table is reached through
 // lib/variationStore.ts raw SQL the same way core_project is.
 

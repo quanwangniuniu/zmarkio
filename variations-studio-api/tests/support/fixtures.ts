@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 
 import { prisma } from '@/lib/prisma';
-import { slugToSchemaName, tenantTable } from '@/lib/tenant';
+import { isStudioReady, REQUIRED_STUDIO_MIGRATION, slugToSchemaName, tenantTable } from '@/lib/tenant';
 import {
   deleteVariationsForProjects,
   insertVariation,
@@ -42,28 +42,9 @@ export type StudioFixture = {
   creativeB: bigint;
 };
 
-async function schemaExists(schema: string): Promise<boolean> {
-  const rows = await prisma.$queryRaw<{ present: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1 FROM pg_namespace WHERE nspname = ${schema}
-    ) AS present`;
-  return rows[0]?.present ?? false;
-}
-
-async function tenantVariationTableExists(schema: string): Promise<boolean> {
-  const rows = await prisma.$queryRaw<{ present: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1 FROM information_schema.tables
-      WHERE table_schema = ${schema}
-        AND table_name = ${VARIATION_TABLE}
-    ) AS present`;
-  return rows[0]?.present ?? false;
-}
-
 /**
- * Pick the first active org whose tenant schema has actually been provisioned.
- * A freshly migrated database can hold orgs with no schema yet, and those would
- * fail every membership lookup for reasons unrelated to the code under test.
+ * Pick an active org whose tenant schema has the migration Studio requires.
+ * Organization creation alone does not make its variation table ready.
  */
 async function provisionedOrganization(): Promise<{
   id: bigint;
@@ -77,14 +58,15 @@ async function provisionedOrganization(): Promise<{
 
   for (const org of orgs) {
     const schema = slugToSchemaName(org.slug);
-    if (await schemaExists(schema) && (await tenantVariationTableExists(schema))) {
+    if (await isStudioReady(schema)) {
       return { ...org, schema };
     }
   }
 
   throw new Error(
     'No active organization has a provisioned tenant schema that includes ' +
-      `${VARIATION_TABLE}. Run manage.py migrate_all_tenants against this database first.`
+      `${VARIATION_TABLE} at migration ${REQUIRED_STUDIO_MIGRATION}. ` +
+      'Run npm run migrate against this database first.'
   );
 }
 

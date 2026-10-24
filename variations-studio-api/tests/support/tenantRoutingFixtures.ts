@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 
 import { prisma } from '@/lib/prisma';
-import { slugToSchemaName, tenantTable } from '@/lib/tenant';
+import { isStudioReady, REQUIRED_STUDIO_MIGRATION, slugToSchemaName, tenantTable } from '@/lib/tenant';
 import {
   countVariations,
   deleteVariationsForProjects,
@@ -11,13 +11,13 @@ import {
 
 /**
  * Dual-org fixtures for tenant routing / header / cross-tenant write tests.
- * Requires at least two active orgs with provisioned tenant schemas.
+ * Requires at least two active orgs whose schemas have the required migration.
  */
 
 export type TenantRoutingFixture = {
   orgA: { id: bigint; slug: string; schema: string };
   orgB: { id: bigint; slug: string; schema: string };
-  /** is_active=false; used only for header rejection/fallback cases. */
+  /** is_active=false; used for header rejection cases. */
   inactiveOrgSlug: string;
   inactiveOrgId: bigint;
   /** current_organization = A (header must not override). */
@@ -37,21 +37,6 @@ export type TenantRoutingFixture = {
   draftBId: bigint;
 };
 
-async function schemaReady(schema: string): Promise<boolean> {
-  const ns = await prisma.$queryRaw<{ present: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1 FROM pg_namespace WHERE nspname = ${schema}
-    ) AS present`;
-  if (!ns[0]?.present) return false;
-  const table = await prisma.$queryRaw<{ present: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1 FROM information_schema.tables
-      WHERE table_schema = ${schema}
-        AND table_name = ${VARIATION_TABLE}
-    ) AS present`;
-  return table[0]?.present ?? false;
-}
-
 async function listProvisionedOrgs(): Promise<
   Array<{ id: bigint; slug: string; schema: string }>
 > {
@@ -62,7 +47,7 @@ async function listProvisionedOrgs(): Promise<
   const ready: Array<{ id: bigint; slug: string; schema: string }> = [];
   for (const org of orgs) {
     const schema = slugToSchemaName(org.slug);
-    if (await schemaReady(schema)) {
+    if (await isStudioReady(schema)) {
       ready.push({ ...org, schema });
     }
   }
@@ -166,9 +151,8 @@ export async function setupTenantRoutingFixture(): Promise<TenantRoutingFixture>
   if (orgs.length < 2) {
     throw new Error(
       'Tenant routing tests need at least two active orgs with provisioned ' +
-        `tenant schemas including ${VARIATION_TABLE}. CI provisions ` +
-        'ci-studio-org and ci-studio-org-b; locally run migrate_all_tenants ' +
-        'for two orgs.'
+        `tenant schemas including ${VARIATION_TABLE} at migration ${REQUIRED_STUDIO_MIGRATION}. ` +
+        'Prepare two org schemas, then run npm run migrate against this database.'
     );
   }
   const [orgA, orgB] = orgs;

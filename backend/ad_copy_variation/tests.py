@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import requests
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.urls import reverse
 from rest_framework import status
@@ -11,6 +12,7 @@ from rest_framework.test import APITestCase
 
 from facebook_integration.models import FacebookConnection, MetaAdAccount
 from core.models import Organization, Project, ProjectMember
+from core.services.tenant import slug_to_schema_name
 from meta_ads.models import MetaAdCreative
 
 from . import ollama_client, services
@@ -977,11 +979,70 @@ class GenerateBatchTests(APITestCase):
         self.assertEqual(len(resp.data['results']), 1)
 
 
+class TenantReadinessTests(APITestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = _make_user('readiness-user', 'readiness@example.com')
+        cls.project = _make_project(cls.user)
+        cls.org = cls.project.organization
+        cls.schema = slug_to_schema_name(cls.org.slug)
+        cls.row = AdCopyVariation.objects.create(
+            project=cls.project, created_by=cls.user,
+            source_mode='custom', headline='Public control row',
+        )
+
+    def setUp(self):
+        self.client.force_authenticate(user=self.user)
+
+    @patch('ad_copy_variation.services._single_generate_dispatch')
+    def test_missing_tenant_table_blocks_reads_writes_and_generation(self, generate):
+        detail_url = reverse('ad-copy-variation-detail', args=[self.row.slug])
+        # Explicit public requests retain their existing behavior.
+        self.assertEqual(self.client.get(detail_url).status_code, status.HTTP_200_OK)
+        headers = {'HTTP_X_ORGANIZATION_SLUG': self.org.slug}
+        responses = [
+            self.client.get(detail_url, **headers),
+            self.client.patch(detail_url, {'headline': 'Changed'}, format='json', **headers),
+            self.client.post(reverse('ad-copy-variation-generate'), {
+                'project': self.project.id, 'source_mode': 'custom', 'instruction': 'Draft',
+            }, format='json', **headers),
+        ]
+        for response in responses:
+            self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+            self.assertIn('not ready', str(response.data['detail']))
+        generate.assert_not_called()
+        self.row.refresh_from_db()
+        self.assertEqual(self.row.headline, 'Public control row')
+
+    def test_missing_schema_cannot_fall_back_to_public(self):
+        with patch(
+            'core.middleware.tenant_schema.TenantSchemaMiddleware._resolve_schema',
+            return_value=f'org_missing_{uuid.uuid4().hex}',
+        ):
+            response = self.client.get(reverse('ad-copy-variation-detail', args=[self.row.slug]))
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    def test_existing_tenant_table_does_not_require_studio_ledger(self):
+        with connection.cursor() as cursor:
+            cursor.execute('SET search_path TO %s, public', [self.schema])
+        try:
+            with connection.schema_editor(atomic=False) as editor:
+                editor.create_model(AdCopyVariation)
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute('SET search_path TO public')
+        response = self.client.get(
+            reverse('ad-copy-variation-list'), HTTP_X_ORGANIZATION_SLUG=self.org.slug,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['count'], 0)
+
+
 class TenantRegistrationTests(SimpleTestCase):
-    def test_ad_copy_variation_is_a_tenant_model(self):
+    def test_ad_copy_variation_is_not_a_django_tenant_model(self):
         from core.tenant_config import get_tenant_models
 
-        self.assertIn(AdCopyVariation, get_tenant_models())
+        self.assertNotIn(AdCopyVariation, get_tenant_models())
 
 
 @override_settings(

@@ -1,4 +1,23 @@
 services:
+  variations-studio-migrations:
+    build:
+      context: ./variations-studio-api
+      dockerfile: Dockerfile.migrations
+    init: true
+    restart: always
+    environment:
+      DATABASE_URL: ${STUDIO_MIGRATION_DATABASE_URL:-}
+      STUDIO_MIGRATION_INTERVAL_SECONDS: ${STUDIO_MIGRATION_INTERVAL_SECONDS:-60}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - app-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   redis:
     image: redis:7-alpine
     container_name: redis-prod

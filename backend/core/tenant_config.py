@@ -1,8 +1,11 @@
 """
 Tenant model registry for schema-per-org provisioning.
 
-This module is the single source of truth for which Django models belong in
-a per-org PostgreSQL schema (org_{slug}) as opposed to the shared public schema.
+This module lists the tenant models whose per-org PostgreSQL tables
+(org_{slug}) are created and repaired by Django.
+
+Variation tables also live in org schemas, but are created and altered only by
+variations-studio-api/migrations. Do not register AdCopyVariation here.
 
 WHY per-model instead of per-app?
 ----------------------------------
@@ -19,7 +22,7 @@ get_tenant_models() is therefore in topological dependency order.
 
 HOW to extend?
 --------------
-When a new feature module with org-scoped data is added:
+When adding a Django-managed model with org-scoped data:
   1. Import the new model class below.
   2. Add it after all its FK dependencies in get_tenant_models().
   3. Existing org schemas: run `python manage.py migrate_all_tenants`.
@@ -29,7 +32,7 @@ When a new feature module with org-scoped data is added:
 
 def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     """
-    Return all Django model classes that should live in per-org schemas.
+    Return the tenant model classes whose tables Django creates and repairs.
     Order is topological: each model appears after every tenant model it
     references via ForeignKey / OneToOneField.
     """
@@ -246,12 +249,6 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     )
 
     # ------------------------------------------------------------------
-    # ad_copy_variation — org-scoped drafts. Depends on Project (tenant)
-    # and MetaAdCreative / CustomUser (public).
-    # ------------------------------------------------------------------
-    from ad_copy_variation.models import AdCopyVariation
-
-    # ------------------------------------------------------------------
     # Return in topological order
     # ------------------------------------------------------------------
     return [
@@ -388,6 +385,4 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         BlockAction,
         MediaFile,
         NotionConnection,
-        # ad_copy_variation (depends on Project; creative/user stay in public)
-        AdCopyVariation,
     ]

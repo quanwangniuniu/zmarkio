@@ -43,6 +43,13 @@ class TenantBackfillTests(TestCase):
             slug=f'backfill-org-{suffix}',
         )
         self.schema = slug_to_schema_name(self.org.slug)
+        # The destination is normally created by Studio, not Organization.save().
+        _set_path(self.schema)
+        try:
+            with connection.schema_editor(atomic=False) as editor:
+                editor.create_model(AdCopyVariation)
+        finally:
+            _set_path('public')
         self.user = User.objects.create_user(
             username=f'backfill-{suffix}',
             email=f'backfill-{suffix}@example.com',
