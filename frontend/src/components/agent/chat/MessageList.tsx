@@ -19,8 +19,10 @@ import type {
   ColumnDetectionData,
   GenerationOutputKey,
   SuggestedCalendarEvent,
+  Citation,
 } from "@/types/agent"
 import { CalendarEventsCard } from "./CalendarEventsCard"
+import { CitationsList } from "./CitationsList"
 import { DEFAULT_GENERATION_OUTPUTS } from "@/lib/generationOutputs"
 import { deriveMiroBoardCardState } from "@/lib/agentMiroBoardStatus"
 import { StepProgress, type StepProgressItem } from "./StepProgress"
@@ -81,6 +83,7 @@ export interface ChatMessage {
   calendarEvents?: SuggestedCalendarEvent[]
   spreadsheetId?: number
   sheetId?: number
+  citations?: Citation[]
 }
 
 export interface MessageListProps {
@@ -510,6 +513,15 @@ export function MessageList({
                     {message.content}
                   </div>
                 )
+              )}
+
+              {/* Citations — retrieved sources backing a project-document RAG answer */}
+              {message.role === "assistant" &&
+                message.citations &&
+                message.citations.length > 0 && (
+                <AgentMessageBoardBlock blockId={`${message.id}-citations`}>
+                  <CitationsList citations={message.citations} messageId={message.id} />
+                </AgentMessageBoardBlock>
               )}
 
               {/* Step progress */}
