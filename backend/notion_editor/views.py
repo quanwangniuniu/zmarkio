@@ -21,13 +21,14 @@ from django.core.files.base import ContentFile
 from utils.virus_scanner import perform_clamav_scan
 from core.services.oauth_state import OAuthStateExpired, OAuthStateInvalid, create_oauth_state, validate_oauth_state
 from .models import Draft, ContentBlock, BlockAction, DraftRevision, MediaFile, NotionConnection
+from .linking import link_draft_to_project, unlink_draft_from_project
 from .serializers import (
     DraftSerializer, DraftListSerializer, CreateDraftSerializer, UpdateDraftSerializer,
     ContentBlockSerializer, BlockActionSerializer, BlockActionCreateSerializer,
     DraftRevisionSerializer, DraftRevisionListSerializer,
     MediaFileSerializer, MediaFileUploadSerializer,
     NotionStatusSerializer, NotionConnectSerializer, NotionDisconnectSerializer,
-    NotionImportSerializer, NotionExportSerializer,
+    NotionImportSerializer, NotionExportSerializer, LinkDraftProjectSerializer,
 )
 from .services import (
     build_notion_auth_url,
@@ -272,7 +273,7 @@ class DraftViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         return Draft.objects.filter(
             user=self.request.user, 
             is_deleted=False
-        ).select_related('user').prefetch_related('blocks__actions')
+        ).select_related('user', 'project_link__project').prefetch_related('blocks__actions')
     
     def get_serializer_class(self):
         """Return appropriate serializer based on action"""
@@ -301,6 +302,22 @@ class DraftViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
         """Soft delete the draft"""
         instance.is_deleted = True
         instance.save()
+
+    @action(detail=True, methods=['post', 'delete'], url_path='project', url_name='project')
+    def project_link(self, request, pk=None):
+        """Attach this draft to a project, or remove that attachment."""
+        draft = self.get_object()
+        if request.method == 'DELETE':
+            unlink_draft_from_project(draft)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+
+        serializer = LinkDraftProjectSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        link = link_draft_to_project(draft, request.user, serializer.validated_data['project_id'])
+        return Response({
+            'project_id': link.project_id,
+            'project_slug': link.project.slug,
+        })
 
     def _create_revision(self, draft, change_summary=""):
         """Helper method to create a revision snapshot"""
