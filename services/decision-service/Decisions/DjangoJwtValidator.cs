@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -6,10 +7,28 @@ namespace DecisionService.Decisions;
 
 public sealed record DecisionJwtPrincipal(int UserId, int AuthTokenVersion);
 
-public sealed class DjangoJwtValidator(IConfiguration configuration)
+public sealed class DjangoJwtValidator
 {
+    private string _signingKey;
+    public DjangoJwtValidator(IConfiguration configuration)
+    {
+        var signingKey = configuration["DJANGO_JWT_SIGNING_KEY"]
+            ?? configuration["SECRET_KEY"];
+        if (String.IsNullOrWhiteSpace(signingKey))
+        {
+            throw new InvalidOperationException("Django JWT signing key or secret key is not configured.");
+        }
+        _signingKey = signingKey;
+    }
     public DecisionJwtPrincipal? Validate(string token)
     {
+
+        bool ValueKindString(JsonElement input) 
+            => input.ValueKind == JsonValueKind.String; 
+        
+        bool ValueKindNumber(JsonElement input)
+            => input.ValueKind == JsonValueKind.Number;
+
         var parts = token.Split('.');
         if (parts.Length != 3)
         {
@@ -23,33 +42,46 @@ public sealed class DjangoJwtValidator(IConfiguration configuration)
             return null;
         }
 
-        if (!header.RootElement.TryGetProperty("alg", out var alg) || alg.GetString() != "HS256")
+        if (!header.RootElement.TryGetProperty("alg", out var alg) 
+            || ValueKindString(alg)
+            || alg.GetString() != "HS256")
         {
             return null;
         }
 
-        var signingKey = configuration["DJANGO_JWT_SIGNING_KEY"]
-            ?? configuration["SECRET_KEY"]
-            ?? "django-insecure-change-me";
-        var expected = HmacSha256($"{parts[0]}.{parts[1]}", signingKey);
-        var actual = Base64UrlDecode(parts[2]);
+        var expected = HmacSha256($"{parts[0]}.{parts[1]}", _signingKey);
+        
+        byte[] actual;
+        try
+        {
+            actual = Base64UrlDecode(parts[2]);
+        }
+        catch
+        {
+            return null;
+        }
         if (!CryptographicOperations.FixedTimeEquals(expected, actual))
         {
             return null;
         }
 
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        if (payload.RootElement.TryGetProperty("exp", out var exp) && now >= exp.GetInt64())
+        if (!payload.RootElement.TryGetProperty("exp", out var exp) 
+            || !ValueKindNumber(exp)
+            || !exp.TryGetInt64(out var expiry)
+            || now >= expiry)
         {
             return null;
         }
-        if (payload.RootElement.TryGetProperty("nbf", out var nbf) && now < nbf.GetInt64())
+        if (payload.RootElement.TryGetProperty("nbf", out var nbf) 
+            && (!ValueKindNumber(nbf) || !nbf.TryGetInt64(out var nbfInt) || now < nbfInt))
         {
             return null;
         }
         if (
-            payload.RootElement.TryGetProperty("token_type", out var tokenType)
-            && !string.Equals(tokenType.GetString(), "access", StringComparison.Ordinal)
+            !payload.RootElement.TryGetProperty("token_type", out var tokenType)
+            || !ValueKindString(tokenType)
+            || tokenType.GetString() != "access"
         )
         {
             return null;
@@ -63,7 +95,7 @@ public sealed class DjangoJwtValidator(IConfiguration configuration)
         int userId;
         try
         {
-            userId = userIdElement.ValueKind == JsonValueKind.String
+            userId = ValueKindString(userIdElement)
                 ? int.Parse(userIdElement.GetString()!)
                 : userIdElement.GetInt32();
         }
@@ -73,7 +105,7 @@ public sealed class DjangoJwtValidator(IConfiguration configuration)
         }
 
         var authTokenVersion = payload.RootElement.TryGetProperty("auth_token_version", out var versionElement)
-            ? versionElement.GetInt32()
+            ? (versionElement.TryGetInt32(out int authToken)? authToken : 0)
             : 0;
 
         return new DecisionJwtPrincipal(userId, authTokenVersion);
