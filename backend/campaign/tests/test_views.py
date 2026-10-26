@@ -1353,8 +1353,7 @@ class CampaignCalendarLinkViewSetTestCase(CampaignViewSetBaseTestCase):
 
 class CampaignAuthorizationRealPermissionTest(TestCase):
     """
-    MED-335 coverage gap (see docs/decisions/MED-335-authorization-policy-matrix.md
-    and the coverage audit it records): CampaignViewSetBaseTestCase
+    Coverage gap: CampaignViewSetBaseTestCase
     authenticates with force_authenticate(). That only authenticates DRF's
     Request wrapper inside the view; the Django-level request.user that
     AuthorizationMiddleware sees stays AnonymousUser, so process_view returns

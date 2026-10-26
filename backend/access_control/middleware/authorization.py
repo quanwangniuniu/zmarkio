@@ -1,4 +1,6 @@
 from django.http import JsonResponse
+from django.utils import timezone
+from django.db.models import Q
 from django.db import connection
 from datetime import timedelta
 from core.models import Organization
@@ -12,14 +14,14 @@ from core.models import Team, TeamMember, TeamRole
 
 class AuthorizationMiddleware:
     """
-    Enforces module permissions based on URL path and HTTP method.
+    A simple middleware example for enforcing permissions based on URL path and HTTP method.
+    Assumes the URL prefix contains the module (e.g., 'assets' maps to ASSET),
+    and HTTP methods map to actions (GET→VIEW, POST→EDIT, etc.).
 
-    access_control.services resolves each request to (module, action) and an
-    enforcement state. Only "active" decisions (ASSET and /api/campaigns/**)
-    create a gate; "planned" routes behave like unmapped ones (no 403, no
-    override-audit row). Gate flow is unchanged: anonymous skipped; superuser
-    and level-2 org admin bypass (audited); zero-role grace; fail open on
-    query errors. See docs/decisions/MED-335-authorization-policy-matrix.md.
+    The URL -> (module, action) resolution lives in the declarative policy
+    registry in access_control.services (resolve_policy). Only "active"
+    decisions create a permission gate; "planned" routes are resolved but not
+    enforced here.
     """
 
     def __init__(self, get_response=None):
@@ -42,7 +44,7 @@ class AuthorizationMiddleware:
         # for /api/auth/login/, which never reaches a module permission check.
         decision = access_control_services.resolve_policy(request.path, request.method)
         module_key, action_key = decision.module, decision.action
-        # MED-335: only "active" decisions create a gate.
+        # Only "active" decisions create a gate; "planned" routes are not enforced here.
         has_permission_gate = decision.enforced
 
         # Superusers bypass module-level authorization. The @require_* decorators
@@ -66,7 +68,12 @@ class AuthorizationMiddleware:
         # querying UserRole here hits the right tenant schema directly.
         # Temporal validity is enforced: expired admin roles do not grant bypass.
         try:
-            if access_control_services.user_has_org_admin_bypass_role(user):
+            _now = timezone.now()
+            if UserRole.objects.filter(
+                user=user,
+                role__level=2,
+                valid_from__lte=_now,
+            ).filter(Q(valid_to__gte=_now) | Q(valid_to__isnull=True)).exists():
                 request.is_org_admin = True
                 if has_permission_gate:
                     self._log_override(request, user, 'ORG_ADMIN', module_key, action_key)
@@ -111,16 +118,27 @@ class AuthorizationMiddleware:
         # 1. Tables don't exist yet (new organizations)
         # 2. No roles/permissions have been set up yet
         try:
-            has = access_control_services.user_has_module_permission(
-                request.user, module_key, action_key
-            )
+            # Only consider roles that are currently valid
+            now = timezone.now()
+            role_ids = UserRole.objects.filter(
+                user=request.user,
+                valid_from__lte=now
+            ).filter(Q(valid_to__gte=now) | Q(valid_to__isnull=True)).values_list('role_id', flat=True)
+
+            # Check if any of the user's roles grants the required permission
+            has = RolePermission.objects.filter(
+                role_id__in=role_ids,
+                permission__module=module_key,
+                permission__action=action_key
+            ).exists()
 
             if not has:
                 # Only enforce denial if the user has been assigned at least one role.
                 # If no roles exist (new org / no RBAC configured), allow through as a
                 # grace period.  Users with roles that are all expired or lack the
                 # required permission are still denied.
-                if not access_control_services.user_has_any_role(request.user):
+                any_role = UserRole.objects.filter(user=request.user).exists()
+                if not any_role:
                     return None
 
         except Exception:
@@ -197,6 +215,7 @@ class AuthorizationMiddleware:
     def team_permission_required(required_role="LEADER"):
         """
         Decorator to enforce team permission checks on view functions.
+        Only users with the required role or org admins can proceed.
         "MEMBER" accepts any member of the team; "LEADER" requires
         TeamRole.LEADER. Superusers and level-2 org admins of the current
         organization (see user_is_current_org_admin) bypass the membership
@@ -208,16 +227,18 @@ class AuthorizationMiddleware:
                 user = request.user
                 if not user.is_authenticated:
                     return JsonResponse({'error': 'Authentication required'}, status=401)
-                # Superusers and current-org level-2 admins can always proceed
-                if (hasattr(user, 'is_superuser') and user.is_superuser) or \
-                        access_control_services.user_is_current_org_admin(user):
+                # Org admin (superuser) can always proceed
+                if hasattr(user, 'is_superuser') and user.is_superuser:
+                    return view_func(request, team_id=team_id, *args, **kwargs)
+                # Level-2 org admins of the current organization can also proceed
+                if access_control_services.user_is_current_org_admin(user):
                     return view_func(request, team_id=team_id, *args, **kwargs)
                 # Check team membership and role
                 if not team_id:
                     return JsonResponse({'error': 'team_id required'}, status=400)
 
-                # MED-335: Team/TeamMember are tenant-scoped; query under the
-                # search_path TenantSchemaMiddleware already selected.
+                # Team/TeamMember are tenant-scoped; query under the search_path
+                # TenantSchemaMiddleware already selected.
                 membership = TeamMember.objects.filter(user=user, team_id=team_id).first()
                 if not membership:
                     return JsonResponse({'error': 'Permission denied: not a team member'}, status=403)
@@ -230,8 +251,8 @@ class AuthorizationMiddleware:
         return decorator
 
     def org_admin_required(view_func: Callable) -> Callable:
-        """MED-335: organization-wide Team endpoints (list/search, create,
-        delete). Superusers and current-org level-2 admins only."""
+        """Organization-wide Team endpoints (list/search, create, delete).
+        Superusers and current-org level-2 admins only."""
         @wraps(view_func)
         def _wrapped_view(request, *args, **kwargs):
             user = request.user

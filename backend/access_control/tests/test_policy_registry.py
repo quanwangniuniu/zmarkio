@@ -1,6 +1,6 @@
 """
-MED-335: tests for the explicit authorization policy registry that covers all
-nine Permission modules (see docs/decisions/MED-335-authorization-policy-matrix.md).
+Tests for the explicit authorization policy registry that covers all
+nine Permission modules.
 
 Four layers:
 
@@ -717,17 +717,20 @@ class MiddlewareAllNineModulesTest(_MiddlewareBase):
     # -- fail-open is preserved for the new modules ------------------------
 
     def test_permission_query_failure_fails_open_for_new_modules(self):
-        # MED-299 resolves permissions from a cached bundle first. Make that
+        # Permissions are resolved from a cached bundle first. Make that
         # fast path fail too so the PostgreSQL fallback (fail-open) is what runs.
         with patch(
             "access_control.middleware.authorization.get_user_permission_bundle",
             side_effect=RuntimeError("cache unavailable"),
-        ), patch.object(services, "user_has_module_permission", side_effect=RuntimeError("boom")):
+        ), patch(
+            "access_control.middleware.authorization.RolePermission",
+            **{"objects.filter.side_effect": RuntimeError("boom")},
+        ):
             self.assertIsNone(self._run(self.denied_user, "GET", "/api/csm/queues/"))
 
 
 class PlannedRoutesNotEnforcedTest(_MiddlewareBase):
-    """Shipped (default) behavior: planned routes keep their pre-MED-335 behavior.
+    """Shipped (default) behavior: planned routes keep their behavior from before the registry.
 
     No middleware 403 and no new AdminOverrideAudit rows for the seven planned
     modules or for the CAMPAIGN template/link routes, while the legacy ASSET and

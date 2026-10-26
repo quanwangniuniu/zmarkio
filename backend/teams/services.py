@@ -55,7 +55,7 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# MED-335: organization-wide Team management (Level-2 org admins)
+# Organization-wide Team management (Level-2 org admins)
 # ---------------------------------------------------------------------------
 from django.db import IntegrityError, transaction
 from django.db.models import Count
@@ -115,9 +115,19 @@ def create_org_team(organization_id, name, desc=None):
         raise TeamServiceError("A team with this name already exists", "TEAM_NAME_TAKEN", 409)
 
 
+def team_has_members_or_children(team):
+    """Whether `team` still has members or non-deleted child Teams. Such a
+    Team cannot be deleted."""
+    from core.models import TeamMember
+    return (
+        TeamMember.objects.filter(team=team).exists()
+        or _Team.objects.filter(parent=team, is_deleted=False).exists()
+    )
+
+
 def soft_delete_team(team):
-    """Soft-delete `team`; child Teams are kept and detached (parent=None).
-    Memberships and other references are left untouched (hidden with the Team)."""
+    """Soft-delete `team`. Callers must first check team_has_members_or_children.
+    Other references are left untouched (hidden with the Team)."""
     with transaction.atomic():
         _Team.objects.filter(parent=team).update(parent=None)
         team.is_deleted = True

@@ -16,10 +16,11 @@ from teams.services import (
     create_org_team,
     list_org_teams,
     soft_delete_team,
+    team_has_members_or_children,
     user_belongs_to_organization,
 )
 
-# MED-335: a valid login does not prove team membership, so these check the
+# A valid login does not prove team membership, so these check the
 # real TeamMember row. Members read; only Team Leaders add members, change
 # roles or remove members.
 team_member_required = AuthorizationMiddleware.team_permission_required(required_role="MEMBER")
@@ -325,8 +326,13 @@ class TeamDetailView(View):
 
     @method_decorator(org_admin_required)
     def delete(self, request, team_id):
-        """DELETE /teams/:id - Soft-delete a Team (children kept, parent cleared)"""
+        """DELETE /teams/:id - Soft-delete a Team that has no members or child Teams"""
         team = _get_team_or_404(request, team_id)
+        if team_has_members_or_children(team):
+            return JsonResponse({
+                'error': 'Cannot delete team with active members or child teams',
+                'code': 'TEAM_NOT_EMPTY',
+            }, status=409)
         soft_delete_team(team)
         return HttpResponse(status=204)
     

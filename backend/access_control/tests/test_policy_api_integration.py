@@ -1,5 +1,5 @@
 """
-MED-335: representative real-API allow/deny tests for the modules added to the
+Representative real-API allow/deny tests for the modules added to the
 declarative authorization policy (BUDGET_REQUEST, BUDGET_POOL,
 BUDGET_ESCALATION, QUEUE, SUPPORT_TEAM, TICKET, INVITATION), plus explicitly
 exempt routes and the internal escalation webhook.
@@ -18,7 +18,7 @@ Three kinds of assertion are used, and each test says which one it makes:
 * ALLOW (full fixture): the request is expected to succeed, so the test
   asserts the success status (200) of the real view.
 * REACHES VIEW (reachability only): used where building the view's own
-  fixtures is out of scope for MED-335 (e.g. a CSM admin CustomerUser). It
+  fixtures is out of scope here (e.g. a CSM admin CustomerUser). It
   proves only that the middleware did not block the request and that the
   request did not end in 401 or a server error. It does NOT prove the
   request succeeded.
@@ -343,7 +343,7 @@ class InvitationPolicyApiTest(ActivatedPolicyMixin, PolicyApiBase):
 
 
 class PlannedRoutesApiTest(PolicyApiBase):
-    """Shipped default: planned modules behave exactly as before MED-335.
+    """Shipped default: planned modules behave exactly as they did before the policy registry.
 
     A user whose only role grants nothing relevant is NOT denied by the
     middleware on planned routes (the view still applies its own checks), while

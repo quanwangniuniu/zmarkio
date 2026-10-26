@@ -30,6 +30,7 @@ export interface Team {
   is_parent: boolean;
   created_at: string;
   updated_at: string;
+  member_count?: number;
 }
 
 /**
@@ -62,20 +63,4 @@ export interface UserTeamMembership {
   role_id: TeamRoleValue;
   role_name: string;
   is_leader: boolean;
-}
-
-/**
- * Organization-wide Team summary (GET /api/teams/ and POST /api/teams/).
- * Only available to Level-2 Organization Admins.
- */
-export interface OrgTeamSummary {
-  id: number;
-  name: string;
-  desc: string | null;
-  organization_id: number;
-  parent_team_id: number | null;
-  is_parent: boolean;
-  member_count: number;
-  created_at: string;
-  updated_at: string;
 }

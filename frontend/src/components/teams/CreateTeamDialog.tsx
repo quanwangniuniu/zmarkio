@@ -12,12 +12,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import TeamAPI from '@/lib/api/teamApi';
-import { OrgTeamSummary } from '@/types/team';
+import { Team } from '@/types/team';
 
 interface CreateTeamDialogProps {
   open: boolean;
   onClose: () => void;
-  onCreated: (team: OrgTeamSummary) => void | Promise<void>;
+  onCreated: (team: Team) => void | Promise<void>;
 }
 
 function errorMessage(error: any): string {

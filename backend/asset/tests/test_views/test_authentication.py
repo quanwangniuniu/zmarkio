@@ -714,8 +714,7 @@ class AssetAuthenticationTest(APITestCase):
 
 class AssetAuthorizationRealPermissionTest(APITestCase):
     """
-    MED-335 coverage gap (see docs/decisions/MED-335-authorization-policy-matrix.md
-    and the coverage audit it records): every existing real-DRF test in this
+    Coverage gap: every existing real-DRF test in this
     file authenticates with force_authenticate(). That only authenticates
     DRF's Request wrapper inside the view; the Django-level request.user that
     TenantSchemaMiddleware and AuthorizationMiddleware see stays

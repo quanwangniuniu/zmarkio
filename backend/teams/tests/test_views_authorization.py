@@ -1,7 +1,7 @@
 """
-MED-335: tenant-schema authorization tests for the real Teams endpoints.
+Tenant-schema authorization tests for the real Teams endpoints.
 
-Policy under test (see docs/decisions/MED-335-authorization-policy-matrix.md):
+Policy under test:
 
 * GET  /api/teams/<team_id>/                       any member of that team
 * GET  /api/teams/<team_id>/members/               any member of that team
@@ -10,7 +10,7 @@ Policy under test (see docs/decisions/MED-335-authorization-policy-matrix.md):
 * DELETE /api/teams/<team_id>/members/<user_id>/   Team Leader of that team
 * GET  /api/teams/?search=                          org admin only (403 otherwise)
 * POST /api/teams/                                  org admin only; 409 on duplicate name
-* DELETE /api/teams/<team_id>/                      org admin only; soft delete
+* DELETE /api/teams/<team_id>/                      org admin only; 409 if it has members or child teams, else soft delete
 * Superusers and Level-2 org admins of the CURRENT organization (a valid,
   non-deleted level-2 role of that organization that is not scoped to a
   Team) pass every Teams check without being a member. A generic
@@ -298,7 +298,7 @@ class TeamsEndpointAuthorizationTest(TeamsAuthorizationBase):
 
 
 class OrgAdminTeamsPolicyTest(TeamsAuthorizationBase):
-    """MED-335 option 2: Level-2 org admins manage every Team of their own
+    """Level-2 org admins manage every Team of their own
     organization (and nothing outside it)."""
 
     @classmethod
@@ -425,25 +425,45 @@ class OrgAdminTeamsPolicyTest(TeamsAuthorizationBase):
         resp = self._call('post', '/api/teams/', user=self.org_admin, body={'name': 'Alpha'})
         self.assertEqual(resp.status_code, 409)
         self.assertEqual(resp.json()['code'], 'TEAM_NAME_TAKEN')
-        self.assertEqual(self._call('delete', self._detail(), user=self.org_admin).status_code, 204)
-        resp = self._call('post', '/api/teams/', user=self.org_admin, body={'name': 'Alpha'})
+        self._db()
+        empty = Team.objects.create(organization=self.org, name="Temp")
+        self.assertEqual(self._call('delete', f'/api/teams/{empty.id}/', user=self.org_admin).status_code, 204)
+        resp = self._call('post', '/api/teams/', user=self.org_admin, body={'name': 'Temp'})
         self.assertEqual(resp.status_code, 409)
 
     # -- delete ----------------------------------------------------------
-    def test_org_admin_soft_deletes_team_and_detaches_children(self):
-        child = Team.objects.create(organization=self.org, name="Child", parent=self.team)
+    def test_org_admin_cannot_delete_team_with_members(self):
         resp = self._call('delete', self._detail(), user=self.org_admin)
-        self.assertEqual(resp.status_code, 204)
+        self.assertEqual(resp.status_code, 409)
+        self.assertEqual(resp.json()['code'], 'TEAM_NOT_EMPTY')
         self._db()
         self.team.refresh_from_db()
+        self.assertFalse(self.team.is_deleted)
+        self.assertEqual(TeamMember.objects.filter(team=self.team).count(), 3)
+
+    def test_org_admin_cannot_delete_team_with_child_teams(self):
+        parent = Team.objects.create(organization=self.org, name="Parent")
+        child = Team.objects.create(organization=self.org, name="Child", parent=parent)
+        resp = self._call('delete', f'/api/teams/{parent.id}/', user=self.org_admin)
+        self.assertEqual(resp.status_code, 409)
+        self._db()
+        parent.refresh_from_db()
         child.refresh_from_db()
-        self.assertTrue(self.team.is_deleted)
-        self.assertEqual(TeamMember.objects.filter(team=self.team).count(), 3)  # not cascaded
-        self.assertFalse(child.is_deleted)
-        self.assertIsNone(child.parent_id)
+        self.assertFalse(parent.is_deleted)
+        self.assertEqual(child.parent_id, parent.id)
+
+    def test_org_admin_soft_deletes_empty_team(self):
+        empty = Team.objects.create(organization=self.org, name="Empty")
+        resp = self._call('delete', f'/api/teams/{empty.id}/', user=self.org_admin)
+        self.assertEqual(resp.status_code, 204)
+        self._db()
+        empty.refresh_from_db()
+        self.assertTrue(empty.is_deleted)
 
     def test_deleted_team_is_hidden_everywhere(self):
-        self._call('delete', self._detail(), user=self.org_admin)
+        from teams.services import soft_delete_team
+        self._db()
+        soft_delete_team(self.team)
         resp = self._call('get', '/api/teams/', user=self.org_admin)
         self.assertEqual(self._names(resp), ['Beta'])
         self.assertEqual(self._call('get', self._detail(), user=self.org_admin).status_code, 404)

@@ -420,7 +420,7 @@ paths:
       summary: Delete team
       description: >-
         Soft-delete a team (requires Level-2 Organization Admin or superuser).
-        Child teams are kept and their parent is cleared.
+        A team that still has members or child teams cannot be deleted (409).
       tags:
         - Teams
       parameters:
@@ -441,6 +441,12 @@ paths:
                 $ref: '#/components/schemas/Error'
         '404':
           description: Team not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Cannot delete team with active members or child teams
           content:
             application/json:
               schema:

@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import TeamAdminToolbar from "@/components/teams/TeamAdminToolbar";
 import CreateTeamDialog from "@/components/teams/CreateTeamDialog";
 import DeleteTeamDialog from "@/components/teams/DeleteTeamDialog";
-import { OrgTeamSummary } from "@/types/team";
+import { Team } from "@/types/team";
 
 
 
@@ -95,7 +95,7 @@ function TeamsPageContent() {
   const loadOrgTeams = async (search: string) => {
     const requestId = ++orgTeamsRequest.current;
     try {
-      const teams: OrgTeamSummary[] = await TeamAPI.listTeams(search);
+      const teams: Team[] = await TeamAPI.listTeams(search);
       if (requestId !== orgTeamsRequest.current) return;
       setTeamList(teams.map(t => ({ id: t.id, team: t, member_count: t.member_count })));
       setTeamsError(null);
@@ -107,7 +107,7 @@ function TeamsPageContent() {
     }
   };
 
-  const handleTeamCreated = async (team: OrgTeamSummary) => {
+  const handleTeamCreated = async (team: Team) => {
     setIsCreateTeamOpen(false);
     setTeamActionError(null);
     setTeamSearch('');
@@ -131,7 +131,12 @@ function TeamsPageContent() {
       await loadOrgTeams(teamSearch);
     } catch (error) {
       console.error('Failed to delete team:', error);
-      setTeamActionError('Failed to delete the team. Please try again.');
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      setTeamActionError(
+        status === 409
+          ? 'This team still has members or child teams. Remove them before deleting the team.'
+          : 'Failed to delete the team. Please try again.'
+      );
     } finally {
       setDeletingTeam(false);
     }

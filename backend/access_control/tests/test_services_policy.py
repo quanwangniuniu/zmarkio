@@ -1,19 +1,16 @@
 """
-MED-335: focused tests for the declarative authorization policy registry
+Focused tests for the declarative authorization policy registry
 added to access_control.services, plus the middleware behaviors that
 registry is responsible for (zero-role grace, and resolution feeding the
 org-admin/superuser bypass checks).
-
-See docs/decisions/MED-335-authorization-policy-matrix.md for the audit
-these tests are meant to lock in behavior-parity against.
 
 This file is intentionally separate from test_middleware.py /
 test_authorization_logic.py (which already cover the ASSET/CAMPAIGN
 role-permission matrix end-to-end through process_view) rather than merging
 into either — it targets the new services.py functions directly (pure-unit
-level for resolve_module_and_action, DB-backed for the three predicate
-functions) plus the one middleware behavior (zero-role grace) that had no
-dedicated test anywhere in this app before MED-335.
+level for resolve_module_and_action) plus the one middleware behavior
+(zero-role grace) that had no dedicated test anywhere in this app before the
+policy registry was added.
 """
 import pytest
 from datetime import timedelta
@@ -74,123 +71,13 @@ def test_resolve_module_and_action(path, method, expected):
 
 
 # ---------------------------------------------------------------------------
-# 2. DB-backed predicate functions: user_has_any_role,
-#    user_has_module_permission, user_has_org_admin_bypass_role.
-# ---------------------------------------------------------------------------
-
-class ServicesPolicyDbTest(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        from core.models import Organization, Role, Permission
-        from core.services.tenant import slug_to_schema_name
-        from access_control.models import RolePermission, UserRole
-
-        cls.org = Organization.objects.create(name="ServicesPolicyOrg")
-        _schema = slug_to_schema_name(cls.org.slug)
-        with connection.cursor() as cursor:
-            cursor.execute(f'SET search_path TO {_schema}, public')
-
-        cls.perm_view_asset, _ = Permission.objects.get_or_create(module="ASSET", action="VIEW")
-
-        cls.role_asset_viewer = Role.objects.create(organization=cls.org, name="AssetViewer", level=1)
-        RolePermission.objects.create(role=cls.role_asset_viewer, permission=cls.perm_view_asset)
-
-        cls.role_org_admin = Role.objects.create(organization=cls.org, name="OrgAdmin", level=2)
-        # A level=1 role must NOT satisfy the org-admin bypass predicate.
-        cls.role_other_level = Role.objects.create(organization=cls.org, name="OtherLevelOne", level=1)
-
-        User = get_user_model()
-        cls.user_no_roles = User.objects.create_user(username="noroles", email="noroles@example.com", password="pw")
-
-        cls.user_with_valid_role = User.objects.create_user(username="valid", email="valid@example.com", password="pw")
-        UserRole.objects.create(user=cls.user_with_valid_role, role=cls.role_asset_viewer, valid_from=timezone.now())
-
-        cls.user_with_expired_role = User.objects.create_user(username="expired", email="expired@example.com", password="pw")
-        now = timezone.now()
-        UserRole.objects.create(
-            user=cls.user_with_expired_role,
-            role=cls.role_asset_viewer,
-            valid_from=now - timedelta(days=2),
-            valid_to=now - timedelta(days=1),
-        )
-
-        cls.user_org_admin = User.objects.create_user(username="orgadmin2", email="orgadmin2@example.com", password="pw")
-        UserRole.objects.create(user=cls.user_org_admin, role=cls.role_org_admin, valid_from=timezone.now())
-
-        cls.user_other_level = User.objects.create_user(username="otherlevel", email="otherlevel@example.com", password="pw")
-        UserRole.objects.create(user=cls.user_other_level, role=cls.role_other_level, valid_from=timezone.now())
-
-        with connection.cursor() as cursor:
-            cursor.execute('SET search_path TO public')
-
-    def setUp(self):
-        from core.services.tenant import slug_to_schema_name
-        _schema = slug_to_schema_name(self.org.slug)
-        with connection.cursor() as cursor:
-            cursor.execute(f'SET search_path TO {_schema}, public')
-
-    def tearDown(self):
-        super().tearDown()
-        with connection.cursor() as cursor:
-            cursor.execute('SET search_path TO public')
-
-    # -- user_has_any_role ---------------------------------------------
-
-    def test_user_has_any_role_false_when_no_roles(self):
-        self.assertFalse(access_control_services.user_has_any_role(self.user_no_roles))
-
-    def test_user_has_any_role_true_even_if_expired(self):
-        # "any role" is used for the zero-role grace check, which must only
-        # look at existence, not validity — an expired role still counts as
-        # "has been assigned a role" and is correctly denied elsewhere via
-        # user_has_module_permission, not via this function.
-        self.assertTrue(access_control_services.user_has_any_role(self.user_with_expired_role))
-
-    def test_user_has_any_role_true_when_valid_role_exists(self):
-        self.assertTrue(access_control_services.user_has_any_role(self.user_with_valid_role))
-
-    # -- user_has_module_permission --------------------------------------
-
-    def test_user_has_module_permission_true_for_valid_matching_role(self):
-        self.assertTrue(
-            access_control_services.user_has_module_permission(self.user_with_valid_role, "ASSET", "VIEW")
-        )
-
-    def test_user_has_module_permission_false_for_expired_role(self):
-        self.assertFalse(
-            access_control_services.user_has_module_permission(self.user_with_expired_role, "ASSET", "VIEW")
-        )
-
-    def test_user_has_module_permission_false_for_mismatched_action(self):
-        self.assertFalse(
-            access_control_services.user_has_module_permission(self.user_with_valid_role, "ASSET", "DELETE")
-        )
-
-    def test_user_has_module_permission_false_for_no_roles(self):
-        self.assertFalse(
-            access_control_services.user_has_module_permission(self.user_no_roles, "ASSET", "VIEW")
-        )
-
-    # -- user_has_org_admin_bypass_role -----------------------------------
-
-    def test_org_admin_bypass_true_for_level_2_role(self):
-        self.assertTrue(access_control_services.user_has_org_admin_bypass_role(self.user_org_admin))
-
-    def test_org_admin_bypass_false_for_level_1_role(self):
-        self.assertFalse(access_control_services.user_has_org_admin_bypass_role(self.user_other_level))
-
-    def test_org_admin_bypass_false_for_no_roles(self):
-        self.assertFalse(access_control_services.user_has_org_admin_bypass_role(self.user_no_roles))
-
-
-# ---------------------------------------------------------------------------
-# 3. Middleware behavior: zero-role grace period.
+# 2. Middleware behavior: zero-role grace period.
 #
 # No existing test file in this app exercised this path directly: a user
 # with ZERO UserRole rows at all (not merely a non-matching or expired role)
 # hitting a real module/action gate must be allowed through, per the
 # "grace period" comment in process_view. This is explicitly preserved,
-# unchanged, by MED-335 scope.
+# unchanged, by the registry refactor.
 # ---------------------------------------------------------------------------
 
 @override_settings(ROOT_URLCONF='access_control.tests.test_urls')
@@ -249,14 +136,13 @@ class ZeroRoleGraceBehaviorTest(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 4. Additional decision-branch coverage added per the MED-335 coverage audit
-# (docs/decisions/MED-335-authorization-policy-matrix.md): an expired
+# 3. Additional decision-branch coverage: an expired
 # org-admin role (must not bypass), fail-open on a permission-query
 # exception (proved with a user whose real role would otherwise be denied,
 # so a None result here cannot be mistaken for the zero-role grace path),
 # and the two "no gate" branches (an unmapped URL, and a method with no
 # resolved action on a mapped module). None of these branches had any test
-# anywhere in this app before MED-335.
+# anywhere in this app before the policy registry was added.
 # ---------------------------------------------------------------------------
 
 @override_settings(ROOT_URLCONF='access_control.tests.test_urls')
@@ -347,13 +233,14 @@ class AdditionalDecisionBranchCoverageTest(TestCase):
         req = self.factory.get('/api/assets/list/')
         req.user = self.user_mismatched_role
 
-        # MED-299 resolves permissions from a cached bundle first. Make that
+        # Permissions are resolved from a cached bundle first. Make that
         # fast path fail too so the PostgreSQL fallback (fail-open) is what runs.
         with patch(
             'access_control.middleware.authorization.get_user_permission_bundle',
             side_effect=RuntimeError("cache unavailable"),
-        ), patch.object(
-            access_control_services, 'user_has_module_permission', side_effect=RuntimeError("boom")
+        ), patch(
+            'access_control.middleware.authorization.RolePermission',
+            **{'objects.filter.side_effect': RuntimeError("boom")},
         ):
             response = self.middleware.process_view(req, dummy_view, (), {})
 

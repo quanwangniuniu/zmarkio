@@ -17,7 +17,7 @@ export default function DeleteTeamDialog({ open, teamName, loading, onClose, onC
       onClose={onClose}
       onConfirm={onConfirm}
       title="Delete team"
-      message={`Delete "${teamName}"? The team will no longer appear for its members, and its name cannot be reused. Any child teams are kept.`}
+      message={`Delete "${teamName}"? The team will no longer appear for its members, and its name cannot be reused. A team that still has members or child teams cannot be deleted.`}
       confirmText="Delete Team"
       type="danger"
       loading={loading}

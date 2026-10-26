@@ -82,7 +82,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         return is_org_admin(obj)
 
     def get_can_manage_all_teams(self, obj):
-        # MED-335: strict org-wide Team management signal (not is_org_admin)
+        # Strict org-wide Team management signal (not is_org_admin)
         from access_control.services import user_can_manage_all_teams
         return user_can_manage_all_teams(obj)
 

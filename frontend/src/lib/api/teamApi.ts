@@ -4,7 +4,9 @@
 
 import { TEAM_ROLES } from '@/lib/constants/teamRoles';
 import api from '../api';
-import { OrgTeamSummary } from '@/types/team';
+import { Team } from '@/types/team';
+
+const TEAMS = '/api/teams/';
 
 /**
  * Team API class for team-related operations
@@ -156,31 +158,52 @@ export default class TeamAPI {
    * Organization admins only; other users receive 403.
    * @param search - Optional case-insensitive name filter
    */
-  static async listTeams(search: string = ''): Promise<OrgTeamSummary[]> {
-    const term = search.trim();
-    const response = await api.get('/api/teams/', {
-      params: term ? { search: term } : undefined,
-    });
-    return response.data.teams;
+  static async listTeams(search: string = ''): Promise<Team[]> {
+    try {
+      console.log('🔄 Fetching organization teams...');
+      const term = search.trim();
+      const response = await api.get(TEAMS, {
+        params: term ? { search: term } : undefined,
+      });
+      console.log('✅ Organization teams loaded:', response.data);
+      return response.data.teams;
+    } catch (error) {
+      console.error('❌ Failed to fetch organization teams:', error);
+      throw error;
+    }
   }
 
   /**
    * Create a team in the current organization (organization admins only).
    * A duplicate name, including a deleted team's name, returns 409.
    */
-  static async createTeam(name: string, desc?: string): Promise<OrgTeamSummary> {
-    const response = await api.post('/api/teams/', {
-      name,
-      ...(desc ? { desc } : {}),
-    });
-    return response.data.team;
+  static async createTeam(name: string, desc?: string): Promise<Team> {
+    try {
+      console.log('🔄 Creating team...');
+      const response = await api.post(TEAMS, {
+        name,
+        ...(desc ? { desc } : {}),
+      });
+      console.log('✅ Team created:', response.data);
+      return response.data.team;
+    } catch (error) {
+      console.error('❌ Failed to create team:', error);
+      throw error;
+    }
   }
 
   /**
    * Delete (soft-delete) a team (organization admins only).
    */
   static async deleteTeam(teamId: number): Promise<void> {
-    await api.delete(`/api/teams/${teamId}/`);
+    try {
+      console.log(`🔄 Deleting team ${teamId}...`);
+      await api.delete(`${TEAMS}${teamId}/`);
+      console.log(`✅ Team ${teamId} deleted`);
+    } catch (error) {
+      console.error(`❌ Failed to delete team ${teamId}:`, error);
+      throw error;
+    }
   }
 
 }

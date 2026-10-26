@@ -365,12 +365,10 @@ def get_project_permission_matrix(project_id: int) -> ProjectPermissionMatrixRes
         "warnings": warnings,
     }
 # ---------------------------------------------------------------------------
-# MED-335: authorization policy registry
-# (docs/decisions/MED-335-authorization-policy-matrix.md)
+# Authorization policy registry
 # ---------------------------------------------------------------------------
 # Path resolution below is pure (no database, no request object): it maps
-# (path, method) to (module, action) plus an enforcement state. The user_has_*
-# helpers at the bottom query the current tenant schema.
+# (path, method) to (module, action) plus an enforcement state.
 #
 # - ASSET and /api/campaigns/** use the legacy resolver, unchanged (active).
 # - Every other route is described by POLICY_RULES (planned: resolved, not
@@ -408,8 +406,8 @@ ORG_ADMIN_ROLE_LEVEL = 2
 
 
 def _legacy_resolve(path: str, method: str) -> Tuple[Optional[str], Optional[str]]:
-    """Legacy ASSET/CAMPAIGN resolver: the pre-MED-335 inline logic of
-    process_view, unchanged. Returns (None, None) for an unknown module and
+    """Legacy ASSET/CAMPAIGN resolver: the inline logic process_view used
+    before the registry, unchanged. Returns (None, None) for an unknown module and
     (module, None) when the method has no action. Pure.
     """
     parts = path.strip("/").split("/")
@@ -752,42 +750,6 @@ def is_explicitly_exempt(path: str, method: str) -> bool:
     return False
 
 
-# Permission lookups: these query the current tenant schema (UserRole,
-# RolePermission). Moved unchanged from process_view.
-
-
-def user_has_any_role(user) -> bool:
-    """Whether `user` has any UserRole row (zero-role grace check)."""
-    return UserRole.objects.filter(user=user).exists()
-
-
-def user_has_module_permission(user, module_key: str, action_key: str) -> bool:
-    """Whether a currently valid role of `user` grants module_key + action_key."""
-    now = timezone.now()
-    role_ids = UserRole.objects.filter(
-        user=user,
-        valid_from__lte=now,
-    ).filter(Q(valid_to__gte=now) | Q(valid_to__isnull=True)).values_list("role_id", flat=True)
-
-    return RolePermission.objects.filter(
-        role_id__in=role_ids,
-        permission__module=module_key,
-        permission__action=action_key,
-    ).exists()
-
-
-def user_has_org_admin_bypass_role(user) -> bool:
-    """Whether `user` holds a currently valid level-2 role (org-admin bypass).
-    Not the same check as core.admin_utils.is_org_admin().
-    """
-    now = timezone.now()
-    return UserRole.objects.filter(
-        user=user,
-        role__level=ORG_ADMIN_ROLE_LEVEL,
-        valid_from__lte=now,
-    ).filter(Q(valid_to__gte=now) | Q(valid_to__isnull=True)).exists()
-
-
 def get_user_current_org_id(user):
     """Organization the tenant middleware resolves for `user`
     (current_organization, falling back to the legacy organization FK)."""
@@ -795,11 +757,11 @@ def get_user_current_org_id(user):
 
 
 def user_is_current_org_admin(user) -> bool:
-    """MED-335: org-wide Team management. True only for a valid, non-deleted
+    """Org-wide Team management. True only for a valid, non-deleted
     level-2 role of the user's CURRENT organization that is not scoped to a
     Team. Runs under the request's tenant schema. A generic
-    OrganizationMembership 'admin' label is deliberately not enough, and
-    user_has_org_admin_bypass_role (Asset/Campaign middleware) is unchanged.
+    OrganizationMembership 'admin' label is deliberately not enough. The
+    Asset/Campaign middleware bypass is unchanged.
     """
     if not user or not getattr(user, "is_authenticated", False):
         return False
@@ -819,7 +781,7 @@ def user_is_current_org_admin(user) -> bool:
 
 
 def user_can_manage_all_teams(user) -> bool:
-    """MED-335: the single signal exposed to the frontend (`can_manage_all_teams`
+    """The single signal exposed to the frontend (`can_manage_all_teams`
     on /auth/me/). True when the backend will accept the org-wide Team
     endpoints for this user: a superuser or a strict current-organization
     Level-2 admin (user_is_current_org_admin), and an organization context
