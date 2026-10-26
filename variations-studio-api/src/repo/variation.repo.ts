@@ -99,14 +99,37 @@ export async function insertVariation(
 
 export async function insertVariations(
   schema: string,
-  rows: VariationInsert[],
-  db: SqlClient = prisma
+  rows: VariationInsert[]
 ): Promise<VariationRow[]> {
-  const saved: VariationRow[] = [];
-  for (const row of rows) {
-    saved.push(await insertVariation(schema, row, db));
-  }
-  return saved;
+  return prisma.$transaction(async (tx) => {
+    const now = new Date();
+    const saved = await tx.$queryRaw<VariationRow[]>`
+      INSERT INTO ${table(schema)} (
+        created_at, updated_at, is_deleted, source_mode, source_ref,
+        hook, headline, description, cta, instruction, model_name, prompt_version,
+        batch_id, batch_position, status, created_by_id, creative_id, project_id, slug
+      ) VALUES ${Prisma.join(
+        rows.map(
+          (row) => Prisma.sql`(
+            ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
+            ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
+            ${row.instruction}, ${row.modelName}, ${row.promptVersion},
+            ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
+            ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${row.slug}
+          )`
+        )
+      )}
+      ON CONFLICT (slug) DO NOTHING
+      RETURNING ${COLUMNS}`;
+
+    const inserted = new Set(saved.map((row) => row.batchPosition));
+    for (const row of rows) {
+      if (!inserted.has(row.batchPosition)) {
+        saved.push(await insertVariation(schema, row, tx));
+      }
+    }
+    return saved.sort((a, b) => (a.batchPosition ?? 0) - (b.batchPosition ?? 0));
+  });
 }
 
 export async function updateVariationFields(

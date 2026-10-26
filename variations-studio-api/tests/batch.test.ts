@@ -1,9 +1,12 @@
+import { randomUUID } from 'crypto';
 import { POST as generate } from '@/app/api/ad_copy_variation/variations/generate/route';
 import { callOllamaJson, getOllamaErrorMessage, } from '@/src/ai/providers/ollama';
 import { prisma } from '@/lib/prisma';
 import {
   countVariations,
   findVariationsByIdsAnyProject,
+  findBatchVariations,
+  insertVariations,
 } from '@/lib/variationStore';
 
 import {
@@ -201,5 +204,33 @@ describe('batch slug allocation', () => {
 
     expect(results).toHaveLength(100);
     expect(new Set(results.map((row) => row.slug)).size).toBe(100);
+  });
+});
+
+describe('batch persistence atomicity', () => {
+  it('persists nothing when row 3 of 5 fails', async () => {
+    const batchId = randomUUID();
+    const rows = Array.from({ length: 5 }, (_, index) => ({
+      ...copy(`Atomic ${index}`),
+      sourceMode: 'custom',
+      sourceRef: '',
+      instruction: '',
+      modelName: 'test-model',
+      promptVersion: 'v1',
+      batchId,
+      batchPosition: index,
+      status: 'draft',
+      createdById: BigInt(fixture.memberUserId),
+      creativeId: null,
+      projectId: fixture.projectA,
+      slug: `atomic-${batchId}-${index}`,
+    }));
+    // cta is varchar(64), so the database rejects row 3.
+    rows[2].cta = 'X'.repeat(65);
+
+    await expect(insertVariations(fixture.schema, rows)).rejects.toThrow();
+    await expect(
+      findBatchVariations(fixture.schema, fixture.projectA, batchId)
+    ).resolves.toHaveLength(0);
   });
 });
