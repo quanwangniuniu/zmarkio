@@ -8,18 +8,52 @@ import yaml
 import subprocess
 import argparse
 
-def create_topic(bootstrap_server, name, partitions, replication_factor, config):
-    """Create a single Kafka topic."""
+def describe_topics(bootstrap_server):
+    """Return {name: {'partitions', 'replication_factor', 'config'}} for existing topics."""
+    describe_cmd = [
+        'kafka-topics',
+        '--bootstrap-server', bootstrap_server,
+        '--describe'
+    ]
+    result = subprocess.run(describe_cmd, capture_output=True, text=True, check=True)
+    existing = {}
+    for line in result.stdout.splitlines():
+        # Only the per-topic summary line carries PartitionCount; skip per-partition lines
+        if 'PartitionCount:' not in line:
+            continue
+        fields = dict(f.split(': ', 1) for f in line.strip().split('\t') if ': ' in f)
+        configs = fields.get('Configs', '')
+        existing[fields['Topic']] = {
+            'partitions': fields['PartitionCount'],
+            'replication_factor': fields['ReplicationFactor'],
+            'config': dict(c.split('=', 1) for c in configs.split(',') if '=' in c),
+        }
+    return existing
+
+def check_existing_topic(name, partitions, replication_factor, config, actual):
+    """Log a warning with a diff if an existing topic differs from topics.yaml."""
+    expected = {'partitions': partitions, 'replication_factor': replication_factor, **config}
+    current = {
+        'partitions': actual['partitions'],
+        'replication_factor': actual['replication_factor'],
+        **actual['config'],
+    }
+    diff = [
+        f"    {key}: expected={value}, actual={current.get(key, '<broker default>')}"
+        for key, value in expected.items()
+        if str(value) != current.get(key)
+    ]
+    if diff:
+        print(f"⚠ Topic {name} already exists with config differing from topics.yaml:")
+        print('\n'.join(diff))
+    else:
+        print(f"✓ Topic {name} already exists with matching config")
+
+def create_topic(bootstrap_server, name, partitions, replication_factor, config, existing):
+    """Create a single Kafka topic, treating an already-existing topic as success."""
     try:
-        # Check if topic exists
-        check_cmd = [
-            'kafka-topics',
-            '--bootstrap-server', bootstrap_server,
-            '--list'
-        ]
-        result = subprocess.run(check_cmd, capture_output=True, text=True, check=True)
-        if name in result.stdout:
-            print(f"⚠ Topic {name} already exists, skipping...")
+        if name in existing:
+            check_existing_topic(name, partitions, replication_factor, config, existing[name])
             return True
         
         # Build create command
@@ -42,6 +76,10 @@ def create_topic(bootstrap_server, name, partitions, replication_factor, config)
         return True
         
     except subprocess.CalledProcessError as e:
+        # Topic created concurrently between describe and create: benign
+        if 'TopicExistsException' in e.stderr:
+            print(f"✓ Topic {name} already exists")
+            return True
         print(f"✗ Failed to create topic {name}: {e.stderr}")
         return False
     except Exception as e:
@@ -75,6 +113,9 @@ def main():
         print(f"Creating {len(topics)} topics from {args.yaml_file}...")
         print(f"Bootstrap server: {args.bootstrap_server}\n")
         
+        # Describe once up front instead of listing per topic (each CLI call starts a JVM)
+        existing = describe_topics(args.bootstrap_server)
+        
         success_count = 0
         failed_topics = []
         
@@ -84,19 +125,19 @@ def main():
             replication_factor = topic_def['replication_factor']
             config = topic_def.get('config', {})
             
-            if create_topic(args.bootstrap_server, name, partitions, replication_factor, config):
+            if create_topic(args.bootstrap_server, name, partitions, replication_factor, config, existing):
                 success_count += 1
             else:
                 failed_topics.append(name)
         
         print(f"\n{'='*60}")
-        print(f"Summary: {success_count}/{len(topics)} topics created successfully")
+        print(f"Summary: {success_count}/{len(topics)} topics created or already present")
         
         if failed_topics:
             print(f"Failed topics: {', '.join(failed_topics)}")
             sys.exit(1)
         else:
-            print("All topics created successfully!")
+            print("All topics are present!")
             print(f"\nTo verify topics, run:")
             print(f"  kafka-topics --bootstrap-server {args.bootstrap_server} --list")
             print(f"\nTo describe a topic, run:")
