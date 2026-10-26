@@ -1,5 +1,5 @@
+using Dapper;
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
 
 namespace DecisionService.Decisions;
 
@@ -31,7 +31,7 @@ public interface IDecisionAccessService
     );
 }
 
-public sealed class JwtDecisionAccessService(NpgsqlDataSource dataSource, DjangoJwtValidator jwtValidator) : IDecisionAccessService
+public sealed class JwtDecisionAccessService(TenantConnectionFactory connections, DjangoJwtValidator jwtValidator) : IDecisionAccessService
 {
     public async Task<DecisionAccessContext?> AuthorizeAsync(
         HttpRequest request,
@@ -40,7 +40,7 @@ public sealed class JwtDecisionAccessService(NpgsqlDataSource dataSource, Django
         CancellationToken cancellationToken
     )
     {
-        var token = BearerToken(request);
+        var token = request.BearerToken();
         if (string.IsNullOrWhiteSpace(token))
         {
             return null;
@@ -52,37 +52,40 @@ public sealed class JwtDecisionAccessService(NpgsqlDataSource dataSource, Django
             return null;
         }
 
-        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
-        await using var userCommand = connection.CreateCommand();
-        userCommand.CommandText = """
-            SELECT id, email, is_superuser, is_active, auth_token_version
-            FROM core_customuser
-            WHERE id = @user_id
-            """;
-        userCommand.Parameters.AddWithValue("user_id", principal.UserId);
-
-        await using var userReader = await userCommand.ExecuteReaderAsync(cancellationToken);
-        if (!await userReader.ReadAsync(cancellationToken))
+        await using var session = await connections.OpenAsync(cancellationToken);
+        var connection = session.Connection;
+        var userParameters = new DynamicParameters();
+        userParameters.Add("UserId", principal.UserId);
+        var user = await connection.QuerySingleOrDefaultAsync<UserRow>(new CommandDefinition(
+            """
+            SELECT
+                email AS Email,
+                is_superuser AS IsSuperuser,
+                is_active AS IsActive,
+                auth_token_version AS AuthTokenVersion
+            FROM public.core_customuser
+            WHERE id = @UserId
+            """,
+            userParameters,
+            session.Transaction,
+            cancellationToken: cancellationToken
+        ));
+        if (user is null)
         {
             return null;
         }
 
-        var email = userReader.GetString(userReader.GetOrdinal("email"));
-        var isSuperuser = userReader.GetBoolean(userReader.GetOrdinal("is_superuser"));
-        var isActive = userReader.GetBoolean(userReader.GetOrdinal("is_active"));
-        var tokenVersion = userReader.GetInt32(userReader.GetOrdinal("auth_token_version"));
-        await userReader.CloseAsync();
-
-        if (!isActive || tokenVersion != principal.AuthTokenVersion)
+        var email = user.Email;
+        if (!user.IsActive || user.AuthTokenVersion != principal.AuthTokenVersion)
         {
             return null;
         }
 
-        if (isSuperuser)
+        if (user.IsSuperuser)
         {
             var organizationId = projectId is null
                 ? null
-                : await ProjectOrganizationIdAsync(connection, projectId.Value, cancellationToken);
+                : await ProjectOrganizationIdAsync(session, projectId.Value, cancellationToken);
             return new DecisionAccessContext(
                 true,
                 principal.UserId,
@@ -100,32 +103,32 @@ public sealed class JwtDecisionAccessService(NpgsqlDataSource dataSource, Django
             return new DecisionAccessContext(false, principal.UserId, email, false, null, null, null, null);
         }
 
-        await using var memberCommand = connection.CreateCommand();
-        memberCommand.CommandText = """
-            SELECT pm.role, p.organization_id
+        var memberParameters = new DynamicParameters();
+        memberParameters.Add("UserId", principal.UserId);
+        memberParameters.Add("ProjectId", projectId.Value);
+        var member = await connection.QueryFirstOrDefaultAsync<MemberRow>(new CommandDefinition(
+            """
+            SELECT pm.role AS Role, p.organization_id AS OrganizationId
             FROM core_projectmember pm
             INNER JOIN core_project p ON p.id = pm.project_id
-            WHERE pm.user_id = @user_id
-              AND pm.project_id = @project_id
+            WHERE pm.user_id = @UserId
+              AND pm.project_id = @ProjectId
               AND pm.is_active = true
               AND pm.is_deleted = false
               AND p.is_deleted = false
             LIMIT 1
-            """;
-        memberCommand.Parameters.AddWithValue("user_id", principal.UserId);
-        memberCommand.Parameters.AddWithValue("project_id", projectId.Value);
-
-        await using var memberReader = await memberCommand.ExecuteReaderAsync(cancellationToken);
-        if (!await memberReader.ReadAsync(cancellationToken))
+            """,
+            memberParameters,
+            session.Transaction,
+            cancellationToken: cancellationToken
+        ));
+        if (member is null)
         {
             return new DecisionAccessContext(false, principal.UserId, email, false, projectId, null, null, null);
         }
 
-        var role = memberReader.GetString(memberReader.GetOrdinal("role")).Trim();
-        var memberOrganizationIdOrdinal = memberReader.GetOrdinal("organization_id");
-        var memberOrganizationId = memberReader.IsDBNull(memberOrganizationIdOrdinal)
-            ? (int?)null
-            : memberReader.GetInt32(memberOrganizationIdOrdinal);
+        var role = member.Role.Trim();
+        var memberOrganizationId = (int?)member.OrganizationId;
         var roleLevel = DecisionPermissionPolicy.RoleLevel(role);
         var allowed = roleLevel <= DecisionPermissionPolicy.RequiredLevel(action);
 
@@ -141,27 +144,25 @@ public sealed class JwtDecisionAccessService(NpgsqlDataSource dataSource, Django
         );
     }
 
-    private static string? BearerToken(HttpRequest request)
-    {
-        var authorization = request.Headers.Authorization.ToString();
-        const string prefix = "Bearer ";
-        return authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            ? authorization[prefix.Length..].Trim()
-            : null;
-    }
-
-    private static async Task<int?> ProjectOrganizationIdAsync(
-        NpgsqlConnection connection,
+    private static Task<int?> ProjectOrganizationIdAsync(
+        TenantSession session,
         int projectId,
         CancellationToken cancellationToken
     )
     {
-        await using var command = connection.CreateCommand();
-        command.CommandText = "SELECT organization_id FROM core_project WHERE id = @project_id AND is_deleted = false";
-        command.Parameters.AddWithValue("project_id", projectId);
-        var result = await command.ExecuteScalarAsync(cancellationToken);
-        return result is null or DBNull ? null : Convert.ToInt32(result);
+        var parameters = new DynamicParameters();
+        parameters.Add("ProjectId", projectId);
+        return session.Connection.ExecuteScalarAsync<int?>(new CommandDefinition(
+            "SELECT organization_id FROM core_project WHERE id = @ProjectId AND is_deleted = false",
+            parameters,
+            session.Transaction,
+            cancellationToken: cancellationToken
+        ));
     }
+
+    private sealed record UserRow(string Email, bool IsSuperuser, bool IsActive, int AuthTokenVersion);
+
+    private sealed record MemberRow(string Role, long? OrganizationId);
 }
 
 public static class DecisionAccessResponses

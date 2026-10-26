@@ -170,6 +170,19 @@ class Campaign(SluggedResourceModelMixin, TimeStampedModel):
         help_text="Latest performance snapshot data for quick dashboard display"
     )
 
+    # === Platform Sync Health (Meta) ===
+    last_sync_error = models.CharField(
+        max_length=16,
+        blank=True,
+        default='',
+        help_text="Outcome of the last Meta sync: '' (ok), 'auth' (reconnect required) or 'transient'"
+    )
+    last_sync_attempted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the last Meta sync for this campaign's project was attempted"
+    )
+
     class Meta:
         db_table = 'campaigns'
         ordering = ['-created_at']
