@@ -30,6 +30,10 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
         {
             return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
         }
+        catch (DecisionConflictException ex)
+        {
+            return Conflict(new { detail = ex.Message });
+        }
     }
 
     [HttpGet("{lookup}")]

@@ -35,6 +35,8 @@ public sealed class DecisionValidationException(string field, string message) : 
     public string Field { get; } = field;
 }
 
+public sealed class DecisionConflictException(string message, Exception innerException) : Exception(message, innerException);
+
 public sealed class InMemoryDecisionRepository : IDecisionRepository
 {
     private readonly ConcurrentDictionary<int, DecisionRecord> _decisions = new();

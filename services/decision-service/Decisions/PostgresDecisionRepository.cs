@@ -102,14 +102,35 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             throw new InvalidOperationException("Project context is required.");
         }
 
+        try
+        {
+            return CreateInProject(projectId.Value, actorId, request);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+        }
+
+        try
+        {
+            return CreateInProject(projectId.Value, actorId, request);
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new DecisionConflictException("Another decision was created at the same time. Please retry.", ex);
+        }
+    }
+
+    private DecisionDetailDto CreateInProject(int projectId, int? actorId, CreateDecisionDraftRequest request)
+    {
         using var session = connections.Open();
         var connection = session.Connection;
         var originMeeting = request.OriginMeetingId.HasValue
-            ? ResolveOriginMeeting(connection, request.OriginMeetingId.Value, projectId.Value)
+            ? ResolveOriginMeeting(connection, request.OriginMeetingId.Value, projectId)
             : null;
         var transaction = session.Transaction;
         var now = DateTimeOffset.UtcNow;
-        var projectSeq = NextProjectSequence(connection, projectId.Value);
+        LockProjectSequence(connection, projectId);
+        var projectSeq = NextProjectSequence(connection, projectId);
         var topic = NormalizeTopic(request.Topic);
 
         using var command = connection.CreateCommand();
@@ -181,7 +202,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("is_reference_case", request.IsReferenceCase);
         command.Parameters.AddWithValue("created_by_agent", request.CreatedByAgent);
         AddNullableUuid(command, "agent_session_id", request.AgentSessionId);
-        command.Parameters.AddWithValue("project_id", projectId.Value);
+        command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("project_seq", projectSeq);
         AddNullableInteger(command, "actor_id", actorId);
         command.Parameters.AddWithValue("topic", topic);
@@ -190,7 +211,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         var id = Convert.ToInt32(command.ExecuteScalar());
         ReplaceOptions(connection, transaction, id, now, request.Options);
         ReplaceSignals(connection, transaction, id, actorId, now, request.Signals);
-        ReplaceParentEdges(connection, transaction, id, projectId.Value, actorId, request.ParentDecisionIds);
+        ReplaceParentEdges(connection, transaction, id, projectId, actorId, request.ParentDecisionIds);
         if (originMeeting is not null)
         {
             CreateMeetingDecisionOrigin(connection, transaction, originMeeting.Id, id, actorId, now);
@@ -1253,6 +1274,14 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
     private static string TopicLabelForAnyProject(Dictionary<(int ProjectId, string Topic), string> labels, string topic)
     {
         return labels.FirstOrDefault(item => item.Key.Topic == topic).Value ?? TopicLabel(topic);
+    }
+
+    private static void LockProjectSequence(NpgsqlConnection connection, int projectId)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT pg_advisory_xact_lock(@project_id)";
+        command.Parameters.AddWithValue("project_id", (long)projectId);
+        command.ExecuteNonQuery();
     }
 
     private int NextProjectSequence(NpgsqlConnection connection, int projectId)
