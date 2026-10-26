@@ -56,6 +56,9 @@ services:
         resolved_host="$$(getent ahostsv4 "$$DB_HOST" | awk 'NR == 1 { print $$1 }')"
         test -n "$$resolved_host"
         export DB_HOST="$$resolved_host"
+        # The image emits auth_user unquoted; quote it so role names with spaces work.
+        /entrypoint.sh true
+        sed -i "s|auth_user=.*|auth_user='$$DB_USER'|" /etc/pgbouncer/pgbouncer.ini
         exec /entrypoint.sh /usr/bin/pgbouncer /etc/pgbouncer/pgbouncer.ini
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -162,6 +165,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
+      args:
+        # Match the bind-mount owner on native Linux; see env.example.
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
     container_name: frontend-dev
     restart: always
     ports:
@@ -385,6 +392,9 @@ services:
     image: prom/prometheus
     volumes:
       - ./devops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    # prometheus.yml scrapes host.docker.internal; native Linux needs the mapping.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "9090:9090"
     depends_on:

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
-from .models import Draft, ContentBlock, BlockAction, DraftRevision, MediaFile
+from .models import Draft, ContentBlock, BlockAction, DraftRevision, MediaFile, DraftProjectLink
 
 User = get_user_model()
 
@@ -43,15 +43,32 @@ class DraftSerializer(serializers.ModelSerializer):
     blocks = ContentBlockSerializer(many=True, read_only=True)
     content_blocks_count = serializers.SerializerMethodField()
     user_email = serializers.CharField(source='user.email', read_only=True)
+    project_id = serializers.SerializerMethodField()
+    project_slug = serializers.SerializerMethodField()
     
     class Meta:
         model = Draft
         fields = ['slug', 
             'id', 'title', 'user', 'user_email', 'status', 
             'content_blocks', 'blocks', 'content_blocks_count',
-            'created_at', 'updated_at', 'is_deleted'
+            'created_at', 'updated_at', 'is_deleted',
+            'project_id', 'project_slug',
         ]
         read_only_fields = ['slug', 'id', 'created_at', 'updated_at']
+
+    def _project_link(self, obj):
+        try:
+            return obj.project_link
+        except DraftProjectLink.DoesNotExist:
+            return None
+
+    def get_project_id(self, obj):
+        link = self._project_link(obj)
+        return link.project_id if link else None
+
+    def get_project_slug(self, obj):
+        link = self._project_link(obj)
+        return link.project.slug if link else None
     
     def get_content_blocks_count(self, obj):
         """Get the number of content blocks"""
@@ -99,8 +116,8 @@ class CreateDraftSerializer(serializers.ModelSerializer):
     """Serializer for creating new drafts"""
     class Meta:
         model = Draft
-        fields = ['id', 'title', 'status', 'content_blocks']
-        read_only_fields = ['id']
+        fields = ['id', 'slug', 'title', 'status', 'content_blocks']
+        read_only_fields = ['id', 'slug']
     
     def create(self, validated_data):
         """Create a new draft with the current user"""
@@ -272,6 +289,10 @@ class NotionDisconnectSerializer(serializers.Serializer):
 class NotionImportSerializer(serializers.Serializer):
     page = serializers.CharField(max_length=500, allow_blank=False)
     draft_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+
+
+class LinkDraftProjectSerializer(serializers.Serializer):
+    project_id = serializers.IntegerField(min_value=1)
 
 
 class NotionExportSerializer(serializers.Serializer):
