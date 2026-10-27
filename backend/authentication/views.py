@@ -81,6 +81,28 @@ def build_google_oauth_state() -> str:
         ttl_seconds=GOOGLE_AUTH_STATE_TTL_SECONDS,
     )
 
+
+# Refresh token cookie: HttpOnly so frontend JS can never read it, Secure outside
+# DEBUG (same rule as SESSION_COOKIE_SECURE), scoped to the /auth/ endpoints.
+REFRESH_COOKIE_NAME = "ms_refresh"
+REFRESH_COOKIE_PATH = "/auth/"
+
+
+def set_refresh_cookie(response, refresh):
+    response.set_cookie(
+        REFRESH_COOKIE_NAME,
+        str(refresh),
+        max_age=int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds()),
+        path=REFRESH_COOKIE_PATH,
+        secure=not settings.DEBUG,
+        httponly=True,
+        samesite="Lax",
+    )
+
+
+def clear_refresh_cookie(response):
+    response.delete_cookie(REFRESH_COOKIE_NAME, path=REFRESH_COOKIE_PATH, samesite="Lax")
+
 class PasswordValidationView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -372,7 +394,9 @@ class LoginView(APIView):
 
         LoginSecurityService.clear_successful_login(login_identifiers)
         
-        return Response(response_data, status=status.HTTP_200_OK)
+        response = Response(response_data, status=status.HTTP_200_OK)
+        set_refresh_cookie(response, refresh)
+        return response
 
 
 class OrganizationTokenRefreshView(APIView):
@@ -843,7 +867,9 @@ class GoogleOAuthCallbackView(APIView):
                     
                     # HTTP redirect to frontend auth callback handler with encoded auth data
                     redirect_url = f"{settings.FRONTEND_URL}/auth/google/callback?auth_data={auth_data_encoded}"
-                    return redirect(redirect_url)
+                    response = redirect(redirect_url)
+                    set_refresh_cookie(response, refresh)
+                    return response
                 
                 else:
                     # New user - create account
@@ -963,7 +989,9 @@ class GoogleSetPasswordView(APIView):
             if custom_access_token:
                 response_data['organization_access_token'] = custom_access_token
             
-            return Response(response_data, status=status.HTTP_200_OK)
+            response = Response(response_data, status=status.HTTP_200_OK)
+            set_refresh_cookie(response, refresh)
+            return response
         
         except Exception as e:
             print(f"[GOOGLE OAUTH ERROR] {str(e)}")
@@ -1218,7 +1246,9 @@ class LogoutView(APIView):
         except Exception:
             logger.exception("Failed to emit logout websocket revoke for user %s", request.user.id)
 
-        return Response({'message': 'Logged out successfully.'}, status=status.HTTP_200_OK)
+        response = Response({'message': 'Logged out successfully.'}, status=status.HTTP_200_OK)
+        clear_refresh_cookie(response)
+        return response
 
 
 class DeleteAccountView(APIView):
@@ -1298,7 +1328,7 @@ class DeleteAccountView(APIView):
                     pass
 
             # 7. Blacklist the refresh token supplied in the request (best-effort)
-            refresh_token = request.data.get('refresh_token')
+            refresh_token = request.data.get('refresh_token') or request.COOKIES.get(REFRESH_COOKIE_NAME)
             if refresh_token:
                 try:
                     token = RefreshToken(refresh_token)
@@ -1337,7 +1367,9 @@ class DeleteAccountView(APIView):
         except Exception:
             logger.exception("Failed to emit account-delete websocket revoke for user %s", user.id)
 
-        return Response({'message': 'Account deleted successfully.'}, status=status.HTTP_200_OK)
+        response = Response({'message': 'Account deleted successfully.'}, status=status.HTTP_200_OK)
+        clear_refresh_cookie(response)
+        return response
 
 
 class SessionTokenRefreshView(APIView):
@@ -1352,7 +1384,10 @@ class SessionTokenRefreshView(APIView):
         from rest_framework_simplejwt.serializers import TokenRefreshSerializer
         from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
 
-        serializer = TokenRefreshSerializer(data=request.data)
+        # Browsers send the refresh token in the HttpOnly cookie; other clients may
+        # still post it in the body.
+        refresh_token = request.data.get("refresh") or request.COOKIES.get(REFRESH_COOKIE_NAME)
+        serializer = TokenRefreshSerializer(data={"refresh": refresh_token})
         try:
             serializer.is_valid(raise_exception=True)
         except TokenError as e:

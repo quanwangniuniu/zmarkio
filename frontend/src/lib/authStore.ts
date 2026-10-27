@@ -66,9 +66,9 @@ interface AuthState {
 // don't each fire their own /auth/token/refresh/ request.
 let sharedInitAuthRefreshPromise: Promise<string | null> | null = null;
 
-function getSharedInitAuthRefreshedToken(refreshToken: string): Promise<string | null> {
+function getSharedInitAuthRefreshedToken(): Promise<string | null> {
   if (!sharedInitAuthRefreshPromise) {
-    sharedInitAuthRefreshPromise = authAPI.refreshToken(refreshToken);
+    sharedInitAuthRefreshPromise = authAPI.refreshToken();
   }
   return sharedInitAuthRefreshPromise.finally(() => {
     sharedInitAuthRefreshPromise = null;
@@ -315,15 +315,14 @@ export const useAuthStore = create<AuthState>()(
         set({ loading: true });
  
         try {
-          if (refreshToken) {
-            const refreshedToken = await getSharedInitAuthRefreshedToken(refreshToken);
-            if (refreshedToken) {
-              token = refreshedToken;
-              set({
-                token: refreshedToken,
-                isAuthenticated: Boolean(refreshedToken && (get().user || persistedUser)),
-              });
-            }
+          // The refresh token is in an HttpOnly cookie JS can't see, so always try it.
+          const refreshedToken = await getSharedInitAuthRefreshedToken();
+          if (refreshedToken) {
+            token = refreshedToken;
+            set({
+              token: refreshedToken,
+              isAuthenticated: Boolean(refreshedToken && (get().user || persistedUser)),
+            });
           }
 
           if (!token) {
@@ -333,8 +332,8 @@ export const useAuthStore = create<AuthState>()(
           // Validate token by calling /auth/me
           let userResult = await get().getCurrentUser();
 
-          if (!userResult.success && refreshToken && !userResult.retryable) {
-            const refreshedToken = await getSharedInitAuthRefreshedToken(refreshToken);
+          if (!userResult.success && !userResult.retryable) {
+            const refreshedToken = await getSharedInitAuthRefreshedToken();
             if (refreshedToken) {
               token = refreshedToken;
               set({ token: refreshedToken });
@@ -435,9 +434,9 @@ export const useAuthStore = create<AuthState>()(
         }
       },
       partialize: (state) => ({
-        // Only persist these fields to localStorage
+        // Only persist these fields to localStorage. The refresh token is
+        // deliberately left out: it lives in the HttpOnly refresh cookie.
         token: state.token,
-        refreshToken: state.refreshToken,
         organizationAccessToken: state.organizationAccessToken,
         user: state.user,
         isAuthenticated: !!state.token && !!state.user,
