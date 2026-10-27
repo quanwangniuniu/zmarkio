@@ -135,8 +135,12 @@ async function insertVariationRows(
   rows: VariationInsert[],
   db: SqlClient
 ): Promise<VariationRow[]> {
+  // Slug order matches the unique-index lock order across concurrent batches.
+  const ordered = [...rows].sort((left, right) =>
+    left.slug < right.slug ? -1 : left.slug > right.slug ? 1 : 0
+  );
   const now = new Date();
-  const values = rows.map((row) => Prisma.sql`(
+  const values = ordered.map((row) => Prisma.sql`(
     ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
     ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
     ${row.instruction}, ${row.modelName}, ${row.promptVersion},
