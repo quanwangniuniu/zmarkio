@@ -10,7 +10,6 @@ import {
 import { ApiError, projectIdParam } from '@/src/platform/http';
 import { getPlatformSpec, type PlatformSpec } from '@/src/platforms';
 import { applyCtaPolicy } from '@/src/platforms/cta';
-import { prisma } from '@/lib/prisma';
 import { requireProjectForUser } from '@/lib/projects';
 import { allocateSlugs } from '@/lib/slugs';
 import { insertVariations } from '@/src/repo';
@@ -123,7 +122,8 @@ async function persistBatch(args: {
     slug: slugs[index],
   }));
 
-  return prisma.$transaction((tx) => insertVariations(args.schema, rows, tx));
+  // insertVariations opens the transaction itself when no client is passed.
+  return insertVariations(args.schema, rows);
 }
 
 export async function runCustomGenerate(args: {

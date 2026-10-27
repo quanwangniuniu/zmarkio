@@ -165,6 +165,15 @@ export async function insertVariations(
 ): Promise<VariationRow[]> {
   if (!rows.length) return [];
 
+  // Slug retries assume Postgres READ COMMITTED. Without a transaction, a
+  // failed retry would leave earlier inserts committed, so open one here.
+  if (db === prisma) {
+    return prisma.$transaction(
+      (tx) => insertVariations(schema, rows, tx),
+      { timeout: 10_000 }
+    );
+  }
+
   const pending = rows.map((row, index) => ({
     index,
     baseSlug: row.slug,
