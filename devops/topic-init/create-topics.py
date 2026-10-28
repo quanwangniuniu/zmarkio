@@ -3,6 +3,7 @@
 Create Kafka topics from topics.yaml definition file.
 This script parses the YAML file and creates all defined topics.
 """
+import re
 import sys
 import yaml
 import subprocess
@@ -21,12 +22,11 @@ def describe_topics(bootstrap_server):
         # Only the per-topic summary line carries PartitionCount; skip per-partition lines
         if 'PartitionCount:' not in line:
             continue
-        fields = dict(f.split(': ', 1) for f in line.strip().split('\t') if ': ' in f)
-        configs = fields.get('Configs', '')
-        existing[fields['Topic']] = {
-            'partitions': fields['PartitionCount'],
-            'replication_factor': fields['ReplicationFactor'],
-            'config': dict(c.split('=', 1) for c in configs.split(',') if '=' in c),
+        configs = re.search(r'Configs:\s*(.*)$', line)
+        existing[re.search(r'Topic:\s*(\S+)', line).group(1)] = {
+            'partitions': re.search(r'PartitionCount:\s*(\d+)', line).group(1),
+            'replication_factor': re.search(r'ReplicationFactor:\s*(\d+)', line).group(1),
+            'config': dict(re.findall(r'([\w.]+)=(.*?)(?=,[\w.]+=|$)', configs.group(1).strip() if configs else '')),
         }
     return existing
 
