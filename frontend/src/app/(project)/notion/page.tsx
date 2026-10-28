@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { Notebook, Plus, Search } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
@@ -9,6 +9,7 @@ import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import NotionDraftCard from '@/components/notion/NotionDraftCard';
 import ConfirmDialog from '@/components/tasks/detail/ConfirmDialog';
 import { NotionDraftAPI } from '@/lib/api/notionDraftApi';
+import { ProjectAPI } from '@/lib/api/projectApi';
 import { useBuildUrl } from '@/lib/buildUrl';
 import type { DraftStatus, DraftSummary } from '@/types/notion';
 
@@ -23,6 +24,8 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
 function NotionV2ListContent() {
   const router = useRouter();
   const buildUrl = useBuildUrl();
+  const params = useParams<{ projectSlug?: string | string[] }>();
+  const projectSlug = Array.isArray(params?.projectSlug) ? params.projectSlug[0] : params?.projectSlug;
   const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -73,8 +76,26 @@ function NotionV2ListContent() {
           { type: 'rich_text', content: { html: '' }, order: 0 },
         ],
       });
-      if (!created?.id) throw new Error('Draft created but id is missing');
-      toast.success('Draft created');
+      if (!created?.id || !created.slug) {
+        toast.error('Failed to create draft');
+        return;
+      }
+      if (projectSlug) {
+        try {
+          const project = await ProjectAPI.getProject(projectSlug);
+          const projectId = Number(project.id);
+          if (!Number.isInteger(projectId) || projectId < 1) {
+            throw new Error('Project id is missing');
+          }
+          await NotionDraftAPI.linkProject(created.slug, projectId);
+          toast.success('Draft created');
+        } catch (linkError) {
+          console.error('Failed to link draft to project', linkError);
+          toast.error('Draft created, but it could not be linked to this project.');
+        }
+      } else {
+        toast.success('Draft created');
+      }
       router.push(buildUrl(`/notion/${created.slug}`));
     } catch (error: any) {
       console.error('Failed to create draft', error);
@@ -82,7 +103,7 @@ function NotionV2ListContent() {
     } finally {
       setCreating(false);
     }
-  }, [creating, router]);
+  }, [creating, projectSlug, buildUrl, router]);
 
   const handleOpen = useCallback(
     (idOrSlug: number | string) => {

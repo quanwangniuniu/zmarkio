@@ -24,7 +24,7 @@ export function slugToSchemaName(slug: string): string {
   return `org_${safe}`;
 }
 
-function assertSchemaName(schema: string): string {
+export function assertSchemaName(schema: string): string {
   if (!SCHEMA_NAME.test(schema)) {
     throw new Error('Invalid tenant schema name');
   }

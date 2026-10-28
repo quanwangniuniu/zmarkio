@@ -2,6 +2,7 @@ import api from '../api';
 import {
   DraftDetail,
   DraftPayload,
+  DraftProjectLink,
   DraftSummary,
   NotionContentBlockRecord,
 } from '@/types/notion';
@@ -42,6 +43,17 @@ export const NotionDraftAPI = {
 
   deleteDraft: async (draftId: number | string): Promise<void> => {
     await api.delete(toQuery(`/drafts/${draftId}/`));
+  },
+
+  linkProject: async (draftId: number | string, projectId: number): Promise<DraftProjectLink> => {
+    const response = await api.post<DraftProjectLink>(toQuery(`/drafts/${draftId}/project/`), {
+      project_id: projectId,
+    });
+    return response.data;
+  },
+
+  unlinkProject: async (draftId: number | string): Promise<void> => {
+    await api.delete(toQuery(`/drafts/${draftId}/project/`));
   },
 
   addBlock: async (draftId: number | string, block: NotionContentBlockRecord) => {

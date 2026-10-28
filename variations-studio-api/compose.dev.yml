@@ -9,7 +9,22 @@ services:
     build:
       context: ./variations-studio-api
       dockerfile: Dockerfile.dev
+      args:
+        # Match the bind-mount owner on native Linux; see env.example.
+        HOST_UID: ${HOST_UID:-1000}
+        HOST_GID: ${HOST_GID:-1000}
     container_name: variations-studio-api-dev
+    command:
+      - /bin/bash
+      - -ec
+      - |
+        if ! cmp -s package-lock.json node_modules/.studio-lock; then
+          npm ci
+          cp package-lock.json node_modules/.studio-lock
+        fi
+        npx prisma generate
+        npm run migrate
+        exec npm run dev
     restart: always
     ports:
       - "3010:3010"
