@@ -158,10 +158,35 @@ public sealed class DjangoJwtValidator
         }
     }
 
+    public static string CreateSignedTokenForTests(
+        string signingKey,
+        int userId,
+        int authTokenVersion = 0,
+        DateTimeOffset? expiresAt = null,
+        string tokenType = "access"
+    )
+    {
+        var header = Base64UrlEncode(Encoding.UTF8.GetBytes("""{"alg":"HS256","typ":"JWT"}"""));
+        var exp = (expiresAt ?? DateTimeOffset.UtcNow.AddHours(1)).ToUnixTimeSeconds();
+        var payload = Base64UrlEncode(Encoding.UTF8.GetBytes($$"""
+        {"token_type":"{{tokenType}}","exp":{{exp}},"user_id":{{userId}},"auth_token_version":{{authTokenVersion}}}
+        """));
+        var signature = Base64UrlEncode(HmacSha256($"{header}.{payload}", signingKey));
+        return $"{header}.{payload}.{signature}";
+    }
+
     private static byte[] HmacSha256(string msg, string signingKey)
     {
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(signingKey));
         return hmac.ComputeHash(Encoding.ASCII.GetBytes(msg));
+    }
+
+    private static string Base64UrlEncode(byte[] input)
+    {
+        return Convert.ToBase64String(input)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
     }
 
     private static byte[] Base64UrlDecode(string input)
