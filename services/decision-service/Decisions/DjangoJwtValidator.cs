@@ -1,4 +1,3 @@
-using System.ComponentModel.DataAnnotations;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -9,7 +8,7 @@ public sealed record DecisionJwtPrincipal(int UserId, int AuthTokenVersion);
 
 public sealed class DjangoJwtValidator
 {
-    private string _signingKey;
+    private readonly string _signingKey;
     public DjangoJwtValidator(IConfiguration configuration)
     {
         var signingKey = configuration["DJANGO_JWT_SIGNING_KEY"]
@@ -35,15 +34,20 @@ public sealed class DjangoJwtValidator
             return null;
         }
 
-        var header = ReadJson(parts[0]);
-        var payload = ReadJson(parts[1]);
+        using var header = ReadJson(parts[0]);
+        using var payload = ReadJson(parts[1]);
         if (header is null || payload is null)
+        {
+            return null;
+        }
+        if (header.RootElement.ValueKind != JsonValueKind.Object 
+            || payload.RootElement.ValueKind != JsonValueKind.Object)
         {
             return null;
         }
 
         if (!header.RootElement.TryGetProperty("alg", out var alg) 
-            || ValueKindString(alg)
+            || !ValueKindString(alg)
             || alg.GetString() != "HS256")
         {
             return null;
@@ -56,7 +60,7 @@ public sealed class DjangoJwtValidator
         {
             actual = Base64UrlDecode(parts[2]);
         }
-        catch
+        catch (FormatException)
         {
             return null;
         }
@@ -93,46 +97,56 @@ public sealed class DjangoJwtValidator
         }
 
         int userId;
-        try
+        if (ValueKindString(userIdElement))
         {
-            userId = ValueKindString(userIdElement)
-                ? int.Parse(userIdElement.GetString()!)
-                : userIdElement.GetInt32();
+            if (!int.TryParse(userIdElement.GetString(), out userId))
+                return null;
         }
-        catch (FormatException)
+        else if (ValueKindNumber(userIdElement))
+        {
+            if (!userIdElement.TryGetInt32(out userId))
+                return null;
+        }
+        else
         {
             return null;
         }
 
-        var authTokenVersion = payload.RootElement.TryGetProperty("auth_token_version", out var versionElement)
-            ? (versionElement.TryGetInt32(out int authToken)? authToken : 0)
-            : 0;
+        int authTokenVersion = 0;
+        if (payload.RootElement.TryGetProperty("auth_token_version", out var versionElement))
+        {
+            if (ValueKindNumber(versionElement))
+            {
+                if (!versionElement.TryGetInt32(out authTokenVersion))
+                {
+                    return null;
+                }
+            } 
+            else if (ValueKindString(versionElement))
+            {
+                if (!int.TryParse(versionElement.GetString(), out authTokenVersion))
+                {
+                    return null;
+                }
+            }
+            else
+            {
+                return null;
+            }  
+        }
+        
 
         return new DecisionJwtPrincipal(userId, authTokenVersion);
     }
 
-    public static string CreateSignedTokenForTests(
-        string signingKey,
-        int userId,
-        int authTokenVersion = 0,
-        DateTimeOffset? expiresAt = null,
-        string tokenType = "access"
-    )
-    {
-        var header = Base64UrlEncode(Encoding.UTF8.GetBytes("""{"alg":"HS256","typ":"JWT"}"""));
-        var exp = (expiresAt ?? DateTimeOffset.UtcNow.AddHours(1)).ToUnixTimeSeconds();
-        var payload = Base64UrlEncode(Encoding.UTF8.GetBytes($$"""
-        {"token_type":"{{tokenType}}","exp":{{exp}},"user_id":{{userId}},"auth_token_version":{{authTokenVersion}}}
-        """));
-        var signature = Base64UrlEncode(HmacSha256($"{header}.{payload}", signingKey));
-        return $"{header}.{payload}.{signature}";
-    }
 
     private static JsonDocument? ReadJson(string base64Url)
     {
         try
         {
-            return JsonDocument.Parse(Base64UrlDecode(base64Url));
+            var raw = Base64UrlDecode(base64Url);
+            string result = Encoding.UTF8.GetString(raw);
+            return JsonDocument.Parse(raw);
         }
         catch (JsonException)
         {
@@ -144,10 +158,10 @@ public sealed class DjangoJwtValidator
         }
     }
 
-    private static byte[] HmacSha256(string payload, string signingKey)
+    private static byte[] HmacSha256(string msg, string signingKey)
     {
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(signingKey));
-        return hmac.ComputeHash(Encoding.ASCII.GetBytes(payload));
+        return hmac.ComputeHash(Encoding.ASCII.GetBytes(msg));
     }
 
     private static byte[] Base64UrlDecode(string input)
@@ -157,11 +171,4 @@ public sealed class DjangoJwtValidator
         return Convert.FromBase64String(padded);
     }
 
-    private static string Base64UrlEncode(byte[] input)
-    {
-        return Convert.ToBase64String(input)
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
-    }
 }

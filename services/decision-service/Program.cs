@@ -34,6 +34,9 @@ else
 
 var app = builder.Build();
 
+// Fail at start if environment variables are not set
+_ = app.Services.GetRequiredService<DjangoJwtValidator>();
+
 app.MapHealthChecks("/health");
 app.MapControllers();
 
