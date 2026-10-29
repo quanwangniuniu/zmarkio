@@ -225,7 +225,6 @@ describe('batch persistence atomicity', () => {
       projectId: fixture.projectA,
       slug: `atomic-${batchId}-${index}`,
     }));
-    // cta is varchar(64), so the database rejects row 3.
     rows[2].cta = 'X'.repeat(65);
 
     await expect(insertVariations(fixture.schema, rows)).rejects.toThrow();
