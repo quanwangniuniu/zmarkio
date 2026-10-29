@@ -11,6 +11,20 @@ builder.Services
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
 builder.Services.AddHealthChecks();
+
+builder.Services.AddOptions<DjangoJwtOptions>()
+    .Configure(options =>
+    {
+        options.SigningKey =
+            builder.Configuration["DJANGO_JWT_SIGNING_KEY"]
+            ?? builder.Configuration["SECRET_KEY"];
+    })
+    .Validate(
+        options => !string.IsNullOrWhiteSpace(options.SigningKey),
+        "Django JWT signing key or secret key is not configured."
+    )
+    .ValidateOnStart();
+
 builder.Services.AddSingleton<DjangoJwtValidator>();
 builder.Services.AddScoped<IDecisionAccessService, JwtDecisionAccessService>();
 
