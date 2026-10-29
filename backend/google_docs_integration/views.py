@@ -1,13 +1,24 @@
+import logging
 import re
 import requests
 from django.conf import settings
-from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404, redirect
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from decision.models import Decision
 from core.services.oauth_state import OAuthStateExpired, OAuthStateInvalid, create_oauth_state, validate_oauth_state
+from core.slug_mixins import resolve_lookup_kwargs
+from spreadsheet.access import get_accessible_spreadsheet_or_404
+from spreadsheet.import_diff import diff_sheet
+from spreadsheet.models import Sheet, SheetImportSource
+from .google_sheets_patch_export import (
+    GoogleBlankTabCleanupError,
+    GooglePatchExportError,
+    export_copied_google_sheet,
+    export_converted_excel_sheet
+)
 from .models import GoogleDocsConnection
 from .serializers import (
     GoogleDocsConnectSerializer,
@@ -30,11 +41,11 @@ from .services import (
     run_google_api_with_token_retry,
 )
 
-GOOGLE_SHEET_URL_ID_REGEX = re.compile(r'/spreadsheets/(?:u/\d+/)?d/([a-zA-Z0-9_-]+)', re.IGNORECASE)
+logger = logging.getLogger(__name__)
 
+GOOGLE_SHEET_URL_ID_REGEX = re.compile(r'/spreadsheets/(?:u/\d+/)?d/([a-zA-Z0-9_-]+)', re.IGNORECASE)
 GOOGLE_DOCS_STATE_SALT = "google-docs-oauth-state"
 GOOGLE_DOCS_STATE_MAX_AGE_SECONDS = 600
-
 
 def _build_oauth_state(user) -> str:
     return create_oauth_state(
@@ -327,7 +338,7 @@ class GoogleSheetsImportView(APIView):
         spreadsheet_id = match.group(1) if match else sheet_url.strip()
 
         try:
-            title, matrix = run_google_api_with_token_retry(
+            payload = run_google_api_with_token_retry(
                 connection, lambda token: fetch_google_sheet(spreadsheet_id, token)
             )
         except requests.HTTPError as exc:
@@ -337,7 +348,19 @@ class GoogleSheetsImportView(APIView):
                 {"error": "Google Sheets service is temporarily unavailable. Please try again."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return Response({"title": title, "matrix": matrix}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "title": payload["title"],
+                "matrix": payload["matrix"],
+                "cells": payload["cells"],
+                "default_font_size": payload["default_font_size"],
+                # NEW
+                "google_spreadsheet_id": payload["google_spreadsheet_id"],
+                "google_sheet_id": payload["google_sheet_id"],
+                "worksheet_name": payload["worksheet_name"],
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class GoogleSheetsExportView(APIView):
@@ -352,11 +375,107 @@ class GoogleSheetsExportView(APIView):
 
         title = serializer.validated_data.get("title") or "Exported Sheet"
         matrix = serializer.validated_data.get("matrix") or []
+        formats = serializer.validated_data.get("formats") or []    
+        spreadsheet_lookup = (serializer.validated_data.get("spreadsheet_id") or "").strip()
+        sheet_id = serializer.validated_data.get("sheet_id")
 
-        try:
-            result = run_google_api_with_token_retry(
-                connection, lambda token: export_to_google_sheet(title, matrix, token)
+        def rebuild():
+            return run_google_api_with_token_retry(
+                connection,
+                lambda token: export_to_google_sheet(title, matrix, token, formats),
             )
+        try:
+            result = None
+            if spreadsheet_lookup and sheet_id is not None:
+                spreadsheet = get_accessible_spreadsheet_or_404(
+                    request.user,
+                    **resolve_lookup_kwargs(spreadsheet_lookup),
+                )
+                sheet = get_object_or_404(
+                    Sheet,
+                    id=sheet_id,
+                    spreadsheet=spreadsheet,
+                    is_deleted=False,
+                )
+                source = (
+                    SheetImportSource.objects.filter(
+                        sheet=sheet,
+                        is_deleted=False,
+                        origin=SheetImportSource.Origin.GOOGLE,
+                    ).first()
+                )
+                source_spreadsheet_id = (source.google_spreadsheet_id or "").strip() if source else ""
+                if source is not None and source_spreadsheet_id and source.google_sheet_id is not None:
+                    diff = diff_sheet(source)
+                    if not diff["requires_rebuild"]:
+                        try:
+                            result = run_google_api_with_token_retry(
+                                connection,
+                                lambda token: export_copied_google_sheet(
+                                    source,
+                                    diff,
+                                    title,
+                                    token,
+                                ),
+                            )
+                        except GoogleBlankTabCleanupError:
+                            logger.exception(
+                                "Google copied-sheet finalization failed for sheet_id=%s source_id=%s",
+                                sheet.id,
+                                source.id,
+                            )
+                            return Response(
+                                    {"error": "Google Sheets export could not be finished. Please try again."},
+                                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                                )
+                        except GooglePatchExportError:
+                            logger.exception(
+                                "Google copy failed for sheet_id=%s source_id=%s",
+                                sheet.id,
+                                source.id,
+                            )
+                            result = rebuild()
+                if result is None:
+                    excel_source = (
+                        SheetImportSource.objects.filter(
+                            sheet=sheet,
+                            is_deleted=False,
+                            origin=SheetImportSource.Origin.EXCEL,
+                        ).first()
+                    )
+                    if excel_source is not None and excel_source.file:
+                        diff = diff_sheet(excel_source)
+                        if not diff["requires_rebuild"]:
+                            try:
+                                result = run_google_api_with_token_retry(
+                                    connection,
+                                    lambda token: export_converted_excel_sheet(
+                                        excel_source,
+                                        diff,
+                                        title,
+                                        token,
+                                    ),
+                                )
+                            except GoogleBlankTabCleanupError:
+                                logger.exception(
+                                    "Excel conversion cleanup failed for sheet_id=%s source_id=%s",
+                                    sheet.id,
+                                    excel_source.id,
+                                )
+                                return Response(
+                                    {"error": "Google Sheets export could not be finished. Please try again."},
+                                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                                )
+                            except GooglePatchExportError:
+                                logger.exception(
+                                    "Excel conversion failed for sheet_id=%s source_id=%s",
+                                    sheet.id,
+                                    excel_source.id,
+                                )
+                                result = rebuild()
+                            
+            if result is None:
+                result = rebuild()
         except requests.HTTPError as exc:
             return _google_api_error_response(exc)
         except requests.RequestException:

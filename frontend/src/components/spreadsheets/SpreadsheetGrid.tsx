@@ -26,7 +26,9 @@ import { adjustFormulaReferences, colLabelToIndex } from '@/lib/spreadsheet/form
 import { ApplyHighlightParams } from '@/types/patterns';
 import BrandSelect from '@/components/ui/BrandSelect';
 import type { SheetPresenceUser } from '@/lib/sheetSocketStore';
-import { create } from 'node:domain';
+import { parseSheetStyles } from '@/components/spreadsheets/xlsx_style_import'; 
+import { mapGoogleSheetStyles } from '@/components/spreadsheets/google_sheet_style_import';
+import { buildGoogleSheetExport, type AppCellFormat, type ExportCell, type ExportHighlight } from '@/components/spreadsheets/google_sheet_style_export';
 import {
   isTriggerMeaningfullyVisible,
   placeMenuInViewport,
@@ -737,6 +739,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
   const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
   const [xlsxImport, setXlsxImport] = useState<XLSXParseResult | null>(null);
   const [selectedXlsxSheet, setSelectedXlsxSheet] = useState<string>('');
+  const [xlsxImportFile, setXlsxImportFile] = useState<File | null>(null);    // added - stores the file to the backend for openpyxl to inspect its styling
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportMenuAnchor, setExportMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
   const [sheetsImportModalOpen, setSheetsImportModalOpen] = useState(false);
@@ -1550,6 +1553,54 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     }
   }, [sheetId]);
 
+  const reloadSheetDecorations = useCallback(async () => {
+    try {
+      const [highlightResponse, formatResponse] = await Promise.all([
+        SpreadsheetAPI.getHighlights(spreadsheetId, sheetId),
+        SpreadsheetAPI.getCellFormats(spreadsheetId, sheetId),
+      ]);
+      const cells = new Map<CellKey, string>();
+      const rows: Record<number, string> = {};
+      const cols: Record<number, string> = {};
+      highlightResponse.highlights.forEach((highlight) => {
+        if (highlight.scope === 'CELL' && highlight.row_index != null && highlight.col_index != null) {
+          cells.set(getCellKey(highlight.row_index, highlight.col_index), highlight.color);
+        } else if (highlight.scope === 'ROW' && highlight.row_index != null) {
+          rows[highlight.row_index] = highlight.color;
+        } else if (highlight.scope === 'COLUMN' && highlight.col_index != null) {
+          cols[highlight.col_index] = highlight.color;
+        }
+      });
+      setCellHighlightsBySheet((prev) => ({ ...prev, [sheetId]: cells }));
+      setRowHighlightsBySheet((prev) => ({ ...prev, [sheetId]: rows }));
+      setColHighlightsBySheet((prev) => ({ ...prev, [sheetId]: cols }));
+  
+      const map = new Map<CellKey, CellFormat>();
+      formatResponse.formats.forEach((f) => {
+        const nf = f.number_format;
+        map.set(getCellKey(f.row_index, f.column_index), {
+          bold: f.bold,
+          italic: f.italic,
+          strikethrough: f.strikethrough,
+          textColor: f.text_color ?? null,
+          fontFamily: f.font_family ?? null,
+          fontSize: f.font_size ?? null,
+          numberFormat:
+            nf && nf.type
+              ? {
+                  type: nf.type as NumberFormatType,
+                  currencyCode: nf.currency_code ?? null,
+                  decimalPlaces: nf.decimal_places ?? null,
+                }
+              : null,
+        });
+      });
+      setCellFormatsBySheet((prev) => ({ ...prev, [sheetId]: map }));
+    } catch (error) {
+      console.error('Failed to reload sheet decorations:', error);
+    }
+  }, [spreadsheetId, sheetId]);
+
   useEffect(() => {
     if (isGridLoading) return;
     let cancelled = false;
@@ -1783,20 +1834,36 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
   }, [addRowsInputValue, rowCount, colCount, resizeGrid]);
 
   const handleInsertRow = useCallback(
-    async (position: number, count: number = 1) => {
+    async (position: number, count: number = 1, preserveRedo: boolean = false) => {
       if (rowCount + count > MAX_ROWS) {
+        if (preserveRedo) {
+          throw new Error('Row limit reached');
+        }
         toast.error('Row limit reached');
         return;
       }
-
+  
+      let response;
       try {
-        const response = await SpreadsheetAPI.insertRows(spreadsheetId, sheetId, position, count);
-        const nextRowCount = rowCount + count;
-        setRowCount(nextRowCount);
-        dimensionsCache.set(sheetId, { rowCount: nextRowCount, colCount });
-        setUndoStack((prev) => [...prev, { type: 'structure', op: { id: response.operation_id, type: 'row_insert', count, position } }]);
+        response = await SpreadsheetAPI.insertRows(spreadsheetId, sheetId, position, count);
+      } catch (error: any) {
+        console.error('Failed to insert row:', error);
+        if (preserveRedo) {
+          throw error;
+        }
+        toast.error('Failed to insert row');
+        return;
+      }
+  
+      const nextRowCount = rowCount + count;
+      setRowCount(nextRowCount);
+      dimensionsCache.set(sheetId, { rowCount: nextRowCount, colCount });
+      setUndoStack((prev) => [...prev, { type: 'structure', op: { id: response.operation_id, type: 'row_insert', count, position } }]);
+      if (!preserveRedo) {
         setRedoStack([]);
-        resetSheetCaches();
+      }
+      resetSheetCaches();
+      try {
         await loadCellRange(
           visibleRange.startRow,
           visibleRange.endRow,
@@ -1804,21 +1871,29 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
           visibleRange.endCol,
           true
         );
+        await reloadSheetDecorations();
       } catch (error: any) {
-        console.error('Failed to insert row:', error);
-        toast.error('Failed to insert row');
+        console.error('Failed to refresh after inserting row:', error);
+        toast.error('Row inserted, but the grid could not refresh. Reload the sheet.');
+        if (preserveRedo) {
+          throw Object.assign(new Error('refresh failed'), { structureCommitted: true });
+        }
       }
     },
-    [rowCount, colCount, spreadsheetId, sheetId, resetSheetCaches, loadCellRange, visibleRange]
+    [rowCount, colCount, spreadsheetId, sheetId, resetSheetCaches, loadCellRange, visibleRange, reloadSheetDecorations]
   );
 
   const handleInsertColumn = useCallback(
-    async (position: number, count: number = 1) => {
+    async (position: number, count: number = 1, preserveRedo: boolean = false) => {
       if (colCount + count > MAX_COLUMNS) {
+        if (preserveRedo) {
+          throw new Error('Column limit reached');
+        }
         toast.error('Column limit reached');
         return;
       }
-
+  
+      let response;
       try {
         // Ensure backend has at least `position` columns (insert at position needs columns 0..position-1 to exist)
         const minColsNeeded = position;
@@ -1828,13 +1903,25 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
           setColCount(targetCols);
           dimensionsCache.set(sheetId, { rowCount, colCount: targetCols });
         }
-        const response = await SpreadsheetAPI.insertColumns(spreadsheetId, sheetId, position, count);
-        const nextColCount = colCount + count;
-        setColCount(nextColCount);
-        dimensionsCache.set(sheetId, { rowCount, colCount: nextColCount });
-        setUndoStack((prev) => [...prev, { type: 'structure', op: { id: response.operation_id, type: 'col_insert', count, position } }]);
+        response = await SpreadsheetAPI.insertColumns(spreadsheetId, sheetId, position, count);
+      } catch (error: any) {
+        console.error('Failed to insert column:', error);
+        if (preserveRedo) {
+          throw error;
+        }
+        toast.error('Failed to insert column');
+        return;
+      }
+  
+      const nextColCount = colCount + count;
+      setColCount(nextColCount);
+      dimensionsCache.set(sheetId, { rowCount, colCount: nextColCount });
+      setUndoStack((prev) => [...prev, { type: 'structure', op: { id: response.operation_id, type: 'col_insert', count, position } }]);
+      if (!preserveRedo) {
         setRedoStack([]);
-        resetSheetCaches();
+      }
+      resetSheetCaches();
+      try {
         await loadCellRange(
           visibleRange.startRow,
           visibleRange.endRow,
@@ -1842,12 +1929,16 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
           visibleRange.endCol,
           true
         );
+        await reloadSheetDecorations();
       } catch (error: any) {
-        console.error('Failed to insert column:', error);
-        toast.error('Failed to insert column');
+        console.error('Failed to refresh after inserting column:', error);
+        toast.error('Column inserted, but the grid could not refresh. Reload the sheet.');
+        if (preserveRedo) {
+          throw Object.assign(new Error('refresh failed'), { structureCommitted: true });
+        }
       }
     },
-    [rowCount, colCount, spreadsheetId, sheetId, resetSheetCaches, loadCellRange, visibleRange]
+    [rowCount, colCount, spreadsheetId, sheetId, resetSheetCaches, loadCellRange, visibleRange, reloadSheetDecorations]
   );
 
   const openHeaderMenu = useCallback(
@@ -1858,20 +1949,41 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
   );
 
   const handleDeleteRow = useCallback(
-    async (position: number, count: number = 1) => {
+    async (position: number, count: number = 1, preserveRedo: boolean = false) => {
       if (rowCount - count < 0) {
+        if (preserveRedo) {
+          throw new Error('Row limit reached');
+        }
         toast.error('Row limit reached');
         return;
       }
-
+  
+      let response;
       try {
-        const response = await SpreadsheetAPI.deleteRows(spreadsheetId, sheetId, position, count);
-        const nextRowCount = Math.max(0, rowCount - count);
-        setRowCount(nextRowCount);
-        dimensionsCache.set(sheetId, { rowCount: nextRowCount, colCount });
-        setUndoStack((prev) => [...prev, { type: 'structure', op: { id: response.operation_id, type: 'row_delete', count, position } }]);
+        response = await SpreadsheetAPI.deleteRows(spreadsheetId, sheetId, position, count);
+      } catch (error: any) {
+        console.error('Failed to delete row:', error);
+        if (preserveRedo) {
+          throw error;
+        }
+        const msg =
+          error?.response?.data?.error ||
+          error?.response?.data?.detail ||
+          error?.message ||
+          'Delete failed.';
+        toast.error(msg);
+        return;
+      }
+  
+      const nextRowCount = Math.max(0, rowCount - count);
+      setRowCount(nextRowCount);
+      dimensionsCache.set(sheetId, { rowCount: nextRowCount, colCount });
+      setUndoStack((prev) => [...prev, { type: 'structure', op: { id: response.operation_id, type: 'row_delete', count, position } }]);
+      if (!preserveRedo) {
         setRedoStack([]);
-        resetSheetCaches();
+      }
+      resetSheetCaches();
+      try {
         await loadCellRange(
           Math.max(0, visibleRange.startRow - count),
           Math.max(0, visibleRange.endRow - count),
@@ -1879,35 +1991,58 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
           visibleRange.endCol,
           true
         );
-        toast.success(count === 1 ? 'Deleted row.' : 'Deleted.');
+        await reloadSheetDecorations();
       } catch (error: any) {
-        console.error('Failed to delete row:', error);
+        console.error('Failed to refresh after deleting row:', error);
+        toast.error('Row deleted, but the grid could not refresh. Reload the sheet.');
+        if (preserveRedo) {
+          throw Object.assign(new Error('refresh failed'), { structureCommitted: true });
+        }
+        return;
+      }
+      if (!preserveRedo) {
+        toast.success(count === 1 ? 'Deleted row.' : 'Deleted.');
+      }
+    },
+    [rowCount, colCount, spreadsheetId, sheetId, resetSheetCaches, loadCellRange, visibleRange, reloadSheetDecorations]
+  );
+
+  const handleDeleteColumn = useCallback(
+    async (position: number, count: number = 1, preserveRedo: boolean = false) => {
+      if (colCount - count < 0) {
+        if (preserveRedo) {
+          throw new Error('Column limit reached');
+        }
+        toast.error('Column limit reached');
+        return;
+      }
+  
+      let response;
+      try {
+        response = await SpreadsheetAPI.deleteColumns(spreadsheetId, sheetId, position, count);
+      } catch (error: any) {
+        console.error('Failed to delete column:', error);
+        if (preserveRedo) {
+          throw error;
+        }
         const msg =
           error?.response?.data?.error ||
           error?.response?.data?.detail ||
           error?.message ||
           'Delete failed.';
         toast.error(msg);
-      }
-    },
-    [rowCount, colCount, spreadsheetId, sheetId, resetSheetCaches, loadCellRange, visibleRange]
-  );
-
-  const handleDeleteColumn = useCallback(
-    async (position: number, count: number = 1) => {
-      if (colCount - count < 0) {
-        toast.error('Column limit reached');
         return;
       }
-
-      try {
-        const response = await SpreadsheetAPI.deleteColumns(spreadsheetId, sheetId, position, count);
-        const nextColCount = Math.max(0, colCount - count);
-        setColCount(nextColCount);
-        dimensionsCache.set(sheetId, { rowCount, colCount: nextColCount });
-        setUndoStack((prev) => [...prev, { type: 'structure', op: { id: response.operation_id, type: 'col_delete', count, position } }]);
+  
+      const nextColCount = Math.max(0, colCount - count);
+      setColCount(nextColCount);
+      dimensionsCache.set(sheetId, { rowCount, colCount: nextColCount });
+      setUndoStack((prev) => [...prev, { type: 'structure', op: { id: response.operation_id, type: 'col_delete', count, position } }]);
+      if (!preserveRedo) {
         setRedoStack([]);
-        resetSheetCaches();
+      }
+      resetSheetCaches();
+      try {
         await loadCellRange(
           visibleRange.startRow,
           visibleRange.endRow,
@@ -1915,18 +2050,20 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
           Math.max(0, visibleRange.endCol - count),
           true
         );
-        toast.success(count === 1 ? 'Deleted column.' : 'Deleted.');
+        await reloadSheetDecorations();
       } catch (error: any) {
-        console.error('Failed to delete column:', error);
-        const msg =
-          error?.response?.data?.error ||
-          error?.response?.data?.detail ||
-          error?.message ||
-          'Delete failed.';
-        toast.error(msg);
+        console.error('Failed to refresh after deleting column:', error);
+        toast.error('Column deleted, but the grid could not refresh. Reload the sheet.');
+        if (preserveRedo) {
+          throw Object.assign(new Error('refresh failed'), { structureCommitted: true });
+        }
+        return;
+      }
+      if (!preserveRedo) {
+        toast.success(count === 1 ? 'Deleted column.' : 'Deleted.');
       }
     },
-    [rowCount, colCount, spreadsheetId, sheetId, resetSheetCaches, loadCellRange, visibleRange]
+    [rowCount, colCount, spreadsheetId, sheetId, resetSheetCaches, loadCellRange, visibleRange, reloadSheetDecorations]
   );
 
   const selectRow = useCallback(
@@ -2112,6 +2249,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
           visibleRange.endCol,
           true
         );
+        await reloadSheetDecorations();
       } catch (error: any) {
         console.error('Failed to revert operation:', error);
         toast.error('Failed to undo');
@@ -2120,7 +2258,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         setIsReverting(false);
       }
     },
-    [isReverting, spreadsheetId, sheetId, rowCount, colCount, resetSheetCaches, loadCellRange, visibleRange]
+    [isReverting, spreadsheetId, sheetId, rowCount, colCount, resetSheetCaches, loadCellRange, visibleRange, reloadSheetDecorations]
   );
 
   const applyUndoColor = useCallback((entry: ColorHistoryEntry) => {
@@ -3258,17 +3396,20 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       const entry = last.entry;
       try {
         if (entry.type === 'row_insert') {
-          await handleInsertRow(entry.position, entry.count);
+          await handleInsertRow(entry.position, entry.count, true);
         } else if (entry.type === 'col_insert') {
-          await handleInsertColumn(entry.position, entry.count);
+          await handleInsertColumn(entry.position, entry.count, true);
         } else if (entry.type === 'row_delete') {
-          await handleDeleteRow(entry.position, entry.count);
+          await handleDeleteRow(entry.position, entry.count, true);
         } else if (entry.type === 'col_delete') {
-          await handleDeleteColumn(entry.position, entry.count);
+          await handleDeleteColumn(entry.position, entry.count, true);
         }
         toast.success('Redo complete');
       } catch (error: any) {
         console.error('Failed to redo structure:', error);
+        if (error?.structureCommitted) {
+          return;
+        }
         toast.error('Failed to redo');
         setRedoStack((prev) => [...prev, last]);
       }
@@ -4508,7 +4649,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     async (matrix: string[][]) => {
       if (!matrix.length) {
         toast.error('Import file is empty');
-        return;
+        return false;
       }
 
       setHydrationStatus('importing');
@@ -4535,7 +4676,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       });
       if (!operations.length) {
         toast.error('No non-empty cells found to import');
-        return;
+        return false;
       }
 
       // Calculate required dimensions (1-based to 0-based conversion: maxRow/maxCol are already 0-based from buildCellOperations)
@@ -4545,11 +4686,11 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       // Check if import exceeds max limits
       if (requiredRows > MAX_ROWS) {
         toast.error(`Import requires ${requiredRows} rows, but maximum is ${MAX_ROWS}. Please split the file.`);
-        return;
+        return false;
       }
       if (requiredCols > MAX_COLUMNS) {
         toast.error(`Import requires ${requiredCols} columns, but maximum is ${MAX_COLUMNS}. Please split the file.`);
-        return;
+        return false;
       }
 
       // Step 1: update the grid's local dimensions synchronously so optimistic apply
@@ -4562,7 +4703,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       );
       if (wasClamped) {
         toast.error('Failed to resize grid for import');
-        return;
+        return false;
       }
 
       // Step 2: record the reverse history entry (prev -> next) so the user can undo,
@@ -4643,7 +4784,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         }
         importAbortControllerRef.current = null;
         toast.error('Failed to resize grid for import');
-        return;
+        return false;
       }
 
       // Error reporting strategy:
@@ -4744,6 +4885,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
           }
         }
         importAbortControllerRef.current = null;
+        return true;
       } catch (error: any) {
         importAbortControllerRef.current = null;
         setHydrationStatus('ready');
@@ -4784,7 +4926,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
               true
             );
             // Return successfully - caller will show success toast
-            return;
+            return true;
           } else {
             // Import didn't succeed, show network error
             console.log('[Import] Reconciliation failed - import did not complete');
@@ -4820,6 +4962,62 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     ]
   );
 
+  const applyImportedStyles = async (
+    formatOps: Array<{
+      row: number;
+      column: number;
+      bold: boolean;
+      italic: boolean;
+      strikethrough: boolean;
+      text_color: string | null;
+      font_family: string | null;
+      font_size: number | null;
+      number_format: { type?: NumberFormatType; currency_code?: string | null; decimal_places?: number | null } | null;
+    }>,
+    highlightOps: Array<{ scope: 'CELL'; operation: 'SET'; row: number; col: number; color: string }>,
+  ) => {
+    // save the imported cell formating to the backend for both the format and highlight
+    for (let i = 0; i < formatOps.length; i += 2000) {
+      await SpreadsheetAPI.batchUpdateCellFormats(spreadsheetId, sheetId, formatOps.slice(i, i + 2000));
+    }
+    for (let i = 0; i < highlightOps.length; i += 2000) {
+      await SpreadsheetAPI.batchUpdateHighlights(spreadsheetId, sheetId, highlightOps.slice(i, i + 2000));
+    }
+    
+    // reflect the new cell formating to frontend/local state for both format and highlight
+    if (formatOps.length) {
+      setCellFormatsBySheet((prev) => {
+        const next = new Map(prev[sheetId] ?? new Map());
+        for (const op of formatOps) {
+          const nf = op.number_format;
+          next.set(getCellKey(op.row, op.column), {
+            bold: op.bold,
+            italic: op.italic,
+            strikethrough: op.strikethrough,
+            textColor: op.text_color,
+            fontFamily: op.font_family,
+            fontSize: op.font_size,
+            numberFormat: nf?.type
+              ? { type: nf.type, currencyCode: nf.currency_code ?? null, decimalPlaces: nf.decimal_places ?? null }
+              : null,
+          });
+        }
+        return { ...prev, [sheetId]: next };
+      });
+    }
+  
+    if (highlightOps.length) {
+      setCellHighlightsBySheet((prev) => {
+        const next = new Map(prev[sheetId] ?? new Map());
+        for (const op of highlightOps) {
+          next.set(getCellKey(op.row, op.col), op.color);
+        }
+        return { ...prev, [sheetId]: next };
+      });
+    }
+  };
+
+
   const handleFileChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
@@ -4854,14 +5052,34 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         }
 
         if (parsed.sheetNames.length === 1) {
-          const matrix = parsed.sheets[parsed.sheetNames[0]] || [];
-          await runImportMatrix(matrix);
+          const sheetname = parsed.sheetNames[0]; 
+          // ExcelJS reads this worksheet in the browser, including values and formatting.
+          const preview = await parseSheetStyles(file, sheetname)
+          // Save the values ExcelJS extracted.
+          const imported = await runImportMatrix(preview.matrix);
+          if (!imported) return;
+          // Save the formatting and highlights ExcelJS extracted.
+          await applyImportedStyles(preview.format_ops, preview.highlight_ops);
+          try {
+            // NEW: file is still the local argument; this path never uses xlsxImportFile
+            await SpreadsheetAPI.saveExcelImportSource(spreadsheetId, sheetId, file, sheetname);
+          } catch (sourceError) {
+            console.error('[Import] Source save failed:', sourceError);
+            // toast('Import complete, but the original Excel file was not stored. Export will rebuild from the web sheet.');
+            // return;
+          }
           toast.success('Import complete');
           return;
         }
 
+        // Several worksheets: keep the names for the picker.
         setXlsxImport(parsed);
+        // Keep the file until the user picks a worksheet. ExcelJS reads it in the browser after they confirm.
+        setXlsxImportFile(file);  // added 
+        // Start the picker on the first worksheet.
         setSelectedXlsxSheet(parsed.sheetNames[0]);
+
+
       } catch (error: any) {
         if (error?.name === 'AbortError') return;
         // If error has response, or is timeout/network (no response), runImportMatrix already showed a toast
@@ -4884,21 +5102,39 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         e.target.value = '';
       }
     },
-    [runImportMatrix, parseImportError]
+    [runImportMatrix, parseImportError, spreadsheetId, sheetId]
   );
 
   const handleConfirmXlsxImport = useCallback(async () => {
-    if (!xlsxImport || !selectedXlsxSheet) {
+    if (!xlsxImportFile || !selectedXlsxSheet) {
       return;
-    }
+    }   
 
-    const matrix = xlsxImport.sheets[selectedXlsxSheet] || [];
     try {
       setIsImporting(true);
       setImportProgress({ current: 0, total: 0 });
-      await runImportMatrix(matrix);
+      const preview = await parseSheetStyles(xlsxImportFile, selectedXlsxSheet);
+      // Save the values ExcelJS extracted from the chosen worksheet.
+      const imported = await runImportMatrix(preview.matrix);
+      if (!imported) return;
+      // Save the formatting and highlights ExcelJS extracted.
+      await applyImportedStyles(preview.format_ops, preview.highlight_ops); // added save the cell formating that openpyxl found
+      try {
+        // NEW: xlsxImportFile is cleared only after this attempt
+        await SpreadsheetAPI.saveExcelImportSource(
+          spreadsheetId,
+          sheetId,
+          xlsxImportFile,
+          selectedXlsxSheet,
+        );
+        // toast.success('Import complete');
+      } catch (sourceError) {
+        console.error('[Import] Source save failed:', sourceError);
+        // toast('Import complete, but the original Excel file was not stored. Export will rebuild from the web sheet.');
+      }
       toast.success('Import complete');
       setXlsxImport(null);
+      setXlsxImportFile(null); 
       setSelectedXlsxSheet('');
     } catch (error: any) {
       if (error?.name === 'AbortError') {
@@ -4917,11 +5153,12 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       setIsImporting(false);
       setImportProgress(null);
     }
-  }, [xlsxImport, selectedXlsxSheet, runImportMatrix, parseImportError]);
+  }, [xlsxImport, xlsxImportFile, selectedXlsxSheet, runImportMatrix, parseImportError, spreadsheetId, sheetId]);
 
   const handleCancelXlsxImport = useCallback(() => {
     importAbortControllerRef.current?.abort();
     setXlsxImport(null);
+    setXlsxImportFile(null);
     setSelectedXlsxSheet('');
   }, []);
 
@@ -4930,12 +5167,29 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     if (!url) return;
     setSheetsImportLoading(true);
     try {
-      const { matrix } = await googleDocsApi.importFromGoogleSheets(url);
+      const imported = await googleDocsApi.importFromGoogleSheets(url);
+      const preview = mapGoogleSheetStyles(imported); 
       setSheetsImportModalOpen(false);
       setSheetsImportUrl('');
       setIsImporting(true);
       setImportProgress({ current: 0, total: 0 });
-      await runImportMatrix(matrix);
+      const importedOk = await runImportMatrix(preview.matrix);
+      if (!importedOk) return;
+      await applyImportedStyles(preview.format_ops, preview.highlight_ops); // added save the cell formating that google sheets found
+      try {
+        if (imported.google_spreadsheet_id && imported.google_sheet_id != null && imported.worksheet_name) {
+          await SpreadsheetAPI.saveGoogleImportSource(spreadsheetId, sheetId, {
+            google_spreadsheet_id: imported.google_spreadsheet_id,
+            google_sheet_id: imported.google_sheet_id,
+            worksheet_name: imported.worksheet_name,
+            source_url: url,
+          });
+        } else {
+          console.error('[Import] Google source ids were missing from the import response.');
+        }
+      } catch (sourceError) {
+        console.error('[Import] Google source save failed:', sourceError);
+      }
       toast.success('Google Sheets import complete');
     } catch (err: any) {
       const msg = err?.response?.data?.error || 'Google Sheets import failed. Please try again.';
@@ -4945,14 +5199,68 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       setIsImporting(false);
       setImportProgress(null);
     }
-  }, [sheetsImportUrl, runImportMatrix]);
+  }, [sheetsImportUrl, runImportMatrix, spreadsheetId, sheetId]);
 
   const handleExportGoogleSheets = useCallback(async () => {
-    const matrix = buildUsedRangeMatrix();
+    const exportCells: ExportCell[] = [];
+    cells.forEach((cell, key) => {
+      if (!cell.rawInput) return;
+      const { row, col } = parseCellKey(key);
+      exportCells.push({ row, column: col, raw: cell.rawInput });
+    });
+    
+    const exportFormats: Array<{ row: number; column: number; format: AppCellFormat }> = [];
+    cellFormats.forEach((format, key) => {
+      const { row, col } = parseCellKey(key);
+      exportFormats.push({
+        row,
+        column: col,
+        format: {
+          bold: format.bold,
+          italic: format.italic,
+          strikethrough: format.strikethrough,
+          textColor: format.textColor,
+          fontFamily: format.fontFamily,
+          fontSize: format.fontSize,
+          numberFormat: format.numberFormat
+            ? {
+                type: format.numberFormat.type,
+                currencyCode: format.numberFormat.currencyCode ?? null,
+                decimalPlaces: format.numberFormat.decimalPlaces ?? null,
+              }
+            : null,
+        },
+      });
+    });
+
+    const exportHighlights: ExportHighlight[] = [];
+    cellHighlights.forEach((color, key) => {
+      const { row, col } = parseCellKey(key);
+      exportHighlights.push({ scope: 'CELL', row, column: col, color });
+    });
+    Object.entries(rowHighlights).forEach(([row, color]) => {
+      exportHighlights.push({ scope: 'ROW', row: Number(row), color });
+    });
+    Object.entries(colHighlights).forEach(([column, color]) => {
+      exportHighlights.push({ scope: 'COLUMN', column: Number(column), color });
+    });
+    const { matrix, formats } = buildGoogleSheetExport({
+      cells: exportCells,
+      formats: exportFormats,
+      highlights: exportHighlights,
+    });
+    
     const title = getExportFileBaseName();
     const toastId = toast.loading('Exporting to Google Sheets...');
+
     try {
-      const result = await googleDocsApi.exportToGoogleSheets(title, matrix);
+      const result = await googleDocsApi.exportToGoogleSheets(
+        title,
+        matrix,
+        formats,
+        spreadsheetId,
+        sheetId,
+      );
       toast.dismiss(toastId);
       toast.success(
         (t) => (
@@ -4976,7 +5284,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       const msg = err?.response?.data?.error || 'Google Sheets export failed. Please try again.';
       toast.error(msg);
     }
-  }, [buildUsedRangeMatrix, getExportFileBaseName]);
+  }, [cells, cellFormats, cellHighlights, rowHighlights, colHighlights, getExportFileBaseName, spreadsheetId, sheetId]);
 
   useEffect(() => {
     if (!exportMenuOpen) return;
@@ -6907,7 +7215,9 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                               textDecoration: getCellFormat(row, col).strikethrough ? 'line-through' : undefined,
                               color: getCellFormat(row, col).textColor ?? undefined,
                               fontFamily: getCellFormat(row, col).fontFamily ?? undefined,
-                              fontSize: getCellFormat(row, col).fontSize != null ? `${getCellFormat(row, col).fontSize}px` : undefined,
+                              ...(getCellFormat(row, col).fontSize != null
+                                ? { fontSize: `${getCellFormat(row, col).fontSize}px` }
+                                : {}),
                             }}
                           >
                             {sparkline ? (
@@ -7133,7 +7443,9 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
                               textDecoration: getCellFormat(row, col).strikethrough ? 'line-through' : undefined,
                               color: getCellFormat(row, col).textColor ?? undefined,
                               fontFamily: getCellFormat(row, col).fontFamily ?? undefined,
-                              fontSize: getCellFormat(row, col).fontSize != null ? `${getCellFormat(row, col).fontSize}px` : undefined,
+                              ...(getCellFormat(row, col).fontSize != null
+                                ? { fontSize: `${getCellFormat(row, col).fontSize}px` }
+                                : {}),
                             }}
                           >
                             {sparkline ? (

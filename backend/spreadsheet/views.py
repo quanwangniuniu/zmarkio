@@ -18,8 +18,14 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.paginator import Paginator
 from django.db import transaction, IntegrityError
 from django.http import HttpResponse
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
 from .xlsx_export import build_sheet_workbook
+from google_docs_integration.models import GoogleDocsConnection
+from google_docs_integration.services import (
+    export_google_spreadsheet_xlsx,
+    run_google_api_with_token_retry,
+)
 
 from .models import (
     Spreadsheet,
@@ -37,6 +43,7 @@ from .models import (
     PivotConfig,
     SheetKind,
     UserDefinedFunction,
+    SheetImportSource,
 )
 from .serializers import (
     SpreadsheetSerializer,
@@ -70,6 +77,7 @@ from .serializers import (
     PivotConfigSerializer,
     PivotConfigCreateUpdateSerializer,
     UserDefinedFunctionSerializer,
+    SheetImportSourceCreateSerializer,
 )
 from .services import (
     SpreadsheetService, SheetService, CellService, CellBatchArgumentError,
@@ -85,6 +93,9 @@ from .access import (
     get_accessible_sheet_or_404,
     get_accessible_spreadsheet_or_404,
 )
+from .import_baseline import build_import_baseline
+from .import_diff import diff_sheet
+from .xlsx_patch_export import build_patched_workbook
 
 logger = logging.getLogger(__name__)
 
@@ -1441,6 +1452,118 @@ class SpreadsheetCellFormatBatchView(APIView):
 
         return Response({'updated': updated, 'revision': sheet.revision})
 
+class SheetImportSourceView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def post(self, request, spreadsheet_id, sheet_id):
+        spreadsheet = get_accessible_spreadsheet_or_404(
+            request.user, **resolve_lookup_kwargs(spreadsheet_id)
+        )
+        sheet = get_object_or_404(Sheet, id=sheet_id, spreadsheet=spreadsheet, is_deleted=False)
+
+        serializer = SheetImportSourceCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        origin = data['origin']
+
+        uploaded = request.FILES.get('file')
+        if origin == SheetImportSource.Origin.EXCEL:
+            if uploaded is None:
+                raise ValidationError({'file': 'An .xlsx file is required.'})
+            name = (uploaded.name or '').lower()
+            if not name.endswith('.xlsx'):
+                raise ValidationError({'file': 'Only .xlsx files can be stored.'})
+            if uploaded.size <= 0:
+                raise ValidationError({'file': 'The file is empty.'})
+        elif uploaded is not None:
+            raise ValidationError({'file': 'A Google import does not take a file.'})
+
+        defaults = {
+            'origin': origin,
+            'worksheet_name': data['worksheet_name'],
+            'is_deleted': False,
+            'original_filename': '',
+            'google_spreadsheet_id': '',
+            'google_sheet_id': None,
+            'source_url': '',
+        }
+        if origin == SheetImportSource.Origin.EXCEL:
+            defaults['original_filename'] = (uploaded.name or '')[:255]
+            defaults['file'] = uploaded
+        else:
+            defaults['google_spreadsheet_id'] = data['google_spreadsheet_id']
+            defaults['google_sheet_id'] = data['google_sheet_id']
+            defaults['source_url'] = data.get('source_url') or ''
+            defaults['file'] = None
+        
+        defaults['baseline'] = build_import_baseline(sheet)
+
+        with transaction.atomic():
+            existing = (
+                SheetImportSource.objects.select_for_update()
+                .filter(sheet=sheet)
+                .first()
+            )
+            if existing and existing.file and origin == SheetImportSource.Origin.EXCEL:
+                existing.file.delete(save=False)
+            if existing and existing.file and origin == SheetImportSource.Origin.GOOGLE:
+                existing.file.delete(save=False)
+            source, _created = SheetImportSource.objects.update_or_create(
+                sheet=sheet,
+                defaults=defaults,
+            )
+
+        return Response(
+            {
+                'id': source.id,
+                'origin': source.origin,
+                'worksheet_name': source.worksheet_name,
+                'original_filename': source.original_filename,
+                'google_spreadsheet_id': source.google_spreadsheet_id,
+                'google_sheet_id': source.google_sheet_id,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+def _google_sheet_xlsx(request, sheet, source):
+    """Export a Google-origin sheet from the original spreadsheet, then patch web edits."""
+    connection = GoogleDocsConnection.objects.filter(user=request.user, is_active=True).first()
+    if connection is None or not connection.get_access_token():
+        return build_sheet_workbook(sheet)
+    try:
+        exported, worksheet_name = run_google_api_with_token_retry(
+            connection,
+            lambda token: export_google_spreadsheet_xlsx(source, token),
+        )
+    except Exception:
+        logger.exception(
+            'Google xlsx export failed for sheet_id=%s source_id=%s',
+            sheet.id,
+            source.id,
+        )
+        return build_sheet_workbook(sheet)
+
+    diff = diff_sheet(source)
+    if diff['requires_rebuild']:
+        return build_sheet_workbook(sheet)
+    if not diff['has_changes'] and not diff.get('structural_operations'):
+        return exported
+    try:
+        return build_patched_workbook(
+            source,
+            diff,
+            workbook_bytes=exported,
+            worksheet_name=worksheet_name,
+        )
+    except Exception:
+        logger.exception(
+            'Google xlsx patch failed for sheet_id=%s source_id=%s',
+            sheet.id,
+            source.id,
+        )
+        return build_sheet_workbook(sheet)
+
 
 class SheetXlsxExportView(APIView):
     """Export a sheet to .xlsx, embedding native charts for sparkline cells (MED-295)."""
@@ -1451,17 +1574,60 @@ class SheetXlsxExportView(APIView):
             request.user, **resolve_lookup_kwargs(spreadsheet_id)
         )
         sheet = get_object_or_404(Sheet, id=sheet_id, spreadsheet=spreadsheet, is_deleted=False)
-        content = build_sheet_workbook(sheet)
+        source = (
+            SheetImportSource.objects.filter(
+                sheet=sheet,
+                is_deleted=False,
+            ).first()
+        )
+        if (
+            source is not None
+            and source.origin == SheetImportSource.Origin.EXCEL
+            and source.file
+        ):
+            diff = diff_sheet(source)
+            if diff['requires_rebuild']:
+                content = build_sheet_workbook(sheet)
+            elif not diff['has_changes'] and not diff.get('structural_operations'):
+                try:
+                    with source.file.open('rb') as handle:
+                        content = handle.read()
+                except Exception:
+                    logger.exception(
+                        'Excel source read failed for sheet_id=%s source_id=%s',
+                        sheet.id,
+                        source.id,
+                    )
+                    content = build_sheet_workbook(sheet)
+            else:
+                try:
+                    content = build_patched_workbook(source, diff)
+                except Exception:
+                    logger.exception(
+                        'Excel patch failed for sheet_id=%s source_id=%s',
+                        sheet.id,
+                        source.id,
+                    )
+                    content = build_sheet_workbook(sheet)
+        elif (
+            source is not None
+            and source.origin == SheetImportSource.Origin.GOOGLE
+            and (source.google_spreadsheet_id or '').strip()
+            and source.google_sheet_id is not None
+        ):
+            content = _google_sheet_xlsx(request, sheet, source)
+        else:
+            content = build_sheet_workbook(sheet)
         response = HttpResponse(
             content,
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
+
         # sheet.name is user-controlled: strip quotes/backslashes and control
         # chars so it can't break or inject into the Content-Disposition header.
         safe_name = re.sub(r'["\\\r\n]|[\x00-\x1f]', '', (sheet.name or 'sheet')).strip() or 'sheet'
         response['Content-Disposition'] = f'attachment; filename="{safe_name}.xlsx"'
         return response
-
 
 def _audit_nl_generation(request, sheet, event_type, *, instruction, cols, rows):
     """Record an NL->config generation request. Counts/lengths only, no content."""

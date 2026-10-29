@@ -161,6 +161,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     from spreadsheet.models import (
         Spreadsheet,
         Sheet,
+        SheetImportSource,
         PivotConfig,
         SheetRow,
         SheetColumn,
@@ -358,6 +359,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         # spreadsheet
         Spreadsheet,
         Sheet,
+        SheetImportSource,
         PivotConfig,
         SheetRow,
         SheetColumn,
