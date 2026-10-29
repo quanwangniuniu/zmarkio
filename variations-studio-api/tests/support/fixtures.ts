@@ -216,6 +216,7 @@ export async function createTestVariation(args: {
   userId: number;
   status: string;
   batchId?: string;
+  batchPosition?: number;
   sourceMode?: string;
   creativeId?: bigint;
 }): Promise<TestVariation> {
@@ -230,7 +231,7 @@ export async function createTestVariation(args: {
     modelName: 'fixture',
     promptVersion: 'fixture',
     batchId: args.batchId ?? randomUUID(),
-    batchPosition: 0,
+    batchPosition: args.batchPosition ?? 0,
     status: args.status,
     createdById: BigInt(args.userId),
     creativeId: args.creativeId ?? null,

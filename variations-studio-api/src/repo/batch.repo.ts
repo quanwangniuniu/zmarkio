@@ -8,6 +8,17 @@ import {
   type VariationRow,
 } from './internals';
 
+export type BatchSummaryRow = {
+  batchId: string;
+  createdAt: Date;
+  createdById: bigint | null;
+  sourceMode: string;
+  instruction: string;
+  modelName: string;
+  draftCount: bigint;
+  reviewedCount: bigint;
+};
+
 export async function findBatchVariations(
   schema: string,
   projectId: bigint,
@@ -31,6 +42,48 @@ export async function findLatestBatchRow(
     ORDER BY created_at DESC, id DESC
     LIMIT 1`;
   return rows[0] ?? null;
+}
+
+export async function listBatchSummaries(
+  schema: string,
+  projectId: bigint,
+  page: number,
+  pageSize: number,
+  db: SqlClient = prisma
+): Promise<BatchSummaryRow[]> {
+  const offset = (page - 1) * pageSize;
+
+  return db.$queryRaw<BatchSummaryRow[]>`
+    SELECT
+      batch_id AS "batchId",
+      MIN(created_at) AS "createdAt",
+      MIN(created_by_id) AS "createdById",
+      MIN(source_mode) AS "sourceMode",
+      MIN(instruction) AS instruction,
+      MIN(model_name) AS "modelName",
+      COUNT(*) FILTER (WHERE status = 'draft')::bigint AS "draftCount",
+      COUNT(*) FILTER (WHERE status = 'reviewed')::bigint AS "reviewedCount"
+    FROM ${table(schema)}
+    WHERE project_id = ${projectId}
+      AND batch_id IS NOT NULL
+    GROUP BY batch_id
+    ORDER BY MIN(created_at) DESC, batch_id DESC
+    OFFSET ${offset}
+    LIMIT ${pageSize}`;
+}
+
+export async function countBatchSummaries(
+  schema: string,
+  projectId: bigint,
+  db: SqlClient = prisma
+): Promise<number> {
+  const rows = await db.$queryRaw<{ count: bigint }[]>`
+    SELECT COUNT(DISTINCT batch_id)::bigint AS count
+    FROM ${table(schema)}
+    WHERE project_id = ${projectId}
+      AND batch_id IS NOT NULL`;
+
+  return Number(rows[0]?.count ?? 0);
 }
 
 export async function markReviewed(
