@@ -1,5 +1,16 @@
 import { randomUUID } from 'crypto';
 
+import type { PlatformSpec } from '@/src/platforms';
+
+/** Current create/generate callers use scalar copy fields. */
+export function readSlugSource(copy: Record<string, string>, spec: PlatformSpec): string {
+  const field = spec.slugSource.field;
+  if (!Object.prototype.hasOwnProperty.call(copy, field)) {
+    throw new Error(`Copy is missing field "${field}"`);
+  }
+  return copy[field];
+}
+
 function slugify(value: string): string {
   return value
     .normalize('NFKD')

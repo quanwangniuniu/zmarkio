@@ -78,3 +78,28 @@ and use `up -d --no-deps backend`; that file has no backend build.
 - Creative/user FKs remain `NO ACTION`; direct deletion of referenced parents is rejected.
 - Locks taken by these files, including on referenced parent tables, are held until
   the tenant transaction ends.
+
+## Platform and copy fields
+
+`003_add_platform_and_fields.sql` adds indexed `platform` (default `meta`) and nullable
+`fields` JSONB without a default, then builds `fields` from the four legacy copy columns
+without changing them. Legacy-only writers such as Django can leave `fields` NULL or stale.
+
+For unclaimed Django tables, measure the full 001 → 002 → 003 path with production-sized
+data before deployment. Locks on the variation table and 002's referenced `core_project`
+persist through 003's index build/backfill until commit. Check each file against the
+timeout above; it does not bound total transaction or lock duration.
+
+While Meta content is fully reconstructible from legacy columns and readers use them,
+clear/rebuild the derived data in separate higher-version migrations:
+
+```sql
+-- Clear Meta fields.
+UPDATE ad_copy_variation_adcopyvariation SET fields = NULL WHERE platform = 'meta';
+
+-- Rebuild Meta fields in a later migration.
+UPDATE ad_copy_variation_adcopyvariation
+SET fields = jsonb_build_object(
+    'hook', hook, 'headline', headline, 'description', description, 'cta', cta)
+WHERE platform = 'meta' AND fields IS NULL;
+```

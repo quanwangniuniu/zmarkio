@@ -9,6 +9,7 @@ import {
 } from './internals';
 
 export type VariationListFilter = {
+  platform?: string;
   projectId?: bigint;
   accessibleProjectIds?: bigint[];
   statuses?: string[];
@@ -19,6 +20,9 @@ export type VariationListFilter = {
 
 function listWhere(filter: VariationListFilter): Prisma.Sql {
   const parts: Prisma.Sql[] = [Prisma.sql`TRUE`];
+  if (filter.platform) {
+    parts.push(Prisma.sql`platform = ${filter.platform}`);
+  }
   if (filter.projectId !== undefined) {
     parts.push(Prisma.sql`project_id = ${filter.projectId}`);
   } else if (filter.accessibleProjectIds) {

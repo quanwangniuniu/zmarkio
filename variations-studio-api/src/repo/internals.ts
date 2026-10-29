@@ -19,6 +19,7 @@ export type VariationRow = {
   isDeleted: boolean;
   sourceMode: string;
   sourceRef: string;
+  platform: string;
   hook: string;
   headline: string;
   description: string;
@@ -61,6 +62,7 @@ export const COLUMNS = Prisma.raw(`
   is_deleted AS "isDeleted",
   source_mode AS "sourceMode",
   source_ref AS "sourceRef",
+  platform,
   hook,
   headline,
   description,

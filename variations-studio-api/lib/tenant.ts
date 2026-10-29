@@ -11,7 +11,7 @@ import { prisma } from '@/lib/prisma';
 
 export type StudioContext = AccessUser & { schema: string };
 
-export const REQUIRED_STUDIO_MIGRATION = '002';
+export const REQUIRED_STUDIO_MIGRATION = '003';
 
 const SCHEMA_NAME = /^(public|org_[A-Za-z0-9_]+)$/;
 

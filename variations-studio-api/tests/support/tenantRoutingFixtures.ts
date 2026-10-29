@@ -133,8 +133,9 @@ async function addMember(
     )`;
 }
 
-async function ensureInactiveOrg(): Promise<{ id: bigint; slug: string }> {
-  const slug = `studio-routing-inactive-${randomUUID().slice(0, 8)}`;
+export async function ensureInactiveOrg(
+  slug = `studio-routing-inactive-${randomUUID().slice(0, 8)}`
+): Promise<{ id: bigint; slug: string }> {
   const name = `Studio Routing Inactive ${slug}`;
   const rows = await prisma.$queryRaw<{ id: bigint }[]>`
     INSERT INTO public.core_organization (

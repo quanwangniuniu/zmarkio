@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Client, escapeIdentifier } from 'pg';
 
@@ -12,6 +13,7 @@ import { slugToSchemaName } from '@/lib/tenant';
 import * as variations from '@/lib/variationStore';
 
 import { setupStudioFixture, teardownStudioFixture, type StudioFixture } from './support/fixtures';
+import { ensureInactiveOrg } from './support/tenantRoutingFixtures';
 import { readJson, studioRequest } from './support/requests';
 import { accessToken } from './support/tokens';
 
@@ -33,18 +35,13 @@ const migrationsDir = path.join(__dirname, '..', 'migrations');
 let fixture: StudioFixture;
 let organizationId: bigint;
 let token: string;
+let baselineMigrationsDir: string | undefined;
 
 beforeAll(async () => {
   await observer.connect();
   fixture = await setupStudioFixture();
   token = await accessToken(fixture.memberUserId);
-  const rows = await prisma.$queryRaw<{ id: bigint }[]>`
-    INSERT INTO public.core_organization (
-      name, slug, is_active, is_deleted, is_parent, created_at, updated_at,
-      max_concurrent_sessions
-    ) VALUES (${slug}, ${slug}, false, false, false, now(), now(), 5)
-    RETURNING id`;
-  organizationId = rows[0].id;
+  organizationId = (await ensureInactiveOrg(slug)).id;
 });
 
 afterAll(async () => {
@@ -54,6 +51,7 @@ afterAll(async () => {
     if (organizationId) {
       await prisma.organization.delete({ where: { id: organizationId } });
     }
+    if (baselineMigrationsDir) await rm(baselineMigrationsDir, { recursive: true, force: true });
   } finally {
     await observer.end();
     await prisma.$disconnect();
@@ -116,21 +114,22 @@ it('blocks unready tenant states and recovers after the required migration, incl
   }
   await expectNotReady();
 
-  // Synthetic negative history: a higher version cannot stand in for 002.
-  await observer.query(`CREATE TABLE ${namespace}.studio_migrations (
-    version text PRIMARY KEY, checksum text NOT NULL,
-    applied_at timestamptz NOT NULL DEFAULT now()
-  )`);
+  baselineMigrationsDir = await mkdtemp(path.join(path.resolve(tmpdir()), 'studio-readiness-'));
+  for (const file of ['001_ad_copy_variation_baseline.sql', '002_ad_copy_variation_project_cascade.sql']) {
+    await copyFile(path.join(migrationsDir, file), path.join(baselineMigrationsDir, file));
+  }
+  const baseline = await runMigrations({ command: 'apply', schemas: [schema], migrationsDir: baselineMigrationsDir });
+  expect(baseline.results[0]).toMatchObject({ status: 'applied', appliedNow: ['001', '002'] });
+
+  // A real 001/002 ledger plus a higher version still cannot stand in for 003.
   await observer.query(`INSERT INTO ${namespace}.studio_migrations (version, checksum) VALUES ($1, $2)`,
     ['999', 'synthetic-history-for-readiness-test']);
   await expectNotReady();
-
-  // Remove only the synthetic history before running the real ordered chain.
+  // The runner refuses to apply 003 below a recorded 999, so remove it first.
   await observer.query(`DELETE FROM ${namespace}.studio_migrations WHERE version = '999'`);
 
   const migrated = await runMigrations({ command: 'apply', schemas: [schema], migrationsDir });
-  expect(migrated.ok).toBe(true);
-  expect(migrated.results[0].appliedNow).toEqual(['001', '002']);
+  expect(migrated.results[0]).toMatchObject({ status: 'applied', appliedNow: ['003'] });
   await observer.query(`INSERT INTO ${namespace}.studio_migrations (version, checksum) VALUES ($1, $2)`,
     ['999', 'synthetic-history-for-readiness-test']);
   // The required version now exists alongside a higher version; the next request works.

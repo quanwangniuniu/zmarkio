@@ -78,13 +78,17 @@ export async function insertVariation(
       INSERT INTO ${table(schema)} (
         created_at, updated_at, is_deleted, source_mode, source_ref,
         hook, headline, description, cta, instruction, model_name, prompt_version,
-        batch_id, batch_position, status, created_by_id, creative_id, project_id, slug
+        batch_id, batch_position, status, created_by_id, creative_id, project_id, slug,
+        platform, fields
       ) VALUES (
         ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
         ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
         ${row.instruction}, ${row.modelName}, ${row.promptVersion},
         ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
-        ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${slug}
+        ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${slug},
+        'meta', jsonb_build_object(
+          'hook', ${row.hook}, 'headline', ${row.headline},
+          'description', ${row.description}, 'cta', ${row.cta})
       )
       ON CONFLICT (slug) DO NOTHING
       RETURNING ${COLUMNS}`;
@@ -129,6 +133,16 @@ export async function updateVariationFields(
   }
   if (patch.cta !== undefined) sets.push(Prisma.sql`cta = ${patch.cta}`);
   if (patch.status !== undefined) sets.push(Prisma.sql`status = ${patch.status}`);
+
+  if (patch.hook !== undefined || patch.headline !== undefined ||
+      patch.description !== undefined || patch.cta !== undefined) {
+    sets.push(Prisma.sql`fields = CASE WHEN platform = 'meta' THEN jsonb_build_object(
+      'hook', COALESCE(${patch.hook ?? null}, hook),
+      'headline', COALESCE(${patch.headline ?? null}, headline),
+      'description', COALESCE(${patch.description ?? null}, description),
+      'cta', COALESCE(${patch.cta ?? null}, cta)
+    ) ELSE fields END`);
+  }
 
   const rows = await db.$queryRaw<VariationRow[]>`
     UPDATE ${table(schema)}

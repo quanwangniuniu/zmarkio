@@ -13,6 +13,7 @@ from rest_framework.test import APITestCase
 from facebook_integration.models import FacebookConnection, MetaAdAccount
 from core.models import Organization, Project, ProjectMember
 from core.services.tenant import slug_to_schema_name
+from core.tenant_context import tenant_schema_context
 from meta_ads.models import MetaAdCreative
 
 from . import ollama_client, services
@@ -1023,14 +1024,8 @@ class TenantReadinessTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
     def test_existing_tenant_table_does_not_require_studio_ledger(self):
-        with connection.cursor() as cursor:
-            cursor.execute('SET search_path TO %s, public', [self.schema])
-        try:
-            with connection.schema_editor(atomic=False) as editor:
-                editor.create_model(AdCopyVariation)
-        finally:
-            with connection.cursor() as cursor:
-                cursor.execute('SET search_path TO public')
+        with tenant_schema_context(self.schema), connection.schema_editor(atomic=False) as editor:
+            editor.create_model(AdCopyVariation)
         response = self.client.get(
             reverse('ad-copy-variation-list'), HTTP_X_ORGANIZATION_SLUG=self.org.slug,
         )
