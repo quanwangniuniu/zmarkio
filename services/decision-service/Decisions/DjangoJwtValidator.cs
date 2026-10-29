@@ -1,6 +1,9 @@
+using Microsoft.Extensions.Options;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+
 
 namespace DecisionService.Decisions;
 
@@ -9,15 +12,11 @@ public sealed record DecisionJwtPrincipal(int UserId, int AuthTokenVersion);
 public sealed class DjangoJwtValidator
 {
     private readonly string _signingKey;
-    public DjangoJwtValidator(IConfiguration configuration)
+    public DjangoJwtValidator(IOptions<DjangoJwtOptions> options)
     {
-        var signingKey = configuration["DJANGO_JWT_SIGNING_KEY"]
-            ?? configuration["SECRET_KEY"];
-        if (String.IsNullOrWhiteSpace(signingKey))
-        {
-            throw new InvalidOperationException("Django JWT signing key or secret key is not configured.");
-        }
-        _signingKey = signingKey;
+        _signingKey = options.Value.SigningKey
+        ?? throw new InvalidOperationException(
+            "Django JWT signing key is not configured.");
     }
     public DecisionJwtPrincipal? Validate(string token)
     {
@@ -69,6 +68,8 @@ public sealed class DjangoJwtValidator
             return null;
         }
 
+        // JWT NumericDate claims must be JSON numbers containing integer
+        // Unix timestamps. Numeric strings are not accepted for exp or nbf.
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         if (!payload.RootElement.TryGetProperty("exp", out var exp) 
             || !ValueKindNumber(exp)
@@ -96,11 +97,20 @@ public sealed class DjangoJwtValidator
             return null;
         }
 
+        // Django identity claims support JSON integers and numeric strings.
+        // Parse numeric strings using invariant culture and strict number
+        // styles so their interpretation is independent of server locale.
         int userId;
         if (ValueKindString(userIdElement))
         {
-            if (!int.TryParse(userIdElement.GetString(), out userId))
+            if (!int.TryParse(
+                userIdElement.GetString(),
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out userId))
+                {
                 return null;
+                }
         }
         else if (ValueKindNumber(userIdElement))
         {
@@ -124,7 +134,10 @@ public sealed class DjangoJwtValidator
             } 
             else if (ValueKindString(versionElement))
             {
-                if (!int.TryParse(versionElement.GetString(), out authTokenVersion))
+                if (!int.TryParse(versionElement.GetString(),
+                    NumberStyles.None,
+                    CultureInfo.InvariantCulture,
+                    out authTokenVersion))
                 {
                     return null;
                 }
@@ -145,7 +158,6 @@ public sealed class DjangoJwtValidator
         try
         {
             var raw = Base64UrlDecode(base64Url);
-            string result = Encoding.UTF8.GetString(raw);
             return JsonDocument.Parse(raw);
         }
         catch (JsonException)
@@ -158,35 +170,10 @@ public sealed class DjangoJwtValidator
         }
     }
 
-    public static string CreateSignedTokenForTests(
-        string signingKey,
-        int userId,
-        int authTokenVersion = 0,
-        DateTimeOffset? expiresAt = null,
-        string tokenType = "access"
-    )
-    {
-        var header = Base64UrlEncode(Encoding.UTF8.GetBytes("""{"alg":"HS256","typ":"JWT"}"""));
-        var exp = (expiresAt ?? DateTimeOffset.UtcNow.AddHours(1)).ToUnixTimeSeconds();
-        var payload = Base64UrlEncode(Encoding.UTF8.GetBytes($$"""
-        {"token_type":"{{tokenType}}","exp":{{exp}},"user_id":{{userId}},"auth_token_version":{{authTokenVersion}}}
-        """));
-        var signature = Base64UrlEncode(HmacSha256($"{header}.{payload}", signingKey));
-        return $"{header}.{payload}.{signature}";
-    }
-
     private static byte[] HmacSha256(string msg, string signingKey)
     {
         using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(signingKey));
         return hmac.ComputeHash(Encoding.ASCII.GetBytes(msg));
-    }
-
-    private static string Base64UrlEncode(byte[] input)
-    {
-        return Convert.ToBase64String(input)
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
     }
 
     private static byte[] Base64UrlDecode(string input)
