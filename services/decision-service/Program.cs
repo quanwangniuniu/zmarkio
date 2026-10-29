@@ -25,6 +25,8 @@ if (string.Equals(storage, "postgres", StringComparison.OrdinalIgnoreCase))
     }
 
     builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddScoped<TenantConnectionFactory>();
     builder.Services.AddScoped<IDecisionRepository, PostgresDecisionRepository>();
 }
 else

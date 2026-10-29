@@ -96,27 +96,27 @@ async function persistBatch(args: {
   const slugs = allocateSlugs(
     args.copies.map((copy) => readSlugSource(copy, spec))
   );
-  return insertVariations(
-    args.schema,
-    args.copies.map((copy, index) => ({
-      sourceMode: args.sourceMode,
-      sourceRef: args.sourceRef,
-      hook: copy.hook,
-      headline: copy.headline,
-      description: copy.description,
-      cta: applyCtaPolicy(spec.cta, copy.cta),
-      instruction: args.instruction,
-      modelName: args.modelName,
-      promptVersion: spec.promptVersion,
-      batchId: args.batchId,
-      batchPosition: index,
-      status: 'draft',
-      createdById: BigInt(args.userId),
-      creativeId: args.creativeId,
-      projectId: args.projectId,
-      slug: slugs[index],
-    }))
-  );
+  const rows = args.copies.map((copy, index) => ({
+    sourceMode: args.sourceMode,
+    sourceRef: args.sourceRef,
+    hook: copy.hook,
+    headline: copy.headline,
+    description: copy.description,
+    cta: applyCtaPolicy(spec.cta, copy.cta),
+    instruction: args.instruction,
+    modelName: args.modelName,
+    promptVersion: spec.promptVersion,
+    batchId: args.batchId,
+    batchPosition: index,
+    status: 'draft',
+    createdById: BigInt(args.userId),
+    creativeId: args.creativeId,
+    projectId: args.projectId,
+    slug: slugs[index],
+  }));
+
+  // insertVariations opens the transaction itself when no client is passed.
+  return insertVariations(args.schema, rows);
 }
 
 export async function runCustomGenerate(args: {

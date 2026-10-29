@@ -97,12 +97,14 @@ def _gemini_request_with_retry(
     body: dict,
     timeout: int | None = None,
     stream: bool = False,
+    total_deadline: int | None = None,
 ) -> requests.Response:
     """POST to a Gemini endpoint with bounded retries on transient failures.
 
     Retries HTTP 429 / 5xx and connection/read errors with exponential backoff,
     capped by both an attempt count and a wall-clock deadline
-    (``GEMINI_TOTAL_DEADLINE_SECONDS``). A cache-backed circuit breaker
+    (``total_deadline``, or ``GEMINI_TOTAL_DEADLINE_SECONDS`` when omitted).
+    A cache-backed circuit breaker
     short-circuits when Gemini has been failing.
 
     On exhaustion: pure 429s -> :class:`GeminiRetriesExhausted`; anything else
@@ -113,9 +115,9 @@ def _gemini_request_with_retry(
         raise GeminiUnavailable("Gemini temporarily unavailable (circuit open).")
 
     base_timeout = _resolve_timeout(timeout)
-    deadline = time.monotonic() + int(
-        getattr(settings, "GEMINI_TOTAL_DEADLINE_SECONDS", 150)
-    )
+    if total_deadline is None:
+        total_deadline = int(getattr(settings, "GEMINI_TOTAL_DEADLINE_SECONDS", 150))
+    deadline = time.monotonic() + int(total_deadline)
     last_exc: Exception | None = None
     saw_non_429 = False
 
