@@ -1,4 +1,5 @@
 import { ApiError } from '@/lib/bulk';
+import { truncateRelevantTextByCharacters } from '@/lib/pageTextBudget';
 
 const DEFAULT_BASE = 'https://chrome.browserless.io';
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -38,7 +39,7 @@ function htmlToText(html: string): string {
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
   const text = lines.join('\n');
-  return text.length > MAX_TEXT_CHARS ? text.slice(0, MAX_TEXT_CHARS) : text;
+  return truncateRelevantTextByCharacters(text, MAX_TEXT_CHARS);
 }
 
 export async function fetchUrlText(pageUrl: string): Promise<string> {

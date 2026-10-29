@@ -1,10 +1,12 @@
 import { AI_QUOTA_MESSAGE } from '@/src/ai/prompts';
 import type { CopyJson } from '@/src/ai/types';
+import { fitExternalUrlPromptToContext } from '@/lib/pageTextBudget';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_RETRY_DELAYS_MS = '2000,4000';
 const DEFAULT_KEEP_ALIVE = '30m';
+const DEFAULT_NUM_CTX = 8192;
 // 429 is a rate limit; Ollama answers 503 when its request queue is full.
 const BUSY_STATUSES = [429, 503];
 
@@ -42,6 +44,7 @@ export class OllamaError extends Error {
 export type OllamaConfig = {
     baseUrl: string;
     model: string;
+    numCtx: number;
     timeoutMs: number;
     retryDelaysMs: number[];
     keepAlive: string;
@@ -56,6 +59,16 @@ export function getOllamaConfig(): OllamaConfig {
     if (!model) {
         throw new OllamaError(
             'OLLAMA_MODEL is not configured.',
+            'configuration'
+        );
+    }
+
+    const numCtxValue = process.env.OLLAMA_NUM_CTX?.trim();
+    const numCtx = numCtxValue ? Number(numCtxValue) : DEFAULT_NUM_CTX;
+
+    if (!Number.isSafeInteger(numCtx) || numCtx <= 0) {
+        throw new OllamaError(
+            'OLLAMA_NUM_CTX must be a positive integer.',
             'configuration'
         );
     }
@@ -86,6 +99,7 @@ export function getOllamaConfig(): OllamaConfig {
     return {
         baseUrl,
         model,
+        numCtx,
         timeoutMs,
         retryDelaysMs,
         keepAlive: process.env.OLLAMA_KEEP_ALIVE?.trim() || DEFAULT_KEEP_ALIVE,
@@ -136,6 +150,7 @@ export async function callOllamaJson(
     busyAttempt = 0
 ): Promise<CopyJson> {
     const config = getOllamaConfig();
+    const budgetedUserPrompt = fitExternalUrlPromptToContext(systemPrompt, userPrompt, config.numCtx);
 
     let response: Response;
 
@@ -149,7 +164,7 @@ export async function callOllamaJson(
                 model: config.model,
                 messages: [
                     { role: 'system', content: systemPrompt },
-                    { role: 'user', content: userPrompt },
+                    { role: 'user', content: budgetedUserPrompt },
                 ],
                 stream: false,
                 think: false,
@@ -157,6 +172,7 @@ export async function callOllamaJson(
                 format: COPY_SCHEMA,
                 options: {
                     temperature: 0.7,
+                    num_ctx: config.numCtx,
                 },
             }),
             signal: AbortSignal.timeout(config.timeoutMs),
