@@ -1,3 +1,5 @@
+import { assignUniqueSlugs, slugLookup, slugWithSuffix } from '@/lib/slugs';
+
 import {
   Prisma,
   COLUMNS,
@@ -8,6 +10,8 @@ import {
   type VariationRow,
   type VariationInsert,
 } from './internals';
+
+const MAX_SLUG_ATTEMPTS = 5;
 
 export async function findVariationBySlug(
   schema: string,
@@ -67,12 +71,7 @@ export async function insertVariation(
   let counter = 0;
 
   while (true) {
-    const suffix = counter === 0 ? '' : `-${counter}`;
-    const slug =
-      counter === 0
-        ? baseSlug
-        : `${baseSlug.slice(0, 200 - suffix.length)}${suffix}`;
-
+    const slug = slugWithSuffix(baseSlug, counter);
     const now = new Date();
     const rows = await db.$queryRaw<VariationRow[]>`
       INSERT INTO ${table(schema)} (
@@ -97,39 +96,120 @@ export async function insertVariation(
   }
 }
 
+function occupancyClause(base: string): { key: string; clause: Prisma.Sql } {
+  const lookup = slugLookup(base);
+  if (lookup.kind === 'short') {
+    return {
+      key: `short:${lookup.base}`,
+      clause: Prisma.sql`(slug = ${lookup.base} OR slug LIKE ${lookup.pattern} ESCAPE '\\')`,
+    };
+  }
+  return {
+    key: `long:${lookup.pattern}`,
+    clause: Prisma.sql`slug LIKE ${lookup.pattern} ESCAPE '\\'`,
+  };
+}
+
+async function findUsedSlugs(
+  schema: string,
+  bases: string[],
+  db: SqlClient
+): Promise<Set<string>> {
+  const seen = new Set<string>();
+  const clauses: Prisma.Sql[] = [];
+  for (const base of bases) {
+    const occupancy = occupancyClause(base);
+    if (seen.has(occupancy.key)) continue;
+    seen.add(occupancy.key);
+    clauses.push(occupancy.clause);
+  }
+
+  const rows = await db.$queryRaw<{ slug: string }[]>`
+    SELECT slug FROM ${table(schema)}
+    WHERE ${Prisma.join(clauses, ' OR ')}`;
+  return new Set(rows.map((row) => row.slug));
+}
+
+async function insertVariationRows(
+  schema: string,
+  rows: VariationInsert[],
+  db: SqlClient
+): Promise<VariationRow[]> {
+  // Slug order matches the unique-index lock order across concurrent batches.
+  const ordered = [...rows].sort((left, right) =>
+    left.slug < right.slug ? -1 : left.slug > right.slug ? 1 : 0
+  );
+  const now = new Date();
+  const values = ordered.map((row) => Prisma.sql`(
+    ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
+    ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
+    ${row.instruction}, ${row.modelName}, ${row.promptVersion},
+    ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
+    ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${row.slug}
+  )`);
+
+  return db.$queryRaw<VariationRow[]>`
+    INSERT INTO ${table(schema)} (
+      created_at, updated_at, is_deleted, source_mode, source_ref,
+      hook, headline, description, cta, instruction, model_name, prompt_version,
+      batch_id, batch_position, status, created_by_id, creative_id, project_id, slug
+    ) VALUES ${Prisma.join(values)}
+    ON CONFLICT (slug) DO NOTHING
+    RETURNING ${COLUMNS}`;
+}
+
 export async function insertVariations(
   schema: string,
-  rows: VariationInsert[]
+  rows: VariationInsert[],
+  db: SqlClient = prisma
 ): Promise<VariationRow[]> {
-  return prisma.$transaction(async (tx) => {
-    const now = new Date();
-    const saved = await tx.$queryRaw<VariationRow[]>`
-      INSERT INTO ${table(schema)} (
-        created_at, updated_at, is_deleted, source_mode, source_ref,
-        hook, headline, description, cta, instruction, model_name, prompt_version,
-        batch_id, batch_position, status, created_by_id, creative_id, project_id, slug
-      ) VALUES ${Prisma.join(
-        rows.map(
-          (row) => Prisma.sql`(
-            ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
-            ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
-            ${row.instruction}, ${row.modelName}, ${row.promptVersion},
-            ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
-            ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${row.slug}
-          )`
-        )
-      )}
-      ON CONFLICT (slug) DO NOTHING
-      RETURNING ${COLUMNS}`;
+  if (!rows.length) return [];
 
-    const inserted = new Set(saved.map((row) => row.batchPosition));
-    for (const row of rows) {
-      if (!inserted.has(row.batchPosition)) {
-        saved.push(await insertVariation(schema, row, tx));
-      }
+  // Slug retries assume Postgres READ COMMITTED. Without a transaction, a
+  // failed retry would leave earlier inserts committed, so open one here.
+  if (db === prisma) {
+    return prisma.$transaction(
+      (tx) => insertVariations(schema, rows, tx),
+      { timeout: 10_000 }
+    );
+  }
+
+  const pending = rows.map((row, index) => ({
+    index,
+    baseSlug: row.slug,
+    row,
+  }));
+  const saved: Array<VariationRow | undefined> = Array(rows.length);
+
+  for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS && pending.length; attempt += 1) {
+    const used = await findUsedSlugs(
+      schema,
+      pending.map((item) => item.baseSlug),
+      db
+    );
+    const slugs = assignUniqueSlugs(
+      pending.map((item) => item.baseSlug),
+      used
+    );
+    const inserted = await insertVariationRows(
+      schema,
+      pending.map((item, index) => ({ ...item.row, slug: slugs[index] })),
+      db
+    );
+    const insertedBySlug = new Map(inserted.map((row) => [row.slug, row]));
+
+    for (let index = pending.length - 1; index >= 0; index -= 1) {
+      const row = insertedBySlug.get(slugs[index]);
+      if (!row) continue;
+      saved[pending[index].index] = row;
+      pending.splice(index, 1);
     }
-    return saved.sort((a, b) => (a.batchPosition ?? 0) - (b.batchPosition ?? 0));
-  });
+  }
+
+  if (pending.length) {
+    throw new Error('Could not allocate unique variation slugs');
+  }
+  return saved as VariationRow[];
 }
 
 export async function updateVariationFields(
