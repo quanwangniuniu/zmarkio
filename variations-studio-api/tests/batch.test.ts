@@ -159,13 +159,17 @@ describe('batch generate failure handling', () => {
   });
 
   it('keeps every batch member on one shared batch_id', async () => {
-    ollamaMock.mockResolvedValue(copy('Generated'));
+    ollamaMock
+      .mockResolvedValueOnce(copy('Zebra'))
+      .mockResolvedValueOnce(copy('Apple'))
+      .mockResolvedValueOnce(copy('Mango'));
 
     const response = await generateBatch(3);
 
     expect(response.status).toBe(200);
     const body = await readJson(response);
-    const results = body.results as { id: number }[];
+    const results = body.results as { id: number; batch_position: number }[];
+    expect(results.map((row) => row.batch_position)).toEqual([0, 1, 2]);
     const rows = await findVariationsByIdsAnyProject(
       fixture.schema,
       results.map((row) => BigInt(row.id))
