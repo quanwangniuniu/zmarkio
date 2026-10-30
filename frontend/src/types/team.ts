@@ -30,6 +30,7 @@ export interface Team {
   is_parent: boolean;
   created_at: string;
   updated_at: string;
+  member_count?: number;
 }
 
 /**

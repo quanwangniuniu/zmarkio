@@ -1,9 +1,14 @@
 from django.urls import reverse
+from django.db import connection
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth import get_user_model
 from asset.models import Asset
-from core.models import Organization, Team, Project
+from core.models import Organization, Team, Project, Role, Permission
+from core.services.tenant import slug_to_schema_name
+from access_control.models import RolePermission, UserRole
 from task.models import Task
 
 User = get_user_model()
@@ -705,3 +710,91 @@ class AssetAuthenticationTest(APITestCase):
                 self.assertTrue(url.startswith('/api/assets/'))
             except Exception as e:
                 self.fail(f"Failed to reverse URL for {endpoint_name} with kwargs {kwargs}: {e}") 
+
+
+class AssetAuthorizationRealPermissionTest(APITestCase):
+    """
+    Coverage gap: every existing real-DRF test in this
+    file authenticates with force_authenticate(). That only authenticates
+    DRF's Request wrapper inside the view; the Django-level request.user that
+    TenantSchemaMiddleware and AuthorizationMiddleware see stays
+    AnonymousUser, so AuthorizationMiddleware.process_view returns None at its
+    "not authenticated" check and never evaluates any role or permission.
+
+    These tests instead authenticate with a real JWT (Authorization: Bearer),
+    which TenantSchemaMiddleware._authenticate_jwt resolves to request.user
+    before AuthorizationMiddleware runs, and send X-Organization-Slug (the
+    DB-validated convention used in
+    access_control/tests/test_admin_override_audit_view.py) so the request
+    resolves to this organization's tenant schema, where a genuine
+    UserRole + RolePermission is seeded.
+    """
+
+    def setUp(self):
+        self.organization = Organization.objects.create(name="AssetAuthzOrg")
+        self._schema = slug_to_schema_name(self.organization.slug)
+        with connection.cursor() as cursor:
+            cursor.execute(f'SET search_path TO {self._schema}, public')
+
+        self.perm_view_asset, _ = Permission.objects.get_or_create(module="ASSET", action="VIEW")
+
+        self.role_asset_viewer = Role.objects.create(
+            organization=self.organization, name="AssetViewer", level=1
+        )
+        RolePermission.objects.create(role=self.role_asset_viewer, permission=self.perm_view_asset)
+
+        # A second, real, currently-valid role that does NOT grant ASSET/VIEW
+        # -- used below to prove the middleware is evaluating a genuine
+        # permission match in this schema, not merely letting every request
+        # in the organization through.
+        self.role_no_asset_view = Role.objects.create(
+            organization=self.organization, name="NotAnAssetViewer", level=1
+        )
+
+        self.user_with_permission = User.objects.create_user(
+            email="assetviewer@example.com", username="assetviewer", password="pw"
+        )
+        UserRole.objects.create(
+            user=self.user_with_permission, role=self.role_asset_viewer, valid_from=timezone.now()
+        )
+
+        self.user_without_permission = User.objects.create_user(
+            email="notassetviewer@example.com", username="notassetviewer", password="pw"
+        )
+        UserRole.objects.create(
+            user=self.user_without_permission, role=self.role_no_asset_view, valid_from=timezone.now()
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute('SET search_path TO public')
+
+    def tearDown(self):
+        with connection.cursor() as cursor:
+            cursor.execute('SET search_path TO public')
+
+    def _get_asset_list(self, user):
+        url = reverse('asset:asset-list')
+        # See class docstring: a real JWT (not force_authenticate) is what
+        # makes request.user authenticated for AuthorizationMiddleware, and
+        # the header selects this organization's tenant schema.
+        token = RefreshToken.for_user(user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return self.client.get(url, HTTP_X_ORGANIZATION_SLUG=self.organization.slug)
+
+    def test_asset_list_allowed_for_user_with_matching_role_permission(self):
+        """A real GET /api/assets/ request reaches and passes through
+        AuthorizationMiddleware via a genuine matching UserRole +
+        RolePermission(ASSET, VIEW) in the request's real tenant schema --
+        not the zero-role grace path (this user is not role-less)."""
+        response = self._get_asset_list(self.user_with_permission)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_asset_list_denied_for_user_with_non_matching_role(self):
+        """Same organization/tenant schema and middleware as above, but this
+        user's real, currently-valid role does not grant ASSET/VIEW --
+        proving the previous 200 was a genuine permission match, not the
+        middleware passing every request through for this schema."""
+        response = self._get_asset_list(self.user_without_permission)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        # AuthorizationMiddleware's own payload, not a DRF permission error.
+        self.assertEqual(response.json(), {'detail': 'Permission denied'}) 
