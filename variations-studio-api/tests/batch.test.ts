@@ -1,9 +1,12 @@
+import { randomUUID } from 'crypto';
 import { POST as generate } from '@/app/api/ad_copy_variation/variations/generate/route';
 import { callOllamaJson, getOllamaErrorMessage, } from '@/src/ai/providers/ollama';
 import { prisma } from '@/lib/prisma';
 import {
   countVariations,
   findVariationsByIdsAnyProject,
+  findBatchVariations,
+  insertVariations,
 } from '@/lib/variationStore';
 
 import {
@@ -156,13 +159,17 @@ describe('batch generate failure handling', () => {
   });
 
   it('keeps every batch member on one shared batch_id', async () => {
-    ollamaMock.mockResolvedValue(copy('Generated'));
+    ollamaMock
+      .mockResolvedValueOnce(copy('Zebra'))
+      .mockResolvedValueOnce(copy('Apple'))
+      .mockResolvedValueOnce(copy('Mango'));
 
     const response = await generateBatch(3);
 
     expect(response.status).toBe(200);
     const body = await readJson(response);
-    const results = body.results as { id: number }[];
+    const results = body.results as { id: number; batch_position: number }[];
+    expect(results.map((row) => row.batch_position)).toEqual([0, 1, 2]);
     const rows = await findVariationsByIdsAnyProject(
       fixture.schema,
       results.map((row) => BigInt(row.id))
@@ -201,5 +208,32 @@ describe('batch slug allocation', () => {
 
     expect(results).toHaveLength(100);
     expect(new Set(results.map((row) => row.slug)).size).toBe(100);
+  });
+});
+
+describe('batch persistence atomicity', () => {
+  it('persists nothing when row 3 of 5 fails', async () => {
+    const batchId = randomUUID();
+    const rows = Array.from({ length: 5 }, (_, index) => ({
+      ...copy(`Atomic ${index}`),
+      sourceMode: 'custom',
+      sourceRef: '',
+      instruction: '',
+      modelName: 'test-model',
+      promptVersion: 'v1',
+      batchId,
+      batchPosition: index,
+      status: 'draft',
+      createdById: BigInt(fixture.memberUserId),
+      creativeId: null,
+      projectId: fixture.projectA,
+      slug: `atomic-${batchId}-${index}`,
+    }));
+    rows[2].cta = 'X'.repeat(65);
+
+    await expect(insertVariations(fixture.schema, rows)).rejects.toThrow();
+    await expect(
+      findBatchVariations(fixture.schema, fixture.projectA, batchId)
+    ).resolves.toHaveLength(0);
   });
 });
