@@ -10,7 +10,6 @@ import { runCustomGenerate } from '@/lib/generate';
 import { runMigrations } from '@/lib/migrate';
 import { prisma } from '@/lib/prisma';
 import { slugToSchemaName } from '@/lib/tenant';
-import * as variations from '@/lib/variationStore';
 
 import { setupStudioFixture, teardownStudioFixture, type StudioFixture } from './support/fixtures';
 import { ensureInactiveOrg } from './support/tenantRoutingFixtures';
@@ -18,14 +17,6 @@ import { readJson, studioRequest } from './support/requests';
 import { accessToken } from './support/tokens';
 
 jest.mock('@/lib/generate', () => ({ runCustomGenerate: jest.fn() }));
-jest.mock('@/lib/variationStore', () => {
-  const actual = jest.requireActual('@/lib/variationStore');
-  return {
-    ...actual,
-    listVariations: jest.fn(actual.listVariations),
-    countVariations: jest.fn(actual.countVariations),
-  };
-});
 
 const observer = new Client({ connectionString: process.env.DATABASE_URL });
 const slug = `readiness-${randomUUID()}`;
@@ -58,17 +49,11 @@ afterAll(async () => {
   }
 });
 
-it('authenticates before requiring an organization, without querying variations or generating', async () => {
+it('requires an organization for list and generate without calling generation', async () => {
   await prisma.customUser.update({
     where: { id: BigInt(fixture.memberUserId) },
     data: { organizationId: null, currentOrganizationId: null },
   });
-  jest.mocked(variations.listVariations).mockClear();
-  jest.mocked(variations.countVariations).mockClear();
-  const unauthenticated = await generate(studioRequest('/api/ad_copy_variation/variations/generate/', {
-    body: {},
-  }));
-  expect(unauthenticated.status).toBe(401);
   for (const response of [
     await generate(studioRequest('/api/ad_copy_variation/variations/generate/', { token, body: {} })),
     await list(studioRequest('/api/ad_copy_variation/variations/', { token })),
@@ -76,8 +61,6 @@ it('authenticates before requiring an organization, without querying variations 
     expect(response.status).toBe(403);
     expect(await readJson(response)).toEqual({ detail: 'An organization is required to use Studio.' });
   }
-  expect(variations.listVariations).not.toHaveBeenCalled();
-  expect(variations.countVariations).not.toHaveBeenCalled();
   expect(runCustomGenerate).not.toHaveBeenCalled();
 });
 

@@ -7,7 +7,7 @@ const SLUG_MAX_LENGTH = 200;
 // suffix, so the stored value is always `base` or `base-<n>`.
 const SHORT_SLUG_MAX_LENGTH = SLUG_MAX_LENGTH - 10;
 
-/** Current create/generate callers use scalar copy fields. */
+/** Ignores slugSource.index: copy fields are scalars. */
 export function readSlugSource(copy: Record<string, string>, spec: PlatformSpec): string {
   const field = spec.slugSource.field;
   if (!Object.prototype.hasOwnProperty.call(copy, field)) {

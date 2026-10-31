@@ -47,7 +47,6 @@ paths:
           description: |
             Defaults to `meta` when omitted or empty. Otherwise matches the stored
             platform value exactly, including values not in the platform registry.
-            No matching rows returns an empty list with count 0.
           schema:
             type: string
             default: meta

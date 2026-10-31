@@ -8,9 +8,8 @@ npm run migrate:status      # Show applied versions and pending files
 npm run migrate:dry-run     # Also include pending SQL in plannedSql; execute nothing
 ```
 
-- Targets are all registered organizations, including inactive ones, sorted by slug.
-  Missing schemas are reported as
-  `skipped_missing_schema`; they are not created. `public` is never a target.
+- Targets are registered organizations (active and inactive), sorted by slug; never `public`.
+  Missing schemas are reported as `skipped_missing_schema`, not created.
 - Use unique `NNN_description.sql` files. Numbering gaps are allowed. Never edit or
   renumber applied migrations; known versions must match checksums (CRLF normalized to LF).
 - Unknown ledger versions are retained and reported. Pending versions must exceed the
@@ -88,7 +87,7 @@ without changing them. Legacy-only writers such as Django can leave `fields` NUL
 For unclaimed Django tables, measure the full 001 → 002 → 003 path with production-sized
 data before deployment. Locks on the variation table and 002's referenced `core_project`
 persist through 003's index build/backfill until commit. Check each file against the
-timeout above; it does not bound total transaction or lock duration.
+timeout above.
 
 While Meta content is fully reconstructible from legacy columns and readers use them,
 clear/rebuild the derived data in separate higher-version migrations:

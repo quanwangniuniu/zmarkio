@@ -1,7 +1,5 @@
 # Studio HTTP and tenant migration services for development.
-# Start with:
-#   docker compose -p mediajira-v2 -f docker-compose.dev.yml -f variations-studio-api/compose.dev.yml up -d --build variations-studio-api variations-studio-migrations
-#
+# See migrations/README.md for the startup command.
 # Stop host `npm run dev` on 3010 first, or the port publish will fail.
 
 services:

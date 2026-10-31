@@ -115,7 +115,6 @@ export async function requireAccessUser(
   }
 }
 
-// Also covers organization and migration readiness failures from Studio context checks.
 export function isAuthFailure(
   value: AccessUser | AuthFailure | StudioContextFailure
 ): value is AuthFailure | StudioContextFailure {
