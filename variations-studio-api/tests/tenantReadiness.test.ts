@@ -80,7 +80,7 @@ it('blocks unready tenant states and recovers after the required migration, incl
     expect(runCustomGenerate).not.toHaveBeenCalled();
   }
 
-  await expectNotReady(); // Missing schema must not resolve public's table.
+  await expectNotReady(); // Missing schema returns not ready.
   await observer.query(`CREATE SCHEMA ${namespace}`);
   await observer.query(`CREATE TABLE ${namespace}.core_project (id bigint PRIMARY KEY)`);
   await expectNotReady(); // Schema exists, but the variation table does not.

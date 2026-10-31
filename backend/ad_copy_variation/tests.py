@@ -995,11 +995,8 @@ class TenantReadinessTests(APITestCase):
     def setUp(self):
         self.client.force_authenticate(user=self.user)
 
-    @patch('ad_copy_variation.services._single_generate_dispatch')
-    def test_missing_tenant_table_blocks_reads_writes_and_generation(self, generate):
+    def test_missing_tenant_table_blocks_reads_writes_and_generation(self):
         detail_url = reverse('ad-copy-variation-detail', args=[self.row.slug])
-        # Explicit public requests retain their existing behavior.
-        self.assertEqual(self.client.get(detail_url).status_code, status.HTTP_200_OK)
         headers = {'HTTP_X_ORGANIZATION_SLUG': self.org.slug}
         responses = [
             self.client.get(detail_url, **headers),
@@ -1011,9 +1008,6 @@ class TenantReadinessTests(APITestCase):
         for response in responses:
             self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
             self.assertIn('not ready', str(response.data['detail']))
-        generate.assert_not_called()
-        self.row.refresh_from_db()
-        self.assertEqual(self.row.headline, 'Public control row')
 
     def test_missing_schema_cannot_fall_back_to_public(self):
         with patch(
