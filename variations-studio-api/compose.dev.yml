@@ -1,10 +1,25 @@
-# Extra compose file for MED-354 spike. Does not edit docker-compose.dev.yml.
-# Start with:
-#   docker compose -p mediajira-v2 -f docker-compose.dev.yml -f variations-studio-api/compose.dev.yml up -d --build variations-studio-api
-#
+# Studio HTTP and tenant migration services for development.
+# See migrations/README.md for the startup command.
 # Stop host `npm run dev` on 3010 first, or the port publish will fail.
 
 services:
+  variations-studio-migrations:
+    build:
+      context: ./variations-studio-api
+      dockerfile: Dockerfile.migrations
+    init: true
+    restart: always
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@host.docker.internal:${POSTGRES_PORT:-5432}/${POSTGRES_DB}
+      STUDIO_MIGRATION_INTERVAL_SECONDS: ${STUDIO_MIGRATION_INTERVAL_SECONDS:-60}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   variations-studio-api:
     build:
       context: ./variations-studio-api
@@ -23,7 +38,6 @@ services:
           cp package-lock.json node_modules/.studio-lock
         fi
         npx prisma generate
-        npm run migrate
         exec npm run dev
     restart: always
     ports:

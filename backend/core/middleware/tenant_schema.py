@@ -58,6 +58,7 @@ class TenantSchemaMiddleware:
         self._authenticate_jwt(request)
 
         schema = self._resolve_schema(request)
+        request.tenant_schema = schema
 
         # SET search_path requires unquoted identifiers, not string literals.
         # Use psycopg2.sql.Identifier for injection-safe identifier composition:

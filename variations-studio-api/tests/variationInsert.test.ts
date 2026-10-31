@@ -100,6 +100,20 @@ describe('insertVariations', () => {
       Array.from({ length: 50 }, (_, index) => slugWithSuffix(base, index))
     );
     expect(counter.queries()).toBe(2);
+
+    const stored = await prisma.$queryRaw<{ id: bigint; platform: string; fields: unknown }[]>`
+      SELECT id, platform, fields
+      FROM ${tenantTable(fixture.schema, VARIATION_TABLE)}
+      WHERE batch_id = ${batchId}::uuid
+      ORDER BY batch_position`;
+    expect(stored).toEqual(saved.map((row) => ({
+      id: row.id,
+      platform: 'meta',
+      fields: {
+        hook: row.hook, headline: row.headline,
+        description: row.description, cta: row.cta,
+      },
+    })));
   });
 
   it('sees a trimmed -1 and assigns -2 in two queries', async () => {

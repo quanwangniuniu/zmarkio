@@ -10,7 +10,7 @@ from django.db import connection
 
 from ad_copy_variation.models import AdCopyVariation
 from core.models import Project, ProjectMember
-from core.services.tenant import slug_to_schema_name
+from core.services.tenant import _table_exists, slug_to_schema_name
 from meta_ads.models import MetaAdCreative
 
 SEED_INSTRUCTION = '[studio-demo-seed]'
@@ -20,7 +20,7 @@ User = get_user_model()
 class Command(BaseCommand):
     help = (
         'Insert demo AdCopyVariation rows for local QA. '
-        'Does not call Ollama. Safe to re-run with --reset.'
+        'Run Studio npm run migrate first. Does not call Ollama. Safe to re-run with --reset.'
     )
 
     def add_arguments(self, parser):
@@ -44,6 +44,8 @@ class Command(BaseCommand):
 
         org = getattr(user, 'current_organization', None) or getattr(user, 'organization', None)
         schema = slug_to_schema_name(org.slug) if org else 'public'
+        if schema != 'public' and not _table_exists(AdCopyVariation._meta.db_table, schema):
+            raise CommandError('Run npm run migrate in variations-studio-api before seeding this tenant.')
         with connection.cursor() as cursor:
             cursor.execute('SET search_path TO %s, public', [schema])
 

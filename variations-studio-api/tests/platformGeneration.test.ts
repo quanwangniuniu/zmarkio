@@ -1,10 +1,11 @@
 import { requireProjectForUser } from '@/lib/projects';
+import { createVariation } from '@/lib/variationCreate';
 import { buildUserPrompt } from '@/src/ai/prompts';
 import type { CopyGenerator, CopyJson } from '@/src/ai/types';
 import { runCustomGenerate } from '@/src/domains/generate/orchestrator';
 import { getPlatformSpec, type PlatformSpec } from '@/src/platforms';
 import { metaSpec } from '@/src/platforms/meta';
-import { insertVariations } from '@/src/repo';
+import { insertVariation, insertVariations } from '@/src/repo';
 
 jest.mock('@/lib/projects', () => ({
   ...jest.requireActual('@/lib/projects'),
@@ -14,9 +15,9 @@ jest.mock('@/src/platforms', () => ({
   ...jest.requireActual('@/src/platforms'),
   getPlatformSpec: jest.fn(),
 }));
-jest.mock('@/src/repo', () => ({ insertVariations: jest.fn() }));
+jest.mock('@/src/repo', () => ({ insertVariation: jest.fn(), insertVariations: jest.fn() }));
 
-describe('platform configuration in generation', () => {
+describe('platform configuration in generation and creation', () => {
   it('takes the prompt, version, CTA policy and slug source from the platform spec', async () => {
     const spec: PlatformSpec = {
       ...metaSpec,
@@ -40,6 +41,7 @@ describe('platform configuration in generation', () => {
       createdAt: new Date('2026-01-01T00:00:00Z'),
       updatedAt: new Date('2026-01-01T00:00:00Z'),
       isDeleted: false,
+      platform: 'meta',
     })));
 
     const result = await runCustomGenerate({
@@ -54,5 +56,20 @@ describe('platform configuration in generation', () => {
     expect(result.results[0]).toMatchObject({
       cta: 'SKIP', prompt_version: 'alternate-v2', slug: 'hook-for-the-slug',
     });
+  });
+
+  it('takes the manual create slug source from the platform spec', async () => {
+    jest.mocked(getPlatformSpec).mockReturnValue({ ...metaSpec, slugSource: { field: 'hook' } });
+
+    await createVariation({
+      schema: 'test_tenant',
+      projectId: BigInt(12),
+      userId: 7,
+      body: { source_mode: 'custom', hook: 'Hook for manual slug', headline: 'Unused headline' },
+    });
+
+    expect(insertVariation).toHaveBeenCalledWith('test_tenant', expect.objectContaining({
+      slug: 'hook-for-manual-slug',
+    }));
   });
 });

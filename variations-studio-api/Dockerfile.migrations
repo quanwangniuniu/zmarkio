@@ -1,0 +1,14 @@
+FROM node:20-bullseye
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+RUN npm ci && npx prisma generate
+
+COPY tsconfig.json ./
+COPY lib ./lib
+COPY scripts ./scripts
+COPY migrations ./migrations
+
+USER node
+CMD ["sh", "scripts/migrate-loop.sh"]

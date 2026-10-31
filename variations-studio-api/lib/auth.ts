@@ -11,6 +11,11 @@ export type AuthFailure = {
   status: 401;
 };
 
+export type StudioContextFailure = {
+  error: string;
+  status: 403 | 503;
+};
+
 /**
  * Studio JWT access checks (parity with Django simplejwt + TenantAwareJWTAuthentication).
  *
@@ -111,7 +116,7 @@ export async function requireAccessUser(
 }
 
 export function isAuthFailure(
-  value: AccessUser | AuthFailure
-): value is AuthFailure {
+  value: AccessUser | AuthFailure | StudioContextFailure
+): value is AuthFailure | StudioContextFailure {
   return 'status' in value;
 }

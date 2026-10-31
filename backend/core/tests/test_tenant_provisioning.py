@@ -10,7 +10,7 @@ from psycopg2 import sql
 
 from core.models import Organization
 from core.services.tenant import (
-    _create_tenant_tables, provision_tenant_schema, slug_to_schema_name,
+    _create_tenant_tables, _table_exists, provision_tenant_schema, slug_to_schema_name,
 )
 
 
@@ -85,6 +85,38 @@ def test_five_concurrent_organization_creates_commit_complete_tenants(tenant_slu
                 [slug_to_schema_name(slug)],
             )
             assert cursor.fetchone()[0] == 1
+
+
+def test_new_organization_leaves_variation_table_to_studio(tenant_slugs):
+    slug = tenant_slugs[0]
+    Organization.objects.create(name=slug, slug=slug)
+    schema = slug_to_schema_name(slug)
+
+    assert _table_exists('core_project', schema)
+    assert _table_exists('core_projectmember', schema)
+    assert not _table_exists('ad_copy_variation_adcopyvariation', schema)
+    assert _table_exists('ad_copy_variation_adcopyvariation', 'public')
+
+
+def test_reprovisioning_does_not_repair_variation_columns(tenant_slugs):
+    slug = tenant_slugs[0]
+    schema = slug_to_schema_name(slug)
+    # A deliberately incomplete Studio table must not be repaired from the model.
+    with connection.cursor() as cursor:
+        cursor.execute(sql.SQL('CREATE SCHEMA {}').format(sql.Identifier(schema)))
+        cursor.execute(sql.SQL(
+            'CREATE TABLE {}.ad_copy_variation_adcopyvariation (id bigint PRIMARY KEY)'
+        ).format(sql.Identifier(schema)))
+
+    provision_tenant_schema(slug)
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = %s "
+            "AND table_name = 'ad_copy_variation_adcopyvariation' ORDER BY ordinal_position",
+            [schema],
+        )
+        assert cursor.fetchall() == [('id',)]
 
 
 @pytest.mark.parametrize("caller_is_tenant", [True, False])
