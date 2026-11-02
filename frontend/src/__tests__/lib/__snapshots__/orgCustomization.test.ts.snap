@@ -1,0 +1,156 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`org customization fixtures all enabled fixture turns everything on with registry defaults 1`] = `
+{
+  "modules": {
+    "admin": {
+      "enabled": true,
+      "label": null,
+      "order": 18,
+    },
+    "ads_draft": {
+      "enabled": true,
+      "label": null,
+      "order": 8,
+    },
+    "agent": {
+      "enabled": true,
+      "label": null,
+      "order": 20,
+    },
+    "budget_pools": {
+      "enabled": true,
+      "label": null,
+      "order": 5,
+    },
+    "calendar": {
+      "enabled": true,
+      "label": null,
+      "order": 12,
+    },
+    "campaigns": {
+      "enabled": true,
+      "label": null,
+      "order": 2,
+    },
+    "csm": {
+      "enabled": true,
+      "label": null,
+      "order": 17,
+    },
+    "decisions": {
+      "enabled": true,
+      "label": null,
+      "order": 4,
+    },
+    "email_draft": {
+      "enabled": true,
+      "label": null,
+      "order": 9,
+    },
+    "integrations": {
+      "enabled": true,
+      "label": null,
+      "order": 19,
+    },
+    "meetings": {
+      "enabled": true,
+      "label": null,
+      "order": 11,
+    },
+    "messages": {
+      "enabled": true,
+      "label": null,
+      "order": 13,
+    },
+    "meta_ads": {
+      "enabled": true,
+      "label": null,
+      "order": 3,
+    },
+    "miro": {
+      "enabled": true,
+      "label": null,
+      "order": 14,
+    },
+    "notifications": {
+      "enabled": true,
+      "label": null,
+      "order": 21,
+    },
+    "notion": {
+      "enabled": true,
+      "label": null,
+      "order": 10,
+    },
+    "overview": {
+      "enabled": true,
+      "label": null,
+      "order": 0,
+    },
+    "shell": {
+      "enabled": true,
+      "label": null,
+      "order": 22,
+    },
+    "spreadsheets": {
+      "enabled": true,
+      "label": null,
+      "order": 6,
+    },
+    "tasks": {
+      "enabled": true,
+      "label": null,
+      "order": 1,
+    },
+    "timeline": {
+      "enabled": true,
+      "label": null,
+      "order": 16,
+    },
+    "variations_studio": {
+      "enabled": true,
+      "label": null,
+      "order": 7,
+    },
+    "workflows": {
+      "enabled": true,
+      "label": null,
+      "order": 15,
+    },
+  },
+  "surfaces": {
+    "integrations.provider.slack": {
+      "label": null,
+      "order": 0,
+      "visible": true,
+    },
+    "overview.card.meetings": {
+      "label": null,
+      "order": 0,
+      "visible": true,
+    },
+    "shell.group.manage": {
+      "label": null,
+      "order": 0,
+      "visible": true,
+    },
+    "shell.item.ads_draft": {
+      "label": null,
+      "order": 1,
+      "visible": true,
+    },
+    "shell.item.facebook_meta": {
+      "label": null,
+      "order": 2,
+      "visible": true,
+    },
+    "tasks.tab.gantt": {
+      "label": null,
+      "order": 0,
+      "visible": true,
+    },
+  },
+  "version": 1,
+}
+`;
