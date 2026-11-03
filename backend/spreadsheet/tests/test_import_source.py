@@ -1,7 +1,9 @@
 import tempfile
 from decimal import Decimal
+from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import DatabaseError
 from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
@@ -70,6 +72,15 @@ class SheetImportSourceBaselineTests(TestCase):
             format='json',
         )
 
+    def _finalize_import(self):
+        return self.client.post(
+            f'/api/spreadsheet/spreadsheets/{self.spreadsheet.slug}/'
+            f'sheets/{self.sheet.id}/cells/import-finalize/',
+            {},
+            format='json',
+        )
+
+    
     def test_excel_post_stores_raw_input_not_computed(self):
         Cell.objects.create(
             sheet=self.sheet,
@@ -159,3 +170,68 @@ class SheetImportSourceBaselineTests(TestCase):
         self.assertEqual(SheetImportSource.objects.filter(sheet=self.sheet).count(), 1)
         self.assertEqual(source.origin, 'GOOGLE')
         self.assertEqual(source.baseline['cells']['0,0'], {'raw_input': '250'})
+
+    def test_reimport_deletes_previous_file_only_after_commit(self):
+        self._post_excel()
+        source = SheetImportSource.objects.get(sheet=self.sheet)
+        old_name = source.file.name
+        storage = source.file.storage
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            response = self._post_excel()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(storage.exists(old_name))
+
+        for callback in callbacks:
+            callback()
+        source.refresh_from_db()
+        self.assertFalse(storage.exists(old_name))
+        self.assertNotEqual(source.file.name, old_name)
+        self.assertTrue(storage.exists(source.file.name))
+
+    def test_failed_reimport_keeps_previous_file_and_reference(self):
+        self._post_excel()
+        source = SheetImportSource.objects.get(sheet=self.sheet)
+        old_name = source.file.name
+
+        with mock.patch.object(
+            SheetImportSource.objects,
+            'update_or_create',
+            side_effect=DatabaseError('boom'),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                with self.assertRaises(DatabaseError):
+                    self._post_excel()
+
+        source.refresh_from_db()
+        self.assertEqual(source.file.name, old_name)
+        self.assertTrue(source.file.storage.exists(old_name))
+
+    def test_csv_replacement_retires_previous_excel_source(self):
+        self._post_excel()
+        response = self._finalize_import()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(
+            SheetImportSource.objects.filter(sheet=self.sheet, is_deleted=False).exists()
+        )
+
+    def test_excel_reimport_reactivates_source_with_new_baseline(self):
+        self._post_excel()
+        self._finalize_import()
+        Cell.objects.create(
+            sheet=self.sheet, row=self.rows[0], column=self.cols[0], raw_input='new'
+        )
+        response = self._post_excel()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        source = SheetImportSource.objects.get(sheet=self.sheet)
+        self.assertFalse(source.is_deleted)
+        self.assertEqual(source.baseline['cells']['0,0'], {'raw_input': 'new'})
+
+    def test_google_reimport_reactivates_source(self):
+        self._post_excel()
+        self._finalize_import()
+        response = self._post_google()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        source = SheetImportSource.objects.get(sheet=self.sheet)
+        self.assertFalse(source.is_deleted)
+        self.assertEqual(source.origin, 'GOOGLE')

@@ -739,7 +739,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
   const [importProgress, setImportProgress] = useState<{ current: number; total: number } | null>(null);
   const [xlsxImport, setXlsxImport] = useState<XLSXParseResult | null>(null);
   const [selectedXlsxSheet, setSelectedXlsxSheet] = useState<string>('');
-  const [xlsxImportFile, setXlsxImportFile] = useState<File | null>(null);    // added - stores the file to the backend for openpyxl to inspect its styling
+  const [xlsxImportFile, setXlsxImportFile] = useState<File | null>(null);  
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const [exportMenuAnchor, setExportMenuAnchor] = useState<{ top: number; left: number; width: number } | null>(null);
   const [sheetsImportModalOpen, setSheetsImportModalOpen] = useState(false);
@@ -2223,37 +2223,45 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       if (isReverting) return;
       setIsReverting(true);
       try {
-        await SpreadsheetAPI.revertStructureOperation(spreadsheetId, sheetId, op.id);
-        if (op.type === 'row_insert') {
-          const nextRowCount = Math.max(0, rowCount - op.count);
-          setRowCount(nextRowCount);
-          dimensionsCache.set(sheetId, { rowCount: nextRowCount, colCount });
-        } else if (op.type === 'row_delete') {
-          const nextRowCount = rowCount + op.count;
-          setRowCount(nextRowCount);
-          dimensionsCache.set(sheetId, { rowCount: nextRowCount, colCount });
-        } else if (op.type === 'col_insert') {
-          const nextColCount = Math.max(0, colCount - op.count);
-          setColCount(nextColCount);
-          dimensionsCache.set(sheetId, { rowCount, colCount: nextColCount });
-        } else if (op.type === 'col_delete') {
-          const nextColCount = colCount + op.count;
-          setColCount(nextColCount);
-          dimensionsCache.set(sheetId, { rowCount, colCount: nextColCount });
+        try {
+          await SpreadsheetAPI.revertStructureOperation(spreadsheetId, sheetId, op.id);
+          if (op.type === 'row_insert') {
+            const nextRowCount = Math.max(0, rowCount - op.count);
+            setRowCount(nextRowCount);
+            dimensionsCache.set(sheetId, { rowCount: nextRowCount, colCount });
+          } else if (op.type === 'row_delete') {
+            const nextRowCount = rowCount + op.count;
+            setRowCount(nextRowCount);
+            dimensionsCache.set(sheetId, { rowCount: nextRowCount, colCount });
+          } else if (op.type === 'col_insert') {
+            const nextColCount = Math.max(0, colCount - op.count);
+            setColCount(nextColCount);
+            dimensionsCache.set(sheetId, { rowCount, colCount: nextColCount });
+          } else if (op.type === 'col_delete') {
+            const nextColCount = colCount + op.count;
+            setColCount(nextColCount);
+            dimensionsCache.set(sheetId, { rowCount, colCount: nextColCount });
+          }
+          resetSheetCaches();
+        } catch (error: any) {
+          console.error('Failed to revert operation:', error);
+          toast.error('Failed to undo');
+          throw error;
         }
-        resetSheetCaches();
-        await loadCellRange(
-          visibleRange.startRow,
-          visibleRange.endRow,
-          visibleRange.startCol,
-          visibleRange.endCol,
-          true
-        );
-        await reloadSheetDecorations();
-      } catch (error: any) {
-        console.error('Failed to revert operation:', error);
-        toast.error('Failed to undo');
-        throw error;
+        try {
+          await loadCellRange(
+            visibleRange.startRow,
+            visibleRange.endRow,
+            visibleRange.startCol,
+            visibleRange.endCol,
+            true
+          );
+          await reloadSheetDecorations();
+        } catch (error: any) {
+          console.error('Failed to refresh after undo:', error);
+          toast.error('Undo saved, but the grid could not refresh. Reload the sheet.');
+          throw Object.assign(new Error('refresh failed'), { structureCommitted: true });
+        }
       } finally {
         setIsReverting(false);
       }
@@ -3224,9 +3232,18 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       await applyUndoFormat(last.entry);
       toast.success('Undo complete');
     } else if (last.type === 'structure') {
-      setRedoStack((prev) => [...prev, { type: 'structure', entry: { type: last.op.type, count: last.op.count, position: last.op.position } }]);
-      await performUndoStructure(last.op);
-      toast.success('Undo complete');
+      const redoEntry = { type: 'structure' as const, entry: { type: last.op.type, count: last.op.count, position: last.op.position } };
+      try {
+        await performUndoStructure(last.op);
+        setRedoStack((prev) => [...prev, redoEntry]);
+        toast.success('Undo complete');
+      } catch (error: any) {
+        if (error?.structureCommitted) {
+          setRedoStack((prev) => [...prev, redoEntry]);
+          return;
+        }
+        setUndoStack((prev) => [...prev, last]);
+      }
     } else if (last.type === 'sort') {
       setRedoStack((prev) => [...prev, last]);
       await applyUndoSort(last.entry);
@@ -5061,12 +5078,9 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
           // Save the formatting and highlights ExcelJS extracted.
           await applyImportedStyles(preview.format_ops, preview.highlight_ops);
           try {
-            // NEW: file is still the local argument; this path never uses xlsxImportFile
             await SpreadsheetAPI.saveExcelImportSource(spreadsheetId, sheetId, file, sheetname);
           } catch (sourceError) {
             console.error('[Import] Source save failed:', sourceError);
-            // toast('Import complete, but the original Excel file was not stored. Export will rebuild from the web sheet.');
-            // return;
           }
           toast.success('Import complete');
           return;
@@ -5075,11 +5089,9 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         // Several worksheets: keep the names for the picker.
         setXlsxImport(parsed);
         // Keep the file until the user picks a worksheet. ExcelJS reads it in the browser after they confirm.
-        setXlsxImportFile(file);  // added 
+        setXlsxImportFile(file);   
         // Start the picker on the first worksheet.
         setSelectedXlsxSheet(parsed.sheetNames[0]);
-
-
       } catch (error: any) {
         if (error?.name === 'AbortError') return;
         // If error has response, or is timeout/network (no response), runImportMatrix already showed a toast
@@ -5118,19 +5130,16 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       const imported = await runImportMatrix(preview.matrix);
       if (!imported) return;
       // Save the formatting and highlights ExcelJS extracted.
-      await applyImportedStyles(preview.format_ops, preview.highlight_ops); // added save the cell formating that openpyxl found
+      await applyImportedStyles(preview.format_ops, preview.highlight_ops); 
       try {
-        // NEW: xlsxImportFile is cleared only after this attempt
         await SpreadsheetAPI.saveExcelImportSource(
           spreadsheetId,
           sheetId,
           xlsxImportFile,
           selectedXlsxSheet,
         );
-        // toast.success('Import complete');
       } catch (sourceError) {
         console.error('[Import] Source save failed:', sourceError);
-        // toast('Import complete, but the original Excel file was not stored. Export will rebuild from the web sheet.');
       }
       toast.success('Import complete');
       setXlsxImport(null);
@@ -5175,7 +5184,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       setImportProgress({ current: 0, total: 0 });
       const importedOk = await runImportMatrix(preview.matrix);
       if (!importedOk) return;
-      await applyImportedStyles(preview.format_ops, preview.highlight_ops); // added save the cell formating that google sheets found
+      await applyImportedStyles(preview.format_ops, preview.highlight_ops); 
       try {
         if (imported.google_spreadsheet_id && imported.google_sheet_id != null && imported.worksheet_name) {
           await SpreadsheetAPI.saveGoogleImportSource(spreadsheetId, sheetId, {

@@ -8,34 +8,16 @@ import requests
 from .services import GOOGLE_SHEETS_URL, _col_letter
 import json
 import uuid
+from spreadsheet.xlsx_export import _CURRENCY_LOCALES, _EXCEL_FONT_NAMES
+from spreadsheet.structure_replay import _shift_index
 
 _BATCH_SIZE = 2000
-
-_GOOGLE_FONT_FAMILY = {
-    "Arial, sans-serif": "Arial",
-    "Helvetica, Arial, sans-serif": "Helvetica",
-    "Georgia, serif": "Georgia",
-    '"Times New Roman", Times, serif': "Times New Roman",
-    "monospace": "Consolas",
-}
-
-_CURRENCY_PREFIX = {
-    "USD": "[$$-409]",
-    "GBP": "[$£-809]",
-    "EUR": "[$€-407]",
-    "JPY": "[$¥-411]",
-}
 
 class GooglePatchExportError(Exception):
     """The copy could not be completed. The view may rebuild."""
 
 class GoogleBlankTabCleanupError(Exception):
     """The copied tab is complete. The view must not rebuild."""
-
-    def __init__(self, message, *, spreadsheet_id, url):
-        super().__init__(message)
-        self.spreadsheet_id = spreadsheet_id
-        self.url = url
 
 def export_copied_google_sheet(source, diff, title, access_token) -> dict:
     """Copy source.google_sheet_id into a new spreadsheet and apply a safe diff."""
@@ -53,41 +35,39 @@ def export_copied_google_sheet(source, diff, title, access_token) -> dict:
         value_entries = _without_structural_formula_rewrites(source, diff, value_entries)
 
     destination_id, blank_sheet_id = _create_destination(title, access_token)
-    copied_sheet_id, copied_title = _copy_source_tab(
-        source_spreadsheet_id,
-        source_sheet_id,
-        destination_id,
-        access_token,
-    )
     try:
+        copied_sheet_id, copied_title = _copy_source_tab(
+            source_spreadsheet_id,
+            source_sheet_id,
+            destination_id,
+            access_token,
+        )
         _replay_structure(destination_id, copied_sheet_id, diff.get("structural_operations") or [], access_token,)
 
         if value_entries:
             _write_values(destination_id, copied_title, value_entries, access_token)
         if repeat_templates:
             _write_repeats(destination_id, copied_sheet_id, repeat_templates, access_token)
-    except GooglePatchExportError as patch_error:
-        _discard_copied_tab(destination_id, copied_sheet_id, access_token, patch_error)
+    except GooglePatchExportError:
+        _delete_converted_spreadsheet(destination_id, access_token)
+        raise
+    except requests.HTTPError:
+        try:
+            _delete_converted_spreadsheet(destination_id, access_token)
+        except GoogleBlankTabCleanupError:
+            pass
         raise
 
     url = _spreadsheet_url(destination_id)
     try:
         _delete_sheet(destination_id, blank_sheet_id, access_token)
     except GooglePatchExportError as exc:
-        raise GoogleBlankTabCleanupError(
-            "blank tab delete failed",
-            spreadsheet_id=destination_id,
-            url=url,
-        ) from exc
+        raise GoogleBlankTabCleanupError("blank tab delete failed") from exc
     if copied_title != worksheet_name:
         try:
             _rename_sheet(destination_id, copied_sheet_id, worksheet_name, access_token)
         except GooglePatchExportError as exc:
-            raise GoogleBlankTabCleanupError(
-                "copied tab rename failed",
-                spreadsheet_id=destination_id,
-                url=url,
-            ) from exc
+            raise GoogleBlankTabCleanupError("copied tab rename failed") from exc
     return {"spreadsheet_id": destination_id, "url": url}
 
 _MAX_XLSX_UPLOAD_BYTES = 5 * 1024 * 1024
@@ -123,8 +103,8 @@ def export_converted_excel_sheet(source, diff, title, access_token) -> dict:
             _write_values(destination_id, converted_title, value_entries, access_token)
         if repeat_templates:
             _write_repeats(destination_id, converted_sheet_id, repeat_templates, access_token)
-    except GooglePatchExportError as patch_error:
-        _delete_converted_spreadsheet(destination_id, access_token, patch_error)
+    except GooglePatchExportError:
+        _delete_converted_spreadsheet(destination_id, access_token)
         raise
     return {"spreadsheet_id": destination_id, "url": _spreadsheet_url(destination_id)}
 
@@ -136,7 +116,7 @@ def _excel_file_bytes(source):
     try:
         with file_field.open("rb") as handle:
             content = handle.read()
-    except Exception as exc:
+    except OSError as exc:
         raise GooglePatchExportError("excel file could not be read") from exc
     if not isinstance(content, (bytes, bytearray)) or not content:
         raise GooglePatchExportError("excel file could not be read")
@@ -205,7 +185,7 @@ def _converted_worksheet(spreadsheet_id, worksheet_name, access_token):
     raise GooglePatchExportError("converted worksheet was not found")
 
 
-def _delete_converted_spreadsheet(spreadsheet_id, access_token, patch_error):
+def _delete_converted_spreadsheet(spreadsheet_id, access_token):
     try:
         _request(
             "delete",
@@ -214,12 +194,7 @@ def _delete_converted_spreadsheet(spreadsheet_id, access_token, patch_error):
             timeout=20,
         )
     except GooglePatchExportError as exc:
-        raise GoogleBlankTabCleanupError(
-            "converted spreadsheet delete failed",
-            spreadsheet_id=spreadsheet_id,
-            url=_spreadsheet_url(spreadsheet_id),
-        ) from exc
-    return patch_error
+        raise GoogleBlankTabCleanupError("converted spreadsheet delete failed") 
 
 
 
@@ -340,7 +315,7 @@ def _highlight_body(color):
 def _font_family(value):
     if not isinstance(value, str):
         raise GooglePatchExportError("unsupported font family")
-    mapped = _GOOGLE_FONT_FAMILY.get(value.strip())
+    mapped = _EXCEL_FONT_NAMES.get(value.strip())
     if not mapped:
         raise GooglePatchExportError("unsupported font family")
     return mapped
@@ -398,7 +373,7 @@ def _google_number_format(value):
         return {"type": "PERCENT", "pattern": _percent_pattern(places)}
     if kind == "CURRENCY":
         code = str(value.get("currency_code") or "").upper()
-        prefix = _CURRENCY_PREFIX.get(code)
+        prefix = _CURRENCY_LOCALES.get(code)
         if not prefix:
             raise GooglePatchExportError("unsupported number format")
         return {"type": "CURRENCY", "pattern": prefix + _number_pattern(places)}
@@ -510,9 +485,9 @@ def _rewrite_baseline_formulas(cells, operation, rewrite_formula_text):
         row = int(row_text)
         column = int(column_text)
         if axis == "row":
-            row = _shift_formula_index(row, anchor, count, delete)
+            row = _shift_index(row, anchor, count, delete)
         else:
-            column = _shift_formula_index(column, anchor, count, delete)
+            column = _shift_index(column, anchor, count, delete)
         if row is None or column is None:
             continue
         if (
@@ -524,20 +499,6 @@ def _rewrite_baseline_formulas(cells, operation, rewrite_formula_text):
             value["raw_input"] = rewrite_formula_text(value["raw_input"], op_type, anchor, count)
         shifted[f"{row},{column}"] = value
     return shifted
-
-
-def _shift_formula_index(index, anchor, count, delete):
-    """Same coordinate rule as structure_replay._shift_index."""
-    if delete:
-        if anchor <= index < anchor + count:
-            return None
-        if index >= anchor + count:
-            return index - count
-        return index
-    if index >= anchor:
-        return index + count
-    return index
-
 
 def _replay_structure(destination_id, copied_sheet_id, operations, access_token):
     """Apply validated inserts and deletes to the copied destination tab."""
@@ -768,13 +729,6 @@ def _rename_sheet(destination_id, sheet_id, title, access_token):
             ]
         },
     )
-
-def _discard_copied_tab(destination_id, copied_sheet_id, access_token, patch_error):
-    try:
-        _delete_sheet(destination_id, copied_sheet_id, access_token)
-    except GooglePatchExportError as cleanup_error:
-        raise GooglePatchExportError("copied tab cleanup failed") from cleanup_error
-    raise patch_error
 
 def _spreadsheet_url(destination_id):
     return f"https://docs.google.com/spreadsheets/d/{destination_id}/edit"

@@ -104,8 +104,8 @@ class GoogleDocsConnectView(APIView):
             missing_settings.append("GOOGLE_CLIENT_ID (or GOOGLE_OAUTH_CLIENT_ID)")
         if not settings.GOOGLE_OAUTH_CLIENT_SECRET:
             missing_settings.append("GOOGLE_CLIENT_SECRET (or GOOGLE_OAUTH_CLIENT_SECRET)")
-        if not settings.GOOGLE_OAUTH_REDIRECT_URI:
-            missing_settings.append("GOOGLE_OAUTH_REDIRECT_URI (or GOOGLE_REDIRECT_URI)")
+        if not settings.GOOGLE_DOCS_OAUTH_REDIRECT_URI:
+            missing_settings.append("GOOGLE_DOCS_OAUTH_REDIRECT_URI")
 
         if missing_settings:
             return Response(
@@ -401,11 +401,15 @@ class GoogleSheetsExportView(APIView):
                     SheetImportSource.objects.filter(
                         sheet=sheet,
                         is_deleted=False,
-                        origin=SheetImportSource.Origin.GOOGLE,
                     ).first()
                 )
-                source_spreadsheet_id = (source.google_spreadsheet_id or "").strip() if source else ""
-                if source is not None and source_spreadsheet_id and source.google_sheet_id is not None:
+
+                if (
+                    source is not None
+                    and source.origin == SheetImportSource.Origin.GOOGLE
+                    and (source.google_spreadsheet_id or "").strip()
+                    and source.google_sheet_id is not None
+                ): 
                     diff = diff_sheet(source)
                     if not diff["requires_rebuild"]:
                         try:
@@ -435,45 +439,41 @@ class GoogleSheetsExportView(APIView):
                                 source.id,
                             )
                             result = rebuild()
-                if result is None:
-                    excel_source = (
-                        SheetImportSource.objects.filter(
-                            sheet=sheet,
-                            is_deleted=False,
-                            origin=SheetImportSource.Origin.EXCEL,
-                        ).first()
-                    )
-                    if excel_source is not None and excel_source.file:
-                        diff = diff_sheet(excel_source)
-                        if not diff["requires_rebuild"]:
-                            try:
-                                result = run_google_api_with_token_retry(
-                                    connection,
-                                    lambda token: export_converted_excel_sheet(
-                                        excel_source,
-                                        diff,
-                                        title,
-                                        token,
-                                    ),
-                                )
-                            except GoogleBlankTabCleanupError:
-                                logger.exception(
-                                    "Excel conversion cleanup failed for sheet_id=%s source_id=%s",
-                                    sheet.id,
-                                    excel_source.id,
-                                )
-                                return Response(
-                                    {"error": "Google Sheets export could not be finished. Please try again."},
-                                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                                )
-                            except GooglePatchExportError:
-                                logger.exception(
-                                    "Excel conversion failed for sheet_id=%s source_id=%s",
-                                    sheet.id,
-                                    excel_source.id,
-                                )
-                                result = rebuild()
-                            
+                elif (
+                    source is not None
+                    and source.origin == SheetImportSource.Origin.EXCEL
+                    and source.file
+                ): 
+                    diff = diff_sheet(source)
+                    if not diff["requires_rebuild"]:
+                        try:
+                            result = run_google_api_with_token_retry(
+                                connection,
+                                lambda token: export_converted_excel_sheet(
+                                    source,
+                                    diff,
+                                    title,
+                                    token,
+                                ),
+                            )
+                        except GoogleBlankTabCleanupError:
+                            logger.exception(
+                                "Excel conversion cleanup failed for sheet_id=%s source_id=%s",
+                                sheet.id,
+                                source.id,
+                            )
+                            return Response(
+                                {"error": "Google Sheets export could not be finished. Please try again."},
+                                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                            )
+                        except GooglePatchExportError:
+                            logger.exception(
+                                "Excel conversion failed for sheet_id=%s source_id=%s",
+                                sheet.id,
+                                source.id,
+                            )
+                            result = rebuild()
+                        
             if result is None:
                 result = rebuild()
         except requests.HTTPError as exc:

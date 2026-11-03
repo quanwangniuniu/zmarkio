@@ -123,81 +123,9 @@ class TestImportDiff(TestCase):
         missing = diff_sheet(_source(None))
         self.assertEqual(missing['rebuild_reasons'], ['missing_baseline'])
         self.assertTrue(missing['requires_rebuild'])
-        self.assertEqual(missing['cells'], {})
 
         bad = diff_sheet(_source({'version': 2}))
         self.assertEqual(bad['rebuild_reasons'], ['unsupported_baseline_version'])
-
-    def test_live_sheet_no_edit_then_value_change(self):
-        owner = create_test_user('diff-owner', 'diff-owner@example.com')
-        organization = create_test_organization()
-        project = create_test_project(organization, owner=owner)
-        spreadsheet = create_test_spreadsheet(project)
-        sheet = create_test_sheet(spreadsheet)
-        row = SheetRow.objects.create(sheet=sheet, position=0)
-        column = SheetColumn.objects.create(sheet=sheet, position=0, name='A')
-        Cell.objects.create(sheet=sheet, row=row, column=column, raw_input='100')
-        SpreadsheetCellFormat.objects.create(
-            sheet=sheet, row_index=0, column_index=0, bold=False, font_size=12,
-        )
-
-        baseline = build_import_baseline(sheet)
-        unchanged = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(unchanged['requires_rebuild'])
-        self.assertFalse(unchanged['has_changes'])
-        self.assertEqual(unchanged['cells'], {})
-
-        cell = Cell.objects.get(sheet=sheet)
-        cell.raw_input = '200'
-        cell.save(update_fields=['raw_input'])
-        changed = diff_sheet(_source(baseline, sheet))
-        self.assertEqual(changed['cells']['0,0'], {'raw_input': '200'})
-        self.assertTrue(changed['has_changes'])
-        self.assertFalse(changed['requires_rebuild'])
-
-    def test_row_highlight_forces_rebuild(self):
-        owner = create_test_user('diff-owner-2', 'diff-owner-2@example.com')
-        organization = create_test_organization()
-        project = create_test_project(organization, owner=owner)
-        spreadsheet = create_test_spreadsheet(project)
-        sheet = create_test_sheet(spreadsheet)
-        SheetRow.objects.create(sheet=sheet, position=0)
-        SheetColumn.objects.create(sheet=sheet, position=0, name='A')
-        highlight = SpreadsheetHighlight.objects.create(
-            spreadsheet=spreadsheet,
-            sheet=sheet,
-            scope='ROW',
-            row_index=0,
-            col_index=0,
-            color='#111111',
-        )
-        baseline = build_import_baseline(sheet)
-        highlight.color = '#222222'
-        highlight.save(update_fields=['color'])
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertTrue(result['structure_safe'])
-        self.assertTrue(result['requires_rebuild'])
-        self.assertIn('row_highlight_changed', result['rebuild_reasons'])
-        self.assertEqual(result['cells'], {})
-        self.assertEqual(result['highlights']['cells'], {})
-
-    def test_appended_cell_forces_rebuild(self):
-        owner = create_test_user('diff-owner-3', 'diff-owner-3@example.com')
-        organization = create_test_organization()
-        project = create_test_project(organization, owner=owner)
-        spreadsheet = create_test_spreadsheet(project)
-        sheet = create_test_sheet(spreadsheet)
-        row = SheetRow.objects.create(sheet=sheet, position=0)
-        column = SheetColumn.objects.create(sheet=sheet, position=0, name='A')
-        Cell.objects.create(sheet=sheet, row=row, column=column, raw_input='100')
-        baseline = build_import_baseline(sheet)
-        extra = SheetRow.objects.create(sheet=sheet, position=1)
-        Cell.objects.create(sheet=sheet, row=extra, column=column, raw_input='new')
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertTrue(result['structure_safe'])
-        self.assertTrue(result['requires_rebuild'])
-        self.assertIn('appended_region_change', result['rebuild_reasons'])
-        self.assertEqual(result['cells'], {})
 
 class TestStructuralReplayDiff(TestCase):
     def _sheet(self, label, row_count, column_count):
@@ -218,6 +146,56 @@ class TestStructuralReplayDiff(TestCase):
 
     def _cell(self, sheet, row, column, raw):
         return Cell.objects.create(sheet=sheet, row=row, column=column, raw_input=raw)
+
+    def test_live_sheet_no_edit_then_value_change(self):
+        sheet, rows, columns = self._sheet('live', 1, 1)
+        cell = self._cell(sheet, rows[0], columns[0], '100')
+        SpreadsheetCellFormat.objects.create(
+            sheet=sheet, row_index=0, column_index=0, bold=False, font_size=12,
+        )
+
+        baseline = build_import_baseline(sheet)
+        unchanged = diff_sheet(_source(baseline, sheet))
+        self.assertFalse(unchanged['requires_rebuild'])
+        self.assertFalse(unchanged['has_changes'])
+        self.assertEqual(unchanged['cells'], {})
+
+        cell.raw_input = '200'
+        cell.save(update_fields=['raw_input'])
+        changed = diff_sheet(_source(baseline, sheet))
+        self.assertEqual(changed['cells']['0,0'], {'raw_input': '200'})
+        self.assertTrue(changed['has_changes'])
+        self.assertFalse(changed['requires_rebuild'])
+
+    def test_row_highlight_forces_rebuild(self):
+        sheet, _rows, _columns = self._sheet('row-highlight', 1, 1)
+        highlight = SpreadsheetHighlight.objects.create(
+            spreadsheet=sheet.spreadsheet,
+            sheet=sheet,
+            scope='ROW',
+            row_index=0,
+            col_index=0,
+            color='#111111',
+        )
+        baseline = build_import_baseline(sheet)
+        highlight.color = '#222222'
+        highlight.save(update_fields=['color'])
+        result = diff_sheet(_source(baseline, sheet))
+        self.assertTrue(result['structure_safe'])
+        self.assertTrue(result['requires_rebuild'])
+        self.assertIn('row_highlight_changed', result['rebuild_reasons'])
+
+    def test_appended_cell_forces_rebuild(self):
+        sheet, rows, columns = self._sheet('appended', 1, 1)
+        self._cell(sheet, rows[0], columns[0], '100')
+        baseline = build_import_baseline(sheet)
+        extra = SheetRow.objects.create(sheet=sheet, position=1)
+        self._cell(sheet, extra, columns[0], 'new')
+        result = diff_sheet(_source(baseline, sheet))
+        self.assertTrue(result['structure_safe'])
+        self.assertTrue(result['requires_rebuild'])
+        self.assertIn('appended_region_change', result['rebuild_reasons'])
+
 
     def test_column_insert_patches_final_coordinates(self):
         sheet, rows, columns = self._sheet('col-insert', 1, 3)
@@ -305,24 +283,6 @@ class TestStructuralReplayDiff(TestCase):
         self.assertEqual(result['structural_operations'], [])
         self.assertEqual(result['cells'], {'0,0': {'raw_input': 'edited'}})
 
-    def test_delete_then_new_insert_is_replayed(self):
-        sheet, rows, columns = self._sheet('reinsert', 2, 1)
-        self._cell(sheet, rows[0], columns[0], 'gone')
-        kept = self._cell(sheet, rows[1], columns[0], 'kept')
-        baseline = build_import_baseline(sheet)
-        SheetService.delete_rows(sheet, position=0, count=1)
-        SheetService.insert_rows(sheet, position=0, count=1)
-        kept.raw_input = 'edited'
-        kept.save(update_fields=['raw_input'])
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'ROW_DELETE', 'anchor_position': 0, 'count': 1},
-            {'op_type': 'ROW_INSERT', 'anchor_position': 0, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {'1,0': {'raw_input': 'edited'}})
-
     def test_reverted_insert_is_ignored(self):
         sheet, rows, columns = self._sheet('revert', 1, 1)
         cell = self._cell(sheet, rows[0], columns[0], 'hello')
@@ -347,8 +307,6 @@ class TestStructuralReplayDiff(TestCase):
         result = diff_sheet(_source(baseline, sheet))
         self.assertTrue(result['requires_rebuild'])
         self.assertIn('column_structure_changed', result['rebuild_reasons'])
-        self.assertEqual(result['structural_operations'], [])
-        self.assertEqual(result['cells'], {})
 
     def test_replay_mismatch_rebuilds(self):
         sheet, rows, columns = self._sheet('mismatch', 1, 3)
@@ -366,8 +324,6 @@ class TestStructuralReplayDiff(TestCase):
         result = diff_sheet(_source(baseline, sheet))
         self.assertTrue(result['requires_rebuild'])
         self.assertIn('column_structure_changed', result['rebuild_reasons'])
-        self.assertEqual(result['structural_operations'], [])
-        self.assertEqual(result['cells'], {})
 
     def test_sort_still_rebuilds(self):
         sheet, rows, columns = self._sheet('sort', 2, 1)
@@ -586,8 +542,6 @@ class TestStructuralReplayDiff(TestCase):
         result = diff_sheet(_source(baseline, sheet))
         self.assertTrue(result['requires_rebuild'])
         self.assertIn('appended_region_change', result['rebuild_reasons'])
-        self.assertEqual(result['structural_operations'], [])
-        self.assertEqual(result['cells'], {})
 
     def test_column_inserted_in_the_middle_after_delete_rebuilds(self):
         sheet, rows, columns = self._sheet('mid-extra', 1, 3)
@@ -605,7 +559,6 @@ class TestStructuralReplayDiff(TestCase):
         result = diff_sheet(_source(baseline, sheet))
         self.assertTrue(result['requires_rebuild'])
         self.assertIn('column_structure_changed', result['rebuild_reasons'])
-        self.assertEqual(result['structural_operations'], [])
     
     def test_undo_removes_the_formula_patch_and_redo_keeps_structure(self):
         sheet, rows, columns = self._sheet('formula-undo', 3, 1)

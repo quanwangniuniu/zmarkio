@@ -5,6 +5,7 @@ The export view decides whether to fall back to build_sheet_workbook.
 """
 
 import io
+from django.db.models import Q
 from copy import copy
 
 from openpyxl import load_workbook
@@ -54,8 +55,6 @@ def build_patched_workbook(source, diff, *, workbook_bytes=None, worksheet_name=
         try:
             with source.file.open('rb') as handle:
                 workbook = load_workbook(handle)
-        except XlsxPatchExportError:
-            raise
         except Exception as exc:
             raise XlsxPatchExportError('The original Excel file could not be opened.') from exc
     else:
@@ -71,9 +70,10 @@ def build_patched_workbook(source, diff, *, workbook_bytes=None, worksheet_name=
     try:
         worksheet = _worksheet(workbook, selected_name)
         _replay_structure(worksheet, diff.get('structural_operations') or [])
-        _reject_sparkline_changes(sheet, diff.get('cells') or {})
-        for key, change in (diff.get('cells') or {}).items():
-            _patch_value(worksheet, sheet, key, change)
+        cell_changes = diff.get('cells') or {}
+        changed_cells = _reject_sparkline_changes(sheet, cell_changes)
+        for key, change in cell_changes.items():
+            _patch_value(worksheet, key, change, changed_cells)
         for key, change in (diff.get('formats') or {}).items():
             _patch_format(worksheet, key, change or {})
         highlights = diff.get('highlights') or {}
@@ -289,60 +289,87 @@ def _parse_coordinate(key):
         raise XlsxPatchExportError(f'Bad cell coordinate {key!r}.')
     return row_pos, col_pos
 
-
-def _active_at(model, sheet, position, label):
-    obj = model.objects.filter(sheet=sheet, position=position, is_deleted=False).first()
-    if obj is None:
-        raise XlsxPatchExportError(f'No active {label} at position {position}.')
-    return obj
-
-
-def _live_cell(sheet, row, column):
-    return (
-        Cell.objects.filter(sheet=sheet, row=row, column=column, is_deleted=False)
-        .first()
-    )
-
-
 def _excel_cell(worksheet, key):
     row_pos, col_pos = _parse_coordinate(key)
     return worksheet.cell(row=row_pos + 1, column=col_pos + 1)
 
+def _load_changed_cells(sheet, needed):
+    if not needed:
+        return {}, {}, {}
+    row_positions = {row for _key, (row, _column) in needed}
+    column_positions = {column for _key, (_row, column) in needed}
+    rows = {
+        row.position: row
+        for row in SheetRow.objects.filter(
+            sheet=sheet,
+            is_deleted=False,
+            position__in=row_positions,
+        )
+    }
+    columns = {
+        column.position: column
+        for column in SheetColumn.objects.filter(
+            sheet=sheet,
+            is_deleted=False,
+            position__in=column_positions,
+        )
+    }
+    pair_filter = Q()
+    for _key, (row_pos, col_pos) in needed:
+        row = rows.get(row_pos)
+        column = columns.get(col_pos)
+        if row is None or column is None:
+            continue
+        pair_filter |= Q(row_id=row.id, column_id=column.id)
+    cells_by_position = {}
+
+    if pair_filter:
+        row_pos_by_id = {row.id: row.position for row in rows.values()}
+        column_pos_by_id = {column.id: column.position for column in columns.values()}
+        for cell in Cell.objects.filter(pair_filter, sheet=sheet, is_deleted=False):
+            cells_by_position[
+                (row_pos_by_id[cell.row_id], column_pos_by_id[cell.column_id])
+            ] = cell
+    return rows, columns, cells_by_position
 
 def _reject_sparkline_changes(sheet, cell_changes):
+    needed = []
     for key, change in cell_changes.items():
         raw = (change or {}).get('raw_input')
         if raw is None:
             continue
         if is_sparkline(str(raw)):
             raise XlsxPatchExportError(f'Cell {key} is a sparkline and cannot be patched.')
-        row_pos, col_pos = _parse_coordinate(key)
-        row = _active_at(SheetRow, sheet, row_pos, 'row')
-        column = _active_at(SheetColumn, sheet, col_pos, 'column')
-        cell = _live_cell(sheet, row, column)
+        needed.append((key, _parse_coordinate(key)))
+    
+    rows, columns, cells_by_position = _load_changed_cells(sheet, needed)
+    for key, (row_pos, col_pos) in needed:
+        if row_pos not in rows:
+            raise XlsxPatchExportError(f'No active row at position {row_pos}.')
+        if col_pos not in columns:
+            raise XlsxPatchExportError(f'No active column at position {col_pos}.')
+        cell = cells_by_position.get((row_pos, col_pos))
         if cell is not None and is_sparkline(cell.raw_input):
             raise XlsxPatchExportError(f'Cell {key} is a sparkline and cannot be patched.')
+    return rows, columns, cells_by_position
 
-
-def _patch_value(worksheet, sheet, key, change):
+def _patch_value(worksheet, key, change, changed_cells):
+    _rows, _columns, cells_by_position = changed_cells
     row_pos, col_pos = _parse_coordinate(key)
     excel_cell = worksheet.cell(row=row_pos + 1, column=col_pos + 1)
     raw = (change or {}).get('raw_input')
     if raw is None:
         excel_cell.value = None
         return
-
-    row = _active_at(SheetRow, sheet, row_pos, 'row')
-    column = _active_at(SheetColumn, sheet, col_pos, 'column')
-    cell = _live_cell(sheet, row, column)
+    cell = cells_by_position.get((row_pos, col_pos))
     if cell is None:
         raise XlsxPatchExportError(f'No active cell at {key} to convert for export.')
-
     stored = (cell.raw_input or '').strip()
     if stored.startswith('='):
         excel_cell.value = stored
         return
     excel_cell.value = _cell_export_value(cell)
+
 
 
 def _apply_font_family(font, value) -> bool:

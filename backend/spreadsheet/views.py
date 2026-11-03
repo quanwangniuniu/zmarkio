@@ -6,6 +6,7 @@ Handles CRUD operations for spreadsheets, sheets, rows, columns, and cells
 import logging
 import re
 import time
+import requests
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -1188,6 +1189,7 @@ class ImportFinalizeView(APIView):
         import_id = request.data.get('import_id')
         if import_id:
             logger.info("Import finalize sheet_id=%s import_id=%s", sheet_id, import_id)
+        SheetImportSource.objects.filter(sheet=sheet).update(is_deleted=True)
         try:
             CellService.recalculate_sheet_formulas(sheet)
         except Exception as e:
@@ -1505,14 +1507,17 @@ class SheetImportSourceView(APIView):
                 .filter(sheet=sheet)
                 .first()
             )
-            if existing and existing.file and origin == SheetImportSource.Origin.EXCEL:
-                existing.file.delete(save=False)
-            if existing and existing.file and origin == SheetImportSource.Origin.GOOGLE:
-                existing.file.delete(save=False)
+            old_file = existing.file if existing and existing.file else None
             source, _created = SheetImportSource.objects.update_or_create(
                 sheet=sheet,
                 defaults=defaults,
             )
+            if old_file:
+                # Delete only after commit so a rollback keeps the file the row still references.
+                transaction.on_commit(
+                    lambda: old_file.storage.delete(old_file.name),
+                    robust=True,
+                )
 
         return Response(
             {
@@ -1531,12 +1536,15 @@ def _google_sheet_xlsx(request, sheet, source):
     connection = GoogleDocsConnection.objects.filter(user=request.user, is_active=True).first()
     if connection is None or not connection.get_access_token():
         return build_sheet_workbook(sheet)
+    diff = diff_sheet(source)
+    if diff['requires_rebuild']:
+        return build_sheet_workbook(sheet)
     try:
         exported, worksheet_name = run_google_api_with_token_retry(
             connection,
             lambda token: export_google_spreadsheet_xlsx(source, token),
         )
-    except Exception:
+    except (requests.RequestException, ValueError):
         logger.exception(
             'Google xlsx export failed for sheet_id=%s source_id=%s',
             sheet.id,
@@ -1544,9 +1552,6 @@ def _google_sheet_xlsx(request, sheet, source):
         )
         return build_sheet_workbook(sheet)
 
-    diff = diff_sheet(source)
-    if diff['requires_rebuild']:
-        return build_sheet_workbook(sheet)
     if not diff['has_changes'] and not diff.get('structural_operations'):
         return exported
     try:
@@ -1592,7 +1597,7 @@ class SheetXlsxExportView(APIView):
                 try:
                     with source.file.open('rb') as handle:
                         content = handle.read()
-                except Exception:
+                except OSError:
                     logger.exception(
                         'Excel source read failed for sheet_id=%s source_id=%s',
                         sheet.id,

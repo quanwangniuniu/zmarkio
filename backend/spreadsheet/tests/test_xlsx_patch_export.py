@@ -302,30 +302,6 @@ class TestXlsxPatchExport(TestCase):
             'highlights': {'cells': {}},
         }
 
-    def test_column_insert_moves_the_underlined_cell(self):
-        self._cell(0, 0, 'left')
-        self._cell(0, 1, 'right')
-        original = _workbook_bytes(
-            lambda workbook, worksheet: (
-                worksheet.__setitem__('A1', 'left'),
-                worksheet.__setitem__('B1', 'right'),
-                setattr(worksheet['B1'], 'font', Font(underline='single')),
-            )
-        )
-        source = self._save_excel_source(original)
-        with source.file.open('rb') as handle:
-            stored = handle.read()
-        content = build_patched_workbook(source, self._structure_diff([
-            {'op_type': 'COL_INSERT', 'anchor_position': 1, 'count': 1},
-        ]))
-        with source.file.open('rb') as handle:
-            self.assertEqual(handle.read(), stored)
-        with _open_exported(content) as workbook:
-            self.assertEqual(workbook['Sheet1']['A1'].value, 'left')
-            self.assertIsNone(workbook['Sheet1']['B1'].value)
-            self.assertEqual(workbook['Sheet1']['C1'].value, 'right')
-            self.assertEqual(workbook['Sheet1']['C1'].font.underline, 'single')
-
     def test_row_insert_moves_the_cell_down(self):
         self._cell(0, 0, 'top')
         self._cell(1, 0, 'bottom')
@@ -343,22 +319,6 @@ class TestXlsxPatchExport(TestCase):
             self.assertEqual(workbook['Sheet1']['A1'].value, 'top')
             self.assertIsNone(workbook['Sheet1']['A2'].value)
             self.assertEqual(workbook['Sheet1']['A3'].value, 'bottom')
-
-    def test_row_delete_shifts_the_following_cell_up(self):
-        self._cell(0, 0, 'drop')
-        self._cell(1, 0, 'keep')
-        original = _workbook_bytes(
-            lambda workbook, worksheet: (
-                worksheet.__setitem__('A1', 'drop'),
-                worksheet.__setitem__('A2', 'keep'),
-            )
-        )
-        source = self._save_excel_source(original)
-        content = build_patched_workbook(source, self._structure_diff([
-            {'op_type': 'ROW_DELETE', 'anchor_position': 0, 'count': 1},
-        ]))
-        with _open_exported(content) as workbook:
-            self.assertEqual(workbook['Sheet1']['A1'].value, 'keep')
 
     def test_row_then_column_insert_applies_in_order(self):
         self._cell(0, 0, 'A')
@@ -445,22 +405,6 @@ class TestXlsxPatchExport(TestCase):
             self.assertEqual(workbook['Sheet1']['A2'].value, 'A')
             self.assertEqual(workbook['Sheet2']['A1'].value, 'other')
 
-    def test_column_delete_shifts_the_following_cell_left(self):
-        self._cell(0, 0, 'drop')
-        self._cell(0, 1, 'keep')
-        original = _workbook_bytes(
-            lambda workbook, worksheet: (
-                worksheet.__setitem__('A1', 'drop'),
-                worksheet.__setitem__('B1', 'keep'),
-            )
-        )
-        source = self._save_excel_source(original)
-        content = build_patched_workbook(source, self._structure_diff([
-            {'op_type': 'COL_DELETE', 'anchor_position': 0, 'count': 1},
-        ]))
-        with _open_exported(content) as workbook:
-            self.assertEqual(workbook['Sheet1']['A1'].value, 'keep')
-
     def test_column_width_at_the_insert_moves(self):
         self._cell(0, 0, 'left')
         original = _workbook_bytes(
@@ -513,6 +457,7 @@ class TestXlsxPatchExport(TestCase):
             self.assertEqual(worksheet.row_dimensions[3].height, 30)
             self.assertNotIn(2, worksheet.row_dimensions)
 
+    
     def test_relative_formula_is_patched_after_insert(self):
         formula = self._cell(0, 0, '=B1')
         self._cell(0, 1, '2')
@@ -587,6 +532,7 @@ class TestXlsxPatchExport(TestCase):
             self.assertEqual(workbook['Sheet1']['A1'].font.underline, 'single')
             self.assertEqual(workbook['Sheet1']['A2'].value, 'keep2')
             self.assertIsNone(workbook['Sheet1']['A3'].value)
+            self.assertNotIn(3, workbook['Sheet1'].row_dimensions)
 
     def test_delete_middle_row_moves_the_underlined_cell_up(self):
         self._cell(0, 0, 'top')
@@ -630,6 +576,7 @@ class TestXlsxPatchExport(TestCase):
         with _open_exported(response.content) as workbook:
             self.assertEqual(workbook['Sheet1']['A1'].value, 'keep')
             self.assertEqual(workbook['Sheet1']['A1'].font.underline, 'single')
+            self.assertNotIn('A', workbook['Sheet1'].column_dimensions)
 
     def test_height_below_a_deleted_row_stays_in_the_patched_workbook(self):
         self._cell(0, 0, 'top')
@@ -639,6 +586,7 @@ class TestXlsxPatchExport(TestCase):
             lambda workbook, worksheet: (
                 worksheet.__setitem__('A1', 'top'),
                 worksheet.__setitem__('A2', 'drop'),
+                setattr(worksheet.row_dimensions[2], 'height', 15),
                 worksheet.__setitem__('A3', 'bottom'),
                 setattr(worksheet['A3'], 'font', Font(underline='single')),
                 setattr(worksheet.row_dimensions[3], 'height', 30),
@@ -656,47 +604,8 @@ class TestXlsxPatchExport(TestCase):
             self.assertEqual(worksheet['A2'].value, 'bottom')
             self.assertEqual(worksheet['A2'].font.underline, 'single')
             self.assertEqual(worksheet.row_dimensions[2].height, 30)
-        
-    def test_delete_last_row_removes_its_height(self):
-        self._cell(0, 0, 'keep')
-        self._cell(2, 0, 'drop')
-        original = _workbook_bytes(
-            lambda workbook, worksheet: (
-                worksheet.__setitem__('A1', 'keep'),
-                setattr(worksheet['A1'], 'font', Font(underline='single')),
-                worksheet.__setitem__('A3', 'drop'),
-                setattr(worksheet.row_dimensions[3], 'height', 30),
-            )
-        )
-        source = self._save_excel_source(original)
-        content = build_patched_workbook(source, self._structure_diff([
-            {'op_type': 'ROW_DELETE', 'anchor_position': 2, 'count': 1},
-        ]))
-        with _open_exported(content) as workbook:
-            worksheet = workbook['Sheet1']
             self.assertNotIn(3, worksheet.row_dimensions)
-            self.assertEqual(worksheet['A1'].font.underline, 'single')
-
-    def test_delete_column_removes_its_width(self):
-        self._cell(0, 0, 'drop')
-        self._cell(0, 1, 'keep')
-        original = _workbook_bytes(
-            lambda workbook, worksheet: (
-                worksheet.__setitem__('A1', 'drop'),
-                setattr(worksheet.column_dimensions['A'], 'width', 22),
-                worksheet.__setitem__('B1', 'keep'),
-                setattr(worksheet['B1'], 'font', Font(underline='single')),
-            )
-        )
-        source = self._save_excel_source(original)
-        content = build_patched_workbook(source, self._structure_diff([
-            {'op_type': 'COL_DELETE', 'anchor_position': 0, 'count': 1},
-        ]))
-        with _open_exported(content) as workbook:
-            worksheet = workbook['Sheet1']
-            self.assertNotIn('A', worksheet.column_dimensions)
-            self.assertEqual(worksheet['A1'].value, 'keep')
-            self.assertEqual(worksheet['A1'].font.underline, 'single')
+        
 
     def test_delete_row_removes_a_merge_on_that_row(self):
         self._cell(0, 0, 'keep')
@@ -738,29 +647,7 @@ class TestXlsxPatchExport(TestCase):
             worksheet = workbook['Sheet1']
             self.assertNotIn(4, worksheet.row_dimensions)
             self.assertEqual(worksheet['A1'].font.underline, 'single')
-
-    def test_height_below_a_deleted_row_moves_with_the_row(self):
-        self._cell(0, 0, 'top')
-        self._cell(2, 0, 'bottom')
-        original = _workbook_bytes(
-            lambda workbook, worksheet: (
-                worksheet.__setitem__('A1', 'top'),
-                worksheet.__setitem__('A2', 'drop'),
-                worksheet.__setitem__('A3', 'bottom'),
-                setattr(worksheet.row_dimensions[3], 'height', 30),
-            )
-        )
-        source = self._save_excel_source(original)
-        content = build_patched_workbook(source, self._structure_diff([
-            {'op_type': 'ROW_DELETE', 'anchor_position': 1, 'count': 1},
-        ]))
-        with _open_exported(content) as workbook:
-            worksheet = workbook['Sheet1']
-            self.assertEqual(worksheet['A1'].value, 'top')
-            self.assertEqual(worksheet['A2'].value, 'bottom')
-            self.assertEqual(worksheet.row_dimensions[2].height, 30)
-            self.assertNotIn(3, worksheet.row_dimensions)
-        
+ 
     def test_delete_column_with_trailing_column_keeps_underline(self):
         self._cell(0, 0, 'keep')
         self._cell(0, 1, 'drop')

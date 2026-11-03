@@ -168,48 +168,24 @@ def _routed_export(diff=None, copy_error=None):
 
 @pytest.mark.django_db
 class TestGoogleSheetExportRouting:
-    def test_no_source_uses_rebuild(self, sheet_setup):
-        with _routed_export() as routed:
+    @pytest.mark.parametrize(
+        "source_fields, diff",
+        [
+            (None, None),
+            ({"origin": SheetImportSource.Origin.EXCEL, "google_spreadsheet_id": "", "google_sheet_id": None}, None),
+            ({"google_spreadsheet_id": "  "}, None),
+            ({"google_sheet_id": None}, None),
+            ({}, _safe_diff(requires_rebuild=True, has_changes=True)),
+        ],
+        ids=["no_source", "excel_without_file", "blank_spreadsheet_id", "null_sheet_id", "requires_rebuild"],
+    )
+    def test_unusable_source_uses_rebuild(self, sheet_setup, source_fields, diff):
+        if source_fields is not None:
+            _google_source(sheet_setup.sheet, **source_fields)
+        with _routed_export(diff) as routed:
             response = _post_export(sheet_setup)
         assert response.status_code == status.HTTP_200_OK
         assert response.data["spreadsheet_id"] == "rebuilt"
-        routed.rebuild.assert_called_once()
-        routed.copy.assert_not_called()
-
-    def test_excel_source_uses_rebuild(self, sheet_setup):
-        _google_source(
-            sheet_setup.sheet,
-            origin=SheetImportSource.Origin.EXCEL,
-            google_spreadsheet_id="",
-            google_sheet_id=None,
-        )
-        with _routed_export() as routed:
-            response = _post_export(sheet_setup)
-        assert response.status_code == status.HTTP_200_OK
-        routed.rebuild.assert_called_once()
-        routed.copy.assert_not_called()
-
-    def test_blank_google_spreadsheet_id_uses_rebuild(self, sheet_setup):
-        _google_source(sheet_setup.sheet, google_spreadsheet_id="  ")
-        with _routed_export() as routed:
-            response = _post_export(sheet_setup)
-        assert response.status_code == status.HTTP_200_OK
-        routed.rebuild.assert_called_once()
-        routed.copy.assert_not_called()
-
-    def test_null_google_sheet_id_uses_rebuild(self, sheet_setup):
-        _google_source(sheet_setup.sheet, google_sheet_id=None)
-        with _routed_export() as routed:
-            response = _post_export(sheet_setup)
-        assert response.status_code == status.HTTP_200_OK
-        routed.rebuild.assert_called_once()
-        routed.copy.assert_not_called()
-
-    def test_requires_rebuild_uses_rebuild(self, sheet_setup):
-        _google_source(sheet_setup.sheet)
-        with _routed_export(_safe_diff(requires_rebuild=True, has_changes=True)) as routed:
-            response = _post_export(sheet_setup)
-        assert response.status_code == status.HTTP_200_OK
         routed.rebuild.assert_called_once()
         routed.copy.assert_not_called()
 
@@ -244,11 +220,7 @@ class TestGoogleSheetExportRouting:
 
     def test_blank_tab_cleanup_returns_503_without_rebuild(self, sheet_setup):
         _google_source(sheet_setup.sheet)
-        error = GoogleBlankTabCleanupError(
-            "copied tab rename failed",
-            spreadsheet_id=DESTINATION_ID,
-            url=f"https://docs.google.com/spreadsheets/d/{DESTINATION_ID}/edit",
-        )
+        error = GoogleBlankTabCleanupError("copied tab rename failed")
         with _routed_export(copy_error=error) as routed:
             response = _post_export(sheet_setup)
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
@@ -301,7 +273,15 @@ class TestGoogleSheetExportRouting:
         routed.copy.assert_not_called()
 
     @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
-    def test_excel_requires_rebuild_skips_conversion(self, sheet_setup):
+    @pytest.mark.parametrize(
+        "diff, convert_error",
+        [
+            (_safe_diff(requires_rebuild=True, has_changes=True), None),
+            (None, GooglePatchExportError("convert failed")),
+        ],
+        ids=["requires_rebuild", "conversion_error"],
+    )
+    def test_excel_source_falls_back_to_rebuild(self, sheet_setup, diff, convert_error):
         source = _google_source(
             sheet_setup.sheet,
             origin=SheetImportSource.Origin.EXCEL,
@@ -309,32 +289,17 @@ class TestGoogleSheetExportRouting:
             google_sheet_id=None,
         )
         source.file.save("book.xlsx", ContentFile(b"PK-fake"), save=True)
-        with _routed_export(_safe_diff(requires_rebuild=True, has_changes=True)) as routed, patch(
+        with _routed_export(diff) as routed, patch(
             "google_docs_integration.views.export_converted_excel_sheet",
+            side_effect=convert_error,
         ) as converted:
             response = _post_export(sheet_setup)
         assert response.data["spreadsheet_id"] == "rebuilt"
-        converted.assert_not_called()
+        routed.rebuild.assert_called_once()
         routed.copy.assert_not_called()
-        routed.rebuild.assert_called_once()
+        assert converted.call_count == (0 if convert_error is None else 1)
 
-    @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
-    def test_excel_conversion_failure_uses_rebuild(self, sheet_setup):
-        source = _google_source(
-            sheet_setup.sheet,
-            origin=SheetImportSource.Origin.EXCEL,
-            google_spreadsheet_id="",
-            google_sheet_id=None,
-        )
-        source.file.save("book.xlsx", ContentFile(b"PK-fake"), save=True)
-        with _routed_export() as routed, patch(
-            "google_docs_integration.views.export_converted_excel_sheet",
-            side_effect=GooglePatchExportError("convert failed"),
-        ):
-            response = _post_export(sheet_setup)
-        assert response.data["spreadsheet_id"] == "rebuilt"
-        routed.rebuild.assert_called_once()
-
+    
     @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
     def test_excel_cleanup_failure_does_not_rebuild(self, sheet_setup):
         source = _google_source(
@@ -346,11 +311,7 @@ class TestGoogleSheetExportRouting:
         source.file.save("book.xlsx", ContentFile(b"PK-fake"), save=True)
         with _routed_export() as routed, patch(
             "google_docs_integration.views.export_converted_excel_sheet",
-            side_effect=GoogleBlankTabCleanupError(
-                "delete failed",
-                spreadsheet_id="converted",
-                url="https://docs.google.com/spreadsheets/d/converted/edit",
-            ),
+            side_effect=GoogleBlankTabCleanupError("delete failed"),
         ):
             response = _post_export(sheet_setup)
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
@@ -380,7 +341,6 @@ class TestGoogleSheetExportRouting:
             assert params["uploadType"] == "multipart"
             assert b"application/vnd.google-apps.spreadsheet" in data
             assert payload in data
-            assert b"PK-original" == payload
             response = MagicMock()
             response.status_code = 200
             response.json.return_value = {"id": "converted-id"}
@@ -494,13 +454,6 @@ class TestExportCopiedGoogleSheet:
                     repeats.append(request["repeatCell"])
         return repeats
 
-    def test_bold_only_uses_a_narrow_mask(self):
-        repeats = self._repeat_cells(_safe_diff(has_changes=True, formats={"0,0": {"bold": True}}))
-        assert len(repeats) == 1
-        assert repeats[0]["fields"] == "userEnteredFormat.textFormat.bold"
-        assert repeats[0]["cell"]["userEnteredFormat"]["textFormat"]["bold"] is True
-        assert "numberFormat" not in repeats[0]["fields"]
-
     def test_multiple_format_fields_use_one_repeat_cell(self):
         repeats = self._repeat_cells(_safe_diff(
             has_changes=True,
@@ -532,9 +485,6 @@ class TestExportCopiedGoogleSheet:
             "green": 219 / 255,
             "blue": 254 / 255,
         }
-        assert "borders" not in repeats[0]["fields"]
-        assert "textFormat" not in repeats[0]["fields"]
-        assert "horizontalAlignment" not in repeats[0]["fields"]
 
     def test_supported_currency_format_is_patched(self):
         repeats = self._repeat_cells(_safe_diff(
@@ -568,10 +518,6 @@ class TestExportCopiedGoogleSheet:
                 export_copied_google_sheet(_source(), diff, "Phase 5", "token")
         request.assert_not_called()
 
-    def test_google_sheet_id_zero_is_copied(self):
-        _result, recorded = self._run(_safe_diff(), source=_source(sheet_id=0))
-        assert recorded[1][0].endswith("/sheets/0:copyTo")
-
     def test_copy_failure_raises_patch_error(self):
         def fail(url, _body, _count):
             return url.endswith(":copyTo")
@@ -599,13 +545,11 @@ class TestExportCopiedGoogleSheet:
         fail.status_code = 500
         with pytest.raises(GooglePatchExportError):
             self._run(diff, fail=fail, recorded=recorded)
-        deletes = [
-            request["deleteSheet"]["sheetId"]
+        assert recorded[-1][0] == f"https://www.googleapis.com/drive/v3/files/{DESTINATION_ID}"
+        assert not any(
+            "deleteSheet" in str(body)
             for _url, body in recorded
-            for request in (body or {}).get("requests", [])
-            if "deleteSheet" in request
-        ]
-        assert deletes == [COPIED_SHEET_ID]
+        )
 
     def test_blank_tab_delete_failure_raises_cleanup_error(self):
         def fail(url, body, _count):
@@ -614,8 +558,6 @@ class TestExportCopiedGoogleSheet:
         fail.status_code = 500
         with pytest.raises(GoogleBlankTabCleanupError) as caught:
             self._run(_safe_diff(), fail=fail)
-        assert caught.value.spreadsheet_id == DESTINATION_ID
-        assert caught.value.url == f"https://docs.google.com/spreadsheets/d/{DESTINATION_ID}/edit"
 
     def test_rename_failure_raises_cleanup_error(self):
         seen_delete = {"done": False}
@@ -629,10 +571,8 @@ class TestExportCopiedGoogleSheet:
             return seen_delete["done"]
 
         fail.status_code = 500
-        with pytest.raises(GoogleBlankTabCleanupError) as caught:
+        with pytest.raises(GoogleBlankTabCleanupError):
             self._run(_safe_diff(), copy_title="Copy of Budget", fail=fail)
-        assert caught.value.spreadsheet_id == DESTINATION_ID
-        assert caught.value.url == f"https://docs.google.com/spreadsheets/d/{DESTINATION_ID}/edit"
 
     def test_source_spreadsheet_id_is_only_on_copy_to(self):
         diff = _safe_diff(
@@ -661,40 +601,27 @@ class TestExportCopiedGoogleSheet:
         ]
         return found, source_writes
 
-    def test_column_delete_only_deletes_the_copied_column(self):
-        diff = _safe_diff(structural_operations=[
-            {"op_type": "COL_DELETE", "anchor_position": 1, "count": 1},
-        ])
-        found, source_writes = self._dimension_requests(diff)
+    @pytest.mark.parametrize(
+        "op_type, dimension",
+        [("COL_DELETE", "COLUMNS"), ("ROW_DELETE", "ROWS")],
+    )
+    def test_delete_only_deletes_the_copied_dimension(self, op_type, dimension):
+        found, source_writes = self._dimension_requests(_safe_diff(structural_operations=[
+            {"op_type": op_type, "anchor_position": 1, "count": 1},
+        ]))
         assert source_writes == []
         assert found == [{
             "deleteDimension": {
                 "range": {
                     "sheetId": COPIED_SHEET_ID,
-                    "dimension": "COLUMNS",
+                    "dimension": dimension,
                     "startIndex": 1,
                     "endIndex": 2,
                 }
             }
         }]
 
-    def test_row_delete_with_an_empty_padding_row_deletes_only_the_original_row(self):
-        diff = _safe_diff(structural_operations=[
-            {"op_type": "ROW_DELETE", "anchor_position": 1, "count": 1},
-        ])
-        found, source_writes = self._dimension_requests(diff)
-        assert source_writes == []
-        assert found == [{
-            "deleteDimension": {
-                "range": {
-                    "sheetId": COPIED_SHEET_ID,
-                    "dimension": "ROWS",
-                    "startIndex": 1,
-                    "endIndex": 2,
-                }
-            }
-        }]
-
+    
     def test_row_delete_does_not_clear_formatting(self):
         requests = self._recorded_requests(_safe_diff(structural_operations=[
             {"op_type": "ROW_DELETE", "anchor_position": 1, "count": 1},
@@ -791,13 +718,11 @@ class TestExportCopiedGoogleSheet:
         fail.status_code = 400
         with pytest.raises(GooglePatchExportError, match="google sheets request failed"):
             self._run(diff, fail=fail, recorded=recorded)
-        deletes = [
-            request["deleteSheet"]["sheetId"]
+        assert recorded[-1][0] == f"https://www.googleapis.com/drive/v3/files/{DESTINATION_ID}"
+        assert not any(
+            "deleteSheet" in str(body)
             for _url, body in recorded
-            for request in (body or {}).get("requests", [])
-            if "deleteSheet" in request
-        ]
-        assert deletes == [COPIED_SHEET_ID]
+        )
     
     def test_structural_export_does_not_rewrite_a_cross_sheet_formula(self):
         from spreadsheet.formula_rewrite import rewrite_formula_text

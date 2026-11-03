@@ -112,16 +112,6 @@ describe('google sheet style import', () => {
     expect(format_ops[0].font_family).toBe('Georgia, serif');
     expect(format_ops[0].font_size).toBe(10);
   });
-  
-  it('does not invent a font family from the default size', () => {
-    const { format_ops } = mapGoogleSheetStyles({
-      matrix: [['Hello']],
-      cells: [],
-      default_font_size: 10,
-    });
-    expect(format_ops[0].font_family).toBeNull();
-    expect(format_ops[0].font_size).toBe(10);
-  });
 
   it('maps a scientific pattern to the same plain number format Excel produces', () => {
     const { format_ops } = mapGoogleSheetStyles({
@@ -135,32 +125,20 @@ describe('google sheet style import', () => {
     });
   });
 
-  it('does not turn a dong format token into USD', () => {
-    const { format_ops } = mapGoogleSheetStyles({
-      matrix: [['80', '60']],
+  it('drops dong and Australian currencies and keeps a bracketed US dollar', () => {
+    const { matrix, format_ops } = mapGoogleSheetStyles({
+      matrix: [['80', '60', '60']],
       cells: [
         cell(0, { numberFormat: { type: 'CURRENCY', pattern: '[$₫]#,##0' } }),
-        cell(1, { numberFormat: { type: 'CURRENCY', pattern: '[$$-409]#,##0.00' } }),
+        cell(1, { numberFormat: { type: 'CURRENCY', pattern: '[$$-C09]#,##0.00' } }),
+        cell(2, { numberFormat: { type: 'CURRENCY', pattern: '[$$-409]#,##0.00' } }),
       ],
     });
-    expect(format_ops.some((op) => op.column === 0)).toBe(false);
-    expect(format_ops[0].number_format).toEqual({ type: 'CURRENCY', currency_code: 'USD', decimal_places: 2 });
-  });
-
-  it('drops an Australian locale currency and keeps a bracketed US dollar', () => {
-    const { matrix, format_ops } = mapGoogleSheetStyles({
-      matrix: [['60', '60']],
-      cells: [
-        cell(0, { numberFormat: { type: 'CURRENCY', pattern: '[$$-C09]#,##0.00' } }),
-        cell(1, { numberFormat: { type: 'CURRENCY', pattern: '[$$-409]#,##0.00' } }),
-      ],
-    });
-    expect(matrix[0][0]).toBe('60');
-    expect(format_ops.some((op) => op.column === 0)).toBe(false);
-    expect(format_ops[0].number_format).toEqual({
-      type: 'CURRENCY',
-      currency_code: 'USD',
-      decimal_places: 2,
+    expect(matrix[0]).toEqual(['80', '60', '60']);
+    expect(format_ops).toHaveLength(1);
+    expect(format_ops[0]).toMatchObject({
+      column: 2,
+      number_format: { type: 'CURRENCY', currency_code: 'USD', decimal_places: 2 },
     });
   });
 });

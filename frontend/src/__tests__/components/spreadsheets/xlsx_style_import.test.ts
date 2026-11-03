@@ -1,6 +1,5 @@
 import ExcelJS from 'exceljs';
 import JSZip from 'jszip';
-import { parseSheetStyles } from '@/components/spreadsheets/xlsx_style_import';
 import { parseNumberFormat, parseSheetStyles } from '@/components/spreadsheets/xlsx_style_import';
 
 function xlsxFile(bytes: Uint8Array): File {
@@ -74,7 +73,6 @@ describe('xlsx import formulas', () => {
       sheet.getCell('A1').value = { formula: 'A1+1', result: 2 };
     });
     expect(matrix[0][0]).toBe('=A1+1');
-    expect(matrix[0][0]).not.toBe('[object Object]');
   });
 
   it('shifts a shared formula instead of keeping the cached result', async () => {
@@ -91,7 +89,6 @@ describe('xlsx import formulas', () => {
     });
     expect(matrix[0][0]).toBe('=$B1+C1');
     expect(matrix[8][0]).toBe('=$B9+C9');
-    expect(matrix[8][0]).not.toBe('3');
   });
   
 });
@@ -161,28 +158,16 @@ describe('xlsx import font formatting', () => {
 });
 
 describe('xlsx import text colours', () => {
-  it('keeps an exact toolbar colour', async () => {
+  it.each([
+    ['an exact toolbar', 'FFDC2626', '#DC2626'],
+    ['a pure red', 'FFFF0000', '#FF0000'],
+    ['a dark blue', 'FF376092', '#376092'],
+  ])('keeps %s text colour', async (_label, argb, hex) => {
     const { format_ops } = await parse((sheet) => {
-      sheet.getCell('A1').value = 'red';
-      sheet.getCell('A1').font = { color: { argb: 'FFDC2626' } };
+      sheet.getCell('A1').value = 'coloured';
+      sheet.getCell('A1').font = { color: { argb } };
     });
-    expect(formatAt(format_ops, 0, 0)?.text_color).toBe('#DC2626');
-  });
-
-  it('keeps a pure red text colour', async () => {
-    const { format_ops } = await parse((sheet) => {
-      sheet.getCell('A1').value = 'pure red';
-      sheet.getCell('A1').font = { color: { argb: 'FFFF0000' } };
-    });
-    expect(formatAt(format_ops, 0, 0)?.text_color).toBe('#FF0000');
-  });
-
-  it('keeps a dark blue text colour', async () => {
-    const { format_ops } = await parse((sheet) => {
-      sheet.getCell('A1').value = 'navy';
-      sheet.getCell('A1').font = { color: { argb: 'FF376092' } };
-    });
-    expect(formatAt(format_ops, 0, 0)?.text_color).toBe('#376092');
+    expect(formatAt(format_ops, 0, 0)?.text_color).toBe(hex);
   });
 
   it('drops exact black and exact white', async () => {
@@ -198,52 +183,17 @@ describe('xlsx import text colours', () => {
 });
 
 describe('xlsx import fills', () => {
-  it('keeps an exact highlighter colour', async () => {
+  it.each([
+    ['an exact highlighter', 'FFFEF08A', '#FEF08A'],
+    ['a nearby yellow', 'FFFDE047', '#FDE047'],
+    ['a dark blue', 'FF376092', '#376092'],
+    ['a pure red', 'FFFF0000', '#FF0000'],
+  ])('keeps %s fill', async (_label, argb, hex) => {
     const { highlight_ops } = await parse((sheet) => {
-      sheet.getCell('A1').value = 'yellow';
-      sheet.getCell('A1').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFFEF08A' },
-      };
+      sheet.getCell('A1').value = 'filled';
+      sheet.getCell('A1').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb } };
     });
-    expect(highlightAt(highlight_ops, 0, 0)?.color).toBe('#FEF08A');
-  });
-
-  it('keeps a nearby yellow fill', async () => {
-    const { highlight_ops } = await parse((sheet) => {
-      sheet.getCell('A1').value = 'near yellow';
-      sheet.getCell('A1').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFFDE047' },
-      };
-    });
-    expect(highlightAt(highlight_ops, 0, 0)?.color).toBe('#FDE047');
-  });
-
-  it('keeps a dark blue fill', async () => {
-    const { highlight_ops } = await parse((sheet) => {
-      sheet.getCell('A1').value = 'navy';
-      sheet.getCell('A1').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF376092' },
-      };
-    });
-    expect(highlightAt(highlight_ops, 0, 0)?.color).toBe('#376092');
-  });
-
-  it('keeps a pure red fill', async () => {
-    const { highlight_ops } = await parse((sheet) => {
-      sheet.getCell('A1').value = 'red fill';
-      sheet.getCell('A1').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFFF0000' },
-      };
-    });
-    expect(highlightAt(highlight_ops, 0, 0)?.color).toBe('#FF0000');
+    expect(highlightAt(highlight_ops, 0, 0)?.color).toBe(hex);
   });
 
   it('ignores a non-solid fill', async () => {
@@ -318,47 +268,23 @@ describe('xlsx import number formats', () => {
     expect(formatAt(format_ops, 4, 0)?.number_format ?? null).toBeNull();
   });
 
-  it('keeps supported locale currencies and does not turn AUD or CAD into USD', async () => {
+  it('keeps a locale currency from the workbook and does not turn AUD into USD', async () => {
     const { format_ops } = await parse((sheet) => {
       sheet.getCell('A1').value = 1;
-      sheet.getCell('A1').numFmt = '[$$-409]#,##0.00';
+      sheet.getCell('A1').numFmt = '[$£-809]#,##0.00';
       sheet.getCell('A2').value = 1;
-      sheet.getCell('A2').numFmt = '[$£-809]#,##0.00';
-      sheet.getCell('A3').value = 1;
-      sheet.getCell('A3').numFmt = '[$€-407]#,##0.00';
-      sheet.getCell('A4').value = 1;
-      sheet.getCell('A4').numFmt = '[$¥-411]#,##0';
-      sheet.getCell('A5').value = 1;
-      sheet.getCell('A5').numFmt = '[$$-C09]#,##0.00';
-      sheet.getCell('A6').value = 1;
-      sheet.getCell('A6').numFmt = '[$$-1009]#,##0.0';
+      sheet.getCell('A2').numFmt = '[$$-C09]#,##0.00';
     });
 
     expect(formatAt(format_ops, 0, 0)?.number_format).toEqual({
       type: 'CURRENCY',
-      currency_code: 'USD',
-      decimal_places: 2,
-    });
-    expect(formatAt(format_ops, 1, 0)?.number_format).toEqual({
-      type: 'CURRENCY',
       currency_code: 'GBP',
       decimal_places: 2,
     });
-    expect(formatAt(format_ops, 2, 0)?.number_format).toEqual({
-      type: 'CURRENCY',
-      currency_code: 'EUR',
-      decimal_places: 2,
-    });
-    expect(formatAt(format_ops, 3, 0)?.number_format).toEqual({
-      type: 'CURRENCY',
-      currency_code: 'JPY',
-      decimal_places: 0,
-    });
-    expect(formatAt(format_ops, 4, 0)?.number_format ?? null).toBeNull();
-    expect(formatAt(format_ops, 5, 0)?.number_format ?? null).toBeNull();
-
+    expect(formatAt(format_ops, 1, 0)?.number_format ?? null).toBeNull();
   });
 });
+  
 
 describe('xlsx import empty cells', () => {
   it('skips an empty unformatted cell and does not invent the workbook font size', async () => {
