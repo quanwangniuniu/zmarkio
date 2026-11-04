@@ -1,5 +1,4 @@
 import pytest
-from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 from django.urls import reverse
 
@@ -50,14 +49,9 @@ def build_surfaces(*surfaces):
     return build_surface_registry(surfaces, MODULES, TYPES)
 
 
-@pytest.fixture
-def clear_registry_cache():
-    caches = (get_module_registry, get_surface_type_registry, get_surface_registry)
-    for cached in caches:
-        cached.cache_clear()
-    yield
-    for cached in caches:
-        cached.cache_clear()
+def test_shipped_surface_registry_is_valid():
+    get_surface_registry.cache_clear()
+    assert isinstance(get_surface_registry(), dict)
 
 
 def test_module_registry_has_the_23_modules_in_order():
@@ -131,15 +125,6 @@ def test_surface_parent_cycle_raises():
             SurfaceSpec("shell.item.a", "A", parent="shell.item.b"),
             SurfaceSpec("shell.item.b", "B", parent="shell.item.a"),
         )
-
-
-def test_app_ready_raises_on_bad_registry(monkeypatch, clear_registry_cache):
-    monkeypatch.setattr(
-        "org_customization.registry.MODULES",
-        (ModuleSpec("tasks", "A"), ModuleSpec("tasks", "B")),
-    )
-    with pytest.raises(ImproperlyConfigured, match="Duplicate module key"):
-        apps.get_app_config("org_customization").ready()
 
 
 @pytest.mark.django_db

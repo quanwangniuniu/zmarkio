@@ -1,8 +1,12 @@
 # Org customization registry
 
 The registry is the single list of modules, surface types and surfaces that org and project
-configuration can refer to. It is code, not database rows. Django validates it on startup and
-refuses to boot with `ImproperlyConfigured` if a key is duplicated or malformed.
+configuration can refer to. It is code, not database rows, and it is the source of truth: the
+frontend key lists must match it. It is validated the first time it is read and by the test suite,
+which raise `ImproperlyConfigured` if a key is duplicated or malformed.
+
+`SURFACES` starts empty and is filled in module by module, so an empty `surfaces` list from the
+endpoint is expected, not a bug.
 
 The frontend reads it from `GET /api/org-customization/registry/`, so dropdowns and settings
 screens are built from this list instead of hardcoded options.
