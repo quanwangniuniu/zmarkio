@@ -39,6 +39,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { NotionDraftAPI } from '@/lib/api/notionDraftApi';
+import { ProjectAPI, ProjectData } from '@/lib/api/projectApi';
 import { useBuildUrl } from '@/lib/buildUrl';
 import { GoogleDocListItem, googleDocsApi } from '@/lib/api/googleDocsApi';
 import { notionIntegrationApi } from '@/lib/api/notionIntegrationApi';
@@ -256,6 +257,9 @@ function NotionV2DetailContent() {
   const [status, setStatus] = useState<DraftStatus>('draft');
   const [blocks, setBlocks] = useState<EditorBlock[]>([createEmptyBlock()]);
   const [isSaving, setIsSaving] = useState(false);
+  const [projects, setProjects] = useState<ProjectData[]>([]);
+  const [linkedProjectId, setLinkedProjectId] = useState('');
+  const [linkingProject, setLinkingProject] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [lastEditedAt, setLastEditedAt] = useState<Date | null>(null);
 
@@ -300,6 +304,7 @@ function NotionV2DetailContent() {
       setBlocks(nextBlocks);
       setTitle(nextTitle);
       setStatus(nextStatus);
+      setLinkedProjectId(draft.project_id == null ? '' : String(draft.project_id));
       setLastEditedAt(null);
       setHasChanges(false);
       syncSnapshot(nextTitle, nextStatus, nextBlocks);
@@ -324,6 +329,44 @@ function NotionV2DetailContent() {
       setIsLoading(false);
     }
   }, [draftId, loadDraft]);
+
+  useEffect(() => {
+    let cancelled = false;
+    ProjectAPI.getProjects()
+      .then((list) => {
+        if (!cancelled) setProjects(Array.isArray(list) ? list : []);
+      })
+      .catch((error) => {
+        console.error('Failed to load projects', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleProjectChange = useCallback(async (nextValue: string) => {
+    if (!draftId || linkingProject) return;
+    const previous = linkedProjectId;
+    setLinkedProjectId(nextValue);
+    setLinkingProject(true);
+    try {
+      if (!nextValue) {
+        await NotionDraftAPI.unlinkProject(draftId);
+        return;
+      }
+      const projectId = Number(nextValue);
+      if (!Number.isInteger(projectId) || projectId < 1) {
+        throw new Error('Project id is missing');
+      }
+      await NotionDraftAPI.linkProject(draftId, projectId);
+    } catch (error) {
+      console.error('Failed to update draft project', error);
+      setLinkedProjectId(previous);
+      toast.error('Could not update the project for this draft.');
+    } finally {
+      setLinkingProject(false);
+    }
+  }, [draftId, linkedProjectId, linkingProject]);
 
   useEffect(() => {
     const snapshot = buildSnapshot(title, status, blocks);
@@ -604,25 +647,29 @@ function NotionV2DetailContent() {
   return (
     <DashboardLayout>
       <div className="-m-5 h-[calc(100vh-3rem)] flex flex-col bg-white overflow-hidden">
-        <div className="sticky top-0 z-20 border-b border-gray-100 bg-white/90 backdrop-blur-sm px-6 py-3 flex items-center gap-3">
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Untitled"
-            disabled={isLoading}
-            className="flex-1 border-0 focus:outline-none focus:ring-0 text-2xl font-semibold text-gray-900 placeholder:text-gray-300 bg-transparent"
-          />
-          <NotionStatusPill status={status} />
-          {lastEditedLabel && (
-            <span
-              aria-live="polite"
-              className="text-xs text-gray-500 whitespace-nowrap hidden md:inline"
-            >
-              {lastEditedLabel}
-            </span>
-          )}
-          <div className="flex items-center gap-1.5">
+        <div className="sticky top-0 z-20 border-b border-gray-100 bg-white/90 backdrop-blur-sm px-6 py-3 flex flex-col gap-2">
+          {/* Title on its own row so the action cluster cannot shrink it to 0 width. */}
+          <div className="flex min-w-0 items-center gap-3">
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Untitled"
+              disabled={isLoading}
+              aria-label="Draft title"
+              className="min-w-0 flex-1 border-0 focus:outline-none focus:ring-0 text-2xl font-semibold text-gray-900 placeholder:text-gray-300 bg-transparent"
+            />
+            <NotionStatusPill status={status} />
+            {lastEditedLabel && (
+              <span
+                aria-live="polite"
+                className="text-xs text-gray-500 whitespace-nowrap hidden sm:inline"
+              >
+                {lastEditedLabel}
+              </span>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
             <button
               type="button"
               onClick={() => setIsPreviewOpen(true)}
@@ -704,6 +751,25 @@ function NotionV2DetailContent() {
               <Sparkles className="w-4 h-4" />
               Open in Agent
             </button>
+            <label className="inline-flex items-center gap-2 text-sm text-gray-600">
+              <span className="sr-only">Project</span>
+              <select
+                aria-label="Project"
+                value={linkedProjectId}
+                disabled={isLoading || linkingProject || !draftId}
+                onChange={(event) => {
+                  void handleProjectChange(event.target.value);
+                }}
+                className="h-8 max-w-[10rem] rounded-md border border-gray-200 bg-white px-2 text-sm text-gray-800 disabled:opacity-50"
+              >
+                <option value="">No project</option>
+                {projects.map((project) => (
+                  <option key={String(project.id)} value={String(project.id)}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               type="button"
               onClick={handleSave}

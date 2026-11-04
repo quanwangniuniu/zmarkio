@@ -71,6 +71,13 @@ export interface DraftDetail {
   created_at: string;
   updated_at: string;
   is_deleted: boolean;
+  project_id: number | null;
+  project_slug: string | null;
+}
+
+export interface DraftProjectLink {
+  project_id: number;
+  project_slug: string;
 }
 
 export interface DraftPayload {

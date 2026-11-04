@@ -4,11 +4,12 @@ using NpgsqlTypes;
 
 namespace DecisionService.Decisions;
 
-public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : IDecisionRepository
+public sealed class PostgresDecisionRepository(TenantConnectionFactory connections) : IDecisionRepository
 {
     public DecisionListResponse List(int? projectId, DecisionStatus? status, int pageSize, int pageToken)
     {
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT
@@ -89,7 +90,8 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
 
     public DecisionDetailDto? Get(string lookup)
     {
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         return Get(connection, lookup);
     }
 
@@ -100,11 +102,12 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
             throw new InvalidOperationException("Project context is required.");
         }
 
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         var originMeeting = request.OriginMeetingId.HasValue
             ? ResolveOriginMeeting(connection, request.OriginMeetingId.Value, projectId.Value)
             : null;
-        using var transaction = connection.BeginTransaction();
+        var transaction = session.Transaction;
         var now = DateTimeOffset.UtcNow;
         var projectSeq = NextProjectSequence(connection, projectId.Value);
         var topic = NormalizeTopic(request.Topic);
@@ -192,15 +195,16 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         {
             CreateMeetingDecisionOrigin(connection, transaction, originMeeting.Id, id, actorId, now);
         }
-        transaction.Commit();
-
-        return Get(connection, id.ToString())!;
+        var created = Get(connection, id.ToString())!;
+        session.Commit();
+        return created;
     }
 
     public DecisionDetailDto? UpdateDraft(string lookup, int? actorId, UpdateDecisionDraftRequest request)
     {
-        using var connection = dataSource.OpenConnection();
-        using var transaction = connection.BeginTransaction();
+        using var session = connections.Open();
+        var connection = session.Connection;
+        var transaction = session.Transaction;
         var existing = Get(connection, lookup);
         if (existing is null || existing.Status is not (DecisionStatus.PREDRAFT or DecisionStatus.DRAFT or DecisionStatus.AWAITING_APPROVAL or DecisionStatus.COMMITTED or DecisionStatus.REVIEWED))
         {
@@ -251,14 +255,16 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
             ReplaceParentEdges(connection, transaction, existing.Id, existing.ProjectId.Value, actorId, request.ParentDecisionIds);
         }
 
-        transaction.Commit();
-        return Get(connection, existing.Id.ToString());
+        var updated = Get(connection, existing.Id.ToString());
+        session.Commit();
+        return updated;
     }
 
     public DecisionDetailDto? Transition(string lookup, int? actorId, DecisionStatus targetStatus)
     {
-        using var connection = dataSource.OpenConnection();
-        using var transaction = connection.BeginTransaction();
+        using var session = connections.Open();
+        var connection = session.Connection;
+        var transaction = session.Transaction;
         var existing = Get(connection, lookup);
         if (existing is null)
         {
@@ -304,13 +310,15 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         command.ExecuteNonQuery();
 
         RecordTransition(connection, transaction, existing.Id, existing.Status, targetStatus, actorId, now);
-        transaction.Commit();
-        return Get(connection, existing.Id.ToString());
+        var updated = Get(connection, existing.Id.ToString());
+        session.Commit();
+        return updated;
     }
 
     public bool Delete(string lookup, int? actorId)
     {
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         var existing = Get(connection, lookup);
         if (existing is null)
         {
@@ -325,19 +333,23 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         command.Parameters.AddWithValue("id", existing.Id);
         command.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
         AddNullableInteger(command, "actor_id", actorId);
-        return command.ExecuteNonQuery() > 0;
+        var deleted = command.ExecuteNonQuery() > 0;
+        session.Commit();
+        return deleted;
     }
 
     public DecisionSignalListResponse ListSignals(string lookup)
     {
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         var decision = Get(connection, lookup);
         return new DecisionSignalListResponse(decision is null ? Array.Empty<DecisionSignalDto>() : ListSignals(connection, decision.Id));
     }
 
     public DecisionSignalDto? CreateSignal(string lookup, int? actorId, DecisionSignalInput input)
     {
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         var decision = Get(connection, lookup);
         if (decision is null)
         {
@@ -399,12 +411,15 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         command.Parameters.AddWithValue("display_text", displayText);
         AddNullableText(command, "display_text_override", input.DisplayTextOverride);
         var signalId = Convert.ToInt32(command.ExecuteScalar());
-        return ListSignals(connection, decision.Id).FirstOrDefault(signal => signal.Id == signalId);
+        var created = ListSignals(connection, decision.Id).FirstOrDefault(signal => signal.Id == signalId);
+        session.Commit();
+        return created;
     }
 
     public DecisionSignalDto? UpdateSignal(string lookup, int signalId, DecisionSignalInput input)
     {
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         var decision = Get(connection, lookup);
         if (decision is null)
         {
@@ -448,12 +463,15 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         {
             return null;
         }
-        return ListSignals(connection, decision.Id).FirstOrDefault(signal => signal.Id == signalId);
+        var updated = ListSignals(connection, decision.Id).FirstOrDefault(signal => signal.Id == signalId);
+        session.Commit();
+        return updated;
     }
 
     public bool DeleteSignal(string lookup, int signalId)
     {
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         var decision = Get(connection, lookup);
         if (decision is null)
         {
@@ -468,20 +486,24 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         command.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
         command.Parameters.AddWithValue("signal_id", signalId);
         command.Parameters.AddWithValue("decision_id", decision.Id);
-        return command.ExecuteNonQuery() > 0;
+        var deleted = command.ExecuteNonQuery() > 0;
+        session.Commit();
+        return deleted;
     }
 
     public DecisionConnectionsResponse? GetConnections(string lookup)
     {
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         var decision = Get(connection, lookup);
         return decision is null ? null : BuildConnectionsPayload(connection, decision.Id, decision.ProjectId, decision.ProjectSeq);
     }
 
     public DecisionConnectionsResponse? UpdateConnections(string lookup, int? actorId, DecisionConnectionsUpdateRequest request)
     {
-        using var connection = dataSource.OpenConnection();
-        using var transaction = connection.BeginTransaction();
+        using var session = connections.Open();
+        var connection = session.Connection;
+        var transaction = session.Transaction;
         var decision = Get(connection, lookup);
         if (decision is null || decision.ProjectId is null)
         {
@@ -532,13 +554,15 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
             insertCommand.ExecuteNonQuery();
         }
 
-        transaction.Commit();
-        return BuildConnectionsPayload(connection, decision.Id, decision.ProjectId, decision.ProjectSeq);
+        var payload = BuildConnectionsPayload(connection, decision.Id, decision.ProjectId, decision.ProjectSeq);
+        session.Commit();
+        return payload;
     }
 
     public DecisionGraphResponse GetGraph(int projectId, bool allProjects, int userId, bool isSuperuser)
     {
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         var projectIds = ResolveGraphProjectIds(connection, projectId, allProjects, userId, isSuperuser);
         if (projectIds.Count == 0)
         {
@@ -652,7 +676,8 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
             return null;
         }
 
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         using var command = connection.CreateCommand();
         command.CommandText = """
             INSERT INTO decision_topic_labels (created_at, updated_at, is_deleted, project_id, topic, title)
@@ -673,17 +698,21 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         }
 
         var savedTopic = NormalizeTopic(GetNullableString(reader, "topic"));
-        return new DecisionTopicLabelResponse(
+        var saved = new DecisionTopicLabelResponse(
             savedTopic,
             GetNullableString(reader, "title") ?? TopicLabel(savedTopic),
             TopicLabel(savedTopic)
         );
+        reader.Close();
+        session.Commit();
+        return saved;
     }
 
     public TopicLabelDeleteResult DeleteTopicLabel(int projectId, string topic)
     {
         var normalizedTopic = NormalizeTopic(topic);
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
 
         using (var usageCommand = connection.CreateCommand())
         {
@@ -715,12 +744,15 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
         command.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("topic", normalizedTopic);
-        return command.ExecuteNonQuery() > 0 ? TopicLabelDeleteResult.Deleted : TopicLabelDeleteResult.NotFound;
+        var result = command.ExecuteNonQuery() > 0 ? TopicLabelDeleteResult.Deleted : TopicLabelDeleteResult.NotFound;
+        session.Commit();
+        return result;
     }
 
     public IReadOnlyList<DecisionReviewDto>? ListReviews(string lookup)
     {
-        using var connection = dataSource.OpenConnection();
+        using var session = connections.Open();
+        var connection = session.Connection;
         var decision = Get(connection, lookup);
         if (decision is null)
         {
@@ -753,8 +785,9 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
 
     public DecisionDetailDto? CreateReview(string lookup, int? actorId, DecisionReviewInput input)
     {
-        using var connection = dataSource.OpenConnection();
-        using var transaction = connection.BeginTransaction();
+        using var session = connections.Open();
+        var connection = session.Connection;
+        var transaction = session.Transaction;
         var decision = Get(connection, lookup);
         if (decision is null || decision.Status is not (DecisionStatus.COMMITTED or DecisionStatus.REVIEWED))
         {
@@ -804,8 +837,9 @@ public sealed class PostgresDecisionRepository(NpgsqlDataSource dataSource) : ID
             RecordTransition(connection, transaction, decision.Id, DecisionStatus.COMMITTED, DecisionStatus.REVIEWED, actorId, now);
         }
 
-        transaction.Commit();
-        return Get(connection, decision.Id.ToString());
+        var reviewed = Get(connection, decision.Id.ToString());
+        session.Commit();
+        return reviewed;
     }
 
     private DecisionDetailDto? Get(NpgsqlConnection connection, string lookup)

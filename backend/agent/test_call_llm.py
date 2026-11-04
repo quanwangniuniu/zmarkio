@@ -216,6 +216,21 @@ class CallLLMSuccessTests(_LLMBase):
         self.assertEqual(log.normalized_tokens, int((80 + 120) * 1.0))
 
     @patch('agent.llm_client._call_gemini')
+    def test_timeout_is_forwarded_to_gemini(self, mock_gemini):
+        from agent.llm_client import call_llm
+
+        mock_gemini.return_value = {'text': 'q', 'usage': {'input': 1, 'output': 1}}
+        call_llm(
+            agent_session=self.session,
+            provider='gemini',
+            model='gemini-2.5-flash-lite',
+            system_prompt='sys',
+            user_prompt='usr',
+            timeout=15,
+        )
+        self.assertEqual(mock_gemini.call_args.kwargs['timeout'], 15)
+
+    @patch('agent.llm_client._call_gemini')
     def test_gemini_estimate_fallback_never_logs_zero(self, mock_gemini):
         """
         When _call_gemini falls back to estimate (usageMetadata absent),
