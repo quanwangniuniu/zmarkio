@@ -1,4 +1,4 @@
-import { MODULE_KEYS, type ModuleKey, type SurfaceKey } from '../keys';
+import { MODULE_KEYS, SURFACE_TYPE_KEYS, type ModuleKey, type SurfaceKey } from '../keys';
 import type {
   EffectiveConfig,
   ModuleConfig,
@@ -55,16 +55,7 @@ export const registryFixture: Registry = {
     default_order: index,
     route_prefixes: [],
   })),
-  surface_types: [
-    { key: 'group', label: 'Group' },
-    { key: 'item', label: 'Item' },
-    { key: 'tab', label: 'Tab' },
-    { key: 'card', label: 'Card' },
-    { key: 'panel', label: 'Panel' },
-    { key: 'provider', label: 'Provider' },
-    { key: 'filter', label: 'Filter' },
-    { key: 'section', label: 'Section' },
-  ],
+  surface_types: SURFACE_TYPE_KEYS.map((key) => ({ key, label: key[0].toUpperCase() + key.slice(1) })),
   surfaces: [
     surface('shell.group.manage', 'Manage', 0),
     surface('shell.item.ads_draft', 'Ads Draft', 1),
