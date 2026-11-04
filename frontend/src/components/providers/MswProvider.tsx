@@ -20,9 +20,9 @@ export function MswProvider({ children }: { children: ReactNode }) {
         setupWorker(...orgCustomizationHandlers).start({
           serviceWorker: { url: '/msw/mockServiceWorker.js', options: { scope: '/' } },
           onUnhandledRequest: 'bypass',
+          quiet: true,
         }),
-      )
-      .catch((error) => console.error('MSW failed to start', error));
+      );
     workerStart.finally(() => setReady(true));
   }, []);
 
