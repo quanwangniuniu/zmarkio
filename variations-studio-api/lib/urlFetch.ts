@@ -1,8 +1,11 @@
+import { isIP } from 'node:net';
 import { ApiError } from '@/lib/bulk';
+import { truncateRelevantTextByCharacters } from '@/lib/pageTextBudget';
 
 const DEFAULT_BASE = 'https://chrome.browserless.io';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TEXT_CHARS = 20_000;
+const MAX_REDIRECTS = 5;
 
 export class BrowserlessError extends Error {
   constructor(message: string) {
@@ -19,6 +22,36 @@ export function parseExternalUrl(raw: unknown): string {
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     throw new ApiError(400, 'url must be http or https');
   }
+
+  return url;
+}
+
+function assertSafeUrl(rawUrl: string): URL {
+  let url: URL;
+
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new BrowserlessError('Invalid page URL');
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new BrowserlessError('Only http and https URLs are allowed');
+  }
+
+  const hostname = url.hostname.toLowerCase();
+
+  if (
+    !hostname ||
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local') ||
+    hostname === 'metadata.google.internal' ||
+    isIP(hostname)
+  ) {
+    throw new BrowserlessError('URL host is not allowed');
+  }
+
   return url;
 }
 
@@ -32,19 +65,72 @@ function htmlToText(html: string): string {
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"');
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'");
+
   const lines = withoutBlocks
     .split('\n')
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
-  const text = lines.join('\n');
-  return text.length > MAX_TEXT_CHARS ? text.slice(0, MAX_TEXT_CHARS) : text;
+
+  return truncateRelevantTextByCharacters(
+    lines.join('\n'),
+    MAX_TEXT_CHARS
+  );
+}
+
+async function fetchDirectly(pageUrl: string): Promise<string> {
+  let currentUrl = pageUrl;
+
+  for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects++) {
+    const url = assertSafeUrl(currentUrl);
+
+    const response = await fetch(url, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; MarketingStudio/1.0)',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+    });
+
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get('location');
+      if (!location) {
+        throw new BrowserlessError('Redirect has no location');
+      }
+
+      currentUrl = new URL(location, url).toString();
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new BrowserlessError(
+        `Page fetch failed: status=${response.status}`
+      );
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (
+      contentType &&
+      !contentType.includes('text/html') &&
+      !contentType.includes('application/xhtml+xml')
+    ) {
+      throw new BrowserlessError('URL did not return an HTML page');
+    }
+
+    return htmlToText(await response.text());
+  }
+
+  throw new BrowserlessError('Too many redirects');
 }
 
 export async function fetchUrlText(pageUrl: string): Promise<string> {
   const apiKey = process.env.BROWSERLESS_API_KEY;
+
+  // Use Browserless when configured; otherwise try a normal HTTP request.
   if (!apiKey) {
-    throw new BrowserlessError('BROWSERLESS_API_KEY is not configured');
+    return fetchDirectly(pageUrl);
   }
 
   const base = (process.env.BROWSERLESS_BASE || DEFAULT_BASE).replace(/\/$/, '');
@@ -63,9 +149,10 @@ export async function fetchUrlText(pageUrl: string): Promise<string> {
 
   if (!response.ok) {
     console.error('Browserless call failed status=%s', response.status);
-    throw new BrowserlessError(`Browserless fetch failed: status=${response.status}`);
+    throw new BrowserlessError(
+      `Browserless fetch failed: status=${response.status}`
+    );
   }
 
-  const html = await response.text();
-  return htmlToText(html);
+  return htmlToText(await response.text());
 }
