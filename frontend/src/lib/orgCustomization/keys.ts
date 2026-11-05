@@ -1,52 +1,53 @@
-export const MODULE_KEYS = [
-  'overview',
-  'tasks',
-  'campaigns',
-  'meta_ads',
-  'decisions',
-  'budget_pools',
-  'spreadsheets',
-  'variations_studio',
-  'ads_draft',
-  'email_draft',
-  'notion',
-  'meetings',
-  'calendar',
-  'messages',
-  'miro',
-  'workflows',
-  'timeline',
-  'csm',
-  'admin',
-  'integrations',
-  'agent',
-  'notifications',
-  'shell',
-] as const;
+export enum ModuleKey {
+  Overview = 'overview',
+  Tasks = 'tasks',
+  Campaigns = 'campaigns',
+  MetaAds = 'meta_ads',
+  Decisions = 'decisions',
+  BudgetPools = 'budget_pools',
+  Spreadsheets = 'spreadsheets',
+  VariationsStudio = 'variations_studio',
+  AdsDraft = 'ads_draft',
+  EmailDraft = 'email_draft',
+  Notion = 'notion',
+  Meetings = 'meetings',
+  Calendar = 'calendar',
+  Messages = 'messages',
+  Miro = 'miro',
+  Workflows = 'workflows',
+  Timeline = 'timeline',
+  Csm = 'csm',
+  Admin = 'admin',
+  Integrations = 'integrations',
+  Agent = 'agent',
+  Notifications = 'notifications',
+  Shell = 'shell',
+}
 
-export const SURFACE_TYPE_KEYS = [
-  'group',
-  'item',
-  'tab',
-  'card',
-  'panel',
-  'provider',
-  'filter',
-  'section',
-] as const;
+export enum SurfaceTypeKey {
+  Group = 'group',
+  Item = 'item',
+  Tab = 'tab',
+  Card = 'card',
+  Panel = 'panel',
+  Provider = 'provider',
+  Filter = 'filter',
+  Section = 'section',
+}
 
-export type ModuleKey = (typeof MODULE_KEYS)[number];
-export type SurfaceTypeKey = (typeof SURFACE_TYPE_KEYS)[number];
+export const MODULE_KEYS = Object.values(ModuleKey);
+export const SURFACE_TYPE_KEYS = Object.values(SurfaceTypeKey);
+
 export type SurfaceKey = `${ModuleKey}.${SurfaceTypeKey}.${string}`;
 
 const NAME_PATTERN = /^[a-z][a-z0-9_]*$/;
 
 export function isModuleKey(value: unknown): value is ModuleKey {
-  return typeof value === 'string' && (MODULE_KEYS as readonly string[]).includes(value);
+  return typeof value === 'string' && (MODULE_KEYS as string[]).includes(value);
 }
 
 export function isSurfaceTypeKey(value: unknown): value is SurfaceTypeKey {
-  return typeof value === 'string' && (SURFACE_TYPE_KEYS as readonly string[]).includes(value);
+  return typeof value === 'string' && (SURFACE_TYPE_KEYS as string[]).includes(value);
 }
 
 export function isSurfaceKey(value: unknown): value is SurfaceKey {

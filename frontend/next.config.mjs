@@ -10,6 +10,7 @@ const nextConfig = {
     // TSC errors are now 0 — enforce type checking at build time
     ignoreBuildErrors: false,
   },
+  // TODO: remove this header together with the MSW mocks once the org customization API is live.
   async headers() {
     return [
       {

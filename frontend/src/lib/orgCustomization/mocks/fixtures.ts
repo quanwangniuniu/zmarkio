@@ -1,4 +1,4 @@
-import { MODULE_KEYS, SURFACE_TYPE_KEYS, type ModuleKey, type SurfaceKey } from '../keys';
+import { MODULE_KEYS, ModuleKey, SURFACE_TYPE_KEYS, type SurfaceKey } from '../keys';
 import type {
   EffectiveConfig,
   ModuleConfig,
@@ -7,30 +7,31 @@ import type {
   SurfaceSpec,
 } from '@/types/orgCustomization';
 
+// TODO: temporary mock data, replace with the real API once the config endpoints are ready.
 const MODULE_LABELS: Record<ModuleKey, string> = {
-  overview: 'Overview',
-  tasks: 'Tasks',
-  campaigns: 'Campaigns',
-  meta_ads: 'Meta Ads',
-  decisions: 'Decisions',
-  budget_pools: 'Budget Pools',
-  spreadsheets: 'Spreadsheets',
-  variations_studio: 'Variations Studio',
-  ads_draft: 'Ads Draft',
-  email_draft: 'Email Draft',
-  notion: 'Notion',
-  meetings: 'Meetings',
-  calendar: 'Calendar',
-  messages: 'Messages',
-  miro: 'Miro',
-  workflows: 'Workflows',
-  timeline: 'Timeline',
-  csm: 'Customer Service',
-  admin: 'Administration',
-  integrations: 'Integrations',
-  agent: 'AI Agent',
-  notifications: 'Notifications',
-  shell: 'App Shell',
+  [ModuleKey.Overview]: 'Overview',
+  [ModuleKey.Tasks]: 'Tasks',
+  [ModuleKey.Campaigns]: 'Campaigns',
+  [ModuleKey.MetaAds]: 'Meta Ads',
+  [ModuleKey.Decisions]: 'Decisions',
+  [ModuleKey.BudgetPools]: 'Budget Pools',
+  [ModuleKey.Spreadsheets]: 'Spreadsheets',
+  [ModuleKey.VariationsStudio]: 'Variations Studio',
+  [ModuleKey.AdsDraft]: 'Ads Draft',
+  [ModuleKey.EmailDraft]: 'Email Draft',
+  [ModuleKey.Notion]: 'Notion',
+  [ModuleKey.Meetings]: 'Meetings',
+  [ModuleKey.Calendar]: 'Calendar',
+  [ModuleKey.Messages]: 'Messages',
+  [ModuleKey.Miro]: 'Miro',
+  [ModuleKey.Workflows]: 'Workflows',
+  [ModuleKey.Timeline]: 'Timeline',
+  [ModuleKey.Csm]: 'Customer Service',
+  [ModuleKey.Admin]: 'Administration',
+  [ModuleKey.Integrations]: 'Integrations',
+  [ModuleKey.Agent]: 'AI Agent',
+  [ModuleKey.Notifications]: 'Notifications',
+  [ModuleKey.Shell]: 'App Shell',
 };
 
 const surface = (
@@ -90,13 +91,21 @@ export const allEnabledConfig = buildEffectiveConfig(1);
 
 export const partiallyDisabledConfig = buildEffectiveConfig(
   2,
-  { meta_ads: { enabled: false }, miro: { enabled: false }, notion: { enabled: false } },
+  {
+    [ModuleKey.MetaAds]: { enabled: false },
+    [ModuleKey.Miro]: { enabled: false },
+    [ModuleKey.Notion]: { enabled: false },
+  },
   { 'tasks.tab.gantt': { visible: false }, 'shell.item.facebook_meta': { visible: false } },
 );
 
 export const projectOverrideConfig = buildEffectiveConfig(
   3,
-  { miro: { enabled: false }, campaigns: { label: 'Client Campaigns', order: 0 }, overview: { order: 2 } },
+  {
+    [ModuleKey.Miro]: { enabled: false },
+    [ModuleKey.Campaigns]: { label: 'Client Campaigns', order: 0 },
+    [ModuleKey.Overview]: { order: 2 },
+  },
   { 'overview.card.meetings': { visible: false } },
 );
 
