@@ -38,16 +38,20 @@ export async function GET(request: Request) {
 
   const rawPage = url.searchParams.get('page');
   const parsedPage = Number(rawPage?.trim() ? rawPage : 1);
-  const page =
-    Number.isSafeInteger(parsedPage) && parsedPage > 0
-      ? parsedPage
-      : 1;
 
   const rawPageSize = url.searchParams.get('page_size');
   const parsedPageSize = Number(rawPageSize?.trim() ? rawPageSize : 20);
   const pageSize = Number.isSafeInteger(parsedPageSize)
     ? Math.min(100, Math.max(1, parsedPageSize))
     : 20;
+
+  const normalizedPage =
+    Number.isSafeInteger(parsedPage) && parsedPage > 0
+      ? parsedPage
+      : 1;
+
+  const maxPage = Math.floor(Number.MAX_SAFE_INTEGER / pageSize) + 1;
+  const page = normalizedPage <= maxPage ? normalizedPage : 1;
 
   const [count, rows] = await Promise.all([
     countBatchSummaries(auth.schema, project.projectId),
@@ -64,7 +68,7 @@ export async function GET(request: Request) {
       created_by: row.createdById === null ? null : Number(row.createdById),
       source_mode: row.sourceMode,
       instruction: row.instruction,
-      model: row.modelName,
+      model_name: row.modelName,
       draft_count: Number(row.draftCount),
       reviewed_count: Number(row.reviewedCount),
     })),

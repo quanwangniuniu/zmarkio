@@ -27,7 +27,9 @@ export async function findBatchVariations(
 ): Promise<VariationRow[]> {
   return db.$queryRaw<VariationRow[]>`
     SELECT ${COLUMNS} FROM ${table(schema)}
-    WHERE project_id = ${projectId} AND batch_id = ${batchId}::uuid
+    WHERE project_id = ${projectId}
+    AND batch_id = ${batchId}::uuid
+    AND is_deleted = false
     ORDER BY batch_position ASC, id ASC`;
 }
 
@@ -54,22 +56,61 @@ export async function listBatchSummaries(
   const offset = (page - 1) * pageSize;
 
   return db.$queryRaw<BatchSummaryRow[]>`
+    WITH representative_variations AS (
+      SELECT DISTINCT ON (batch_id)
+        batch_id,
+        created_at,
+        created_by_id,
+        source_mode,
+        instruction,
+        model_name
+      FROM ${table(schema)}
+      WHERE project_id = ${projectId}
+        AND batch_id IS NOT NULL
+        AND is_deleted = false
+      ORDER BY
+        batch_id,
+        batch_position ASC NULLS LAST,
+        id ASC
+    ),
+    paginated_batches AS (
+      SELECT
+        batch_id,
+        created_at,
+        created_by_id,
+        source_mode,
+        instruction,
+        model_name
+      FROM representative_variations
+      ORDER BY created_at DESC, batch_id DESC
+      OFFSET ${offset}
+      LIMIT ${pageSize}
+    ),
+    page_counts AS (
+      SELECT
+        v.batch_id,
+        COUNT(*) FILTER (WHERE v.status = 'draft')::bigint AS "draftCount",
+        COUNT(*) FILTER (WHERE v.status = 'reviewed')::bigint AS "reviewedCount"
+      FROM ${table(schema)} v
+      INNER JOIN paginated_batches p
+        ON p.batch_id = v.batch_id
+      WHERE v.project_id = ${projectId}
+        AND v.is_deleted = false
+      GROUP BY v.batch_id
+    )
     SELECT
-      batch_id AS "batchId",
-      MIN(created_at) AS "createdAt",
-      MIN(created_by_id) AS "createdById",
-      MIN(source_mode) AS "sourceMode",
-      MIN(instruction) AS instruction,
-      MIN(model_name) AS "modelName",
-      COUNT(*) FILTER (WHERE status = 'draft')::bigint AS "draftCount",
-      COUNT(*) FILTER (WHERE status = 'reviewed')::bigint AS "reviewedCount"
-    FROM ${table(schema)}
-    WHERE project_id = ${projectId}
-      AND batch_id IS NOT NULL
-    GROUP BY batch_id
-    ORDER BY MIN(created_at) DESC, batch_id DESC
-    OFFSET ${offset}
-    LIMIT ${pageSize}`;
+      p.batch_id AS "batchId",
+      p.created_at AS "createdAt",
+      p.created_by_id AS "createdById",
+      p.source_mode AS "sourceMode",
+      p.instruction AS instruction,
+      p.model_name AS "modelName",
+      c."draftCount",
+      c."reviewedCount"
+    FROM paginated_batches p
+    INNER JOIN page_counts c
+      ON c.batch_id = p.batch_id
+    ORDER BY p.created_at DESC, p.batch_id DESC`;
 }
 
 export async function countBatchSummaries(
@@ -81,7 +122,8 @@ export async function countBatchSummaries(
     SELECT COUNT(DISTINCT batch_id)::bigint AS count
     FROM ${table(schema)}
     WHERE project_id = ${projectId}
-      AND batch_id IS NOT NULL`;
+      AND batch_id IS NOT NULL
+      AND is_deleted = false`;
 
   return Number(rows[0]?.count ?? 0);
 }

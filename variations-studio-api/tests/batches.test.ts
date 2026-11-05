@@ -2,12 +2,14 @@ import { randomUUID } from 'crypto';
 
 import { GET as listBatches } from '@/app/api/ad_copy_variation/batches/route';
 import { prisma } from '@/lib/prisma';
-
+import { tenantTable } from '@/lib/tenant';
+import { VARIATION_TABLE } from '@/src/repo';
 import {
   createTestVariation,
   setupStudioFixture,
   teardownStudioFixture,
   type StudioFixture,
+  type TestVariation,
 } from './support/fixtures';
 import { readJson, studioRequest } from './support/requests';
 import { accessToken } from './support/tokens';
@@ -16,6 +18,10 @@ type BatchSummary = {
   batch_id: string;
   created_at: string;
   draft_count: number;
+  created_by_id: number | null;
+  source_mode: string;
+  instruction: string;
+  model_name: string;
   reviewed_count: number;
 };
 
@@ -29,11 +35,84 @@ type BatchListResponse = {
 let fixture: StudioFixture;
 let token: string;
 let groupedBatchId: string;
+let metadataBatchId: string;
+let deletedVariation: TestVariation;
+let fullyDeletedBatchId: string;
+let softDeletedRepresentativeBatchId: string;
 
 beforeAll(async () => {
   fixture = await setupStudioFixture();
   token = await accessToken(fixture.memberUserId);
   groupedBatchId = randomUUID();
+  metadataBatchId = randomUUID();
+
+  softDeletedRepresentativeBatchId = randomUUID();
+
+  const originalRepresentative = await createTestVariation({
+    schema: fixture.schema,
+    projectId: fixture.projectA,
+    userId: fixture.memberUserId,
+    status: 'draft',
+    batchId: softDeletedRepresentativeBatchId,
+    batchPosition: 0,
+    sourceMode: 'original',
+    instruction: 'Original instruction',
+    modelName: 'original-model',
+  });
+
+  const remainingVariation = await createTestVariation({
+    schema: fixture.schema,
+    projectId: fixture.projectA,
+    userId: fixture.memberUserId,
+    status: 'reviewed',
+    batchId: softDeletedRepresentativeBatchId,
+    batchPosition: 1,
+    sourceMode: 'remaining',
+    instruction: 'Remaining instruction',
+    modelName: 'remaining-model',
+  });
+
+  await prisma.$executeRaw`
+    UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+    SET created_at = '2026-01-01T10:00:00Z'
+    WHERE id = ${originalRepresentative.id}
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+    SET created_at = '2026-01-01T10:10:00Z'
+    WHERE id = ${remainingVariation.id}
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+    SET is_deleted = true
+    WHERE id = ${originalRepresentative.id}
+  `;
+
+  await createTestVariation({
+    schema: fixture.schema,
+    projectId: fixture.projectA,
+    userId: fixture.memberUserId,
+    status: 'draft',
+    batchId: metadataBatchId,
+    batchPosition: 0,
+    sourceMode: 'zulu',
+    instruction: 'Alpha instruction',
+    modelName: 'model-z',
+  });
+
+  await createTestVariation({
+    schema: fixture.schema,
+    projectId: fixture.projectA,
+    userId: fixture.memberUserId,
+    status: 'draft',
+    batchId: metadataBatchId,
+    batchPosition: 1,
+    sourceMode: 'alpha',
+    instruction: 'Zulu instruction',
+    modelName: 'model-a',
+  });
 
   await createTestVariation({
     schema: fixture.schema,
@@ -42,6 +121,36 @@ beforeAll(async () => {
     status: 'draft',
     batchId: groupedBatchId,
   });
+
+  deletedVariation = await createTestVariation({
+    schema: fixture.schema,
+    projectId: fixture.projectA,
+    userId: fixture.memberUserId,
+    status: 'draft',
+    batchId: groupedBatchId,
+  });
+
+  await prisma.$executeRaw`
+    UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+    SET is_deleted = true
+    WHERE id = ${deletedVariation.id}
+  `;
+
+  fullyDeletedBatchId = randomUUID();
+
+  const fullyDeletedVariation = await createTestVariation({
+    schema: fixture.schema,
+    projectId: fixture.projectA,
+    userId: fixture.memberUserId,
+    status: 'draft',
+    batchId: fullyDeletedBatchId,
+  });
+
+  await prisma.$executeRaw`
+    UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+    SET is_deleted = true
+    WHERE id = ${fullyDeletedVariation.id}
+  `;
 
   await createTestVariation({
     schema: fixture.schema,
@@ -88,6 +197,57 @@ describe('batch history', () => {
       batch_id: groupedBatchId,
       draft_count: 2,
       reviewed_count: 1,
+    });
+
+    expect(
+      body.results.some((row) => row.batch_id === fullyDeletedBatchId)
+    ).toBe(false);
+
+    expect(body.count).toBe(body.results.length);
+  });
+
+  it('uses metadata from one representative variation per batch', async () => {
+    const response = await list(
+      `project_id=${fixture.projectA}&page=1&page_size=100`
+    );
+
+    expect(response.status).toBe(200);
+
+    const body = (await readJson(response)) as BatchListResponse;
+    const batch = body.results.find(
+      (row) => row.batch_id === metadataBatchId
+    );
+
+    expect(batch).toMatchObject({
+      batch_id: metadataBatchId,
+      source_mode: 'zulu',
+      instruction: 'Alpha instruction',
+      model_name: 'model-z',
+      draft_count: 2,
+      reviewed_count: 0,
+    });
+  });
+
+  it('uses the remaining representative variation after the original is soft-deleted', async () => {
+    const response = await list(
+      `project_id=${fixture.projectA}&page=1&page_size=100`
+    );
+
+    expect(response.status).toBe(200);
+
+    const body = (await readJson(response)) as BatchListResponse;
+    const batch = body.results.find(
+      (row) => row.batch_id === softDeletedRepresentativeBatchId
+    );
+
+    expect(batch).toMatchObject({
+      batch_id: softDeletedRepresentativeBatchId,
+      source_mode: 'remaining',
+      instruction: 'Remaining instruction',
+      model_name: 'remaining-model',
+      reviewed_count: 1,
+      draft_count: 0,
+      created_at: '2026-01-01T10:10:00.000Z',
     });
   });
 
@@ -144,6 +304,15 @@ describe('batch history', () => {
     const oversizedBody = (await readJson(oversizedResponse)) as BatchListResponse;
     expect(oversizedBody.page).toBe(1);
     expect(oversizedBody.page_size).toBe(100);
+
+    const unsafeOffsetResponse = await list(
+      `project_id=${fixture.projectA}&page=9007199254740991&page_size=100`
+    );
+
+    expect(unsafeOffsetResponse.status).toBe(200);
+    const unsafeOffsetBody = (await readJson(unsafeOffsetResponse)) as BatchListResponse;
+    expect(unsafeOffsetBody.page).toBe(1);
+    expect(unsafeOffsetBody.page_size).toBe(100);
   });
 
   it('denies a user who is not a member of the requested project', async () => {

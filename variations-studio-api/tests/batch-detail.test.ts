@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
-
+import { tenantTable } from '@/lib/tenant';
+import { VARIATION_TABLE } from '@/src/repo';
 import { GET as getBatch } from '@/app/api/ad_copy_variation/batches/[batch_id]/route';
 import { prisma } from '@/lib/prisma';
 
@@ -29,6 +30,7 @@ let batchId: string;
 let positionTwo: TestVariation;
 let positionZero: TestVariation;
 let positionOne: TestVariation;
+let deletedVariation: TestVariation;
 
 beforeAll(async () => {
   fixture = await setupStudioFixture();
@@ -62,6 +64,21 @@ beforeAll(async () => {
     batchId,
     batchPosition: 1,
   });
+
+  deletedVariation = await createTestVariation({
+    schema: fixture.schema,
+    projectId: fixture.projectA,
+    userId: fixture.memberUserId,
+    status: 'draft',
+    batchId,
+    batchPosition: 3,
+  });
+
+  await prisma.$executeRaw`
+    UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+    SET is_deleted = true
+    WHERE id = ${deletedVariation.id}
+  `;
 });
 
 afterAll(async () => {
@@ -85,7 +102,6 @@ function getBatchRequest(
 describe('batch detail', () => {
   it('returns only the requested batch, ordered by batch_position', async () => {
     const response = await getBatchRequest(String(fixture.projectA));
-
     expect(response.status).toBe(200);
 
     const body = (await readJson(response)) as BatchDetailResponse;
