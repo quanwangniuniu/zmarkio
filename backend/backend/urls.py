@@ -53,6 +53,7 @@ urlpatterns = [
     path("api/google-docs/", include("google_docs_integration.urls")),
     path("api/google-calendar/", include("google_calendar_integration.urls")),
     path("api/v1/linear/", include("linear_integration.urls")),
+    path('', include('external_api.views')),
     path('api/', include('task.urls')),
     path('api/policy/', include('policy.urls')),
     path('api/dashboard/', include('dashboard.urls')),

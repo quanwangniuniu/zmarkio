@@ -10,4 +10,4 @@ COPY create-topics.py /usr/local/bin/create-topics.py
 COPY topics.yaml /usr/local/bin/topics.yaml
 COPY entrypoint-dev /usr/local/bin/entrypoint-dev
 
-CMD ["/etc/confluent/docker/run"]
+CMD ["/bin/bash", "/usr/local/bin/entrypoint-dev"]
