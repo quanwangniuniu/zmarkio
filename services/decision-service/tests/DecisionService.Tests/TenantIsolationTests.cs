@@ -1,6 +1,7 @@
 using DecisionService.Decisions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using Testcontainers.PostgreSql;
 using Xunit;
@@ -132,12 +133,16 @@ public sealed class TenantIsolationTests : IAsyncLifetime
     private static HttpRequest Request(int userId)
     {
         var context = new DefaultHttpContext();
-        context.Request.Headers.Authorization = "Bearer " + DjangoJwtValidator.CreateSignedTokenForTests(SigningKey, userId);
+        context.Request.Headers.Authorization =
+            "Bearer " + JwtTestTokenFactory.CreateValidToken(userId);
         return context.Request;
     }
 
     private static DjangoJwtValidator Validator() =>
-        new(new ConfigurationManager { ["SECRET_KEY"] = SigningKey });
+        new(Options.Create(new DjangoJwtOptions
+        {
+            SigningKey = SigningKey
+        }));
 
     private static CreateDecisionDraftRequest Draft(string title) =>
         new(title, null, null, null, null, null, false, false, null, null, null, null, null);
