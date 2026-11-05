@@ -65,7 +65,7 @@ public sealed class TenantIsolationTests : IAsyncLifetime
     [Fact]
     public async Task Created_decision_lands_in_callers_org_schema()
     {
-        var created = Repository(AcmeUser).Create(SharedProject, AcmeUser, Draft("Acme plan"));
+        var created = await Repository(AcmeUser).CreateAsync(SharedProject, AcmeUser, Draft("Acme plan"), CancellationToken.None);
 
         Assert.Equal(1, await Count("org_acme", created.Slug));
         Assert.Equal(0, await Count("org_globex", created.Slug));
@@ -73,12 +73,12 @@ public sealed class TenantIsolationTests : IAsyncLifetime
     }
 
     [Fact]
-    public void Same_project_id_lists_only_the_callers_org()
+    public async Task Same_project_id_lists_only_the_callers_org()
     {
-        Repository(AcmeUser).Create(SharedProject, AcmeUser, Draft("Acme plan"));
+        await Repository(AcmeUser).CreateAsync(SharedProject, AcmeUser, Draft("Acme plan"), CancellationToken.None);
 
-        var acme = Repository(AcmeUser).List(SharedProject, null, 50, 0).Items.Select(item => item.Title).ToList();
-        var globex = Repository(GlobexUser).List(SharedProject, null, 50, 0).Items.Select(item => item.Title).ToList();
+        var acme = (await Repository(AcmeUser).ListAsync(SharedProject, null, 50, 0, CancellationToken.None)).Items.Select(item => item.Title).ToList();
+        var globex = (await Repository(GlobexUser).ListAsync(SharedProject, null, 50, 0, CancellationToken.None)).Items.Select(item => item.Title).ToList();
 
         Assert.Equal(["Acme plan"], acme);
         Assert.Equal(["Globex secret"], globex);
@@ -88,13 +88,13 @@ public sealed class TenantIsolationTests : IAsyncLifetime
     public async Task User_cannot_list_read_edit_or_link_another_orgs_decisions()
     {
         var repository = Repository(AcmeUser);
-        var own = repository.Create(SharedProject, AcmeUser, Draft("Acme plan"));
+        var own = await repository.CreateAsync(SharedProject, AcmeUser, Draft("Acme plan"), CancellationToken.None);
 
-        Assert.DoesNotContain(repository.List(null, null, 50, 0).Items, item => item.Title == "Globex secret");
-        Assert.Null(repository.Get(GlobexSlug));
-        Assert.Null(repository.UpdateDraft(GlobexSlug, AcmeUser, new UpdateDecisionDraftRequest(
-            "hijacked", null, null, null, null, null, null, null, null, null, null)));
-        Assert.Null(repository.UpdateConnections(own.Slug, AcmeUser, new DecisionConnectionsUpdateRequest([500], null)));
+        Assert.DoesNotContain((await repository.ListAsync(null, null, 50, 0, CancellationToken.None)).Items, item => item.Title == "Globex secret");
+        Assert.Null(await repository.GetAsync(GlobexSlug, CancellationToken.None));
+        Assert.Null(await repository.UpdateDraftAsync(GlobexSlug, AcmeUser, new UpdateDecisionDraftRequest(
+            "hijacked", null, null, null, null, null, null, null, null, null, null), CancellationToken.None));
+        Assert.Null(await repository.UpdateConnectionsAsync(own.Slug, AcmeUser, new DecisionConnectionsUpdateRequest([500], null), CancellationToken.None));
         Assert.Equal(0, await Scalar("SELECT count(*) FROM org_acme.decision_edges"));
         Assert.Equal(0, await Scalar("SELECT count(*) FROM org_globex.decision_edges"));
         Assert.Equal("Globex secret", await Scalar<string>($"SELECT title FROM org_globex.decisions WHERE slug = '{GlobexSlug}'"));
