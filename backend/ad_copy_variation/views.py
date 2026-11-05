@@ -17,6 +17,7 @@ from meta_ads.models import MetaAdCreative
 from . import services
 from .models import AdCopyVariation
 from .serializers import AdCopyVariationSerializer
+from .ssrf_guard import UnsafeUrlError, assert_public_url
 
 
 class AdCopyVariationPagination(PageNumberPagination):
@@ -205,6 +206,10 @@ class AdCopyVariationViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
                     {'error': 'url must be http or https'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+            try:
+                assert_public_url(url)
+            except UnsafeUrlError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         if count == 1:
             batch_id = str(uuid.uuid4())

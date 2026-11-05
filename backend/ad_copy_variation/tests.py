@@ -675,6 +675,34 @@ class GenerateFromExternalUrlTests(APITestCase):
     def setUp(self):
         self.client.force_authenticate(user=self.user)
         self.url = reverse('ad-copy-variation-generate')
+        # MED-506: keep tests off real DNS; example.com "resolves" to a public IP.
+        resolver = patch(
+            'ad_copy_variation.ssrf_guard._default_resolver',
+            return_value=['93.184.216.34'],
+        )
+        self.mock_resolver = resolver.start()
+        self.addCleanup(resolver.stop)
+
+    @patch('ad_copy_variation.services.call_ollama_json')
+    @patch('ad_copy_variation.services.fetch_url_text')
+    def test_rejects_url_resolving_to_private_address(self, mock_fetch, mock_llm):
+        self.mock_resolver.return_value = ['10.0.0.5']
+        resp = self.client.post(
+            self.url,
+            {
+                'source_mode': 'external_url',
+                'project_id': self.project.id,
+                'url': 'https://internal.example/admin',
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            resp.data['error'], 'url must not point to a private or internal address'
+        )
+        mock_fetch.assert_not_called()
+        mock_llm.assert_not_called()
+        self.assertFalse(AdCopyVariation.objects.filter(project=self.project).exists())
 
     @patch('ad_copy_variation.services.call_ollama_json')
     @patch('ad_copy_variation.services.fetch_url_text')

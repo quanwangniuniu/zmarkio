@@ -47,7 +47,7 @@ services:
       - OLLAMA_MODEL=${OLLAMA_MODEL}
       - OLLAMA_REQUEST_TIMEOUT_MS=${OLLAMA_REQUEST_TIMEOUT_MS:-60000}
       - BROWSERLESS_API_KEY=${BROWSERLESS_API_KEY}
-      - BROWSERLESS_BASE=${BROWSERLESS_BASE:-https://chrome.browserless.io}
+      - BROWSERLESS_BASE=${BROWSERLESS_BASE:-http://browserless:3000}
     healthcheck:
       test:
         [
