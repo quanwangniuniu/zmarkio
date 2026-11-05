@@ -1,17 +1,13 @@
 import pytest
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError, connection, transaction
 from django.urls import reverse
 
-from org_customization.registry import (
-    build_name_registry,
-    build_surface_registry,
-    get_module_registry,
-    get_surface_registry,
-    get_surface_type_registry,
-)
-from org_customization.registry.base import ModuleSpec, SurfaceSpec, SurfaceTypeSpec
+from org_customization.models import Module, RoutePrefix, Surface, SurfaceType
 
-MODULE_KEYS = (
+pytestmark = pytest.mark.django_db
+
+MODULE_KEYS = [
     "overview",
     "tasks",
     "campaigns",
@@ -35,118 +31,138 @@ MODULE_KEYS = (
     "agent",
     "notifications",
     "shell",
-)
+]
 
-SURFACE_TYPE_KEYS = ("group", "item", "tab", "card", "panel", "provider", "filter", "section")
-
-MODULES = build_name_registry((ModuleSpec("tasks", "Tasks"), ModuleSpec("shell", "Shell")), "module")
-TYPES = build_name_registry(
-    (SurfaceTypeSpec("tab", "Tab"), SurfaceTypeSpec("item", "Item")), "surface type"
-)
+SURFACE_TYPE_KEYS = ["group", "item", "tab", "card", "panel", "provider", "filter", "section"]
 
 
-def build_surfaces(*surfaces):
-    return build_surface_registry(surfaces, MODULES, TYPES)
+def make_surface(module, surface_type, name, parent=None):
+    return Surface.objects.create(
+        module=Module.objects.get(key=module),
+        surface_type=SurfaceType.objects.get(key=surface_type),
+        name=name,
+        label=name.replace("_", " ").title(),
+        parent=parent,
+    )
 
 
-def test_shipped_surface_registry_is_valid():
-    get_surface_registry.cache_clear()
-    assert isinstance(get_surface_registry(), dict)
+def assert_rejected(create):
+    with pytest.raises(IntegrityError), transaction.atomic():
+        create()
 
 
-def test_module_registry_has_the_23_modules_in_order():
-    assert tuple(get_module_registry()) == MODULE_KEYS
+def test_tables_live_in_the_config_schema():
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'config'")
+        tables = {row[0] for row in cursor.fetchall()}
+    assert tables == {"module", "surface_type", "surface", "route_prefix"}
 
 
-def test_module_route_prefixes_are_api_paths():
-    for spec in get_module_registry().values():
-        assert isinstance(spec.route_prefixes, tuple)
-        for prefix in spec.route_prefixes:
-            assert prefix.startswith("/api/") and prefix.endswith("/"), (spec.key, prefix)
+def test_seeded_modules_are_the_23_in_order():
+    assert list(Module.objects.values_list("key", flat=True)) == MODULE_KEYS
+    assert list(Module.objects.values_list("default_order", flat=True)) == list(range(23))
 
 
-def test_surface_type_registry_has_the_8_types():
-    assert tuple(get_surface_type_registry()) == SURFACE_TYPE_KEYS
+def test_seeded_surface_types_are_the_8_types():
+    assert list(SurfaceType.objects.values_list("key", flat=True)) == SURFACE_TYPE_KEYS
 
 
-def test_duplicate_module_key_raises():
-    with pytest.raises(ImproperlyConfigured, match="Duplicate module key 'tasks'"):
-        build_name_registry((ModuleSpec("tasks", "A"), ModuleSpec("tasks", "B")), "module")
+def test_seeded_route_prefixes_are_api_paths_owned_by_modules():
+    assert RoutePrefix.objects.filter(module__isnull=False).count() == RoutePrefix.objects.count() > 0
+    for path in RoutePrefix.objects.values_list("path", flat=True):
+        assert path.startswith("/api/") and path.endswith("/"), path
+
+
+def test_duplicate_module_key_is_rejected():
+    assert_rejected(lambda: Module.objects.create(key="tasks", label="Tasks again"))
 
 
 @pytest.mark.parametrize("key", ["Tasks", "meta-ads", "1tasks", "", "tasks.tab"])
-def test_malformed_module_key_raises(key):
-    with pytest.raises(ImproperlyConfigured, match="Malformed module key"):
-        build_name_registry((ModuleSpec(key, "Bad"),), "module")
+def test_malformed_module_key_is_rejected(key):
+    assert_rejected(lambda: Module.objects.create(key=key, label="Bad"))
 
 
-def test_valid_surfaces_with_parent_are_registered():
-    registry = build_surfaces(
-        SurfaceSpec("shell.item.ads_draft", "Ads Draft"),
-        SurfaceSpec("shell.item.facebook_meta", "Facebook Meta", parent="shell.item.ads_draft"),
-        SurfaceSpec("tasks.tab.gantt", "Gantt"),
-    )
-    assert registry["shell.item.facebook_meta"].parent == "shell.item.ads_draft"
-    assert set(registry) == {"shell.item.ads_draft", "shell.item.facebook_meta", "tasks.tab.gantt"}
+def test_duplicate_surface_type_key_is_rejected():
+    assert_rejected(lambda: SurfaceType.objects.create(key="tab", label="Tab again"))
 
 
-@pytest.mark.parametrize(
-    "key",
-    ["tasks.tab", "tasks.tab.gantt.extra", "tasks.tab.Gantt", "tasks..gantt", "tasks.tab.my-actions"],
-)
-def test_malformed_surface_key_raises(key):
-    with pytest.raises(ImproperlyConfigured, match="Malformed surface key"):
-        build_surfaces(SurfaceSpec(key, "Bad"))
+def test_surface_key_is_built_from_module_type_and_name():
+    surface = make_surface("tasks", "tab", "gantt")
+    assert surface.key == "tasks.tab.gantt"
 
 
-def test_duplicate_surface_key_raises():
-    with pytest.raises(ImproperlyConfigured, match="Duplicate surface key"):
-        build_surfaces(SurfaceSpec("tasks.tab.gantt", "A"), SurfaceSpec("tasks.tab.gantt", "B"))
+def test_duplicate_surface_is_rejected():
+    make_surface("tasks", "tab", "gantt")
+    assert_rejected(lambda: make_surface("tasks", "tab", "gantt"))
 
 
-def test_surface_with_unknown_module_raises():
-    with pytest.raises(ImproperlyConfigured, match="unknown module 'nav'"):
-        build_surfaces(SurfaceSpec("nav.item.tasks", "Tasks"))
+@pytest.mark.parametrize("name", ["Gantt", "my-actions", "", "gantt.extra"])
+def test_malformed_surface_name_is_rejected(name):
+    assert_rejected(lambda: make_surface("tasks", "tab", name))
 
 
-def test_surface_with_unknown_type_raises():
-    with pytest.raises(ImproperlyConfigured, match="unknown type 'usermenu'"):
-        build_surfaces(SurfaceSpec("shell.usermenu.subscription", "Subscription"))
+def test_surface_with_parent_is_saved():
+    ads_draft = make_surface("shell", "item", "ads_draft")
+    facebook_meta = make_surface("shell", "item", "facebook_meta", parent=ads_draft)
+    assert facebook_meta.parent.key == "shell.item.ads_draft"
 
 
-def test_surface_with_unknown_parent_raises():
-    with pytest.raises(ImproperlyConfigured, match="unknown parent"):
-        build_surfaces(SurfaceSpec("shell.item.tiktok", "TikTok", parent="shell.item.missing"))
+def test_surface_parent_cycle_is_rejected():
+    first = make_surface("shell", "item", "first")
+    second = make_surface("shell", "item", "second", parent=first)
+    first.parent = second
+    with pytest.raises(ValidationError, match="cycle"):
+        first.save()
 
 
-def test_surface_parent_cycle_raises():
-    with pytest.raises(ImproperlyConfigured, match="parent cycle"):
-        build_surfaces(
-            SurfaceSpec("shell.item.a", "A", parent="shell.item.b"),
-            SurfaceSpec("shell.item.b", "B", parent="shell.item.a"),
-        )
+def test_route_prefix_needs_exactly_one_owner():
+    surface = make_surface("tasks", "tab", "gantt")
+    tasks = Module.objects.get(key="tasks")
+    assert_rejected(lambda: RoutePrefix.objects.create(path="/api/orphan/"))
+    assert_rejected(lambda: RoutePrefix.objects.create(path="/api/both/", module=tasks, surface=surface))
 
 
-@pytest.mark.django_db
+def test_route_prefix_must_be_an_api_path():
+    tasks = Module.objects.get(key="tasks")
+    assert_rejected(lambda: RoutePrefix.objects.create(path="tasks", module=tasks))
+
+
 def test_registry_endpoint_returns_lookups(member_client):
+    make_surface("shell", "item", "facebook_meta", parent=make_surface("shell", "item", "ads_draft"))
+
     response = member_client.get(reverse("org_customization:registry"))
 
     assert response.status_code == 200
     body = response.json()
-    assert [module["key"] for module in body["modules"]] == list(MODULE_KEYS)
-    assert [surface_type["key"] for surface_type in body["surface_types"]] == list(SURFACE_TYPE_KEYS)
-    assert body["surfaces"] == []
-    tasks = body["modules"][1]
-    assert tasks == {
+    assert [module["key"] for module in body["modules"]] == MODULE_KEYS
+    assert [surface_type["key"] for surface_type in body["surface_types"]] == SURFACE_TYPE_KEYS
+    assert body["modules"][1] == {
         "key": "tasks",
         "label": "Tasks",
         "default_visible": True,
         "default_order": 1,
         "route_prefixes": ["/api/tasks/", "/api/task-types/", "/api/task-form-autosave/"],
     }
+    assert body["surfaces"][1] == {
+        "key": "shell.item.facebook_meta",
+        "label": "Facebook Meta",
+        "default_visible": True,
+        "default_order": 0,
+        "route_prefixes": [],
+        "parent": "shell.item.ads_draft",
+    }
 
 
-@pytest.mark.django_db
+def test_registry_endpoint_reflects_database_changes(member_client):
+    Module.objects.filter(key="miro").update(label="Whiteboard", default_visible=False)
+
+    response = member_client.get(reverse("org_customization:registry"))
+
+    miro = next(module for module in response.json()["modules"] if module["key"] == "miro")
+    assert miro["label"] == "Whiteboard"
+    assert miro["default_visible"] is False
+
+
 def test_registry_endpoint_requires_login(api_client):
     response = api_client.get(reverse("org_customization:registry"))
 
