@@ -57,7 +57,6 @@ export async function POST(request: Request) {
       );
       const remaining = await findBatchVariations(
         ctx.schema,
-        ctx.projectId,
         batchId,
         tx
       );

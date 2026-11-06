@@ -216,7 +216,10 @@ export async function createTestVariation(args: {
   userId: number;
   status: string;
   batchId?: string;
+  batchPosition?: number;
   sourceMode?: string;
+  instruction?: string;
+  modelName?: string;
   creativeId?: bigint;
 }): Promise<TestVariation> {
   const row = await insertVariation(args.schema, {
@@ -226,11 +229,11 @@ export async function createTestVariation(args: {
     headline: 'Fixture headline',
     description: 'Fixture description',
     cta: 'LEARN_MORE',
-    instruction: '',
-    modelName: 'fixture',
+    instruction: args.instruction ?? '',
+    modelName: args.modelName ?? 'fixture',
     promptVersion: 'fixture',
     batchId: args.batchId ?? randomUUID(),
-    batchPosition: 0,
+    batchPosition: args.batchPosition ?? 0,
     status: args.status,
     createdById: BigInt(args.userId),
     creativeId: args.creativeId ?? null,
