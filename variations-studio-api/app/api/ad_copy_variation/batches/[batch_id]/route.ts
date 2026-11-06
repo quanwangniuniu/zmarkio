@@ -52,7 +52,6 @@ export async function GET(request: Request, context: RouteContext) {
 
   const rows = await findBatchVariations(
     auth.schema,
-    project.projectId,
     batchId
   );
 
