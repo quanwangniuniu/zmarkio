@@ -1639,9 +1639,14 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
 
     private static DecisionStatus ParseStatus(string value)
     {
-        return Enum.TryParse<DecisionStatus>(value, ignoreCase: true, out var status)
-            ? status
-            : DecisionStatus.DRAFT;
+        if (!Enum.TryParse<DecisionStatus>(value, ignoreCase: true, out var status)
+            || !Enum.IsDefined(typeof(DecisionStatus), status))
+        {
+            throw new InvalidOperationException(
+                $"Database contains an unknown decision status: '{value}'.");
+        }
+
+        return status;
     }
 
     private static DecisionRiskLevel? ParseRisk(string? value)

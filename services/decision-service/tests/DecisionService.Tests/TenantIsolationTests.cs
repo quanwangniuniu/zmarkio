@@ -123,6 +123,35 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         Assert.Equal(2, access.OrganizationId);
     }
 
+    [Fact]
+    public async Task Get_rejects_unknown_decision_status()
+    {
+        await Execute("""
+            INSERT INTO org_acme.decisions (id, slug, title, status, project_id, project_seq)
+            VALUES (901, 'invalid-status', 'Invalid status', 'UNKNOWN_STATUS', 10, 2);
+            """);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => Repository(AcmeUser).Get("invalid-status"));
+
+        Assert.Contains("UNKNOWN_STATUS", exception.Message);
+    }
+
+    [Fact]
+    public async Task Get_rejects_undefined_numeric_decision_status()
+    {
+        await Execute("""
+            INSERT INTO org_acme.decisions (id, slug, title, status, project_id, project_seq)
+            VALUES (902, 'invalid-numeric-status', 'Invalid numeric status', '999', 10, 3);
+            """);
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => Repository(AcmeUser).Get("invalid-numeric-status"));
+
+        Assert.Contains("999", exception.Message);
+    }
+
+
     private PostgresDecisionRepository Repository(int userId) => new(Connections(userId));
 
     private JwtDecisionAccessService Access(int userId) => new(Connections(userId), Validator());

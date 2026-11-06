@@ -10,6 +10,12 @@ public enum DecisionAccessAction
     Approve,
 }
 
+public sealed record DecisionAuthenticatedUser(
+    int UserId,
+    string? Email,
+    bool IsSuperuser
+);
+
 public sealed record DecisionAccessContext(
     bool Allowed,
     int UserId,
@@ -29,14 +35,24 @@ public interface IDecisionAccessService
         DecisionAccessAction action,
         CancellationToken cancellationToken
     );
+
+    Task<DecisionAuthenticatedUser?> AuthenticateAsync(
+        HttpRequest request,
+        CancellationToken cancellationToken
+    );
+
+    Task<DecisionAccessContext?> AuthorizeAsync(
+        DecisionAuthenticatedUser user,
+        int? projectId,
+        DecisionAccessAction action,
+        CancellationToken cancellationToken
+    );
 }
 
 public sealed class JwtDecisionAccessService(TenantConnectionFactory connections, DjangoJwtValidator jwtValidator) : IDecisionAccessService
 {
-    public async Task<DecisionAccessContext?> AuthorizeAsync(
+    public async Task<DecisionAuthenticatedUser?> AuthenticateAsync(
         HttpRequest request,
-        int? projectId,
-        DecisionAccessAction action,
         CancellationToken cancellationToken
     )
     {
@@ -53,43 +69,82 @@ public sealed class JwtDecisionAccessService(TenantConnectionFactory connections
         }
 
         await using var session = await connections.OpenAsync(cancellationToken);
-        var connection = session.Connection;
-        var userParameters = new DynamicParameters();
-        userParameters.Add("UserId", principal.UserId);
-        var user = await connection.QuerySingleOrDefaultAsync<UserRow>(new CommandDefinition(
-            """
-            SELECT
-                email AS Email,
-                is_superuser AS IsSuperuser,
-                is_active AS IsActive,
-                auth_token_version AS AuthTokenVersion
-            FROM public.core_customuser
-            WHERE id = @UserId
-            """,
-            userParameters,
-            session.Transaction,
-            cancellationToken: cancellationToken
-        ));
-        if (user is null)
+        var parameters = new DynamicParameters();
+        parameters.Add("UserId", principal.UserId);
+
+        var user = await session.Connection.QuerySingleOrDefaultAsync<UserRow>(
+            new CommandDefinition(
+                """
+                SELECT
+                    email AS Email,
+                    is_superuser AS IsSuperuser,
+                    is_active AS IsActive,
+                    auth_token_version AS AuthTokenVersion
+                FROM public.core_customuser
+                WHERE id = @UserId
+                """,
+                parameters,
+                session.Transaction,
+                cancellationToken: cancellationToken
+            )
+        );
+
+        if (user is null
+            || !user.IsActive
+            || user.AuthTokenVersion != principal.AuthTokenVersion)
         {
             return null;
         }
 
-        var email = user.Email;
-        if (!user.IsActive || user.AuthTokenVersion != principal.AuthTokenVersion)
+        return new DecisionAuthenticatedUser(
+            principal.UserId,
+            user.Email,
+            user.IsSuperuser
+        );
+    }
+
+    public async Task<DecisionAccessContext?> AuthorizeAsync(
+        HttpRequest request,
+        int? projectId,
+        DecisionAccessAction action,
+        CancellationToken cancellationToken
+    )
+    {
+        var authenticatedUser = await AuthenticateAsync(request, cancellationToken);
+
+        if (authenticatedUser is null)
         {
             return null;
         }
+
+        return await AuthorizeAsync(
+            authenticatedUser,
+            projectId,
+            action,
+            cancellationToken
+        );
+    }
+
+    public async Task<DecisionAccessContext?> AuthorizeAsync(
+    DecisionAuthenticatedUser user,
+    int? projectId,
+    DecisionAccessAction action,
+    CancellationToken cancellationToken
+)
+    {
+        await using var session = await connections.OpenAsync(cancellationToken);
+        var connection = session.Connection;
 
         if (user.IsSuperuser)
         {
             var organizationId = projectId is null
                 ? null
                 : await ProjectOrganizationIdAsync(session, projectId.Value, cancellationToken);
+
             return new DecisionAccessContext(
                 true,
-                principal.UserId,
-                email,
+                user.UserId,
+                user.Email,
                 true,
                 projectId,
                 organizationId,
@@ -100,31 +155,55 @@ public sealed class JwtDecisionAccessService(TenantConnectionFactory connections
 
         if (projectId is null)
         {
-            return new DecisionAccessContext(false, principal.UserId, email, false, null, null, null, null);
+            return new DecisionAccessContext(
+                false,
+                user.UserId,
+                user.Email,
+                false,
+                null,
+                null,
+                null,
+                null
+            );
         }
 
         var memberParameters = new DynamicParameters();
-        memberParameters.Add("UserId", principal.UserId);
+        memberParameters.Add("UserId", user.UserId);
         memberParameters.Add("ProjectId", projectId.Value);
-        var member = await connection.QueryFirstOrDefaultAsync<MemberRow>(new CommandDefinition(
-            """
-            SELECT pm.role AS Role, p.organization_id AS OrganizationId
-            FROM core_projectmember pm
-            INNER JOIN core_project p ON p.id = pm.project_id
-            WHERE pm.user_id = @UserId
-              AND pm.project_id = @ProjectId
-              AND pm.is_active = true
-              AND pm.is_deleted = false
-              AND p.is_deleted = false
-            LIMIT 1
-            """,
-            memberParameters,
-            session.Transaction,
-            cancellationToken: cancellationToken
-        ));
+
+        var member = await connection.QueryFirstOrDefaultAsync<MemberRow>(
+            new CommandDefinition(
+                """
+                SELECT
+                    pm.role AS Role,
+                    p.organization_id AS OrganizationId
+                FROM core_projectmember pm
+                INNER JOIN core_project p ON p.id = pm.project_id
+                WHERE pm.user_id = @UserId
+                AND pm.project_id = @ProjectId
+                AND pm.is_active = true
+                AND pm.is_deleted = false
+                AND p.is_deleted = false
+                LIMIT 1
+                """,
+                memberParameters,
+                session.Transaction,
+                cancellationToken: cancellationToken
+            )
+        );
+
         if (member is null)
         {
-            return new DecisionAccessContext(false, principal.UserId, email, false, projectId, null, null, null);
+            return new DecisionAccessContext(
+                false,
+                user.UserId,
+                user.Email,
+                false,
+                projectId,
+                null,
+                null,
+                null
+            );
         }
 
         var role = member.Role.Trim();
@@ -134,8 +213,8 @@ public sealed class JwtDecisionAccessService(TenantConnectionFactory connections
 
         return new DecisionAccessContext(
             allowed,
-            principal.UserId,
-            email,
+            user.UserId,
+            user.Email,
             false,
             projectId,
             memberOrganizationId,

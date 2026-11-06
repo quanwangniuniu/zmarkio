@@ -51,15 +51,38 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     }
 
     [HttpGet("{lookup:regex(^(?!graph$).+)}")]
-    public async Task<ActionResult<DecisionDetailDto>> Retrieve([FromRoute] string lookup, CancellationToken cancellationToken)
+    public async Task<ActionResult<DecisionDetailDto>> Retrieve(
+        [FromRoute] string lookup,
+        CancellationToken cancellationToken
+    )
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var decision = repository.Get(lookup);
+
         if (decision is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, decision.ProjectId ?? ProjectId(), DecisionAccessAction.View, cancellationToken);
-        return access is { Allowed: true } ? Ok(decision) : DecisionAccessResponses.UnauthorizedOrForbidden(access);
+
+        var access = await accessService.AuthorizeAsync(
+            user,
+            decision.ProjectId,
+            DecisionAccessAction.View,
+            cancellationToken
+        );
+
+        if (access is not { Allowed: true })
+        {
+            return NotFound(new { detail = "Not found." });
+        }
+
+        return Ok(decision);
     }
 
     [HttpPost("topic-labels/{topic}")]
@@ -127,18 +150,37 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         CancellationToken cancellationToken
     )
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
+
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.Edit, cancellationToken);
+
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.Edit,
+            cancellationToken
+        );
+
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
+
         var decision = repository.UpdateDraft(lookup, access.UserId, request);
-        return decision is null ? BadRequest(new { detail = "Decision cannot be updated in its current state." }) : Ok(decision);
+
+        return decision is null
+            ? BadRequest(new { detail = "Decision cannot be updated in its current state." })
+            : Ok(decision);
     }
 
     [HttpPost("{lookup}/commit")]
@@ -166,47 +208,100 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     }
 
     [HttpDelete("{lookup}")]
-    public async Task<IActionResult> Delete([FromRoute] string lookup, CancellationToken cancellationToken)
+    public async Task<IActionResult> Delete(
+        [FromRoute] string lookup,
+        CancellationToken cancellationToken
+    )
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
+
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.Edit, cancellationToken);
+
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.Edit,
+            cancellationToken
+        );
+
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
-        return repository.Delete(lookup, access.UserId) ? NoContent() : NotFound(new { detail = "Not found." });
-    }
 
+        return repository.Delete(lookup, access.UserId)
+            ? NoContent()
+            : NotFound(new { detail = "Not found." });
+    }
     [HttpGet("{lookup}/signals")]
-    public async Task<ActionResult<DecisionSignalListResponse>> ListSignals([FromRoute] string lookup, CancellationToken cancellationToken)
+    public async Task<ActionResult<DecisionSignalListResponse>> ListSignals(
+        [FromRoute] string lookup,
+        CancellationToken cancellationToken
+    )
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
+
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.View, cancellationToken);
-        return access is { Allowed: true }
-            ? Ok(repository.ListSignals(lookup))
-            : DecisionAccessResponses.UnauthorizedOrForbidden(access);
+
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.View,
+            cancellationToken
+        );
+
+        if (access is not { Allowed: true })
+        {
+            return NotFound(new { detail = "Not found." });
+        }
+
+        return Ok(repository.ListSignals(lookup));
     }
 
     [HttpPost("{lookup}/signals")]
     public async Task<ActionResult<DecisionSignalDto>> CreateSignal([FromRoute] string lookup, [FromBody] DecisionSignalInput input, CancellationToken cancellationToken)
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.Edit, cancellationToken);
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.Edit,
+            cancellationToken
+        );
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
         if (!CanEditDraftSignals(existing, access))
         {
@@ -219,15 +314,27 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     [HttpPatch("{lookup}/signals/{signalId:int}")]
     public async Task<ActionResult<DecisionSignalDto>> UpdateSignal([FromRoute] string lookup, [FromRoute] int signalId, [FromBody] DecisionSignalInput input, CancellationToken cancellationToken)
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.Edit, cancellationToken);
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.Edit,
+            cancellationToken
+        );
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
         if (!CanEditDraftSignals(existing, access))
         {
@@ -240,15 +347,27 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     [HttpDelete("{lookup}/signals/{signalId:int}")]
     public async Task<IActionResult> DeleteSignal([FromRoute] string lookup, [FromRoute] int signalId, CancellationToken cancellationToken)
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.Edit, cancellationToken);
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.Edit,
+            cancellationToken
+        );
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
         if (!CanEditDraftSignals(existing, access))
         {
@@ -260,15 +379,27 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     [HttpGet("{lookup}/connections")]
     public async Task<ActionResult<DecisionConnectionsResponse>> GetConnections([FromRoute] string lookup, CancellationToken cancellationToken)
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.View, cancellationToken);
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.View,
+            cancellationToken
+        );
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
         var connections = repository.GetConnections(lookup);
         return connections is null ? NotFound(new { detail = "Not found." }) : Ok(connections);
@@ -277,15 +408,27 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     [HttpPut("{lookup}/connections")]
     public async Task<ActionResult<DecisionConnectionsResponse>> UpdateConnections([FromRoute] string lookup, [FromBody] DecisionConnectionsUpdateRequest request, CancellationToken cancellationToken)
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.Edit, cancellationToken);
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.Edit,
+            cancellationToken
+        );
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
         var connections = repository.UpdateConnections(lookup, access.UserId, request);
         return connections is null ? BadRequest(new { detail = "Connections could not be updated." }) : Ok(connections);
@@ -294,15 +437,27 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     [HttpGet("{lookup}/reviews")]
     public async Task<ActionResult<IReadOnlyList<DecisionReviewDto>>> ListReviews([FromRoute] string lookup, CancellationToken cancellationToken)
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.View, cancellationToken);
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.View,
+            cancellationToken
+        );
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
         var reviews = repository.ListReviews(lookup);
         return reviews is null ? NotFound(new { detail = "Not found." }) : Ok(reviews);
@@ -311,15 +466,27 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     [HttpPost("{lookup}/reviews")]
     public async Task<ActionResult<DecisionActionResponse>> CreateReview([FromRoute] string lookup, [FromBody] DecisionReviewInput input, CancellationToken cancellationToken)
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.Approve, cancellationToken);
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.Approve,
+            cancellationToken
+        );
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
         var decision = repository.CreateReview(lookup, access.UserId, input);
         return decision is null
@@ -335,22 +502,38 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         CancellationToken cancellationToken
     )
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
+
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), action, cancellationToken);
+
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            action,
+            cancellationToken
+        );
+
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
+
         var decision = repository.Transition(lookup, access.UserId, status);
+
         return decision is null
             ? BadRequest(new { detail = $"Decision cannot transition to {status}." })
             : Ok(ActionResponse(detail, decision));
     }
-
     private int? ProjectId()
     {
         var rawValue = Request.Headers.TryGetValue("x-project-id", out var headerValue)

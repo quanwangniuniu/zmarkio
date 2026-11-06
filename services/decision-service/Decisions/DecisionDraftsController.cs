@@ -33,30 +33,70 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
     }
 
     [HttpGet("{lookup}")]
-    public async Task<ActionResult<DecisionDetailDto>> Retrieve([FromRoute] string lookup, CancellationToken cancellationToken)
+    public async Task<ActionResult<DecisionDetailDto>> Retrieve(
+        [FromRoute] string lookup,
+        CancellationToken cancellationToken
+    )
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var decision = repository.Get(lookup);
+
         if (decision is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, decision.ProjectId ?? ProjectId(), DecisionAccessAction.View, cancellationToken);
-        return access is { Allowed: true } ? Ok(decision) : DecisionAccessResponses.UnauthorizedOrForbidden(access);
+
+        var access = await accessService.AuthorizeAsync(
+            user,
+            decision.ProjectId,
+            DecisionAccessAction.View,
+            cancellationToken
+        );
+
+        return access is { Allowed: true }
+            ? Ok(decision)
+            : NotFound(new { detail = "Not found." });
     }
 
     [HttpPatch("{lookup}")]
-    public async Task<ActionResult<DecisionDetailDto>> Patch([FromRoute] string lookup, [FromBody] UpdateDecisionDraftRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<DecisionDetailDto>> Patch(
+        [FromRoute] string lookup,
+        [FromBody] UpdateDecisionDraftRequest request,
+        CancellationToken cancellationToken
+    )
     {
+        var user = await accessService.AuthenticateAsync(Request, cancellationToken);
+
+        if (user is null)
+        {
+            return Unauthorized(new { detail = "Authentication credentials were not provided." });
+        }
+
         var existing = repository.Get(lookup);
+
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.Edit, cancellationToken);
+
+        var access = await accessService.AuthorizeAsync(
+            user,
+            existing.ProjectId,
+            DecisionAccessAction.Edit,
+            cancellationToken
+        );
+
         if (access is not { Allowed: true })
         {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+            return NotFound(new { detail = "Not found." });
         }
+
         if (request.OriginMeetingId is not null)
         {
             return BadRequest(new Dictionary<string, string[]>
@@ -66,7 +106,10 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
         }
 
         var decision = repository.UpdateDraft(lookup, access.UserId, request);
-        return decision is null ? BadRequest(new { detail = "Draft decision cannot be updated." }) : Ok(decision);
+
+        return decision is null
+            ? BadRequest(new { detail = "Draft decision cannot be updated." })
+            : Ok(decision);
     }
 
     private int? ProjectId()
