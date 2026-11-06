@@ -8,10 +8,13 @@ import {
   type StudioContextFailure,
 } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import {
+  REQUIRED_STUDIO_MIGRATION,
+  STUDIO_MIGRATIONS_TABLE,
+  VARIATION_TABLE,
+} from '@/lib/variationSchema';
 
 export type StudioContext = AccessUser & { schema: string };
-
-export const REQUIRED_STUDIO_MIGRATION = '003';
 
 const SCHEMA_NAME = /^(public|org_[A-Za-z0-9_]+)$/;
 
@@ -87,19 +90,34 @@ async function schemaForUser(
 export async function isStudioReady(schema: string): Promise<boolean> {
   const namespace = `"${assertSchemaName(schema)}"`;
   const relations = await prisma.$queryRaw<{ present: boolean }[]>`
-    SELECT to_regclass(${`${namespace}.ad_copy_variation_adcopyvariation`}) IS NOT NULL
-       AND to_regclass(${`${namespace}.studio_migrations`}) IS NOT NULL AS present`;
+    SELECT to_regclass(${`${namespace}.${VARIATION_TABLE}`}) IS NOT NULL
+       AND to_regclass(${`${namespace}.${STUDIO_MIGRATIONS_TABLE}`}) IS NOT NULL AS present`;
   if (!relations[0]?.present) return false;
 
   const rows = await prisma.$queryRaw<{ ready: boolean }[]>`
     SELECT EXISTS (
-      SELECT 1 FROM ${tenantTable(schema, 'studio_migrations')}
+      SELECT 1 FROM ${tenantTable(schema, STUDIO_MIGRATIONS_TABLE)}
       WHERE version = ${REQUIRED_STUDIO_MIGRATION}
     ) AS ready`;
   return rows[0]?.ready ?? false;
 }
 
-export async function requireStudioContext(
+export async function inspectStudioSchema(schema: string): Promise<{
+  schemaExists: boolean;
+  variationTableExists: boolean;
+}> {
+  const namespace = `"${assertSchemaName(schema)}"`;
+  const rows = await prisma.$queryRaw<{
+    schemaExists: boolean;
+    variationTableExists: boolean;
+  }[]>`
+    SELECT to_regnamespace(${namespace}) IS NOT NULL AS "schemaExists",
+           to_regclass(${`${namespace}.${VARIATION_TABLE}`}) IS NOT NULL AS "variationTableExists"`;
+  return rows[0];
+}
+
+/** Resolve authentication and tenant without requiring a variation table. */
+export async function resolveStudioContext(
   request: Request
 ): Promise<StudioContext | AuthFailure | StudioContextFailure> {
   const auth = await requireAccessUser(request);
@@ -121,8 +139,16 @@ export async function requireStudioContext(
   if (!schema) {
     return { error: 'An organization is required to use Studio.', status: 403 };
   }
-  if (!(await isStudioReady(schema))) {
+  return { userId: auth.userId, schema };
+}
+
+export async function requireStudioContext(
+  request: Request
+): Promise<StudioContext | AuthFailure | StudioContextFailure> {
+  const context = await resolveStudioContext(request);
+  if (isAuthFailure(context)) return context;
+  if (!(await isStudioReady(context.schema))) {
     return { error: 'Studio is being initialized or upgraded. Please try again shortly.', status: 503 };
   }
-  return { userId: auth.userId, schema };
+  return context;
 }

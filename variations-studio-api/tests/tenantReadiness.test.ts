@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { copyFile, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Client, escapeIdentifier } from 'pg';
@@ -10,8 +10,9 @@ import { runCustomGenerate } from '@/lib/generate';
 import { runMigrations } from '@/lib/migrate';
 import { prisma } from '@/lib/prisma';
 import { slugToSchemaName } from '@/lib/tenant';
+import { STUDIO_MIGRATIONS_TABLE } from '@/lib/variationSchema';
 
-import { setupStudioFixture, teardownStudioFixture, type StudioFixture } from './support/fixtures';
+import { createVariationTableWithoutLedger, setupStudioFixture, teardownStudioFixture, type StudioFixture } from './support/fixtures';
 import { ensureInactiveOrg } from './support/tenantRoutingFixtures';
 import { readJson, studioRequest } from './support/requests';
 import { accessToken } from './support/tokens';
@@ -86,15 +87,7 @@ it('blocks unready tenant states and recovers after the required migration, incl
   await expectNotReady(); // Schema exists, but the variation table does not.
 
   // An existing baseline table without a ledger is not proof of an upgrade.
-  await observer.query('BEGIN');
-  try {
-    await observer.query(`SET LOCAL search_path TO ${namespace}`);
-    await observer.query(await readFile(path.join(migrationsDir, '001_ad_copy_variation_baseline.sql'), 'utf8'));
-    await observer.query('COMMIT');
-  } catch (error) {
-    await observer.query('ROLLBACK');
-    throw error;
-  }
+  await createVariationTableWithoutLedger(observer, schema);
   await expectNotReady();
 
   baselineMigrationsDir = await mkdtemp(path.join(path.resolve(tmpdir()), 'studio-readiness-'));
@@ -105,15 +98,15 @@ it('blocks unready tenant states and recovers after the required migration, incl
   expect(baseline.results[0]).toMatchObject({ status: 'applied', appliedNow: ['001', '002'] });
 
   // A real 001/002 ledger plus a higher version still cannot stand in for 003.
-  await observer.query(`INSERT INTO ${namespace}.studio_migrations (version, checksum) VALUES ($1, $2)`,
+  await observer.query(`INSERT INTO ${namespace}.${STUDIO_MIGRATIONS_TABLE} (version, checksum) VALUES ($1, $2)`,
     ['999', 'synthetic-history-for-readiness-test']);
   await expectNotReady();
   // The runner refuses to apply 003 below a recorded 999, so remove it first.
-  await observer.query(`DELETE FROM ${namespace}.studio_migrations WHERE version = '999'`);
+  await observer.query(`DELETE FROM ${namespace}.${STUDIO_MIGRATIONS_TABLE} WHERE version = '999'`);
 
   const migrated = await runMigrations({ command: 'apply', schemas: [schema], migrationsDir });
   expect(migrated.results[0]).toMatchObject({ status: 'applied', appliedNow: ['003'] });
-  await observer.query(`INSERT INTO ${namespace}.studio_migrations (version, checksum) VALUES ($1, $2)`,
+  await observer.query(`INSERT INTO ${namespace}.${STUDIO_MIGRATIONS_TABLE} (version, checksum) VALUES ($1, $2)`,
     ['999', 'synthetic-history-for-readiness-test']);
   // The required version now exists alongside a higher version; the next request works.
   jest.mocked(runCustomGenerate).mockResolvedValueOnce({ count_succeeded: 1 } as Awaited<ReturnType<typeof runCustomGenerate>>);

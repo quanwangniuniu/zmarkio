@@ -1,7 +1,11 @@
 import { randomUUID } from 'crypto';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { escapeIdentifier, type Client } from 'pg';
 
 import { prisma } from '@/lib/prisma';
-import { isStudioReady, REQUIRED_STUDIO_MIGRATION, slugToSchemaName, tenantTable } from '@/lib/tenant';
+import { isStudioReady, slugToSchemaName, tenantTable } from '@/lib/tenant';
+import { REQUIRED_STUDIO_MIGRATION } from '@/lib/variationSchema';
 import {
   deleteVariationsForProjects,
   insertVariation,
@@ -41,6 +45,20 @@ export type StudioFixture = {
   /** Creative owned by projectB, for cross-project checks. */
   creativeB: bigint;
 };
+
+export async function createVariationTableWithoutLedger(client: Client, schema: string): Promise<void> {
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL search_path TO ${escapeIdentifier(schema)}`);
+    await client.query(await readFile(
+      path.join(__dirname, '..', '..', 'migrations', '001_ad_copy_variation_baseline.sql'), 'utf8'
+    ));
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  }
+}
 
 /**
  * Pick an active org whose tenant schema has the migration Studio requires.

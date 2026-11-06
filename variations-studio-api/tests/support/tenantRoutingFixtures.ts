@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
 
 import { prisma } from '@/lib/prisma';
-import { isStudioReady, REQUIRED_STUDIO_MIGRATION, slugToSchemaName, tenantTable } from '@/lib/tenant';
+import { isStudioReady, slugToSchemaName, tenantTable } from '@/lib/tenant';
+import { REQUIRED_STUDIO_MIGRATION } from '@/lib/variationSchema';
 import {
   countVariations,
   deleteVariationsForProjects,

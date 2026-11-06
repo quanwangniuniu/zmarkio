@@ -1002,7 +1002,7 @@ class TenantReadinessTests(APITestCase):
             self.client.get(detail_url, **headers),
             self.client.patch(detail_url, {'headline': 'Changed'}, format='json', **headers),
             self.client.post(reverse('ad-copy-variation-generate'), {
-                'project': self.project.id, 'source_mode': 'custom', 'instruction': 'Draft',
+                'project_id': self.project.id, 'source_mode': 'custom', 'instruction': 'Draft',
             }, format='json', **headers),
         ]
         for response in responses:

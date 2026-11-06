@@ -14,7 +14,6 @@ const originalExitCode = process.exitCode;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  process.exitCode = originalExitCode;
   jest.spyOn(console, 'log').mockImplementation(() => {});
 });
 
