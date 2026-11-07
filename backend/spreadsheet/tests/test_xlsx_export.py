@@ -7,7 +7,10 @@ from openpyxl import load_workbook
 from openpyxl.chart import LineChart
 from rest_framework.test import APIClient
 
-from spreadsheet.models import Cell, CellValueType, ComputedCellType, SheetColumn, SheetRow
+from spreadsheet.models import (
+    Cell, CellValueType, ComputedCellType, SheetColumn, SheetRow,
+    SpreadsheetCellFormat, SpreadsheetHighlight,
+)
 from spreadsheet.xlsx_export import build_sheet_workbook
 from spreadsheet.tests.test_services import (
     create_test_organization, create_test_project, create_test_sheet,
@@ -120,3 +123,53 @@ class TestXlsxExport(TestCase):
         ws = load_workbook(io.BytesIO(response.content)).active
         assert len(ws._charts) == 1
         assert isinstance(ws._charts[0], LineChart)
+
+    def test_cell_font_formatting_is_written(self):
+        SpreadsheetCellFormat.objects.create(
+            sheet=self.sheet, row_index=0, column_index=0,
+            bold=True, italic=True, strikethrough=True,
+            text_color='#DC2626', font_family='Arial, sans-serif', font_size=14,
+        )
+        cell = self._load().active['A1']
+        assert cell.font.bold is True
+        assert cell.font.italic is True
+        assert cell.font.strike is True
+        assert cell.font.name == 'Arial'
+        assert cell.font.size == 14
+        assert cell.font.color.rgb == 'FFDC2626'
+
+    def test_highlight_fill_and_precedence(self):
+        SpreadsheetHighlight.objects.create(
+            spreadsheet=self.spreadsheet, sheet=self.sheet,
+            scope='COLUMN', col_index=0, color='#FEF08A',
+        )
+        SpreadsheetHighlight.objects.create(
+            spreadsheet=self.spreadsheet, sheet=self.sheet,
+            scope='ROW', row_index=0, color='#BFDBFE',
+        )
+        SpreadsheetHighlight.objects.create(
+            spreadsheet=self.spreadsheet, sheet=self.sheet,
+            scope='CELL', row_index=0, col_index=0, color='#FBCFE8',
+        )
+        ws = self._load().active
+        assert ws['A1'].fill.fgColor.rgb == 'FFFBCFE8'
+        assert ws['B1'].fill.fgColor.rgb == 'FFBFDBFE'
+        assert ws['A2'].fill.fgColor.rgb == 'FFFEF08A'
+
+    def test_number_formats_are_written(self):
+        SpreadsheetCellFormat.objects.create(
+            sheet=self.sheet, row_index=0, column_index=0,
+            number_format={'type': 'PERCENT', 'decimal_places': 2},
+        )
+        SpreadsheetCellFormat.objects.create(
+            sheet=self.sheet, row_index=1, column_index=0,
+            number_format={'type': 'CURRENCY', 'currency_code': 'GBP', 'decimal_places': 2},
+        )
+        ws = self._load().active
+        assert ws['A1'].number_format == '0.00%'
+        assert ws['A2'].number_format == '[$£-809]#,##0.00'
+
+    def test_default_column_width_and_row_height(self):
+        ws = self._load().active
+        assert ws.column_dimensions['A'].width == 16
+        assert ws.row_dimensions[1].height == 18
