@@ -36,6 +36,7 @@ urlpatterns = [
     path('api/audit/', include('audit.urls')),
     path('api/teams/', include('teams.urls')),
     path('api/csm/', include('csm.urls')),
+    path('api/org-customization/', include('org_customization.urls')),
     path('auth/', include('authentication.urls')),
     path('users/', include('user_preferences.urls')),
     path('api/assets/', include('asset.urls')),

@@ -10,6 +10,15 @@ const nextConfig = {
     // TSC errors are now 0 — enforce type checking at build time
     ignoreBuildErrors: false,
   },
+  // TODO: remove this header together with the MSW mocks once the org customization API is live.
+  async headers() {
+    return [
+      {
+        source: '/msw/mockServiceWorker.js',
+        headers: [{ key: 'Service-Worker-Allowed', value: '/' }],
+      },
+    ];
+  },
   webpack: (config, { isServer, webpack }) => {
     // Ignore pino-pretty during bundling to prevent build errors
     // pino-pretty is a Node.js-only package that shouldn't be bundled

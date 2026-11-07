@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './AuthProvider';
+import { MswProvider } from './MswProvider';
 import { OnboardingProvider } from '@/contexts/OnboardingContext';
 import OnboardingGate from '@/components/onboarding/OnboardingGate';
 import { TrackingProvider } from '@/lib/tracking/TrackingProvider';
@@ -14,7 +15,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
     <AuthProvider>
       <TrackingProvider>
         <OnboardingProvider>
-          <OnboardingGate>{children}</OnboardingGate>
+          <OnboardingGate>
+            <MswProvider>{children}</MswProvider>
+          </OnboardingGate>
         </OnboardingProvider>
       </TrackingProvider>
       <UpgradeModal />
