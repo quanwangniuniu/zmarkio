@@ -1,7 +1,7 @@
 """
 Copy historical AdCopyVariation rows from public into each org schema.
 
-Run AFTER migrate_all_tenants so org_xxx.ad_copy_variation_adcopyvariation
+Run AFTER Studio's `npm run migrate` so org_xxx.ad_copy_variation_adcopyvariation
 already exists. Destination project is matched by slug, not by public pk.
 
     python manage.py migrate_ad_copy_variations_to_tenants --dry-run
@@ -52,6 +52,6 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.WARNING(
                     'Some orgs are missing the variation table. '
-                    'Run migrate_all_tenants first.'
+                    'Run npm run migrate in variations-studio-api first.'
                 )
             )

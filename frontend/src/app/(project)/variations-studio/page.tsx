@@ -15,6 +15,7 @@ import {
   bulkReviewVariations,
   generateVariation,
   getLatestVariationBatch,
+  initializeStudio,
   listAiVariations,
   reviewVariationBatch,
   updateVariation,
@@ -237,6 +238,7 @@ function VariationsStudioContent() {
     }
     setIsGenerating(true);
     try {
+      await initializeStudio(projectId);
       const payload = buildSourcePayload();
       const res = await generateVariation({
         project_id: projectId,
@@ -967,16 +969,18 @@ function AiDraftsTab({
     if (!projectId) return;
     let active = true;
     setLoading(true);
-    listAiVariations({
-      project_id: projectId,
-      status: statusParamForFilter(statusFilter),
-      source_mode: sourceFilter === "all" ? "" : sourceFilter,
-      creative: creativeIdFilter !== null && Number.isFinite(creativeIdFilter) ? creativeIdFilter : undefined,
-      batch_id: batchFilter || undefined,
-      page,
-      page_size: pageSize,
-    })
-      .then((res) => {
+    initializeStudio(projectId)
+      .then(async () => {
+        if (!active) return;
+        const res = await listAiVariations({
+          project_id: projectId,
+          status: statusParamForFilter(statusFilter),
+          source_mode: sourceFilter === "all" ? "" : sourceFilter,
+          creative: creativeIdFilter !== null && Number.isFinite(creativeIdFilter) ? creativeIdFilter : undefined,
+          batch_id: batchFilter || undefined,
+          page,
+          page_size: pageSize,
+        });
         if (!active) return;
         setRows(res.results);
         setTotal(res.total);

@@ -1,7 +1,8 @@
 """
 Management command: migrate_tenant
 
-Creates (or updates) the PostgreSQL schema for a single Organization.
+Creates (or updates) Django-managed tenant tables for a single Organization.
+For variation tables, run `npm run migrate` in variations-studio-api separately.
 
 Usage
 -----
@@ -17,7 +18,7 @@ Behaviour
 - If the schema does not yet exist, CREATE SCHEMA is issued first.
 - For each model in tenant_config.get_tenant_models(), if the table is
   missing from the target schema it is created via Django SchemaEditor.
-- Existing tables are left untouched (idempotent).
+- Missing columns on registered tables are added (idempotent).
 
 When to run
 -----------
@@ -41,7 +42,7 @@ from core.services.tenant import (
 
 
 class Command(BaseCommand):
-    help = 'Provision (or repair) the PostgreSQL schema for a single org slug.'
+    help = 'Provision (or repair) Django-managed tenant tables for a single org slug.'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -78,5 +79,5 @@ class Command(BaseCommand):
         _create_tenant_tables(schema_name)
 
         self.stdout.write(self.style.SUCCESS(
-            f'Done. Schema "{schema_name}" is up to date.'
+            f'Done. Django-managed tables in "{schema_name}" are up to date.'
         ))

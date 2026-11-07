@@ -1,7 +1,8 @@
-import { DELETE as deleteVariation } from '@/app/api/ad_copy_variation/variations/[id]/route';
+import { DELETE as deleteVariation, PATCH as patchVariation } from '@/app/api/ad_copy_variation/variations/[id]/route';
 import { POST as createVariation } from '@/app/api/ad_copy_variation/variations/route';
 import { prisma } from '@/lib/prisma';
-import { findVariationById } from '@/lib/variationStore';
+import { tenantTable } from '@/lib/tenant';
+import { findVariationById, VARIATION_TABLE } from '@/lib/variationStore';
 
 import {
   createTestVariation,
@@ -31,6 +32,12 @@ function create(body: Record<string, unknown>) {
   );
 }
 
+async function storedFields(id: bigint) {
+  const rows = await prisma.$queryRaw<{ fields: unknown }[]>`
+    SELECT fields FROM ${tenantTable(fixture.schema, VARIATION_TABLE)} WHERE id = ${id}`;
+  return rows[0].fields;
+}
+
 // Django's create reads the project from `project`, not `project_id`.
 function payload(overrides: Record<string, unknown> = {}) {
   return {
@@ -54,6 +61,7 @@ describe('POST /variations/', () => {
       project: Number(fixture.projectA),
       created_by: fixture.memberUserId,
       status: 'draft',
+      platform: 'meta',
       hook: 'Created hook',
     });
     expect(typeof body.slug).toBe('string');
@@ -61,6 +69,10 @@ describe('POST /variations/', () => {
     const row = await findVariationById(fixture.schema, BigInt(body.id as number));
     expect(row?.createdById).toBe(BigInt(fixture.memberUserId));
     expect(row?.modelName).toBe('qwen3:4b');
+    expect(await storedFields(BigInt(body.id as number))).toEqual({
+      hook: 'Created hook', headline: 'Created headline',
+      description: 'Created description', cta: 'LEARN_MORE',
+    });
   });
 
   it('rejects a missing project', async () => {
@@ -117,6 +129,66 @@ describe('POST /variations/', () => {
     );
 
     expect(response.status).toBe(401);
+  });
+});
+
+describe('PATCH /variations/{slug}/ copy storage', () => {
+  function patch(slug: string, body: Record<string, unknown>) {
+    return patchVariation(
+      studioRequest(`/api/ad_copy_variation/variations/${slug}/`, { token, method: 'PATCH', body }),
+      { params: { id: slug } }
+    );
+  }
+
+  function newVariation() {
+    return createTestVariation({
+      schema: fixture.schema, projectId: fixture.projectA,
+      userId: fixture.memberUserId, status: 'draft',
+    });
+  }
+
+  it.each([null, { hook: 'Stale hook' }])('rebuilds legacy Meta fields (%p) after a partial edit', async fields => {
+    const row = await newVariation();
+    // A legacy writer may change an unpatched column without keeping JSON in sync.
+    await prisma.$executeRaw`
+      UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+      SET headline = 'Legacy headline', fields = ${fields === null ? null : JSON.stringify(fields)}::jsonb
+      WHERE id = ${row.id}`;
+
+    const response = await patch(row.slug, { hook: 'Edited hook', description: '' });
+
+    expect(response.status).toBe(200);
+    const copy = { hook: 'Edited hook', headline: 'Legacy headline', description: '', cta: 'LEARN_MORE' };
+    await expect(readJson(response)).resolves.toMatchObject(copy);
+    expect(await storedFields(row.id)).toEqual(copy);
+  });
+
+  it('leaves fields untouched when only status changes', async () => {
+    const row = await newVariation();
+    const fields = { hook: 'Earlier stored copy' };
+    await prisma.$executeRaw`
+      UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+      SET fields = ${JSON.stringify(fields)}::jsonb WHERE id = ${row.id}`;
+
+    const response = await patch(row.slug, { status: 'reviewed' });
+
+    expect(response.status).toBe(200);
+    await expect(readJson(response)).resolves.toMatchObject({ status: 'reviewed' });
+    expect(await storedFields(row.id)).toEqual(fields);
+  });
+
+  it('does not rebuild non-Meta fields from the legacy text columns', async () => {
+    const row = await newVariation();
+    const fields = { headlines: ['First headline', 'Second headline'], descriptions: ['First description', 'Second description'] };
+    await prisma.$executeRaw`
+      UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+      SET platform = 'google_rsa', fields = ${JSON.stringify(fields)}::jsonb WHERE id = ${row.id}`;
+
+    const response = await patch(row.slug, { hook: 'Edited legacy hook' });
+
+    expect(response.status).toBe(200);
+    await expect(readJson(response)).resolves.toMatchObject({ platform: 'google_rsa' });
+    expect(await storedFields(row.id)).toEqual(fields);
   });
 });
 
