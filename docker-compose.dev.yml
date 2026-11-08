@@ -276,7 +276,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
-    image: marketing-simplified-celery-worker
+    image: marketing-simplified-celery-chat-realtime
     container_name: celery-chat-realtime-dev
     restart: always
     env_file:
@@ -301,7 +301,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
-    image: marketing-simplified-celery-worker
+    image: marketing-simplified-celery-chat-background
     container_name: celery-chat-background-dev
     restart: always
     env_file:
@@ -328,7 +328,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
-    image: marketing-simplified-celery-worker
+    image: marketing-simplified-celery-chat-link-previews
     container_name: celery-chat-link-previews-dev
     restart: always
     env_file:
