@@ -1,9 +1,20 @@
 import { randomUUID } from 'crypto';
 
+import type { PlatformSpec } from '@/src/platforms';
+
 const SLUG_MAX_LENGTH = 200;
 // "-" plus 9 digits is 10 characters. A base this long still fits after that
 // suffix, so the stored value is always `base` or `base-<n>`.
 const SHORT_SLUG_MAX_LENGTH = SLUG_MAX_LENGTH - 10;
+
+/** Ignores slugSource.index: copy fields are scalars. */
+export function readSlugSource(copy: Record<string, string>, spec: PlatformSpec): string {
+  const field = spec.slugSource.field;
+  if (!Object.prototype.hasOwnProperty.call(copy, field)) {
+    throw new Error(`Copy is missing field "${field}"`);
+  }
+  return copy[field];
+}
 
 function slugify(value: string): string {
   return value

@@ -10,6 +10,7 @@ export function serializeVariation(row: VariationRow) {
     creative: toJsonSafe(row.creativeId),
     source_mode: row.sourceMode,
     source_ref: row.sourceRef,
+    platform: row.platform,
     hook: row.hook,
     headline: row.headline,
     description: row.description,

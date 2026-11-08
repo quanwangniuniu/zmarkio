@@ -1,7 +1,11 @@
 import { randomUUID } from 'crypto';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { escapeIdentifier, type Client } from 'pg';
 
 import { prisma } from '@/lib/prisma';
-import { slugToSchemaName, tenantTable } from '@/lib/tenant';
+import { isStudioReady, slugToSchemaName, tenantTable } from '@/lib/tenant';
+import { REQUIRED_STUDIO_MIGRATION } from '@/lib/variationSchema';
 import {
   deleteVariationsForProjects,
   insertVariation,
@@ -42,28 +46,23 @@ export type StudioFixture = {
   creativeB: bigint;
 };
 
-async function schemaExists(schema: string): Promise<boolean> {
-  const rows = await prisma.$queryRaw<{ present: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1 FROM pg_namespace WHERE nspname = ${schema}
-    ) AS present`;
-  return rows[0]?.present ?? false;
-}
-
-async function tenantVariationTableExists(schema: string): Promise<boolean> {
-  const rows = await prisma.$queryRaw<{ present: boolean }[]>`
-    SELECT EXISTS (
-      SELECT 1 FROM information_schema.tables
-      WHERE table_schema = ${schema}
-        AND table_name = ${VARIATION_TABLE}
-    ) AS present`;
-  return rows[0]?.present ?? false;
+export async function createVariationTableWithoutLedger(client: Client, schema: string): Promise<void> {
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL search_path TO ${escapeIdentifier(schema)}`);
+    await client.query(await readFile(
+      path.join(__dirname, '..', '..', 'migrations', '001_ad_copy_variation_baseline.sql'), 'utf8'
+    ));
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  }
 }
 
 /**
- * Pick the first active org whose tenant schema has actually been provisioned.
- * A freshly migrated database can hold orgs with no schema yet, and those would
- * fail every membership lookup for reasons unrelated to the code under test.
+ * Pick an active org whose tenant schema has the migration Studio requires.
+ * Organization creation alone does not make its variation table ready.
  */
 async function provisionedOrganization(): Promise<{
   id: bigint;
@@ -77,14 +76,15 @@ async function provisionedOrganization(): Promise<{
 
   for (const org of orgs) {
     const schema = slugToSchemaName(org.slug);
-    if (await schemaExists(schema) && (await tenantVariationTableExists(schema))) {
+    if (await isStudioReady(schema)) {
       return { ...org, schema };
     }
   }
 
   throw new Error(
     'No active organization has a provisioned tenant schema that includes ' +
-      `${VARIATION_TABLE}. Run manage.py migrate_all_tenants against this database first.`
+      `${VARIATION_TABLE} at migration ${REQUIRED_STUDIO_MIGRATION}. ` +
+      'Run npm run migrate against this database first.'
   );
 }
 

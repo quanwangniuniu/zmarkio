@@ -7,12 +7,12 @@ info:
     (hook / headline / description / CTA), review batches, and manage AI Drafts.
 
     Served by the `variations-studio-api` Node service behind nginx at
-    `/api/ad_copy_variation/`. Paths and payload shapes match the former Django
-    `ad_copy_variation` API so the existing frontend client does not change.
+    `/api/ad_copy_variation/`.
 
     Authentication uses the same Django-issued JWT access token as the rest of
-    MediaJira. Tenant data (`AdCopyVariation`, `Project`, membership) is resolved
-    from the caller's organization schema.
+    MediaJira. An organization is required (403 with `detail` if unresolved).
+    Use the initialization endpoint before generating or loading AI Drafts.
+    Other operations return 503 with `detail` while variation storage is not ready.
 
 servers:
   - url: http://localhost/api
@@ -22,7 +22,7 @@ servers:
 
 tags:
   - name: Variations
-    description: List, create, retrieve, update, delete
+    description: Initialize storage, list, create, retrieve, update, delete
   - name: Generate
     description: Batch LLM generation (1–50)
   - name: Batch review
@@ -32,6 +32,54 @@ security:
   - BearerAuth: []
 
 paths:
+  /ad_copy_variation/initialize/:
+    post:
+      tags: [Variations]
+      summary: Initialize variation storage for a project
+      description: |
+        Requires an active project membership. Creates the organization's shared
+        variation storage when missing; variations are shared by project members.
+        Repeated calls succeed when storage is ready. Existing storage that needs
+        an upgrade is left unchanged and returns 503.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [project_id]
+              properties:
+                project_id:
+                  description: Numeric project pk or project slug.
+                  oneOf:
+                    - type: integer
+                      format: int64
+                    - type: string
+      responses:
+        '200':
+          description: Variation storage is ready
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ready]
+                properties:
+                  ready:
+                    type: boolean
+                    enum: [true]
+              example:
+                ready: true
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
+
   /ad_copy_variation/variations/:
     get:
       tags: [Variations]
@@ -42,6 +90,15 @@ paths:
         (plus rows with null project).
       parameters:
         - $ref: '#/components/parameters/ProjectIdQuery'
+        - name: platform
+          in: query
+          allowEmptyValue: true
+          description: |
+            Defaults to `meta` when omitted or empty. Otherwise matches the stored
+            platform value exactly, including values not in the platform registry.
+          schema:
+            type: string
+            default: meta
         - name: status
           in: query
           schema:
@@ -88,6 +145,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
 
     post:
       tags: [Variations]
@@ -114,6 +173,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -135,6 +196,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -163,6 +226,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -176,6 +241,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -208,6 +275,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
         '404':
           $ref: '#/components/responses/NotFound'
         '502':
@@ -238,6 +307,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
         '404':
           $ref: '#/components/responses/NotFound'
 
@@ -264,6 +335,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
 
   /ad_copy_variation/variations/bulk_review/:
     post:
@@ -288,6 +361,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
 
   /ad_copy_variation/variations/bulk_delete/:
     post:
@@ -312,6 +387,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/StudioNotReady'
 
 components:
   securitySchemes:
@@ -319,7 +396,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Django SimpleJWT access token (`Authorization: Bearer <token>`).
+      description: 'Django SimpleJWT access token (`Authorization: Bearer <token>`).'
 
   parameters:
     VariationSlug:
@@ -357,13 +434,28 @@ components:
           schema:
             $ref: '#/components/schemas/DetailError'
     Forbidden:
-      description: Caller is not an active member of the project
+      description: No resolvable organization (detail), or caller is not an active project member (error)
       content:
         application/json:
           schema:
-            $ref: '#/components/schemas/ErrorBody'
+            anyOf:
+              - $ref: '#/components/schemas/DetailError'
+              - $ref: '#/components/schemas/ErrorBody'
+          examples:
+            organizationRequired:
+              value:
+                detail: An organization is required to use Studio.
+            projectMembershipRequired:
+              value:
+                error: You are not a member of this project.
+    StudioNotReady:
+      description: Tenant variation table, migration ledger, or required Studio migration is missing
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/DetailError'
           example:
-            error: You are not a member of this project.
+            detail: Studio is being initialized or upgraded. Please try again shortly.
     NotFound:
       description: Resource not found (unknown slug, unknown numeric project_id, missing creative)
       content:
@@ -394,6 +486,7 @@ components:
         - creative
         - source_mode
         - source_ref
+        - platform
         - hook
         - headline
         - description
@@ -424,6 +517,10 @@ components:
         source_ref:
           type: string
           description: For `external_url`, the fetched URL; otherwise often empty.
+        platform:
+          type: string
+          description: Stored platform identifier.
+          example: meta
         hook:
           type: string
         headline:

@@ -6,6 +6,11 @@ from core.models import TimeStampedModel
 
 
 class AdCopyVariation(SluggedResourceModelMixin, TimeStampedModel):
+    """Legacy Django read/write compatibility until MED-369.
+
+    Studio's SQL runner creates and upgrades tenant variation tables.
+    """
+
     slug_source_field = 'headline'
 
     STATUS_DRAFT = 'draft'
