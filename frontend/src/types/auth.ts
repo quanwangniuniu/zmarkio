@@ -16,6 +16,8 @@ export interface User {
   avatar?: string;
   is_staff?: boolean;
   is_org_admin?: boolean;
+  /** Backend-computed: strict current-organization Level-2 admin or superuser (org-wide Teams). */
+  can_manage_all_teams?: boolean;
   is_csm_admin?: boolean;
   is_csm_supervisor?: boolean;
   organization: Organization | null;
