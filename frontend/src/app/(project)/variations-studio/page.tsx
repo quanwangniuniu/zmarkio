@@ -629,62 +629,65 @@ function VariationsStudioContent() {
         )}
 
         {cards.length > 0 && (
-          <section className="grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {cards.map((card) => (
-              <ResultCard
-                key={card.key}
-                card={card}
-                currentBatchId={currentBatchId}
-                onToggleSelect={() => toggleSelected(card.key)}
-                onStartEdit={() => startEdit(card.key)}
-                onCancelEdit={() => cancelEdit(card.key)}
-                onChangeDraft={(draft) => updateCard(card.key, { draft })}
-                onSave={() => saveCard(card.key)}
-              />
-            ))}
-          </section>
-        )}
-
-        {cards.length > 0 && (
-          <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border-[0.5px] border-gray-200 bg-white p-5">
-            <div className="text-[12px] text-gray-500">
-              {cards.length} card{cards.length === 1 ? "" : "s"} ·{" "}
-              {draftCardCount} draft{draftCardCount === 1 ? "" : "s"} in current batch ·{" "}
-              {selectedDraftCards.length} selected
-              <div className="mt-1 text-[11px] text-gray-400">
-                Review selected drafts from this batch.
+          <>
+            <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:sticky md:top-2 md:z-10 md:flex-row md:items-center md:justify-between md:bg-white/95 md:px-5 md:shadow-sm md:backdrop-blur">
+              <div className="flex flex-wrap items-center gap-2 text-[13px]">
+                <div className="mr-2">
+                  <h2 className="text-[15px] font-semibold leading-5 text-slate-900">Generated results</h2>
+                  <p className="mt-0.5 text-xs text-slate-500">{cards.length} total · {draftCardCount} drafts in current batch</p>
+                </div>
+                {selectedDraftCards.length > 0 && (
+                  <span className="rounded-full bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-800 ring-1 ring-inset ring-teal-200">
+                    {selectedDraftCards.length} selected
+                  </span>
+                )}
               </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={handleClearAll}
-                className="rounded-lg px-3 py-1.5 text-[14px] font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900"
-              >
-                Clear all
-              </button>
-              <button
-              type="button"
-              onClick={() => runGenerate(true)}
-                disabled={!projectId || !sourceInputValid || isGenerating || !hasProjectStoreHydrated}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-[14px] font-medium text-gray-700 ring-1 ring-gray-200 transition hover:ring-gray-300 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isGenerating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {moreLabel}
-              </button>
-              <button
-                type="button"
-                onClick={handleBulkReview}
-                disabled={selectedDraftCards.length === 0 || bulkReviewing}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-[#3CCED7] to-[#A6E661] px-4 py-1.5 text-[14px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {bulkReviewing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                {bulkReviewing
-                  ? "Reviewing…"
-                  : `Review selected (${selectedDraftCards.length})`}
-              </button>
-            </div>
+              <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
+                <button
+                  type="button"
+                  onClick={handleClearAll}
+                  className="rounded-lg px-3 py-2 text-[13px] font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+                >
+                  Clear all
+                </button>
+                <button
+                  type="button"
+                  onClick={() => runGenerate(true)}
+                  disabled={!projectId || !sourceInputValid || isGenerating || !hasProjectStoreHydrated}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] font-medium text-slate-700 transition hover:bg-slate-50 hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isGenerating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {moreLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleBulkReview}
+                  disabled={selectedDraftCards.length === 0 || bulkReviewing}
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#168B91] px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-[#11777D] disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+                >
+                  {bulkReviewing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                  {bulkReviewing
+                    ? "Reviewing…"
+                    : `Review selected (${selectedDraftCards.length})`}
+                </button>
+              </div>
           </section>
+            <section className="grid grid-cols-1 gap-5 md:grid-cols-2">
+              {cards.map((card, index) => (
+                <ResultCard
+                  key={card.key}
+                  card={card}
+                  resultNumber={index + 1}
+                  currentBatchId={currentBatchId}
+                  onToggleSelect={() => toggleSelected(card.key)}
+                  onStartEdit={() => startEdit(card.key)}
+                  onCancelEdit={() => cancelEdit(card.key)}
+                  onChangeDraft={(draft) => updateCard(card.key, { draft })}
+                  onSave={() => saveCard(card.key)}
+                />
+              ))}
+            </section>
+          </>
         )}
           </div>
         )}
@@ -701,6 +704,7 @@ function VariationsStudioContent() {
 
 interface ResultCardProps {
   card: CardState;
+  resultNumber: number;
   currentBatchId: string;
   onToggleSelect: () => void;
   onStartEdit: () => void;
@@ -712,11 +716,11 @@ interface ResultCardProps {
 function VariationStatusPill({ status }: { status: AdCopyVariationStatus }) {
   const className =
     status === "reviewed"
-      ? "bg-emerald-100 text-emerald-700"
-      : "bg-sky-100 text-sky-700";
+      ? "bg-emerald-100 text-emerald-800 ring-1 ring-inset ring-emerald-200"
+      : "bg-sky-100 text-sky-800 ring-1 ring-inset ring-sky-200";
   const label = status === "reviewed" ? "Reviewed" : "Draft";
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${className}`}>
+    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
       {label}
     </span>
   );
@@ -724,6 +728,7 @@ function VariationStatusPill({ status }: { status: AdCopyVariationStatus }) {
 
 function ResultCard({
   card,
+  resultNumber,
   currentBatchId,
   onToggleSelect,
   onStartEdit,
@@ -745,33 +750,48 @@ function ResultCard({
   const display = card.copy;
   const draft = card.draft;
   const selectable = card.status === "draft" && card.batch_id === currentBatchId;
+  const colorPosition = (resultNumber - 1) % 4;
+  const cardColorClass =
+    colorPosition === 0
+      ? "bg-white"
+      : colorPosition === 1
+        ? "bg-slate-50"
+        : colorPosition === 2
+          ? "bg-white md:bg-slate-50"
+          : "bg-slate-50 md:bg-white";
 
   return (
     <article
       className={
-        card.status === "reviewed"
-          ? "rounded-xl border-[0.5px] border-emerald-200 bg-emerald-50/30 p-5"
-          : "rounded-xl border-[0.5px] border-gray-200 bg-white p-5"
+        card.selected
+          ? "rounded-2xl border-2 border-teal-500 bg-teal-50 p-5 sm:p-6"
+          : `rounded-2xl border border-slate-200 ${cardColorClass} p-5 transition-colors hover:border-slate-300 sm:p-6`
       }
     >
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <input
-          type="checkbox"
-          aria-label="Select draft for review"
-          checked={card.selected}
-          disabled={!selectable}
-          onChange={onToggleSelect}
-          className="h-4 w-4 rounded accent-[#3CCED7] focus:outline-none focus:ring-2 focus:ring-[#3CCED7]/30 disabled:opacity-40"
-        />
-        <div className="flex items-center gap-1">
+      <div className="mb-5 flex min-h-10 items-center justify-between gap-3 border-b border-slate-200/80 pb-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold text-slate-800">Variation {resultNumber}</span>
+          <label className={`inline-flex h-9 items-center gap-2 rounded-lg border px-2.5 text-xs font-medium transition ${selectable ? "cursor-pointer border-slate-200 bg-white/70 text-slate-700 hover:bg-white" : "cursor-not-allowed border-slate-200/70 text-slate-400"}`}>
+            <input
+              type="checkbox"
+              aria-label={`Select variation ${resultNumber} for review`}
+              checked={card.selected}
+              disabled={!selectable}
+              onChange={onToggleSelect}
+              className="h-4 w-4 rounded accent-[#168B91] focus:outline-none focus:ring-2 focus:ring-teal-500/30 disabled:opacity-40"
+            />
+            Select
+          </label>
+        </div>
+        <div className="flex items-center gap-1.5">
           <VariationStatusPill status={card.status} />
           {!card.editing && (
             <button
               type="button"
               onClick={onStartEdit}
-              aria-label="Edit variation"
+              aria-label={`Edit variation ${resultNumber}`}
               title="Edit"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white/70 text-slate-600 transition-colors hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/30"
             >
               <Pencil className="h-3.5 w-3.5" />
             </button>
@@ -779,7 +799,7 @@ function ResultCard({
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-4">
         <CardField
           label="Hook"
           editing={card.editing}
@@ -789,6 +809,7 @@ function ResultCard({
         />
         <CardField
           label="Headline"
+          emphasized
           editing={card.editing}
           value={card.editing ? draft.headline : display.headline}
           onChange={(v) => onChangeDraft({ ...draft, headline: v })}
@@ -808,15 +829,15 @@ function ResultCard({
         />
       </div>
 
-      <div className="mt-3 flex items-center justify-between">
-        <span className="text-[10px] text-gray-400">{sourceBadgeLabel}</span>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-4">
+        <span className="text-xs font-medium text-slate-500">Source: {sourceBadgeLabel}</span>
         {card.editing && (
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={onCancelEdit}
               disabled={card.saving}
-              className="rounded-lg px-3 py-1 text-[13px] font-medium text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 disabled:opacity-60"
+              className="rounded-lg px-3 py-2 text-[13px] font-medium text-slate-600 transition hover:bg-white/80 hover:text-slate-900 disabled:opacity-60"
             >
               Cancel
             </button>
@@ -824,7 +845,7 @@ function ResultCard({
               type="button"
               onClick={onSave}
               disabled={card.saving}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-[#3CCED7] to-[#A6E661] px-3 py-1 text-[13px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#168B91] px-3 py-2 text-[13px] font-semibold text-white shadow-sm transition hover:bg-[#11777D] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {card.saving && <Loader2 className="h-3 w-3 animate-spin" />}
               {card.saving ? "Saving…" : "Update"}
@@ -838,25 +859,53 @@ function ResultCard({
 
 interface CardFieldProps {
   label: string;
+  emphasized?: boolean;
   editing: boolean;
   value: string;
   onChange: (next: string) => void;
   rows: number;
 }
 
-function CardField({ label, editing, value, onChange, rows }: CardFieldProps) {
+function CardField({
+  label,
+  emphasized = false,
+  editing,
+  value,
+  onChange,
+  rows,
+}: CardFieldProps) {
+  const canExpand = !editing && value.length > 180;
+  const labelClass = "mb-1.5 text-xs font-semibold text-slate-500";
+  const valueClass = emphasized
+    ? "min-h-9 whitespace-pre-wrap text-base font-semibold leading-6 text-slate-900"
+    : "min-h-9 whitespace-pre-wrap text-[14px] leading-6 text-slate-800";
+
   return (
     <div>
-      <div className={SECTION_LABEL}>{label}</div>
+      <div className={labelClass}>{label}</div>
       {editing ? (
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           rows={rows}
-          className={TEXTAREA_BASE}
+          className="mt-1 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15"
         />
+      ) : canExpand ? (
+        <details className="group">
+          <summary className="cursor-pointer list-none rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/30">
+            <div className={`${valueClass} line-clamp-4 group-open:line-clamp-none`}>
+              {value}
+            </div>
+            <span className="mt-1 inline-block text-xs font-medium text-teal-700 group-open:hidden">
+              Show more
+            </span>
+            <span className="mt-1 hidden text-xs font-medium text-teal-700 group-open:inline-block">
+              Show less
+            </span>
+          </summary>
+        </details>
       ) : (
-        <div className="whitespace-pre-wrap text-[14px] text-gray-700">
+        <div className={valueClass}>
           {value || "—"}
         </div>
       )}
@@ -873,7 +922,7 @@ interface CtaCardFieldProps {
 function CtaCardField({ editing, value, onChange }: CtaCardFieldProps) {
   return (
     <div>
-      <div className={SECTION_LABEL}>CTA</div>
+      <div className="mb-1.5 text-xs font-semibold text-slate-500">CTA</div>
       {editing ? (
         <textarea
           value={value}

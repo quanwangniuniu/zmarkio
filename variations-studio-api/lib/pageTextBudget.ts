@@ -3,10 +3,114 @@ const PAGE_TEXT_END = '\n---\n\nInstruction:';
 export const RESERVED_OUTPUT_TOKENS = 1024;
 const MIN_CONTEXT_SAFETY_TOKENS = 64;
 
-const AD_RELEVANCE_PATTERN = /\b(product|headline|description|primary text|body copy|ad copy|advertiser|offer|discount|sale|price|benefit|feature|shop now|buy now|learn more|call to action|cta|limited time|free shipping|delivery|save|subscribe|campaign|sponsored|try now|order now|new arrival|bestseller|made with|ingredients|specifications|product details|promo|promotion|deal|coupon|warranty|review|rating|from \$|only \$|% off)\b|(?:价格|优惠|折扣|促销|产品|卖点|立即购买|了解更多|免费配送|包邮|限时|活动|广告|标题|描述|特性|优势|成分|保修|评价|新款|购买|购买理由|价格|赠品|优惠券|新客|折合|税込|送料無料|割引|商品|特典|Comprar|preço|oferta|desconto|frete grátis|benefício|promoção)/i;
-const BOILERPLATE_PATTERN = /\b(cookie preferences?|privacy policy|terms (?:of use|and conditions)|all rights reserved|skip to content|main navigation|footer|accessibility statement|sign in|log in|accept cookies|manage cookies|newsletter sign.?up)\b|(?:隐私政策|使用条款|Cookie 设置|登录|注册|网站导航)/i;
-const PRICE_OR_OFFER_PATTERN = /(?:\$\s?\d|€\s?\d|£\s?\d|\b\d{1,3}%\s?(?:off|discount|折扣)?\b|\b(?:save|was|now|from)\s+\$?\d)/i;
-const CTA_PATTERN = /\b(shop now|buy now|learn more|sign up|book now|get started|order now|subscribe|download|contact us|find out more|claim offer|add to cart)\b|(?:立即购买|马上购买|立即咨询|了解更多|马上订购|立即注册)/i;
+// Language-specific ad relevance bonuses are English-only. Add ordinary
+// phrases to these lists, and keep punctuation/optional syntax in the
+// special-case regex lists directly below them.
+const AD_RELEVANCE_TERMS = [
+  'product',
+  'headline',
+  'description',
+  'primary text',
+  'body copy',
+  'ad copy',
+  'advertiser',
+  'offer',
+  'discount',
+  'sale',
+  'price',
+  'benefit',
+  'feature',
+  'shop now',
+  'buy now',
+  'learn more',
+  'call to action',
+  'cta',
+  'limited time',
+  'free shipping',
+  'delivery',
+  'save',
+  'subscribe',
+  'campaign',
+  'sponsored',
+  'try now',
+  'order now',
+  'new arrival',
+  'bestseller',
+  'made with',
+  'ingredients',
+  'specifications',
+  'product details',
+  'promo',
+  'promotion',
+  'deal',
+  'coupon',
+  'warranty',
+  'review',
+  'rating',
+] as const;
+const AD_RELEVANCE_SPECIAL_CASE_PATTERNS = [
+  /\bfrom \$\b/i,
+  /\bonly \$\b/i,
+  /\b% off\b/i,
+];
+
+const BOILERPLATE_TERMS = [
+  'privacy policy',
+  'all rights reserved',
+  'skip to content',
+  'main navigation',
+  'footer',
+  'accessibility statement',
+  'sign in',
+  'log in',
+  'accept cookies',
+  'manage cookies',
+] as const;
+const BOILERPLATE_SPECIAL_CASE_PATTERNS = [
+  /\bcookie preferences?\b/i,
+  /\bterms (?:of use|and conditions)\b/i,
+  /\bnewsletter sign.?up\b/i,
+];
+
+const PRICE_OR_OFFER_PATTERNS = [
+  /(?:\$\s?\d|€\s?\d|£\s?\d)/i,
+  /\b\d{1,3}%\s?(?:off|discount)?\b/i,
+  /\b(?:save|was|now|from)\s+\$?\d/i,
+];
+
+const CTA_TERMS = [
+  'shop now',
+  'buy now',
+  'learn more',
+  'sign up',
+  'book now',
+  'get started',
+  'order now',
+  'subscribe',
+  'download',
+  'contact us',
+  'find out more',
+  'claim offer',
+  'add to cart',
+] as const;
+
+const AD_RELEVANCE_PATTERN = buildPhrasePattern(AD_RELEVANCE_TERMS);
+const BOILERPLATE_PATTERN = buildPhrasePattern(BOILERPLATE_TERMS);
+const CTA_PATTERN = buildPhrasePattern(CTA_TERMS);
+const HEADING_PATTERN = /^\s*(?:#{1,6}\s|h[1-6][.:\s]|title\s*:|headline\s*:|description\s*:)/i;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildPhrasePattern(phrases: readonly string[]): RegExp {
+  const alternatives = phrases.map(escapeRegExp).join('|');
+  return new RegExp(`\\b(?:${alternatives})\\b`, 'i');
+}
+
+function matchesAnyPattern(value: string, patterns: readonly RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(value));
+}
 
 type ScoredLine = { line: string; index: number; score: number };
 type CostFunction = (value: string) => number;
@@ -33,11 +137,21 @@ function scoreLine(line: string, index: number): number {
   if (!value) return -100;
   let score = value.length >= 20 && value.length <= 500 ? 2 : 0;
   if (index < 8) score += 1;
-  if (AD_RELEVANCE_PATTERN.test(value)) score += 8;
-  if (PRICE_OR_OFFER_PATTERN.test(value)) score += 4;
+  if (
+    AD_RELEVANCE_PATTERN.test(value)
+    || matchesAnyPattern(value, AD_RELEVANCE_SPECIAL_CASE_PATTERNS)
+  ) {
+    score += 8;
+  }
+  if (matchesAnyPattern(value, PRICE_OR_OFFER_PATTERNS)) score += 4;
   if (CTA_PATTERN.test(value)) score += 5;
-  if (/^\s*(?:#{1,6}\s|h[1-6][.:\s]|title\s*:|headline\s*:|description\s*:)/i.test(value)) score += 3;
-  if (BOILERPLATE_PATTERN.test(value)) score -= 8;
+  if (HEADING_PATTERN.test(value)) score += 3;
+  if (
+    BOILERPLATE_PATTERN.test(value)
+    || matchesAnyPattern(value, BOILERPLATE_SPECIAL_CASE_PATTERNS)
+  ) {
+    score -= 8;
+  }
   if (value.length > 1200) score -= 2;
   return score;
 }

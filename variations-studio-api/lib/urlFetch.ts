@@ -6,6 +6,7 @@ const DEFAULT_BASE = 'https://chrome.browserless.io';
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TEXT_CHARS = 20_000;
 const MAX_REDIRECTS = 5;
+const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 
 export class BrowserlessError extends Error {
   constructor(message: string) {
@@ -79,6 +80,19 @@ function htmlToText(html: string): string {
   );
 }
 
+function getRedirectTarget(response: Response, currentUrl: URL): URL | null {
+  if (!REDIRECT_STATUS_CODES.has(response.status)) {
+    return null;
+  }
+
+  const location = response.headers.get('location');
+  if (!location) {
+    throw new BrowserlessError('Redirect has no location');
+  }
+
+  return new URL(location, currentUrl);
+}
+
 async function fetchDirectly(pageUrl: string): Promise<string> {
   let currentUrl = pageUrl;
 
@@ -94,13 +108,9 @@ async function fetchDirectly(pageUrl: string): Promise<string> {
       },
     });
 
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get('location');
-      if (!location) {
-        throw new BrowserlessError('Redirect has no location');
-      }
-
-      currentUrl = new URL(location, url).toString();
+    const redirectTarget = getRedirectTarget(response, url);
+    if (redirectTarget) {
+      currentUrl = redirectTarget.toString();
       continue;
     }
 
