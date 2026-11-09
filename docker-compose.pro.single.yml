@@ -198,6 +198,25 @@ services:
         max-file: "3"
         labels: "service=nextjs"
 
+  variations-studio-api:
+    build:
+      context: ./variations-studio-api
+      dockerfile: Dockerfile
+    image: variations-studio-api:latest
+    restart: always
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - app-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=variations-studio-api"
+
   nginx:
     image: nginx:latest
     container_name: nginx-prod

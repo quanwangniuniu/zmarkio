@@ -2,8 +2,9 @@ import { Prisma } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 import { tenantTable } from '@/lib/tenant';
+import { VARIATION_TABLE } from '@/lib/variationSchema';
 
-export const VARIATION_TABLE = 'ad_copy_variation_adcopyvariation';
+export { VARIATION_TABLE };
 
 export type SqlClient = {
   $queryRaw: typeof prisma.$queryRaw;
@@ -19,6 +20,7 @@ export type VariationRow = {
   isDeleted: boolean;
   sourceMode: string;
   sourceRef: string;
+  platform: string;
   hook: string;
   headline: string;
   description: string;
@@ -61,6 +63,7 @@ export const COLUMNS = Prisma.raw(`
   is_deleted AS "isDeleted",
   source_mode AS "sourceMode",
   source_ref AS "sourceRef",
+  platform,
   hook,
   headline,
   description,

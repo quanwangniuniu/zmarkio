@@ -5,7 +5,9 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
 from core.slug_mixins import SlugLookupViewSetMixin, resolve_project_pk
+from core.services.tenant import _table_exists
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -33,11 +35,23 @@ class AdCopyVariationPagination(PageNumberPagination):
         })
 
 
+class VariationTableNotReady(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = 'Variation storage is not ready for this organization. Please retry later.'
+
+
 class AdCopyVariationViewSet(SlugLookupViewSetMixin, viewsets.ModelViewSet):
     queryset = AdCopyVariation.objects.all()
     serializer_class = AdCopyVariationSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = AdCopyVariationPagination
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        # Use the middleware's target: current_schema() skips missing schemas.
+        schema = getattr(request, 'tenant_schema', 'public')
+        if schema != 'public' and not _table_exists(AdCopyVariation._meta.db_table, schema):
+            raise VariationTableNotReady()
 
     def _parse_int(self, raw):
         if raw is None or raw == '':
