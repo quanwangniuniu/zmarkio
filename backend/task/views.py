@@ -49,6 +49,7 @@ from core.utils.project import get_user_active_project
 from notifications.models import NotificationCategory, NotificationEventType
 from notifications.services import create_notification
 from notifications.action_urls import task_action_url
+from org_customization.services import get_enabled_task_types, get_user_organization
 import json
 import traceback
 
@@ -2337,18 +2338,10 @@ class TaskAttachmentDownloadView(APIView):
 def get_task_types(request):
     """
     Get available task types with their labels.
-    Returns all task types defined in the Task model.
+    Returns the task types enabled in the organization's task config.
     """
-    # Get task type choices from the Task model
-    task_type_choices = Task._meta.get_field('type').choices
-    
-    # Format as a list of objects with value and label
-    # Include all model types so meeting → task conversion and task board stay in sync.
-    task_types = [
-        {'value': choice[0], 'label': choice[1]}
-        for choice in task_type_choices
-    ]
-    
+    task_types = get_enabled_task_types(get_user_organization(request.user))
+
     return Response({'task_types': task_types}, status=status.HTTP_200_OK)
 
 
