@@ -139,9 +139,10 @@ class TestXlsxExport(TestCase):
         assert cell.font.color.rgb == 'FFDC2626'
 
     def test_highlight_fill_and_precedence(self):
+        # created most specific first, so the fill order must come from the scope
         SpreadsheetHighlight.objects.create(
             spreadsheet=self.spreadsheet, sheet=self.sheet,
-            scope='COLUMN', col_index=0, color='#FEF08A',
+            scope='CELL', row_index=0, col_index=1, color='#FBCFE8',
         )
         SpreadsheetHighlight.objects.create(
             spreadsheet=self.spreadsheet, sheet=self.sheet,
@@ -149,12 +150,12 @@ class TestXlsxExport(TestCase):
         )
         SpreadsheetHighlight.objects.create(
             spreadsheet=self.spreadsheet, sheet=self.sheet,
-            scope='CELL', row_index=0, col_index=0, color='#FBCFE8',
+            scope='COLUMN', col_index=0, color='#FEF08A',
         )
         ws = self._load().active
-        assert ws['A1'].fill.fgColor.rgb == 'FFFBCFE8'
-        assert ws['B1'].fill.fgColor.rgb == 'FFBFDBFE'
-        assert ws['A2'].fill.fgColor.rgb == 'FFFEF08A'
+        assert ws['B1'].fill.fgColor.rgb == 'FFFBCFE8'  # cell beats row
+        assert ws['A1'].fill.fgColor.rgb == 'FFBFDBFE'  # row beats column
+        assert ws['A2'].fill.fgColor.rgb == 'FFFEF08A'  # column only
 
     def test_number_formats_are_written(self):
         SpreadsheetCellFormat.objects.create(

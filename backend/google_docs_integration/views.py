@@ -11,7 +11,7 @@ from decision.models import Decision
 from core.services.oauth_state import OAuthStateExpired, OAuthStateInvalid, create_oauth_state, validate_oauth_state
 from core.slug_mixins import resolve_lookup_kwargs
 from spreadsheet.access import get_accessible_spreadsheet_or_404
-from spreadsheet.import_diff import diff_sheet
+from spreadsheet.import_service import diff_sheet
 from spreadsheet.models import Sheet, SheetImportSource
 from .google_sheets_patch_export import (
     GoogleBlankTabCleanupError,

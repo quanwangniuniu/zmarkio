@@ -1,8 +1,8 @@
 from django.test import TestCase
-from spreadsheet.import_baseline import build_import_baseline
 from spreadsheet.services import SheetService
-from spreadsheet.import_diff import (
+from spreadsheet.import_service import (
     _id_prefix_status,
+    build_import_baseline,
     diff_cell_highlights,
     diff_cells,
     diff_formats,
@@ -127,7 +127,22 @@ class TestImportDiff(TestCase):
         bad = diff_sheet(_source({'version': 2}))
         self.assertEqual(bad['rebuild_reasons'], ['unsupported_baseline_version'])
 
-class TestStructuralReplayDiff(TestCase):
+    def test_old_snapshot_values_compare_the_same_way(self):
+        stored = {'0,0': {'text_color': ' #112233 ', 'bold': 0, 'font_size': True}}
+        live = {'0,0': {'text_color': '#112233', 'bold': False, 'font_size': None}}
+        changes, outside = diff_formats(stored, live, 1, 1)
+        self.assertFalse(outside)
+        self.assertEqual(changes, {})
+
+    def test_rebuild_reason_is_logged(self):
+        with self.assertLogs('spreadsheet.import_service', level='INFO') as logs:
+            result = diff_sheet(_source(None))
+        self.assertTrue(result['requires_rebuild'])
+        self.assertIn('missing_baseline', logs.output[0])
+
+
+
+class TestLiveSheetDiff(TestCase):
     def _sheet(self, label, row_count, column_count):
         owner = create_test_user(f'diff-{label}', f'diff-{label}@example.com')
         organization = create_test_organization()
@@ -181,7 +196,6 @@ class TestStructuralReplayDiff(TestCase):
         highlight.color = '#222222'
         highlight.save(update_fields=['color'])
         result = diff_sheet(_source(baseline, sheet))
-        self.assertTrue(result['structure_safe'])
         self.assertTrue(result['requires_rebuild'])
         self.assertIn('row_highlight_changed', result['rebuild_reasons'])
 
@@ -192,61 +206,10 @@ class TestStructuralReplayDiff(TestCase):
         extra = SheetRow.objects.create(sheet=sheet, position=1)
         self._cell(sheet, extra, columns[0], 'new')
         result = diff_sheet(_source(baseline, sheet))
-        self.assertTrue(result['structure_safe'])
         self.assertTrue(result['requires_rebuild'])
         self.assertIn('appended_region_change', result['rebuild_reasons'])
 
-
-    def test_column_insert_patches_final_coordinates(self):
-        sheet, rows, columns = self._sheet('col-insert', 1, 3)
-        cell = self._cell(sheet, rows[0], columns[1], 'hello')
-        baseline = build_import_baseline(sheet)
-        SheetService.insert_columns(sheet, position=1, count=1)
-        cell.raw_input = 'goodbye'
-        cell.save(update_fields=['raw_input'])
-        SpreadsheetCellFormat.objects.create(
-            sheet=sheet, row_index=0, column_index=2, bold=True,
-        )
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'COL_INSERT', 'anchor_position': 1, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {'0,2': {'raw_input': 'goodbye'}})
-        self.assertEqual(result['formats'], {'0,2': {'bold': True}})
-
-    def test_row_delete_patches_final_coordinates(self):
-        sheet, rows, columns = self._sheet('row-delete', 3, 1)
-        self._cell(sheet, rows[0], columns[0], 'drop')
-        kept = self._cell(sheet, rows[2], columns[0], 'keep')
-        baseline = build_import_baseline(sheet)
-        SheetService.delete_rows(sheet, position=0, count=1)
-        kept.raw_input = 'edited'
-        kept.save(update_fields=['raw_input'])
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'ROW_DELETE', 'anchor_position': 0, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {'1,0': {'raw_input': 'edited'}})
-
-    def test_end_column_insert_is_replayed(self):
-        sheet, rows, columns = self._sheet('end-insert', 1, 2)
-        baseline = build_import_baseline(sheet)
-        SheetService.insert_columns(sheet, position=2, count=1)
-        inserted = SheetColumn.objects.get(sheet=sheet, position=2)
-        self._cell(sheet, rows[0], inserted, 'tail')
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'COL_INSERT', 'anchor_position': 2, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {'0,2': {'raw_input': 'tail'}})
-
-    def test_resize_append_stays_on_the_append_path(self):
+    def test_resize_append_stays_patchable(self):
         sheet, rows, columns = self._sheet('resize-append', 1, 1)
         self._cell(sheet, rows[0], columns[0], 'old')
         baseline = build_import_baseline(sheet)
@@ -254,20 +217,70 @@ class TestStructuralReplayDiff(TestCase):
 
         result = diff_sheet(_source(baseline, sheet))
         self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [])
+        self.assertFalse(result['has_changes'])
         self.assertEqual(result['cells'], {})
 
-    def test_end_insert_plus_extra_column_rebuilds(self):
-        sheet, rows, columns = self._sheet('mixed-append', 1, 1)
+    def test_column_insert_rebuilds(self):
+        sheet, rows, columns = self._sheet('col-insert', 1, 3)
+        self._cell(sheet, rows[0], columns[1], 'hello')
         baseline = build_import_baseline(sheet)
         SheetService.insert_columns(sheet, position=1, count=1)
-        SheetColumn.objects.create(sheet=sheet, position=2, name='extra')
+
+        result = diff_sheet(_source(baseline, sheet))
+        self.assertTrue(result['requires_rebuild'])
+        self.assertIn('column_structure_changed', result['rebuild_reasons'])
+        self.assertEqual(result['cells'], {})
+
+    def test_row_insert_rebuilds(self):
+        sheet, rows, columns = self._sheet('row-insert', 3, 1)
+        self._cell(sheet, rows[1], columns[0], 'hello')
+        baseline = build_import_baseline(sheet)
+        SheetService.insert_rows(sheet, position=1, count=1)
+
+        result = diff_sheet(_source(baseline, sheet))
+        self.assertTrue(result['requires_rebuild'])
+        self.assertIn('row_structure_changed', result['rebuild_reasons'])
+
+    def test_row_delete_rebuilds(self):
+        sheet, rows, columns = self._sheet('row-delete', 3, 1)
+        self._cell(sheet, rows[0], columns[0], 'drop')
+        self._cell(sheet, rows[2], columns[0], 'keep')
+        baseline = build_import_baseline(sheet)
+        SheetService.delete_rows(sheet, position=0, count=1)
+
+        result = diff_sheet(_source(baseline, sheet))
+        self.assertTrue(result['requires_rebuild'])
+        self.assertIn('row_structure_changed', result['rebuild_reasons'])
+
+    def test_column_delete_rebuilds(self):
+        sheet, rows, columns = self._sheet('col-delete', 1, 3)
+        baseline = build_import_baseline(sheet)
+        SheetService.delete_columns(sheet, position=2, count=1)
+
+        result = diff_sheet(_source(baseline, sheet))
+        self.assertTrue(result['requires_rebuild'])
+        self.assertIn('column_structure_changed', result['rebuild_reasons'])
+
+    def test_end_column_insert_with_a_value_rebuilds(self):
+        sheet, rows, columns = self._sheet('end-insert', 1, 2)
+        baseline = build_import_baseline(sheet)
+        SheetService.insert_columns(sheet, position=2, count=1)
+        inserted = SheetColumn.objects.get(sheet=sheet, position=2, is_deleted=False)
+        self._cell(sheet, rows[0], inserted, 'tail')
+
+        result = diff_sheet(_source(baseline, sheet))
+        self.assertTrue(result['requires_rebuild'])
+        self.assertIn('appended_region_change', result['rebuild_reasons'])
+
+    def test_empty_end_column_insert_stays_patchable(self):
+        sheet, rows, columns = self._sheet('empty-end-insert', 1, 2)
+        self._cell(sheet, rows[0], columns[0], 'keep')
+        baseline = build_import_baseline(sheet)
+        SheetService.insert_columns(sheet, position=2, count=1)
 
         result = diff_sheet(_source(baseline, sheet))
         self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'COL_INSERT', 'anchor_position': 1, 'count': 1},
-        ])
+        self.assertFalse(result['has_changes'])
 
     def test_insert_then_delete_keeps_original_coordinates(self):
         sheet, rows, columns = self._sheet('cancel', 1, 1)
@@ -280,10 +293,9 @@ class TestStructuralReplayDiff(TestCase):
 
         result = diff_sheet(_source(baseline, sheet))
         self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [])
         self.assertEqual(result['cells'], {'0,0': {'raw_input': 'edited'}})
 
-    def test_reverted_insert_is_ignored(self):
+    def test_reverted_insert_is_patchable(self):
         sheet, rows, columns = self._sheet('revert', 1, 1)
         cell = self._cell(sheet, rows[0], columns[0], 'hello')
         baseline = build_import_baseline(sheet)
@@ -295,35 +307,35 @@ class TestStructuralReplayDiff(TestCase):
 
         result = diff_sheet(_source(baseline, sheet))
         self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [])
         self.assertEqual(result['cells'], {'0,0': {'raw_input': 'edited'}})
 
-    def test_missing_checkpoint_rebuilds(self):
-        sheet, rows, columns = self._sheet('no-checkpoint', 1, 2)
+    def test_reverted_delete_is_patchable(self):
+        sheet, rows, columns = self._sheet('revert-delete', 3, 1)
+        self._cell(sheet, rows[0], columns[0], 'a')
+        self._cell(sheet, rows[1], columns[0], 'b')
+        self._cell(sheet, rows[2], columns[0], 'c')
         baseline = build_import_baseline(sheet)
-        del baseline['structure_operation_checkpoint']
-        SheetService.insert_columns(sheet, position=0, count=1)
+        deleted = SheetService.delete_rows(sheet, position=1, count=1)
+        operation = SheetStructureOperation.objects.get(id=deleted['operation_id'])
+        SheetService.revert_structure_operation(sheet, operation)
+
+        result = diff_sheet(_source(baseline, sheet))
+        self.assertFalse(result['requires_rebuild'])
+        self.assertFalse(result['has_changes'])
+        self.assertEqual(result['cells'], {})
+
+    def test_redo_after_undo_rebuilds(self):
+        sheet, rows, columns = self._sheet('redo', 1, 1)
+        self._cell(sheet, rows[0], columns[0], 'hello')
+        baseline = build_import_baseline(sheet)
+        created = SheetService.insert_rows(sheet, position=0, count=1)
+        operation = SheetStructureOperation.objects.get(id=created['operation_id'])
+        SheetService.revert_structure_operation(sheet, operation)
+        SheetService.insert_rows(sheet, position=0, count=1)
 
         result = diff_sheet(_source(baseline, sheet))
         self.assertTrue(result['requires_rebuild'])
-        self.assertIn('column_structure_changed', result['rebuild_reasons'])
-
-    def test_replay_mismatch_rebuilds(self):
-        sheet, rows, columns = self._sheet('mismatch', 1, 3)
-        baseline = build_import_baseline(sheet)
-        SheetService.insert_columns(sheet, position=1, count=1)
-        first = SheetColumn.objects.get(sheet=sheet, position=0)
-        third = SheetColumn.objects.get(sheet=sheet, position=2)
-        first.position = 1_000_000
-        first.save(update_fields=['position'])
-        third.position = 0
-        third.save(update_fields=['position'])
-        first.position = 2
-        first.save(update_fields=['position'])
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertTrue(result['requires_rebuild'])
-        self.assertIn('column_structure_changed', result['rebuild_reasons'])
+        self.assertIn('row_structure_changed', result['rebuild_reasons'])
 
     def test_sort_still_rebuilds(self):
         sheet, rows, columns = self._sheet('sort', 2, 1)
@@ -335,213 +347,7 @@ class TestStructuralReplayDiff(TestCase):
         result = diff_sheet(_source(baseline, sheet))
         self.assertTrue(result['requires_rebuild'])
         self.assertIn('row_structure_changed', result['rebuild_reasons'])
-        self.assertEqual(result['structural_operations'], [])
         self.assertEqual(result['cells'], {})
-    
-    def test_row_insert_and_column_delete_patch_final_coordinates(self):
-        sheet, rows, columns = self._sheet('row-insert-col-delete', 2, 2)
-        self._cell(sheet, rows[0], columns[0], 'drop')
-        kept = self._cell(sheet, rows[1], columns[1], 'keep')
-        baseline = build_import_baseline(sheet)
-        SheetService.insert_rows(sheet, position=0, count=1)
-        SheetService.delete_columns(sheet, position=0, count=1)
-        kept.raw_input = 'edited'
-        kept.save(update_fields=['raw_input'])
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'ROW_INSERT', 'anchor_position': 0, 'count': 1},
-            {'op_type': 'COL_DELETE', 'anchor_position': 0, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {'2,0': {'raw_input': 'edited'}})
-
-    def test_row_then_column_insert_applies_in_order(self):
-        sheet, rows, columns = self._sheet('row-then-col', 2, 2)
-        cell = self._cell(sheet, rows[1], columns[1], 'old')
-        baseline = build_import_baseline(sheet)
-        SheetService.insert_rows(sheet, position=0, count=1)
-        SheetService.insert_columns(sheet, position=1, count=1)
-        cell.raw_input = 'new'
-        cell.save(update_fields=['raw_input'])
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'ROW_INSERT', 'anchor_position': 0, 'count': 1},
-            {'op_type': 'COL_INSERT', 'anchor_position': 1, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {'2,2': {'raw_input': 'new'}})
-
-    def test_shifted_format_and_highlight_are_not_edits(self):
-        sheet, rows, columns = self._sheet('shift-style', 2, 2)
-        self._cell(sheet, rows[1], columns[1], 'stay')
-        SpreadsheetCellFormat.objects.create(
-            sheet=sheet, row_index=1, column_index=1, bold=True,
-        )
-        SpreadsheetHighlight.objects.create(
-            spreadsheet=sheet.spreadsheet,
-            sheet=sheet,
-            scope='CELL',
-            row_index=1,
-            col_index=1,
-            color='#FFFF00',
-        )
-        SpreadsheetHighlight.objects.create(
-            spreadsheet=sheet.spreadsheet,
-            sheet=sheet,
-            scope='ROW',
-            row_index=1,
-            col_index=0,
-            color='#FFFF00',
-        )
-        SpreadsheetHighlight.objects.create(
-            spreadsheet=sheet.spreadsheet,
-            sheet=sheet,
-            scope='COLUMN',
-            row_index=0,
-            col_index=1,
-            color='#FFFF00',
-        )
-        baseline = build_import_baseline(sheet)
-        SheetService.insert_columns(sheet, position=1, count=1)
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertFalse(result['has_changes'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'COL_INSERT', 'anchor_position': 1, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {})
-        self.assertEqual(result['formats'], {})
-        self.assertEqual(result['highlights'], {'cells': {}})
-
-    def test_cancelled_column_pair_leaves_the_row_insert(self):
-        sheet, rows, columns = self._sheet('cancel-cols', 3, 2)
-        cell = self._cell(sheet, rows[2], columns[0], 'old')
-        baseline = build_import_baseline(sheet)
-        SheetService.insert_columns(sheet, position=1, count=1)
-        SheetService.delete_columns(sheet, position=1, count=1)
-        SheetService.insert_rows(sheet, position=2, count=1)
-        cell.raw_input = 'new'
-        cell.save(update_fields=['raw_input'])
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'ROW_INSERT', 'anchor_position': 2, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {'3,0': {'raw_input': 'new'}})
-
-    def test_cancelled_row_pair_leaves_the_column_insert(self):
-        sheet, rows, columns = self._sheet('cancel-rows', 1, 2)
-        cell = self._cell(sheet, rows[0], columns[1], 'old')
-        baseline = build_import_baseline(sheet)
-        SheetService.insert_rows(sheet, position=0, count=1)
-        SheetService.delete_rows(sheet, position=0, count=1)
-        SheetService.insert_columns(sheet, position=1, count=1)
-        cell.raw_input = 'new'
-        cell.save(update_fields=['raw_input'])
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'COL_INSERT', 'anchor_position': 1, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {'0,2': {'raw_input': 'new'}})
-
-    def test_delete_then_insert_is_not_cancelled(self):
-        sheet, rows, columns = self._sheet('delete-first', 2, 1)
-        kept = self._cell(sheet, rows[1], columns[0], 'kept')
-        baseline = build_import_baseline(sheet)
-        SheetService.delete_rows(sheet, position=0, count=1)
-        SheetService.insert_rows(sheet, position=0, count=1)
-        kept.raw_input = 'edited'
-        kept.save(update_fields=['raw_input'])
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'ROW_DELETE', 'anchor_position': 0, 'count': 1},
-            {'op_type': 'ROW_INSERT', 'anchor_position': 0, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {'1,0': {'raw_input': 'edited'}})
-
-    def test_column_pair_with_a_row_op_between_is_kept(self):
-        sheet, rows, columns = self._sheet('not-adjacent', 1, 2)
-        baseline = build_import_baseline(sheet)
-        SheetService.insert_columns(sheet, position=1, count=1)
-        SheetService.insert_rows(sheet, position=0, count=1)
-        SheetService.delete_columns(sheet, position=1, count=1)
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'COL_INSERT', 'anchor_position': 1, 'count': 1},
-            {'op_type': 'ROW_INSERT', 'anchor_position': 0, 'count': 1},
-            {'op_type': 'COL_DELETE', 'anchor_position': 1, 'count': 1},
-        ])
-
-    def test_partial_column_delete_is_not_cancelled(self):
-        sheet, rows, columns = self._sheet('partial-cancel', 1, 1)
-        baseline = build_import_baseline(sheet)
-        SheetService.insert_columns(sheet, position=1, count=2)
-        SheetService.delete_columns(sheet, position=1, count=1)
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'COL_INSERT', 'anchor_position': 1, 'count': 2},
-            {'op_type': 'COL_DELETE', 'anchor_position': 1, 'count': 1},
-        ])
-    
-    def test_delete_column_with_trailing_column_stays_patchable(self):
-        sheet, rows, columns = self._sheet('delete-pad-col', 1, 3)
-        baseline = build_import_baseline(sheet)
-        SheetService.delete_columns(sheet, position=1, count=1)
-        SheetColumn.objects.create(sheet=sheet, position=2, name='pad')
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'COL_DELETE', 'anchor_position': 1, 'count': 1},
-        ])
-        self.assertEqual(result['cells'], {})
-
-    def test_delete_last_column_with_trailing_column_stays_patchable(self):
-        sheet, rows, columns = self._sheet('delete-last-col', 1, 3)
-        baseline = build_import_baseline(sheet)
-        SheetService.delete_columns(sheet, position=2, count=1)
-        SheetColumn.objects.create(sheet=sheet, position=2, name='pad')
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'COL_DELETE', 'anchor_position': 2, 'count': 1},
-        ])
-
-    def test_delete_row_with_trailing_row_stays_patchable(self):
-        sheet, rows, columns = self._sheet('delete-pad-row', 3, 1)
-        baseline = build_import_baseline(sheet)
-        SheetService.delete_rows(sheet, position=1, count=1)
-        SheetRow.objects.create(sheet=sheet, position=2)
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(result['requires_rebuild'])
-        self.assertEqual(result['structural_operations'], [
-            {'op_type': 'ROW_DELETE', 'anchor_position': 1, 'count': 1},
-        ])
-
-    def test_trailing_column_with_a_cell_still_rebuilds(self):
-        sheet, rows, columns = self._sheet('pad-data', 1, 3)
-        baseline = build_import_baseline(sheet)
-        SheetService.delete_columns(sheet, position=1, count=1)
-        extra = SheetColumn.objects.create(sheet=sheet, position=2, name='pad')
-        self._cell(sheet, rows[0], extra, 'typed')
-
-        result = diff_sheet(_source(baseline, sheet))
-        self.assertTrue(result['requires_rebuild'])
-        self.assertIn('appended_region_change', result['rebuild_reasons'])
 
     def test_column_inserted_in_the_middle_after_delete_rebuilds(self):
         sheet, rows, columns = self._sheet('mid-extra', 1, 3)
@@ -559,29 +365,10 @@ class TestStructuralReplayDiff(TestCase):
         result = diff_sheet(_source(baseline, sheet))
         self.assertTrue(result['requires_rebuild'])
         self.assertIn('column_structure_changed', result['rebuild_reasons'])
+
     
-    def test_undo_removes_the_formula_patch_and_redo_keeps_structure(self):
-        sheet, rows, columns = self._sheet('formula-undo', 3, 1)
-        formula = self._cell(sheet, rows[0], columns[0], '=A2')
+    def test_default_format_row_is_not_stored(self):
+        sheet, rows, columns = self._sheet('default-format', 1, 1)
+        SpreadsheetCellFormat.objects.create(sheet=sheet, row_index=0, column_index=0)
         baseline = build_import_baseline(sheet)
-
-        deleted = SheetService.delete_rows(sheet, position=1, count=1)
-        operation = SheetStructureOperation.objects.get(id=deleted['operation_id'])
-        formula.refresh_from_db()
-        self.assertEqual(formula.raw_input, '=#REF!')
-
-        SheetService.revert_structure_operation(sheet, operation)
-        formula.refresh_from_db()
-        self.assertEqual(formula.raw_input, '=A2')
-        undone = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(undone['requires_rebuild'])
-        self.assertEqual(undone['structural_operations'], [])
-        self.assertEqual(undone['cells'], {})
-
-        SheetService.delete_rows(sheet, position=1, count=1)
-        redone = diff_sheet(_source(baseline, sheet))
-        self.assertFalse(redone['requires_rebuild'])
-        self.assertEqual(redone['structural_operations'], [
-            {'op_type': 'ROW_DELETE', 'anchor_position': 1, 'count': 1},
-        ])
-        self.assertEqual(redone['cells'], {'0,0': {'raw_input': '=#REF!'}})
+        self.assertEqual(baseline['formats'], {})

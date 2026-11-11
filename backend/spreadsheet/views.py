@@ -21,7 +21,7 @@ from django.db import transaction, IntegrityError
 from django.http import HttpResponse
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 
-from .xlsx_export import build_sheet_workbook
+from .xlsx_export import build_patched_workbook, build_sheet_workbook
 from google_docs_integration.models import GoogleDocsConnection
 from google_docs_integration.services import (
     export_google_spreadsheet_xlsx,
@@ -94,9 +94,8 @@ from .access import (
     get_accessible_sheet_or_404,
     get_accessible_spreadsheet_or_404,
 )
-from .import_baseline import build_import_baseline
-from .import_diff import diff_sheet
-from .xlsx_patch_export import build_patched_workbook
+
+from .import_service import build_import_baseline, diff_sheet
 
 logger = logging.getLogger(__name__)
 
@@ -1552,7 +1551,7 @@ def _google_sheet_xlsx(request, sheet, source):
         )
         return build_sheet_workbook(sheet)
 
-    if not diff['has_changes'] and not diff.get('structural_operations'):
+    if not diff['has_changes']:
         return exported
     try:
         return build_patched_workbook(
@@ -1593,7 +1592,7 @@ class SheetXlsxExportView(APIView):
             diff = diff_sheet(source)
             if diff['requires_rebuild']:
                 content = build_sheet_workbook(sheet)
-            elif not diff['has_changes'] and not diff.get('structural_operations'):
+            elif not diff['has_changes']:
                 try:
                     with source.file.open('rb') as handle:
                         content = handle.read()
