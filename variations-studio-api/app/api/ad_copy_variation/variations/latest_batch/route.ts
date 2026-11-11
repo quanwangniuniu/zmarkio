@@ -34,6 +34,7 @@ export async function GET(request: Request) {
 
   const rows = await findBatchVariations(
     auth.schema,
+    project.projectId,
     latest.batchId
   );
 

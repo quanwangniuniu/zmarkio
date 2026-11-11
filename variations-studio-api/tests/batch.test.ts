@@ -233,7 +233,7 @@ describe('batch persistence atomicity', () => {
 
     await expect(insertVariations(fixture.schema, rows)).rejects.toThrow();
     await expect(
-      findBatchVariations(fixture.schema, batchId)
+      findBatchVariations(fixture.schema, fixture.projectA, batchId)
     ).resolves.toHaveLength(0);
   });
 });

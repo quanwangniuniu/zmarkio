@@ -123,6 +123,30 @@ describe('batch detail', () => {
     expect(response.status).toBe(403);
   });
 
+  it('does not return a batch belonging to another project', async () => {
+    const projectBBatchId = randomUUID();
+
+    await createTestVariation({
+      schema: fixture.schema,
+      projectId: fixture.projectB,
+      userId: fixture.memberUserId,
+      status: 'draft',
+      batchId: projectBBatchId,
+      batchPosition: 0,
+    });
+
+    const response = await getBatchRequest(
+      String(fixture.projectA),
+      projectBBatchId
+    );
+
+    expect(response.status).toBe(200);
+
+    const body = (await readJson(response)) as BatchDetailResponse;
+    expect(body.count).toBe(0);
+    expect(body.results).toHaveLength(0);
+  });
+
   it('rejects an invalid batch UUID', async () => {
     const response = await getBatchRequest(
       String(fixture.projectA),

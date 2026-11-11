@@ -247,4 +247,22 @@ describe('review_batch', () => {
 
     expect(response.status).toBe(400);
   });
+
+  it('rejects an invalid batch_id before querying the database', async () => {
+    const response = await post(
+      reviewBatch,
+      '/api/ad_copy_variation/variations/review_batch/',
+      {
+        project_id: String(fixture.projectA),
+        batch_id: 'not-a-uuid',
+        selected_ids: [Number(mine)],
+      }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(readJson(response)).resolves.toEqual({
+      error: 'batch_id must be a UUID',
+    });
+    expect(await survivingIds()).toEqual([mine, alsoMine, theirs].sort());
+  });
 });

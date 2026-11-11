@@ -21,12 +21,14 @@ export type BatchSummaryRow = {
 
 export async function findBatchVariations(
   schema: string,
+  projectId: bigint,
   batchId: string,
   db: SqlClient = prisma
 ): Promise<VariationRow[]> {
   return db.$queryRaw<VariationRow[]>`
     SELECT ${COLUMNS} FROM ${table(schema)}
-    WHERE batch_id = ${batchId}::uuid
+    WHERE project_id = ${projectId}
+    AND batch_id = ${batchId}::uuid
     AND is_deleted = false
     ORDER BY batch_position ASC, id ASC`;
 }

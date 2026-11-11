@@ -5,12 +5,15 @@ import { prisma } from '@/lib/prisma';
 import {
   deleteUnselectedBatchDrafts,
   findBatchVariations,
-  findVariationsByIds,
+  findBatchVariationsByIdsForUpdate,
   markBatchReviewed,
 } from '@/lib/variationStore';
 import { serializeVariation } from '@/lib/variations';
 
 export const dynamic = 'force-dynamic';
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(request: Request) {
   const ctx = await startBulkPost(request);
@@ -21,16 +24,19 @@ export async function POST(request: Request) {
   if (!batchId) {
     return jsonError('batch_id is required', 400);
   }
+  if (!UUID_PATTERN.test(batchId)) {
+    return jsonError('batch_id must be a UUID', 400);
+  }
 
   try {
     const payload = await prisma.$transaction(async (tx) => {
-      const selectedRows = await findVariationsByIds(
+      const inBatch = await findBatchVariationsByIdsForUpdate(
         ctx.schema,
         ctx.projectId,
+        batchId,
         ctx.selectedBigIds,
         tx
       );
-      const inBatch = selectedRows.filter((row) => row.batchId === batchId);
       if (inBatch.length !== ctx.selectedIds.length) {
         throw new ApiError(
           400,
@@ -57,6 +63,7 @@ export async function POST(request: Request) {
       );
       const remaining = await findBatchVariations(
         ctx.schema,
+        ctx.projectId,
         batchId,
         tx
       );

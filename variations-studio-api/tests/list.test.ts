@@ -124,6 +124,20 @@ describe('list filters', () => {
     expect(ids).toEqual([draft.id]);
   });
 
+  it('rejects an invalid batch_id', async () => {
+    const response = await listVariations(
+      studioRequest(
+        `/api/ad_copy_variation/variations/?${projectA()}&batch_id=not-a-uuid`,
+        { token }
+      )
+    );
+
+    expect(response.status).toBe(400);
+    await expect(readJson(response)).resolves.toEqual({
+      error: 'batch_id must be a UUID',
+    });
+  });
+
   it('paginates and reports the unpaginated count', async () => {
     const first = await list(`${projectA()}&page=1&page_size=2`);
 

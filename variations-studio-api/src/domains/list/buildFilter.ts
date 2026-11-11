@@ -9,6 +9,8 @@ import type { VariationListFilter } from '@/src/repo';
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type ListParams = {
   filter: VariationListFilter;
@@ -30,6 +32,18 @@ export async function parseListRequest(
   const sourceMode = url.searchParams.get('source_mode');
   const creativeParam = url.searchParams.get('creative');
   const batchId = url.searchParams.get('batch_id');
+
+  if (batchId !== null && batchId !== '') {
+    if (!UUID_PATTERN.test(batchId.trim())) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: 'batch_id must be a UUID' },
+          { status: 400 }
+        ),
+      };
+    }
+  }
   const page = Math.max(1, Number(url.searchParams.get('page') || 1) || 1);
   const pageSize = Math.min(
     MAX_PAGE_SIZE,
@@ -69,7 +83,7 @@ export async function parseListRequest(
   if (creativeParam && /^\d+$/.test(creativeParam)) {
     filter.creativeId = BigInt(creativeParam);
   }
-  if (batchId) filter.batchId = batchId;
+  if (batchId) filter.batchId = batchId.trim();
 
   return { ok: true, params: { filter, page, pageSize } };
 }
