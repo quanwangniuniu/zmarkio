@@ -1,7 +1,4 @@
-using System.ComponentModel.Design;
-using System.Runtime.InteropServices;
 using System.Text.Json;
-using Microsoft.AspNetCore.Http.HttpResults;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -223,18 +220,25 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
 
         if (existing.Status is (DecisionStatus.COMMITTED or DecisionStatus.REVIEWED or DecisionStatus.ARCHIVED))
         {
-            if (request.Title is not null || 
-                request.ContextSummary is not null || 
-                request.Reasoning is not null ||
-                request.RiskLevel is not null ||
-                request.ConfidenceScore is not null ||
-                request.PlannedDecisionDate is not null ||
-                request.Options is not null ||
-                request.Signals is not null ||
-                request.ParentDecisionIds is not null)
+            var protectedFields = new (string Field, bool IsProvided)[]
             {
-                throw new DecisionValidationException("status", 
-                    $"Cannot modify protected fields because this decision is {existing.Status}.");
+                ("title", request.Title is not null && request.Title != existing.Title),
+                ("contextSummary", request.ContextSummary is not null && request.ContextSummary != existing.ContextSummary),
+                ("reasoning", request.Reasoning is not null && request.Reasoning != existing.Reasoning),
+                ("riskLevel", request.RiskLevel is not null && request.RiskLevel != existing.RiskLevel),
+                ("confidenceScore", request.ConfidenceScore is not null && request.ConfidenceScore != existing.ConfidenceScore),
+                ("plannedDecisionDate", request.PlannedDecisionDate is not null && request.PlannedDecisionDate != existing.PlannedDecisionDate),
+                ("options", request.Options is not null),
+                ("signals", request.Signals is not null),
+                ("parentDecisionIds", request.ParentDecisionIds is not null)
+
+            };
+            var offendingField = protectedFields.FirstOrDefault(field => field.IsProvided).Field;
+
+            if (offendingField is not null)
+            {
+                throw new DecisionValidationException(offendingField,
+                    $"Cannot modify {offendingField} because this decision is {existing.Status}.");
             }
         }
 
@@ -378,7 +382,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
 
         if (targetStatus == DecisionStatus.COMMITTED)
         {
-            var snapshot = BuildValidationSnapshot(updated);
+            var snapshot = BuildValidationSnapshot(updated, now);
             CreateCommitRecord(connection, transaction, existing.Id, actorId, now, snapshot);
         }
 
@@ -1421,20 +1425,12 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         IReadOnlyList<DecisionOptionInput>? options
     )
     {
-        using (var softdeleteCommand = connection.CreateCommand())
+        using (var deleteCommand = connection.CreateCommand())
         {
-            softdeleteCommand.Transaction = transaction;
-            softdeleteCommand.CommandText = """
-                UPDATE decision_options
-                SET
-                    is_deleted = true,
-                    updated_at = @now   
-                WHERE decision_id = @decision_id
-                    AND is_deleted = false
-            """;
-            softdeleteCommand.Parameters.AddWithValue("now", now);
-            softdeleteCommand.Parameters.AddWithValue("decision_id", decisionId);
-            softdeleteCommand.ExecuteNonQuery();
+            deleteCommand.Transaction = transaction;
+            deleteCommand.CommandText = "DELETE FROM decision_options WHERE decision_id = @decision_id";
+            deleteCommand.Parameters.AddWithValue("decision_id", decisionId);
+            deleteCommand.ExecuteNonQuery();
         }
 
         foreach (var option in options ?? Array.Empty<DecisionOptionInput>())
@@ -1471,20 +1467,12 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         IReadOnlyList<DecisionSignalInput>? signals
     )
     {
-        using (var softdeleteCommand = connection.CreateCommand())
+        using (var deleteCommand = connection.CreateCommand())
         {
-            softdeleteCommand.Transaction = transaction;
-            softdeleteCommand.CommandText = """
-                UPDATE decision_signals
-                    SET
-                        is_deleted = true,
-                        updated_at = @now   
-                    WHERE decision_id = @decision_id 
-                        AND is_deleted = false
-                """;
-            softdeleteCommand.Parameters.AddWithValue("now", now);
-            softdeleteCommand.Parameters.AddWithValue("decision_id", decisionId);
-            softdeleteCommand.ExecuteNonQuery();
+            deleteCommand.Transaction = transaction;
+            deleteCommand.CommandText = "DELETE FROM decision_signals WHERE decision_id = @decision_id";
+            deleteCommand.Parameters.AddWithValue("decision_id", decisionId);
+            deleteCommand.ExecuteNonQuery();
         }
 
         foreach (var signal in signals ?? Array.Empty<DecisionSignalInput>())
@@ -1845,12 +1833,12 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return $"decision-{id}";
     }
 
-    private static object BuildValidationSnapshot(DecisionDetailDto decision)
+    private static object BuildValidationSnapshot(DecisionDetailDto decision, DateTimeOffset now)
     {
         var selectedOptions = decision.Options.Where(option => option.IsSelected).ToList();
         var selectedOption = selectedOptions.FirstOrDefault();
 
-        var conteextSummaryPresent = !string.IsNullOrEmpty(decision.ContextSummary);
+        var contextSummaryPresent = !string.IsNullOrEmpty(decision.ContextSummary);
         var reasoningPresent = !string.IsNullOrEmpty(decision.Reasoning);
         var riskLevelPresent = decision.RiskLevel is not null; 
         var confidencePresent = decision.ConfidenceScore is not null;
@@ -1859,7 +1847,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         var optionsCount = decision.Options.Count;
         var selectedOptionCount = selectedOptions.Count;
 
-        var requiredFieldPresent = conteextSummaryPresent &&
+        var requiredFieldPresent = contextSummaryPresent &&
             reasoningPresent &&
             riskLevelPresent &&
             confidencePresent &&
@@ -1873,12 +1861,12 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             selected_option_id = selectedOption?.Id,
             risk_level = decision.RiskLevel?.ToString(),
             confidence = decision.ConfidenceScore,
-            context_summary_present = conteextSummaryPresent,
+            context_summary_present = contextSummaryPresent,
             signals_count = signalsCount,
             options_count = optionsCount,
             selected_options_count = selectedOptionCount,
             reasoning_present = reasoningPresent,
-            timestamp = DateTimeOffset.UtcNow.ToString("o")
+            timestamp = now.ToString("o")
         };
     }
 

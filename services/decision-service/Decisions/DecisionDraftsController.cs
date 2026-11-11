@@ -65,7 +65,7 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
             });
         }
 
-         try
+        try
         {
             var decision = repository.UpdateDraft(lookup, access.UserId, request);
             return decision is null ? BadRequest(new { detail = "Draft decision cannot be updated." }) : Ok(decision);

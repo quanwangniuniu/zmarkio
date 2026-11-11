@@ -182,149 +182,6 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Draft_replacing_signals_soft_deletes_old_signals()
-    {
-        var repository = Repository(TestUser);
-        var decision = repository.Create(
-            TestProject,
-            TestUser,
-            Draft("Test signal soft deletion")
-        );
-
-        repository.UpdateDraft(
-            decision.Slug,
-            TestUser,
-            new UpdateDecisionDraftRequest(
-                null, null, null, null, null, null, null, null,
-                new[] {new DecisionSignalInput("CTR", "increased", "last 7 days", 
-                            "vs_previous_period", "campaign", "all", 12.5m, "%", null)}, 
-                null, null
-            )
-        );
-
-        var original = repository.Get(decision.Slug);
-        Assert.NotNull(original);
-        var orginalSignal = Assert.Single(original.Signals);
-        var originalSignalId = orginalSignal.Id;
-
-        repository.UpdateDraft(
-            decision.Slug,
-            TestUser,
-            new UpdateDecisionDraftRequest(
-                null, null, null, null, null, null, null, null,
-                new[] {new DecisionSignalInput("Revenue", "increased", "last 30 days",
-                            "vs_previous_period", "campaign", "all", 20m, "%", null)}, 
-                null, null
-            )
-        );
-
-        var updated = repository.Get(decision.Slug);
-        Assert.NotNull(updated);
-
-        var newSignal = Assert.Single(updated.Signals);
-        Assert.Equal("Revenue", newSignal.Metric);
-        Assert.NotEqual(originalSignalId, newSignal.Id);
-
-        var oldSignalIsDeleted = await Scalar<bool>($"""
-            SELECT is_deleted
-            FROM org_acme.decision_signals
-            WHERE id = {originalSignalId}
-            """);
-
-        Assert.True(oldSignalIsDeleted);
-
-        var activeCount = await Scalar<long>($"""
-            SELECT COUNT(*)
-            FROM org_acme.decision_signals
-            WHERE decision_id = {decision.Id}
-                AND is_deleted = false
-            """);
-
-        var deletedCount = await Scalar<long>($"""
-            SELECT COUNT(*)
-            FROM org_acme.decision_signals
-            WHERE decision_id = {decision.Id}
-                AND is_deleted = true
-            """);
-
-        Assert.Equal(1L, activeCount);
-        Assert.Equal(1L, deletedCount);    
-        
-    }
-
-    [Fact]
-    public async Task Draft_replacing_options_soft_deletes_old_options()
-    {
-        var repository = Repository(TestUser);
-        var decision = repository.Create(
-            TestProject,
-            TestUser,
-            Draft("Test option soft deletion")
-        );
-
-        repository.UpdateDraft(
-            decision.Slug,
-            TestUser,
-            new UpdateDecisionDraftRequest(
-                null, null, null, null, null, null, null, null, null, 
-                new[] {new DecisionOptionInput("Orignal option", true, 1), new DecisionOptionInput("Another option", false, 2)}, 
-                null
-            )
-        );
-
-        var original = repository.Get(decision.Slug);
-        Assert.NotNull(original);
-        Assert.Equal(2, original.Options.Count);
-        var originalOptonIds = original.Options.Select(o => o.Id).ToArray();
-
-        repository.UpdateDraft(
-            decision.Slug,
-            TestUser,
-            new UpdateDecisionDraftRequest(
-                null, null, null, null, null, null, null, null, null, 
-                new[] {new DecisionOptionInput("Changed Option", false, 1), new DecisionOptionInput("Another changed option", true, 2)}, 
-                null
-            )
-        );
-
-        var updated = repository.Get(decision.Slug);
-        Assert.NotNull(updated);
-
-        Assert.Equal(2, updated.Options.Count);
-        Assert.Contains(updated.Options, o => o.Text == "Changed Option");
-        Assert.Contains(updated.Options, o => o.Text == "Another changed option");
-
-        Assert.All(updated.Options, option => Assert.DoesNotContain(option.Id, originalOptonIds));
-
-        foreach (var optionId in originalOptonIds)
-        {
-            var isDeleted = await Scalar<bool>($"""
-                SELECT is_deleted
-                FROM org_acme.decision_options
-                WHERE id = {optionId}
-                """);
-                Assert.True(isDeleted);
-        }
-
-        var activeCount = await Scalar<long>($"""
-            SELECT COUNT(*)
-            FROM org_acme.decision_options
-            WHERE decision_id = {decision.Id}
-                AND is_deleted = false
-            """);
-
-        var deletedCount = await Scalar<long>($"""
-            SELECT COUNT(*)
-            FROM org_acme.decision_options
-            WHERE decision_id = {decision.Id}
-                AND is_deleted = true
-            """);
-
-        Assert.Equal(2L, activeCount);
-        Assert.Equal(2L, deletedCount);  
-    }
-
-    [Fact]
     public async Task Committing_draft_creates_commit_record_with_snapshot()
     {
         var repository = Repository(TestUser);
@@ -619,11 +476,9 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
             badRequest.Value
         );
 
-        Assert.True(errors.ContainsKey("status"));
-
-        Assert.Contains(
-            "Cannot modify protected fields",
-            Assert.Single(errors["status"])
+        Assert.Equal(
+            "Cannot modify title because this decision is COMMITTED.",
+            Assert.Single(errors["title"])
         );
 
         var unchanged = repository.Get(decision.Slug);
