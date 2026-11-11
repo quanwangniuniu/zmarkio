@@ -206,15 +206,70 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         var connection = session.Connection;
         var transaction = session.Transaction;
         var existing = Get(connection, lookup);
-        if (existing is null || existing.Status is not (DecisionStatus.PREDRAFT or DecisionStatus.DRAFT or DecisionStatus.AWAITING_APPROVAL or DecisionStatus.COMMITTED or DecisionStatus.REVIEWED))
+        if (existing is null ||
+            existing.Status is not (
+                DecisionStatus.PREDRAFT or
+                DecisionStatus.DRAFT or
+                DecisionStatus.AWAITING_APPROVAL or
+                DecisionStatus.COMMITTED or
+                DecisionStatus.REVIEWED or
+                DecisionStatus.ARCHIVED))
         {
             return null;
+        }
+
+        if (existing.Status is (DecisionStatus.COMMITTED or DecisionStatus.REVIEWED or DecisionStatus.ARCHIVED))
+        {
+            var protectedFields = new (string Field, bool IsProvided)[]
+            {
+                ("title", request.Title is not null && request.Title != existing.Title),
+                ("contextSummary", request.ContextSummary is not null && request.ContextSummary != existing.ContextSummary),
+                ("reasoning", request.Reasoning is not null && request.Reasoning != existing.Reasoning),
+                ("riskLevel", request.RiskLevel is not null && request.RiskLevel != existing.RiskLevel),
+                ("confidenceScore", request.ConfidenceScore is not null && request.ConfidenceScore != existing.ConfidenceScore),
+                ("plannedDecisionDate", request.PlannedDecisionDate is not null && request.PlannedDecisionDate != existing.PlannedDecisionDate),
+                ("options", request.Options is not null),
+                ("signals", request.Signals is not null),
+                ("parentDecisionIds", request.ParentDecisionIds is not null)
+
+            };
+            var offendingField = protectedFields.FirstOrDefault(field => field.IsProvided).Field;
+
+            if (offendingField is not null)
+            {
+                throw new DecisionValidationException(offendingField,
+                    $"Cannot modify {offendingField} because this decision is {existing.Status}.");
+            }
         }
 
         var now = DateTimeOffset.UtcNow;
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
+
+        command.Parameters.AddWithValue("id", existing.Id);
+        command.Parameters.AddWithValue("now", now);
+        AddNullableText(command, "topic", request.Topic is null ? null : NormalizeTopic(request.Topic));
+        AddNullableBoolean(command, "is_reference_case", request.IsReferenceCase);
+        AddNullableInteger(command, "actor_id", actorId);
+
+        if (existing.Status is (DecisionStatus.COMMITTED or DecisionStatus.REVIEWED or DecisionStatus.ARCHIVED))
+        {
+            command.CommandText = """
+            UPDATE decisions
+            SET
+                updated_at = @now,
+                topic = COALESCE(@topic, topic),
+                is_reference_case = COALESCE(@is_reference_case, is_reference_case),
+                last_edited_by_id = @actor_id
+            WHERE id = @id 
+                AND is_deleted = false
+                AND status IN ('COMMITTED', 'REVIEWED', 'ARCHIVED')
+            """;
+            
+        }
+        else
+        {
+            command.CommandText = """
             UPDATE decisions
             SET
                 updated_at = @now,
@@ -227,32 +282,39 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 is_reference_case = COALESCE(@is_reference_case, is_reference_case),
                 planned_decision_date = COALESCE(@planned_decision_date, planned_decision_date),
                 last_edited_by_id = @actor_id
-            WHERE id = @id AND is_deleted = false
+            WHERE id = @id 
+                AND is_deleted = false
+                AND status IN ('PREDRAFT', 'DRAFT', 'AWAITING_APPROVAL')
             """;
-        command.Parameters.AddWithValue("id", existing.Id);
-        command.Parameters.AddWithValue("now", now);
-        AddNullableText(command, "title", request.Title);
-        AddNullableText(command, "context_summary", request.ContextSummary);
-        AddNullableText(command, "reasoning", request.Reasoning);
-        AddNullableText(command, "risk_level", request.RiskLevel?.ToString());
-        AddNullableInteger(command, "confidence", request.ConfidenceScore);
-        AddNullableText(command, "topic", request.Topic is null ? null : NormalizeTopic(request.Topic));
-        AddNullableBoolean(command, "is_reference_case", request.IsReferenceCase);
-        AddNullableTimestamp(command, "planned_decision_date", request.PlannedDecisionDate);
-        AddNullableInteger(command, "actor_id", actorId);
-        command.ExecuteNonQuery();
+            AddNullableText(command, "title", request.Title);
+            AddNullableText(command, "context_summary", request.ContextSummary);
+            AddNullableText(command, "reasoning", request.Reasoning);
+            AddNullableText(command, "risk_level", request.RiskLevel?.ToString());
+            AddNullableInteger(command, "confidence", request.ConfidenceScore);
+            AddNullableTimestamp(command, "planned_decision_date", request.PlannedDecisionDate);
+        }
 
-        if (request.Options is not null)
+        var rowAffected = command.ExecuteNonQuery();
+        if (rowAffected != 1)
         {
-            ReplaceOptions(connection, transaction, existing.Id, now, request.Options);
+            throw new DecisionValidationException("status", 
+                "Decision could not be updated because its status may have changed.");
         }
-        if (request.Signals is not null)
+
+        if (existing.Status is (DecisionStatus.PREDRAFT or DecisionStatus.DRAFT or DecisionStatus.AWAITING_APPROVAL))
         {
-            ReplaceSignals(connection, transaction, existing.Id, actorId, now, request.Signals);
-        }
-        if (request.ParentDecisionIds is not null && existing.ProjectId is not null)
-        {
-            ReplaceParentEdges(connection, transaction, existing.Id, existing.ProjectId.Value, actorId, request.ParentDecisionIds);
+            if (request.Options is not null)
+            {
+                ReplaceOptions(connection, transaction, existing.Id, now, request.Options);
+            }
+            if (request.Signals is not null)
+            {
+                ReplaceSignals(connection, transaction, existing.Id, actorId, now, request.Signals);
+            }
+            if (request.ParentDecisionIds is not null && existing.ProjectId is not null)
+            {
+                ReplaceParentEdges(connection, transaction, existing.Id, existing.ProjectId.Value, actorId, request.ParentDecisionIds);
+            }
         }
 
         var updated = Get(connection, existing.Id.ToString());
@@ -311,6 +373,19 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
 
         RecordTransition(connection, transaction, existing.Id, existing.Status, targetStatus, actorId, now);
         var updated = Get(connection, existing.Id.ToString());
+
+        if (updated is null)
+        {
+            throw new InvalidOperationException(
+                "Decision could not be retrieved after status update.");
+        }
+
+        if (targetStatus == DecisionStatus.COMMITTED)
+        {
+            var snapshot = BuildValidationSnapshot(updated, now);
+            CreateCommitRecord(connection, transaction, existing.Id, actorId, now, snapshot);
+        }
+
         session.Commit();
         return updated;
     }
@@ -1756,5 +1831,84 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
     private static string Slug(int id)
     {
         return $"decision-{id}";
+    }
+
+    private static object BuildValidationSnapshot(DecisionDetailDto decision, DateTimeOffset now)
+    {
+        var selectedOptions = decision.Options.Where(option => option.IsSelected).ToList();
+        var selectedOption = selectedOptions.FirstOrDefault();
+
+        var contextSummaryPresent = !string.IsNullOrEmpty(decision.ContextSummary);
+        var reasoningPresent = !string.IsNullOrEmpty(decision.Reasoning);
+        var riskLevelPresent = decision.RiskLevel is not null; 
+        var confidencePresent = decision.ConfidenceScore is not null;
+
+        var signalsCount = decision.Signals.Count;
+        var optionsCount = decision.Options.Count;
+        var selectedOptionCount = selectedOptions.Count;
+
+        var requiredFieldPresent = contextSummaryPresent &&
+            reasoningPresent &&
+            riskLevelPresent &&
+            confidencePresent &&
+            signalsCount >= 1 &&
+            optionsCount >= 2 &&
+            selectedOptionCount == 1;
+
+        return new
+        {
+            required_fields_present = requiredFieldPresent,
+            selected_option_id = selectedOption?.Id,
+            risk_level = decision.RiskLevel?.ToString(),
+            confidence = decision.ConfidenceScore,
+            context_summary_present = contextSummaryPresent,
+            signals_count = signalsCount,
+            options_count = optionsCount,
+            selected_options_count = selectedOptionCount,
+            reasoning_present = reasoningPresent,
+            timestamp = now.ToString("o")
+        };
+    }
+
+    private static void CreateCommitRecord(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        int decisionId,
+        int? actorId,
+        DateTimeOffset now,
+        object snapshot)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+
+        command.CommandText = """
+            INSERT INTO decision_commit_records (
+                created_at,
+                updated_at,
+                is_deleted,
+                committed_at,
+                decision_id,
+                committed_by_id,
+                validation_snapshot
+            )
+            VALUES (
+                @now,
+                @now,
+                false,
+                @now,
+                @decision_id,
+                @actor_id,
+                @validation_snapshot
+            )
+            """;
+
+        command.Parameters.AddWithValue("now", now);
+        command.Parameters.AddWithValue("decision_id", decisionId);
+        AddNullableInteger(command, "actor_id", actorId);
+
+        command.Parameters.Add("validation_snapshot", NpgsqlDbType.Jsonb).Value =
+            JsonSerializer.Serialize(snapshot);
+
+        command.ExecuteNonQuery();
     }
 }
