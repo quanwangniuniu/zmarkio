@@ -11,7 +11,7 @@ import {
   Target, Mail, Notebook, Facebook, Video, Presentation,
   User as UserIcon, CreditCard, Plug, LogOut, Headset,
   Shield, UserCog, UserCheck, BarChart3, Sparkles, PiggyBank,
-  History,
+  History, SlidersHorizontal,
 } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { useAuthStore } from '@/lib/authStore';
@@ -139,6 +139,7 @@ const adminGroup: NavGroup = {
     { label: 'Permissions', href: '/admin/permissions', icon: Shield },
     { label: 'Approvers', href: '/admin/approvers', icon: UserCheck },
     { label: 'Override Audit Log', href: '/admin/override-audits', icon: History },
+    { label: 'Task Config', href: '/admin/task-config', icon: SlidersHorizontal },
   ],
 };
 
