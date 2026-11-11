@@ -1,4 +1,3 @@
-from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -20,4 +19,4 @@ class TaskConfigView(APIView):
         serializer.is_valid(raise_exception=True)
         organization = get_user_organization(request.user)
         save_task_config(organization, serializer.validated_data)
-        return Response(get_task_config(organization), status=status.HTTP_200_OK)
+        return Response(get_task_config(organization))
