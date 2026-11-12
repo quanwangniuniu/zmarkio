@@ -132,6 +132,7 @@ services:
       - OTEL_SERVICE_NAME=django-backend
       - OTEL_TRACES_SAMPLER=always_on
       - KAFKA_BROKER=${KAFKA_BROKER}
+      - BROWSERLESS_BASE=${BROWSERLESS_BASE:-http://browserless:3000}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -142,6 +143,8 @@ services:
       clamav:
         condition: service_healthy
       decision-service:
+        condition: service_started
+      browserless:
         condition: service_started
       # sonarqube:
       #   condition: service_healthy
@@ -159,6 +162,25 @@ services:
         max-size: "10m"
         max-file: "3"
         labels: "service=django"    
+
+  # Self-hosted headless Chrome for Mode 3 external URL fetches (MED-506).
+  # Internal only: no published port, reachable as http://browserless:3000 on
+  # the compose network. Callers authenticate with BROWSERLESS_API_KEY.
+  browserless:
+    image: ghcr.io/browserless/chromium:v2.55.1
+    container_name: browserless-dev
+    restart: unless-stopped
+    environment:
+      - TOKEN=${BROWSERLESS_API_KEY}
+      - CONCURRENT=2
+      - QUEUED=10
+      - TIMEOUT=60000
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=browserless"
 
   # Next.js Frontend (Development)
   frontend:
