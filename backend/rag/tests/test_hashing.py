@@ -63,16 +63,29 @@ class TestCurrentPipelineHash:
     def test_stable_across_repeated_calls_with_unchanged_settings(self):
         assert current_pipeline_hash() == current_pipeline_hash()
 
-    def test_changing_embedding_model_changes_hash(self):
-        """RAG_EMBEDDING_MODEL is a Gemini-specific setting -- it only feeds
-        active_embedding_identity() when RAG_EMBEDDING_PROVIDER is 'gemini',
-        so the provider must be pinned here for this override to have any
-        effect on the hash (see test_switching_provider_gemini_to_local_changes_hash
-        for the 'local' provider reading RAG_LOCAL_EMBEDDING_MODEL instead).
+    def test_default_hash_uses_qualified_ollama_identity(self):
+        """The production default is ollama:nomic-embed-text. There is no
+        unprefixed Gemini model name in the hash anymore.
         """
-        with override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='gemini-embedding-2'):
+        with override_settings(
+            RAG_EMBEDDING_PROVIDER='ollama',
+            RAG_OLLAMA_EMBEDDING_MODEL='nomic-embed-text',
+        ):
+            expected_parts = [
+                'ollama:nomic-embed-text',
+                str(settings.RAG_EMBEDDING_DIMENSIONS),
+                str(settings.RAG_CHUNK_SIZE),
+                str(settings.RAG_CHUNK_OVERLAP),
+                rag_indexing.FRAMING_VERSION,
+                rag_indexing.INDEXING_VERSION,
+            ]
+            expected = hashlib.sha256('|'.join(expected_parts).encode('utf-8')).hexdigest()
+            assert current_pipeline_hash() == expected
+
+    def test_changing_embedding_model_changes_hash(self):
+        with override_settings(RAG_EMBEDDING_PROVIDER='ollama', RAG_OLLAMA_EMBEDDING_MODEL='nomic-embed-text'):
             baseline = current_pipeline_hash()
-        with override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='some-other-model'):
+        with override_settings(RAG_EMBEDDING_PROVIDER='ollama', RAG_OLLAMA_EMBEDDING_MODEL='some-other-model'):
             assert current_pipeline_hash() != baseline
 
     def test_changing_embedding_dimensions_changes_hash(self):
@@ -108,44 +121,16 @@ class TestCurrentPipelineHash:
         with override_settings(RAG_EMBED_BATCH_SIZE=999):
             assert current_pipeline_hash() == baseline
 
-    def test_gemini_provider_preserves_legacy_hash_formula(self):
-        """Byte-for-byte compatibility check: for provider == 'gemini',
-        current_pipeline_hash() must still equal the pre-fix formula that
-        hashed settings.RAG_EMBEDDING_MODEL directly (unprefixed) -- so
-        deploying this fix while production stays on the same Gemini model
-        does not invalidate any existing DocumentIndexState row.
-        """
-        with override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='gemini-embedding-2'):
-            legacy_parts = [
-                'gemini-embedding-2',  # bare model name, no 'gemini:' prefix
-                str(settings.RAG_EMBEDDING_DIMENSIONS),
-                str(settings.RAG_CHUNK_SIZE),
-                str(settings.RAG_CHUNK_OVERLAP),
-                rag_indexing.FRAMING_VERSION,
-                rag_indexing.INDEXING_VERSION,
-            ]
-            legacy_hash = hashlib.sha256('|'.join(legacy_parts).encode('utf-8')).hexdigest()
-            assert current_pipeline_hash() == legacy_hash
-
-    def test_changing_gemini_model_changes_hash(self):
-        with override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='gemini-embedding-2'):
-            baseline = current_pipeline_hash()
-        with override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='gemini-embedding-3'):
-            assert current_pipeline_hash() != baseline
-
-    def test_switching_provider_gemini_to_local_changes_hash(self):
-        """The Problem 3 regression: a provider switch used to be invisible
-        to the pipeline hash whenever RAG_EMBEDDING_MODEL itself didn't
-        change (it never does when flipping to 'local', since that provider
-        reads RAG_LOCAL_EMBEDDING_MODEL instead).
-        """
-        with override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='gemini-embedding-2'):
-            gemini_hash = current_pipeline_hash()
+    def test_switching_provider_ollama_to_local_changes_hash(self):
+        with override_settings(
+            RAG_EMBEDDING_PROVIDER='ollama', RAG_OLLAMA_EMBEDDING_MODEL='nomic-embed-text',
+        ):
+            ollama_hash = current_pipeline_hash()
         with override_settings(
             RAG_EMBEDDING_PROVIDER='local', RAG_LOCAL_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5',
         ):
             local_hash = current_pipeline_hash()
-        assert gemini_hash != local_hash
+        assert ollama_hash != local_hash
 
     def test_changing_local_model_changes_hash(self):
         with override_settings(RAG_EMBEDDING_PROVIDER='local', RAG_LOCAL_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5'):

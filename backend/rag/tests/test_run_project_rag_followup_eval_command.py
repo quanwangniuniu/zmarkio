@@ -149,9 +149,15 @@ def test_compare_a_to_b_labels():
 
 
 @override_settings(RAG_EMBEDDING_PROVIDER='gemini', GEMINI_API_KEY='')
-def test_gemini_provider_requires_api_key():
-    with pytest.raises(CommandError, match='GEMINI_API_KEY is not configured'):
+def test_gemini_embedding_provider_is_rejected_before_arm_c():
+    with pytest.raises(CommandError, match="Unknown RAG_EMBEDDING_PROVIDER 'gemini'"):
         Command().handle(fixture=_NONEXISTENT, output=None, top_k=10, arms='A,B')
+
+
+@override_settings(RAG_EMBEDDING_PROVIDER='ollama', GEMINI_API_KEY='')
+def test_arm_c_requires_gemini_api_key_even_with_ollama_embeddings():
+    with pytest.raises(CommandError, match='Arm C .* GEMINI_API_KEY'):
+        Command().handle(fixture=_NONEXISTENT, output=None, top_k=10, arms='A,B,C')
 
 
 @override_settings(RAG_EMBEDDING_PROVIDER='local', GEMINI_API_KEY='')

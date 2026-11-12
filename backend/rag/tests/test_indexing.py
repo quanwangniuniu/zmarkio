@@ -183,9 +183,8 @@ class TestIndexSourceDocumentOutcomes:
         triggered again for a source whose content hasn't changed, a
         different embedding provider/model identity must stop
         `_enter_pending` from treating it as SKIPPED_UNCHANGED -- neither the
-        source text nor RAG_EMBEDDING_MODEL itself changes when switching to
-        'local', which was exactly the gap (see
-        rag.embeddings.active_embedding_identity).
+        source text stays the same when switching from 'ollama' to 'local'
+        (see rag.embeddings.active_embedding_identity).
 
         `mock_embed` patches rag.indexing.embed_document_chunks -- the name
         imported from rag.embeddings, the shared entry point both providers
@@ -193,7 +192,9 @@ class TestIndexSourceDocumentOutcomes:
         below hold regardless of which provider is configured, and switching
         to 'local' here never touches the real fastembed/ONNX model.
         """
-        with override_settings(RAG_EMBEDDING_PROVIDER='gemini', RAG_EMBEDDING_MODEL='gemini-embedding-2'):
+        with override_settings(
+            RAG_EMBEDDING_PROVIDER='ollama', RAG_OLLAMA_EMBEDDING_MODEL='nomic-embed-text',
+        ):
             meeting = _bare_meeting(make_meeting, make_meeting_document)
             index_source_document(project.id, DocumentSourceType.MEETING, str(meeting.id))
         assert mock_embed.call_count == 1
