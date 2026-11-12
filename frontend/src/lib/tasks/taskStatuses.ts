@@ -1,3 +1,5 @@
+import type { TaskStatusConfig } from '@/types/orgCustomization';
+
 export const TASK_STATUS_VALUES = [
   'DRAFT',
   'SUBMITTED',
@@ -72,3 +74,15 @@ export const TASK_STATUS_OPTIONS: string[] = [...TASK_STATUS_VALUES];
 export const getTaskStatusDefinition = (status?: string | null): TaskStatusDefinition =>
   TASK_STATUS_DEFINITION_BY_VALUE[(status as TaskStatusValue) ?? 'DRAFT'] ??
   TASK_STATUS_DEFINITION_BY_VALUE.DRAFT;
+
+const DEFAULT_TASK_STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  Object.entries(TASK_STATUS_DEFINITION_BY_VALUE).map(([value, definition]) => [value, definition.label]),
+);
+
+export const applyTaskStatusConfig = (configs: TaskStatusConfig[]): void => {
+  configs.forEach((config) => {
+    const definition = TASK_STATUS_DEFINITION_BY_VALUE[config.key as TaskStatusValue];
+    if (!definition) return;
+    definition.label = config.label || DEFAULT_TASK_STATUS_LABELS[config.key];
+  });
+};

@@ -1,3 +1,5 @@
+import type { TaskTypeConfig } from '@/types/orgCustomization';
+
 // Task type domain definitions shared by task views, meeting conversion, and forms.
 // Order matches /api/task-types/ and drives kanban column ordering.
 export const TASK_TYPE_VALUES = [
@@ -75,3 +77,19 @@ export const getTaskTypeLabel = (value?: string | null): string | undefined =>
 
 export const getTaskTypeShortLabel = (value?: string | null): string | undefined =>
   getTaskTypeDefinition(value)?.shortLabel;
+
+const DEFAULT_TASK_TYPE_DEFINITIONS: Record<string, TaskTypeDefinition> = Object.fromEntries(
+  TASK_TYPE_DEFINITIONS.map((definition) => [definition.value, { ...definition }]),
+);
+
+export const applyTaskTypeConfig = (configs: TaskTypeConfig[]): void => {
+  configs.forEach((config) => {
+    const definition = TASK_TYPE_BY_VALUE[config.key as TaskTypeValue];
+    const defaults = DEFAULT_TASK_TYPE_DEFINITIONS[config.key];
+    if (!definition || !defaults) return;
+    definition.label = config.label || defaults.label;
+    definition.shortLabel = config.short_label || defaults.shortLabel;
+    definition.hex = config.color || defaults.hex;
+    TASK_TYPE_SHORT_LABEL_BY_VALUE[definition.value] = definition.shortLabel;
+  });
+};
