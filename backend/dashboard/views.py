@@ -14,6 +14,7 @@ from core.slug_mixins import resolve_project_pk
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from .serializers import DashboardSummarySerializer, ProjectWorkspaceDashboardSerializer
 from .services import get_rollup, ALL_FIELDS
+from org_customization.services import STATUS_CATEGORIES, get_task_status_categories, get_user_organization
 
 
 logger = logging.getLogger(__name__)
@@ -177,23 +178,14 @@ class DashboardSummaryView(APIView):
             # ── Status breakdown ─────────────────────────────────────────────
             total_work_items = queryset.count()
 
-            status_mapping = {
-                Task.Status.DRAFT:        ('TO_DO',      'To Do',       '#94A3B8'),
-                Task.Status.SUBMITTED:    ('TO_DO',      'To Do',       '#94A3B8'),
-                Task.Status.UNDER_REVIEW: ('IN_PROGRESS','In Progress', '#3B82F6'),
-                Task.Status.APPROVED:     ('DONE',       'Done',        '#10B981'),
-                Task.Status.LOCKED:       ('DONE',       'Done',        '#10B981'),
-                Task.Status.REJECTED:     ('RESEARCH',   'Research',    '#8B5CF6'),
-                Task.Status.CANCELLED:    ('CANCELLED',  'Cancelled',   '#6B7280'),
-            }
+            status_categories = get_task_status_categories(get_user_organization(request.user))
 
             status_counts: dict = {}
             for task_status in queryset.values('status').annotate(count=Count('status')):
                 db_status   = task_status['status']
                 count        = task_status['count']
-                display_status, display_name, color = status_mapping.get(
-                    db_status, (db_status, db_status, '#94A3B8')
-                )
+                display_status = status_categories.get(db_status, db_status)
+                display_name, color = STATUS_CATEGORIES.get(display_status, (db_status, '#94A3B8'))
                 if display_status not in status_counts:
                     status_counts[display_status] = {
                         'status':       display_status,

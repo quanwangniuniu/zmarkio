@@ -9,7 +9,10 @@ from .services import get_task_config, get_user_organization, save_task_config
 
 
 class TaskConfigView(APIView):
-    permission_classes = [IsAuthenticated, IsOrgAdmin]
+    def get_permissions(self):
+        if self.request.method == 'GET':
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsOrgAdmin()]
 
     def get(self, request):
         return Response(get_task_config(get_user_organization(request.user)))

@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 
 from core.models import Organization, OrganizationMembership, Project, ProjectMember
 from meetings.models import Meeting, MeetingActionItem, MeetingTypeDefinition
-from org_customization.models import TaskStatusConfig, TaskTypeConfig
+from org_customization.models import TaskFieldOptionConfig, TaskPriorityConfig, TaskStatusConfig, TaskTypeConfig
 from task.models import Task
 
 User = get_user_model()
@@ -42,18 +42,37 @@ class TaskConfigViewTest(TestCase):
         self.assertEqual([t['key'] for t in task_types], [c[0] for c in Task._meta.get_field('type').choices])
         self.assertTrue(all(t['enabled'] and t['label'] is None for t in task_types))
         self.assertEqual([s['key'] for s in response.data['task_statuses']], list(Task.Status.values))
+        self.assertEqual(response.data['task_statuses'][0]['default_category'], 'TO_DO')
+        self.assertEqual([p['key'] for p in response.data['task_priorities']], list(Task.Priority.values))
+        self.assertEqual(response.data['task_field_options'], [])
 
     def test_put_saves_rows(self):
         response = self.client.put(TASK_CONFIG_URL, {
-            'task_types': [{'key': 'budget', 'label': 'Spend Request', 'enabled': False, 'order': 3}],
-            'task_statuses': [{'key': 'UNDER_REVIEW', 'label': 'In QA', 'color': '#F59E0B', 'order': 1}],
+            'task_types': [{
+                'key': 'budget', 'label': 'Spend Request', 'short_label': 'Spend',
+                'color': '#3CCED7', 'enabled': False, 'order': 3,
+            }],
+            'task_statuses': [{'key': 'UNDER_REVIEW', 'label': 'In QA', 'color': '#F59E0B', 'category': 'DONE', 'order': 1}],
+            'task_priorities': [{'key': 'HIGHEST', 'label': 'Urgent', 'color': '#EF4444', 'order': 0}],
+            'task_field_options': [{'task_type': 'alert', 'field': 'severity', 'value': 'low', 'label': 'Minor', 'enabled': False}],
         }, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         task_type = TaskTypeConfig.objects.get(organization=self.org, key='budget')
-        self.assertEqual((task_type.label, task_type.enabled, task_type.order), ('Spend Request', False, 3))
+        self.assertEqual(
+            (task_type.label, task_type.short_label, task_type.color, task_type.enabled, task_type.order),
+            ('Spend Request', 'Spend', '#3CCED7', False, 3),
+        )
         task_status = TaskStatusConfig.objects.get(organization=self.org, key='UNDER_REVIEW')
-        self.assertEqual((task_status.label, task_status.color, task_status.order), ('In QA', '#F59E0B', 1))
+        self.assertEqual(
+            (task_status.label, task_status.color, task_status.category, task_status.order),
+            ('In QA', '#F59E0B', 'DONE', 1),
+        )
+        priority = TaskPriorityConfig.objects.get(organization=self.org, key='HIGHEST')
+        self.assertEqual((priority.label, priority.color), ('Urgent', '#EF4444'))
+        option = TaskFieldOptionConfig.objects.get(organization=self.org, task_type='alert', field='severity', value='low')
+        self.assertEqual((option.label, option.enabled), ('Minor', False))
+        self.assertEqual(response.data['task_field_options'][0]['label'], 'Minor')
 
     def test_put_updates_existing_row(self):
         TaskTypeConfig.objects.create(organization=self.org, key='asset', label='Old', order=1)
@@ -68,16 +87,17 @@ class TaskConfigViewTest(TestCase):
     def test_put_rejects_unknown_key_and_bad_color(self):
         response = self.client.put(TASK_CONFIG_URL, {
             'task_types': [{'key': 'not_a_type'}],
-            'task_statuses': [{'key': 'DRAFT', 'color': 'red'}],
+            'task_statuses': [{'key': 'DRAFT', 'color': 'red', 'category': 'NOT_A_CATEGORY'}],
+            'task_priorities': [{'key': 'URGENT'}],
         }, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(TaskTypeConfig.objects.exists())
 
-    def test_non_admin_is_forbidden(self):
+    def test_member_can_read_but_not_save(self):
         self.client.force_authenticate(self.member)
 
-        self.assertEqual(self.client.get(TASK_CONFIG_URL).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(self.client.get(TASK_CONFIG_URL).status_code, status.HTTP_200_OK)
         response = self.client.put(TASK_CONFIG_URL, {'task_types': [{'key': 'budget', 'enabled': False}]}, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(TaskTypeConfig.objects.exists())
@@ -167,3 +187,28 @@ class DisabledTaskTypeTest(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(Task.objects.filter(origin_action_item=item).exists())
+
+
+class DashboardStatusCategoryTest(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name='Dashboard Org')
+        self.user = make_user('dash@example.com', self.org)
+        self.project = Project.objects.create(name='Dashboard Project', organization=self.org, owner=self.user)
+        ProjectMember.objects.create(user=self.user, project=self.project, is_active=True)
+        Task.objects.create(summary='Rejected', type='asset', project=self.project, owner=self.user)
+        Task.objects.filter(summary='Rejected').update(status=Task.Status.REJECTED)
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def _breakdown(self):
+        response = self.client.get(reverse('dashboard:dashboard-summary'), {'project_id': self.project.id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {item['status']: item['count'] for item in response.data['status_overview']['breakdown']}
+
+    def test_uses_default_categories(self):
+        self.assertEqual(self._breakdown(), {'RESEARCH': 1})
+
+    def test_uses_configured_category(self):
+        TaskStatusConfig.objects.create(organization=self.org, key=Task.Status.REJECTED, category='DONE')
+
+        self.assertEqual(self._breakdown(), {'DONE': 1})

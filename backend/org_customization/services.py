@@ -2,7 +2,25 @@ from django.db import transaction
 
 from task.models import Task
 
-from .models import TaskStatusConfig, TaskTypeConfig
+from .models import TaskFieldOptionConfig, TaskPriorityConfig, TaskStatusConfig, TaskTypeConfig
+
+STATUS_CATEGORIES = {
+    'TO_DO': ('To Do', '#94A3B8'),
+    'IN_PROGRESS': ('In Progress', '#3B82F6'),
+    'DONE': ('Done', '#10B981'),
+    'RESEARCH': ('Research', '#8B5CF6'),
+    'CANCELLED': ('Cancelled', '#6B7280'),
+}
+
+DEFAULT_STATUS_CATEGORIES = {
+    Task.Status.DRAFT: 'TO_DO',
+    Task.Status.SUBMITTED: 'TO_DO',
+    Task.Status.UNDER_REVIEW: 'IN_PROGRESS',
+    Task.Status.APPROVED: 'DONE',
+    Task.Status.LOCKED: 'DONE',
+    Task.Status.REJECTED: 'RESEARCH',
+    Task.Status.CANCELLED: 'CANCELLED',
+}
 
 
 def get_user_organization(user):
@@ -18,6 +36,7 @@ def _rows_by_key(model, organization):
 def get_task_config(organization):
     type_rows = _rows_by_key(TaskTypeConfig, organization)
     status_rows = _rows_by_key(TaskStatusConfig, organization)
+    priority_rows = _rows_by_key(TaskPriorityConfig, organization)
 
     task_types = []
     for index, (key, default_label) in enumerate(Task._meta.get_field('type').choices):
@@ -26,6 +45,8 @@ def get_task_config(organization):
             'key': key,
             'default_label': default_label,
             'label': row.label if row else None,
+            'short_label': row.short_label if row else None,
+            'color': row.color if row else None,
             'enabled': row.enabled if row else True,
             'order': row.order if row else index,
         })
@@ -38,12 +59,47 @@ def get_task_config(organization):
             'default_label': default_label,
             'label': row.label if row else None,
             'color': row.color if row else None,
+            'default_category': DEFAULT_STATUS_CATEGORIES[key],
+            'category': row.category if row else None,
             'order': row.order if row else index,
         })
 
+    task_priorities = []
+    for index, (key, default_label) in enumerate(Task.Priority.choices):
+        row = priority_rows.get(key)
+        task_priorities.append({
+            'key': key,
+            'default_label': default_label,
+            'label': row.label if row else None,
+            'color': row.color if row else None,
+            'order': row.order if row else index,
+        })
+
+    task_field_options = []
+    if organization is not None:
+        task_field_options = list(
+            TaskFieldOptionConfig.objects.filter(organization=organization)
+            .order_by('task_type', 'field', 'order')
+            .values('task_type', 'field', 'value', 'label', 'enabled', 'order')
+        )
+
     task_types.sort(key=lambda item: item['order'])
     task_statuses.sort(key=lambda item: item['order'])
-    return {'task_types': task_types, 'task_statuses': task_statuses}
+    task_priorities.sort(key=lambda item: item['order'])
+    return {
+        'task_types': task_types,
+        'task_statuses': task_statuses,
+        'task_priorities': task_priorities,
+        'task_field_options': task_field_options,
+    }
+
+
+def get_task_status_categories(organization):
+    rows = _rows_by_key(TaskStatusConfig, organization)
+    return {
+        key: (rows[key].category if key in rows and rows[key].category else default)
+        for key, default in DEFAULT_STATUS_CATEGORIES.items()
+    }
 
 
 def is_task_type_enabled(organization, key):
@@ -60,25 +116,27 @@ def get_enabled_task_types(organization):
     ]
 
 
+def _save_rows(model, organization, items, lookup_fields):
+    for item in items:
+        model.objects.update_or_create(
+            organization=organization,
+            **{field: item[field] for field in lookup_fields},
+            defaults={
+                field: (None if value == '' else value)
+                for field, value in item.items()
+                if field not in lookup_fields
+            },
+        )
+
+
 @transaction.atomic
 def save_task_config(organization, data):
-    for item in data.get('task_types', []):
-        TaskTypeConfig.objects.update_or_create(
-            organization=organization,
-            key=item['key'],
-            defaults={
-                'label': item.get('label') or None,
-                'enabled': item.get('enabled', True),
-                'order': item.get('order', 0),
-            },
-        )
-    for item in data.get('task_statuses', []):
-        TaskStatusConfig.objects.update_or_create(
-            organization=organization,
-            key=item['key'],
-            defaults={
-                'label': item.get('label') or None,
-                'color': item.get('color') or None,
-                'order': item.get('order', 0),
-            },
-        )
+    _save_rows(TaskTypeConfig, organization, data.get('task_types', []), ['key'])
+    _save_rows(TaskStatusConfig, organization, data.get('task_statuses', []), ['key'])
+    _save_rows(TaskPriorityConfig, organization, data.get('task_priorities', []), ['key'])
+    _save_rows(
+        TaskFieldOptionConfig,
+        organization,
+        data.get('task_field_options', []),
+        ['task_type', 'field', 'value'],
+    )
