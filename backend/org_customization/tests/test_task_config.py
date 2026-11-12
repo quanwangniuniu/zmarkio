@@ -4,7 +4,8 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from core.models import Organization, OrganizationMembership
+from core.models import Organization, OrganizationMembership, Project, ProjectMember
+from meetings.models import Meeting, MeetingActionItem, MeetingTypeDefinition
 from org_customization.models import TaskStatusConfig, TaskTypeConfig
 from task.models import Task
 
@@ -117,3 +118,52 @@ class TaskTypesEndpointTest(TestCase):
         values = [t['value'] for t in self.client.get(TASK_TYPES_URL).data['task_types']]
 
         self.assertIn('budget', values)
+
+
+class DisabledTaskTypeTest(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name='Enforce Org')
+        self.user = make_user('creator@example.com', self.org)
+        self.project = Project.objects.create(name='Enforce Project', organization=self.org, owner=self.user)
+        ProjectMember.objects.create(user=self.user, project=self.project, is_active=True)
+        self.user.active_project = self.project
+        self.user.save(update_fields=['active_project'])
+        TaskTypeConfig.objects.create(organization=self.org, key='budget', enabled=False)
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def _create_draft(self, task_type):
+        return self.client.post(reverse('task-list'), {
+            'summary': 'Draft',
+            'type': task_type,
+            'project_id': self.project.id,
+            'create_as_draft': True,
+        }, format='json')
+
+    def test_create_rejects_disabled_type(self):
+        response = self._create_draft('budget')
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('type', response.data)
+        self.assertFalse(Task.objects.filter(type='budget').exists())
+
+    def test_create_allows_enabled_type(self):
+        self.assertEqual(self._create_draft('asset').status_code, status.HTTP_201_CREATED)
+
+    def test_meeting_conversion_rejects_disabled_type(self):
+        meeting = Meeting.objects.create(
+            project=self.project,
+            title='Review',
+            type_definition=MeetingTypeDefinition.objects.create(project=self.project, slug='planning', label='Planning'),
+            objective='actions',
+        )
+        item = MeetingActionItem.objects.create(meeting=meeting, title='Ship budget', order_index=0)
+
+        response = self.client.post(
+            f'/api/projects/{self.project.slug}/meetings/{meeting.slug}/action-items/{item.id}/convert-to-task/',
+            {'type': 'budget', 'create_as_draft': True},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Task.objects.filter(origin_action_item=item).exists())

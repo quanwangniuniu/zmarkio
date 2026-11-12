@@ -46,6 +46,12 @@ def get_task_config(organization):
     return {'task_types': task_types, 'task_statuses': task_statuses}
 
 
+def is_task_type_enabled(organization, key):
+    if organization is None:
+        return True
+    return not TaskTypeConfig.objects.filter(organization=organization, key=key, enabled=False).exists()
+
+
 def get_enabled_task_types(organization):
     return [
         {'value': item['key'], 'label': item['label'] or item['default_label']}

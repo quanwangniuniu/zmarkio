@@ -10,6 +10,7 @@ from task.models import Task, ApprovalRecord, TaskComment, TaskAttachment, TaskF
 from core.models import Project, ProjectMember
 from core.slug_mixins import resolve_project_pk
 from core.utils.project import get_user_active_project
+from org_customization.services import get_user_organization, is_task_type_enabled
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.db.utils import OperationalError, ProgrammingError
@@ -748,6 +749,14 @@ class TaskSerializer(serializers.ModelSerializer):
             if attrs.get('draft_payload') is not None and self.instance.status != Task.Status.DRAFT:
                 raise serializers.ValidationError({
                     'draft_payload': 'draft_payload can only be updated while task is in DRAFT status.'
+                })
+
+        if self.instance is None and 'type' in attrs:
+            request = self.context.get('request')
+            organization = get_user_organization(request.user) if request else None
+            if not is_task_type_enabled(organization, attrs['type']):
+                raise serializers.ValidationError({
+                    'type': 'This task type is disabled for your organization.'
                 })
 
         # For updates, reject type field if provided
