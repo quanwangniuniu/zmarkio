@@ -91,6 +91,7 @@ def get_task_config(organization):
         'task_statuses': task_statuses,
         'task_priorities': task_priorities,
         'task_field_options': task_field_options,
+        'status_categories': [{'key': key, 'label': label} for key, (label, _) in STATUS_CATEGORIES.items()],
     }
 
 

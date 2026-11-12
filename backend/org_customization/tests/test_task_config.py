@@ -45,6 +45,7 @@ class TaskConfigViewTest(TestCase):
         self.assertEqual(response.data['task_statuses'][0]['default_category'], 'TO_DO')
         self.assertEqual([p['key'] for p in response.data['task_priorities']], list(Task.Priority.values))
         self.assertEqual(response.data['task_field_options'], [])
+        self.assertIn({'key': 'DONE', 'label': 'Done'}, response.data['status_categories'])
 
     def test_put_saves_rows(self):
         response = self.client.put(TASK_CONFIG_URL, {
