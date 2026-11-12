@@ -23,9 +23,7 @@ class TaskStatusConfig(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
     key = models.CharField(max_length=20)
     label = models.CharField(max_length=100, null=True, blank=True)
-    color = models.CharField(max_length=7, null=True, blank=True)
     category = models.CharField(max_length=20, null=True, blank=True)
-    order = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = 'config"."task_status'
@@ -38,8 +36,6 @@ class TaskPriorityConfig(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
     key = models.CharField(max_length=20)
     label = models.CharField(max_length=100, null=True, blank=True)
-    color = models.CharField(max_length=7, null=True, blank=True)
-    order = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table = 'config"."task_priority'

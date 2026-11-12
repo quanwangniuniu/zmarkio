@@ -12,18 +12,14 @@ export interface TaskStatusConfig {
   key: string;
   default_label: string;
   label: string | null;
-  color: string | null;
   default_category: string;
   category: string | null;
-  order: number;
 }
 
 export interface TaskPriorityConfig {
   key: string;
   default_label: string;
   label: string | null;
-  color: string | null;
-  order: number;
 }
 
 export interface TaskFieldOptionConfig {

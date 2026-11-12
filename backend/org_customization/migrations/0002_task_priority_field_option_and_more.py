@@ -33,8 +33,6 @@ class Migration(migrations.Migration):
                 ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('key', models.CharField(max_length=20)),
                 ('label', models.CharField(blank=True, max_length=100, null=True)),
-                ('color', models.CharField(blank=True, max_length=7, null=True)),
-                ('order', models.PositiveIntegerField(default=0)),
                 ('organization', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='core.organization')),
             ],
             options={

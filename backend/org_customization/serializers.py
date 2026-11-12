@@ -31,18 +31,14 @@ class TaskTypeConfigItemSerializer(serializers.Serializer):
 class TaskStatusConfigItemSerializer(serializers.Serializer):
     key = serializers.ChoiceField(choices=Task.Status.choices)
     label = label_field()
-    color = color_field()
     category = serializers.ChoiceField(
         choices=list(STATUS_CATEGORIES), required=False, allow_null=True, allow_blank=True
     )
-    order = order_field()
 
 
 class TaskPriorityConfigItemSerializer(serializers.Serializer):
     key = serializers.ChoiceField(choices=Task.Priority.choices)
     label = label_field()
-    color = color_field()
-    order = order_field()
 
 
 class TaskFieldOptionConfigItemSerializer(serializers.Serializer):

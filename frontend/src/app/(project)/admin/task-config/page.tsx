@@ -20,7 +20,6 @@ const tableClass =
   'min-w-full divide-y divide-gray-200 rounded-lg border border-gray-200 dark:divide-gray-700 dark:border-gray-700';
 const bodyClass = 'divide-y divide-gray-200 dark:divide-gray-700';
 const sectionTitle = 'text-lg font-semibold text-gray-900 dark:text-gray-100';
-const DEFAULT_COLOR = '#9CA3AF';
 
 type ConfigListKey = 'task_types' | 'task_statuses' | 'task_priorities';
 
@@ -80,22 +79,6 @@ function OrderInput({ value, onChange }: { value: number; onChange: (value: numb
       className="w-24"
       value={value}
       onChange={(e) => onChange(Number(e.target.value) || 0)}
-    />
-  );
-}
-
-function ColorInput({ value, label, onChange }: {
-  value: string | null | undefined;
-  label: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <input
-      type="color"
-      className="h-9 w-14 cursor-pointer rounded border border-gray-200 dark:border-gray-700"
-      value={value || DEFAULT_COLOR}
-      onChange={(e) => onChange(e.target.value)}
-      aria-label={`${label} color`}
     />
   );
 }
@@ -219,10 +202,12 @@ export default function TaskConfigPage() {
                           />
                         </td>
                         <td className={bodyCell}>
-                          <ColorInput
-                            value={item.color ?? getTaskTypeDefinition(item.key)?.hex}
-                            label={item.default_label}
-                            onChange={(color) => updateItem('task_types', item.key, { color })}
+                          <input
+                            type="color"
+                            className="h-9 w-14 cursor-pointer rounded border border-gray-200 dark:border-gray-700"
+                            value={item.color ?? getTaskTypeDefinition(item.key)?.hex ?? '#000000'}
+                            onChange={(e) => updateItem('task_types', item.key, { color: e.target.value })}
+                            aria-label={`${item.default_label} color`}
                           />
                         </td>
                         <td className={bodyCell}>
@@ -242,8 +227,6 @@ export default function TaskConfigPage() {
                       <th className={headerCell}>Status</th>
                       <th className={headerCell}>Label</th>
                       <th className={headerCell}>Category</th>
-                      <th className={headerCell}>Color</th>
-                      <th className={headerCell}>Order</th>
                     </tr>
                   </thead>
                   <tbody className={bodyClass}>
@@ -269,16 +252,6 @@ export default function TaskConfigPage() {
                             ))}
                           </select>
                         </td>
-                        <td className={bodyCell}>
-                          <ColorInput
-                            value={item.color}
-                            label={item.default_label}
-                            onChange={(color) => updateItem('task_statuses', item.key, { color })}
-                          />
-                        </td>
-                        <td className={bodyCell}>
-                          <OrderInput value={item.order} onChange={(order) => updateItem('task_statuses', item.key, { order })} />
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -292,8 +265,6 @@ export default function TaskConfigPage() {
                     <tr>
                       <th className={headerCell}>Priority</th>
                       <th className={headerCell}>Label</th>
-                      <th className={headerCell}>Color</th>
-                      <th className={headerCell}>Order</th>
                     </tr>
                   </thead>
                   <tbody className={bodyClass}>
@@ -306,16 +277,6 @@ export default function TaskConfigPage() {
                             placeholder={item.default_label}
                             onChange={(label) => updateItem('task_priorities', item.key, { label })}
                           />
-                        </td>
-                        <td className={bodyCell}>
-                          <ColorInput
-                            value={item.color}
-                            label={item.default_label}
-                            onChange={(color) => updateItem('task_priorities', item.key, { color })}
-                          />
-                        </td>
-                        <td className={bodyCell}>
-                          <OrderInput value={item.order} onChange={(order) => updateItem('task_priorities', item.key, { order })} />
                         </td>
                       </tr>
                     ))}

@@ -53,8 +53,8 @@ class TaskConfigViewTest(TestCase):
                 'key': 'budget', 'label': 'Spend Request', 'short_label': 'Spend',
                 'color': '#3CCED7', 'enabled': False, 'order': 3,
             }],
-            'task_statuses': [{'key': 'UNDER_REVIEW', 'label': 'In QA', 'color': '#F59E0B', 'category': 'DONE', 'order': 1}],
-            'task_priorities': [{'key': 'HIGHEST', 'label': 'Urgent', 'color': '#EF4444', 'order': 0}],
+            'task_statuses': [{'key': 'UNDER_REVIEW', 'label': 'In QA', 'category': 'DONE'}],
+            'task_priorities': [{'key': 'HIGHEST', 'label': 'Urgent'}],
             'task_field_options': [{'task_type': 'alert', 'field': 'severity', 'value': 'low', 'label': 'Minor', 'enabled': False}],
         }, format='json')
 
@@ -65,12 +65,8 @@ class TaskConfigViewTest(TestCase):
             ('Spend Request', 'Spend', '#3CCED7', False, 3),
         )
         task_status = TaskStatusConfig.objects.get(organization=self.org, key='UNDER_REVIEW')
-        self.assertEqual(
-            (task_status.label, task_status.color, task_status.category, task_status.order),
-            ('In QA', '#F59E0B', 'DONE', 1),
-        )
-        priority = TaskPriorityConfig.objects.get(organization=self.org, key='HIGHEST')
-        self.assertEqual((priority.label, priority.color), ('Urgent', '#EF4444'))
+        self.assertEqual((task_status.label, task_status.category), ('In QA', 'DONE'))
+        self.assertEqual(TaskPriorityConfig.objects.get(organization=self.org, key='HIGHEST').label, 'Urgent')
         option = TaskFieldOptionConfig.objects.get(organization=self.org, task_type='alert', field='severity', value='low')
         self.assertEqual((option.label, option.enabled), ('Minor', False))
         self.assertEqual(response.data['task_field_options'][0]['label'], 'Minor')
@@ -87,8 +83,8 @@ class TaskConfigViewTest(TestCase):
 
     def test_put_rejects_unknown_key_and_bad_color(self):
         response = self.client.put(TASK_CONFIG_URL, {
-            'task_types': [{'key': 'not_a_type'}],
-            'task_statuses': [{'key': 'DRAFT', 'color': 'red', 'category': 'NOT_A_CATEGORY'}],
+            'task_types': [{'key': 'not_a_type'}, {'key': 'asset', 'color': 'red'}],
+            'task_statuses': [{'key': 'DRAFT', 'category': 'NOT_A_CATEGORY'}],
             'task_priorities': [{'key': 'URGENT'}],
         }, format='json')
 

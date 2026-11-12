@@ -52,27 +52,23 @@ def get_task_config(organization):
         })
 
     task_statuses = []
-    for index, (key, default_label) in enumerate(Task.Status.choices):
+    for key, default_label in Task.Status.choices:
         row = status_rows.get(key)
         task_statuses.append({
             'key': key,
             'default_label': default_label,
             'label': row.label if row else None,
-            'color': row.color if row else None,
             'default_category': DEFAULT_STATUS_CATEGORIES[key],
             'category': row.category if row else None,
-            'order': row.order if row else index,
         })
 
     task_priorities = []
-    for index, (key, default_label) in enumerate(Task.Priority.choices):
+    for key, default_label in Task.Priority.choices:
         row = priority_rows.get(key)
         task_priorities.append({
             'key': key,
             'default_label': default_label,
             'label': row.label if row else None,
-            'color': row.color if row else None,
-            'order': row.order if row else index,
         })
 
     task_field_options = []
@@ -84,8 +80,6 @@ def get_task_config(organization):
         )
 
     task_types.sort(key=lambda item: item['order'])
-    task_statuses.sort(key=lambda item: item['order'])
-    task_priorities.sort(key=lambda item: item['order'])
     return {
         'task_types': task_types,
         'task_statuses': task_statuses,

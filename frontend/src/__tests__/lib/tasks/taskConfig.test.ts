@@ -25,10 +25,10 @@ const customConfig = config({
     color: '#000000', enabled: true, order: 0,
   }],
   task_statuses: [{
-    key: 'UNDER_REVIEW', default_label: 'Under Review', label: 'In QA', color: null,
-    default_category: 'IN_PROGRESS', category: null, order: 2,
+    key: 'UNDER_REVIEW', default_label: 'Under Review', label: 'In QA',
+    default_category: 'IN_PROGRESS', category: null,
   }],
-  task_priorities: [{ key: 'HIGHEST', default_label: 'Highest', label: 'Urgent', color: null, order: 0 }],
+  task_priorities: [{ key: 'HIGHEST', default_label: 'Highest', label: 'Urgent' }],
   task_field_options: [
     { task_type: 'alert', field: 'metric_key', value: 'cpa', label: null, enabled: false, order: 1 },
     { task_type: 'alert', field: 'metric_key', value: 'roas', label: 'Return on ad spend', enabled: true, order: 0 },
