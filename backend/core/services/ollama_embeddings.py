@@ -4,7 +4,7 @@ Calls a local Ollama server's POST /api/embed. rag.embeddings selects this
 module only when settings.RAG_EMBEDDING_PROVIDER == 'ollama'. The production
 default stays 'gemini'.
 
-Same two-function surface as gemini_embeddings and local_embeddings
+Same two-function surface as local_embeddings
 (embed_content / batch_embed_contents). Document/query framing is applied by
 rag.embeddings before text arrives here, so this client sends the text as-is
 and does not add an Ollama prompt template.

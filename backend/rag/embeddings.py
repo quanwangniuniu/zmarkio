@@ -1,27 +1,25 @@
 """
-RAG-specific embedding calls (MED-264).
+RAG-specific embedding calls (MED-264, MED-537).
 
-Wraps core.services.gemini_embeddings with the two things that are specific
-to *this* use case, not to "calling Gemini" in general:
+Document and query embeddings share one provider and one model. The
+production default is a local Ollama model (settings.RAG_OLLAMA_EMBEDDING_MODEL,
+768-dim nomic-embed-text). 'local' remains the FastEmbed fallback. There is
+no Gemini embedding provider.
 
-- settings.RAG_EMBEDDING_MODEL / RAG_EMBEDDING_DIMENSIONS are the single
-  source of truth here — neither function below takes a model/dimension
-  override. That's what actually enforces "document and query embeddings
-  always use the same model and dimensionality": pgvector only rejects a
-  literal width mismatch, a same-width model swap would fail silently, so
-  this has to be a code-level guarantee, not a schema-level one.
-- gemini-embedding-2 has no `task_type` parameter, so retrieval framing
-  (this is a document to be found vs. this is a query looking for
-  documents) is encoded directly into the input text below. The exact
-  wording is a placeholder pending real retrieval-quality tuning — it's
-  isolated to this module specifically so eval work can change it without
-  touching the provider client or the indexing pipeline.
+settings.RAG_EMBEDDING_DIMENSIONS is the single width for both calls.
+Neither function below takes a model or dimension override, so a document
+vector and a query vector cannot be produced by different models.
+
+Retrieval framing (document to be found vs. query looking for documents)
+is encoded in the input text below. The exact wording is a placeholder
+pending retrieval-quality tuning, isolated here so it can change without
+touching the provider client or the indexing pipeline.
 """
 from __future__ import annotations
 
 from django.conf import settings
 
-from core.services import gemini_embeddings, local_embeddings, ollama_embeddings
+from core.services import local_embeddings, ollama_embeddings
 
 # Placeholder phrasing pending eval-driven tuning. What matters for
 # correctness right now is that document and query framing are distinct and
@@ -29,26 +27,20 @@ from core.services import gemini_embeddings, local_embeddings, ollama_embeddings
 _DOCUMENT_INSTRUCTION = "Represent this document for retrieval: "
 _QUERY_INSTRUCTION = "Represent this query for retrieving relevant documents: "
 
-# Bump whenever _DOCUMENT_INSTRUCTION / _QUERY_INSTRUCTION (or the framing
-# strategy itself, e.g. switching to a real task_type if Gemini ever
-# supports one again) changes. rag.indexing.current_pipeline_hash() folds
-# this in alongside the embedding model/dimensions and chunk size/overlap,
-# so a wording change invalidates existing DocumentChunk rows exactly like a
-# chunk-size retune would — content_hash alone can't see this, since the
-# raw extracted text hasn't changed, only how it gets framed before embedding.
+# Bump whenever _DOCUMENT_INSTRUCTION / _QUERY_INSTRUCTION changes.
+# rag.indexing.current_pipeline_hash() folds this in alongside the embedding
+# model/dimensions and chunk size/overlap, so a wording change invalidates
+# existing DocumentChunk rows exactly like a chunk-size retune would —
+# content_hash alone can't see this, since the raw extracted text hasn't
+# changed, only how it gets framed before embedding.
 FRAMING_VERSION = "1"
 
 
 def _provider():
     """Resolve settings.RAG_EMBEDDING_PROVIDER to (module, provider, model_name).
 
-    'gemini' is the only production-supported value and is what every
-    existing caller gets by default -- this branch preserves the exact
-    prior behavior (same module, same settings.RAG_EMBEDDING_MODEL). 'local'
-    is a temporary MED-264 eval/local-dev unblock (see
-    core.services.local_embeddings). 'ollama' calls a local Ollama embedding
-    model (see core.services.ollama_embeddings). Neither is selected unless a
-    developer or an eval run explicitly sets RAG_EMBEDDING_PROVIDER.
+    'ollama' is the production default (core.services.ollama_embeddings).
+    'local' is the FastEmbed fallback (core.services.local_embeddings).
 
     Framing (_DOCUMENT_INSTRUCTION / _QUERY_INSTRUCTION below) is applied
     identically regardless of provider -- only which module receives the
@@ -56,47 +48,29 @@ def _provider():
 
     `provider` is returned (not just re-read from settings by callers) so
     active_embedding_identity() below builds its fingerprint from the exact
-    same resolution this function used to dispatch -- the two can never
-    drift apart, including for any provider added here in the future.
+    same resolution this function used to dispatch.
     """
     provider = settings.RAG_EMBEDDING_PROVIDER
-    if provider == 'gemini':
-        return gemini_embeddings, provider, settings.RAG_EMBEDDING_MODEL
-    if provider == 'local':
-        return local_embeddings, provider, settings.RAG_LOCAL_EMBEDDING_MODEL
     if provider == 'ollama':
         return ollama_embeddings, provider, settings.RAG_OLLAMA_EMBEDDING_MODEL
+    if provider == 'local':
+        return local_embeddings, provider, settings.RAG_LOCAL_EMBEDDING_MODEL
     raise ValueError(
-        f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'gemini', 'local', or 'ollama'."
+        f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'ollama' or 'local'."
     )
 
 
 def active_embedding_identity() -> str:
     """Fingerprint input for the provider+model actually active right now.
 
-    This is what rag.indexing.current_pipeline_hash() folds in instead of
-    reading settings.RAG_EMBEDDING_MODEL directly, so a provider or model
-    swap is no longer invisible to the pipeline hash (that used to be the
-    gap: RAG_EMBEDDING_MODEL never changes when switching to 'local', so the
-    hash didn't either).
-
-    'gemini' is the one legacy-compatibility special case, kept as a bare,
-    unprefixed model-name identity -- exactly what current_pipeline_hash()
-    has always hashed for this provider -- so deploying this fix while
-    production stays on the same Gemini model does not invalidate any
-    existing index. Every other provider -- 'local' today, whatever gets
-    added to _provider() next -- is generically provider-qualified as
-    f"{provider}:{model_name}" (e.g. 'local:BAAI/bge-base-en-v1.5'), so a new
-    provider automatically gets a correct, collision-safe identity the
-    moment it's registered in _provider(), with no further change needed
-    here.
+    rag.indexing.current_pipeline_hash() folds this in, so a provider or
+    model swap changes the hash. Every provider is qualified as
+    f"{provider}:{model_name}" (for example 'ollama:nomic-embed-text').
 
     Deliberately stateless: built entirely from _provider()'s current
     resolution, never from a previously stored hash.
     """
     _, provider, model_name = _provider()
-    if provider == 'gemini':
-        return model_name
     return f"{provider}:{model_name}"
 
 

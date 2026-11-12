@@ -425,34 +425,22 @@ GEMINI_CB_THRESHOLD = config('GEMINI_CB_THRESHOLD', default=5, cast=int)
 GEMINI_CB_WINDOW_SECONDS = config('GEMINI_CB_WINDOW_SECONDS', default=60, cast=int)
 GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, cast=int)
 
-# RAG document retrieval (MED-264). Both document-chunk and query embeddings
-# MUST use this same model/dimension pair — mixing models or widths at
-# retrieval time produces meaningless similarity scores with no error, since
-# pgvector only rejects a literal width mismatch, not a same-width model swap.
-# Changing either value later requires re-embedding every existing
-# DocumentChunk row; changing RAG_EMBEDDING_DIMENSIONS additionally requires a
-# schema migration, since pgvector's VectorField width is fixed at the column
-# type level (not adjustable via settings alone).
-RAG_EMBEDDING_MODEL = config('RAG_EMBEDDING_MODEL', default='gemini-embedding-2')
+# RAG document retrieval (MED-264, MED-537). Document and query embeddings
+# use one provider and one model. Mixing widths at retrieval time produces
+# meaningless similarity scores with no error, since pgvector only rejects a
+# literal width mismatch. Changing the model or RAG_EMBEDDING_DIMENSIONS
+# requires re-embedding every existing DocumentChunk. Changing the width
+# also requires a schema migration: pgvector's VectorField width is fixed
+# at the column type.
 RAG_EMBEDDING_DIMENSIONS = config('RAG_EMBEDDING_DIMENSIONS', default=768, cast=int)
 
-# Embedding provider switch (MED-264 eval/local-dev unblock while Gemini
-# access is blocked). 'gemini' is the only production-supported value and
-# stays the default everywhere -- this must never be set to 'local' outside
-# a developer's own env or an eval run. 'local' routes through
-# core.services.local_embeddings (fastembed/ONNX, no Gemini dependency)
-# instead of core.services.gemini_embeddings. RAG_EMBEDDING_DIMENSIONS stays
-# 768 either way: BAAI/bge-base-en-v1.5 (the local model) natively outputs
-# 768-dim vectors, so no padding/truncation is needed to fit
-# DocumentChunk.embedding's fixed-width column.
-RAG_EMBEDDING_PROVIDER = config('RAG_EMBEDDING_PROVIDER', default='gemini')
+# 'ollama' is the production default (MED-537). 'local' is the FastEmbed
+# fallback (BAAI/bge-base-en-v1.5, also 768-dim). The selected model must
+# natively emit RAG_EMBEDDING_DIMENSIONS values; the client rejects any
+# other width. Inside Docker, point RAG_OLLAMA_BASE_URL at
+# http://host.docker.internal:11434.
+RAG_EMBEDDING_PROVIDER = config('RAG_EMBEDDING_PROVIDER', default='ollama')
 RAG_LOCAL_EMBEDDING_MODEL = config('RAG_LOCAL_EMBEDDING_MODEL', default='BAAI/bge-base-en-v1.5')
-
-# Opt-in local Ollama embeddings (MED-537). Used only when
-# RAG_EMBEDDING_PROVIDER=ollama. The model must natively emit
-# RAG_EMBEDDING_DIMENSIONS values (768 for nomic-embed-text); the client
-# rejects any other width. Inside Docker, point RAG_OLLAMA_BASE_URL at
-# http://host.docker.internal:11434. This does not change the production default.
 RAG_OLLAMA_BASE_URL = config('RAG_OLLAMA_BASE_URL', default='http://localhost:11434')
 RAG_OLLAMA_EMBEDDING_MODEL = config('RAG_OLLAMA_EMBEDDING_MODEL', default='nomic-embed-text')
 RAG_OLLAMA_TIMEOUT_SECONDS = config('RAG_OLLAMA_TIMEOUT_SECONDS', default=60, cast=int)

@@ -449,19 +449,13 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         arms = _parse_arms(options['arms'])
         provider = settings.RAG_EMBEDDING_PROVIDER
-        if provider == 'gemini':
-            embedding_model = settings.RAG_EMBEDDING_MODEL
+        if provider == 'ollama':
+            embedding_model = settings.RAG_OLLAMA_EMBEDDING_MODEL
         elif provider == 'local':
             embedding_model = settings.RAG_LOCAL_EMBEDDING_MODEL
         else:
             raise CommandError(
-                f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'gemini' or 'local'."
-            )
-        if provider == 'gemini' and not settings.GEMINI_API_KEY:
-            raise CommandError(
-                "GEMINI_API_KEY is not configured. Set RAG_EMBEDDING_PROVIDER=local "
-                "to use the temporary local embedding provider instead "
-                "(eval/local-dev only)."
+                f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'ollama' or 'local'."
             )
         if 'C' in arms and not settings.GEMINI_API_KEY:
             raise CommandError(

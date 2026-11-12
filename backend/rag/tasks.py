@@ -8,8 +8,9 @@ locking, reconciliation — lives in rag.indexing and is exercised directly
 by tests without any Celery machinery.
 
 Three retry layers, deliberately kept separate rather than merged:
-  1. core.services.gemini_embeddings: short transient HTTP retries
-     (2s/4s/8s) plus a circuit breaker, inside a single embedding call.
+  1. core.services.ollama_embeddings: a short retry on HTTP 429/503 inside
+     a single embedding call. The FastEmbed 'local' provider has no network
+     retry.
   2. index_document_task / SUPERSEDED: a short, bounded 5s retry (max 3).
      By the time this outcome fires, another run has almost always already
      committed the current version — retrying is a cheap self-healing check

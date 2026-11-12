@@ -132,12 +132,9 @@ def current_pipeline_hash() -> str:
     """Fingerprint of everything that affects what gets stored for a chunk,
     other than the source text itself.
 
-    Uses active_embedding_identity() rather than settings.RAG_EMBEDDING_MODEL
-    directly so a provider switch (e.g. gemini -> local) or a local-model
-    change is reflected here even when RAG_EMBEDDING_MODEL itself is
-    untouched -- see that function's docstring for why 'gemini' keeps an
-    unprefixed identity (backward-compatible hash) while every other
-    provider is provider-qualified.
+    Uses active_embedding_identity() so a provider or model change is part
+    of the hash. The identity is always provider-qualified, for example
+    'ollama:nomic-embed-text'.
     """
     parts = [
         active_embedding_identity(),

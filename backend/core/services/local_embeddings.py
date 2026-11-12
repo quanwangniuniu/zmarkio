@@ -1,13 +1,10 @@
 """
-Local (fastembed/ONNX) embeddings provider -- MED-264 eval/local-dev unblock.
+Local (fastembed/ONNX) embeddings provider.
 
-Temporary stand-in for core.services.gemini_embeddings when Gemini access is
-blocked. Never used in production: rag.embeddings only calls into this
-module when settings.RAG_EMBEDDING_PROVIDER == 'local', which is never the
-case unless a developer or an eval run explicitly sets it -- the production
-default stays 'gemini'.
+Fallback used only when settings.RAG_EMBEDDING_PROVIDER == 'local'.
+The production default is 'ollama'.
 
-Mirrors gemini_embeddings' two-function surface (embed_content /
+Mirrors the Ollama client's two-function surface (embed_content /
 batch_embed_contents) so rag.embeddings can dispatch between providers
 without changing its own document/query framing logic. Deliberately uses
 only TextEmbedding.embed() for both documents and queries -- never
@@ -60,7 +57,7 @@ def embed_content(text: str, *, model: str, dimensions: int, timeout: int | None
     """Embed a single text.
 
     `timeout` is accepted only for call-signature parity with
-    gemini_embeddings.embed_content -- there is no network round-trip to
+    ollama_embeddings.embed_content -- there is no network round-trip to
     bound here, so it is unused.
     """
     vector = next(iter(_get_model(model).embed([text])))

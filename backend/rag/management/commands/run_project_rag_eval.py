@@ -3,7 +3,7 @@ Management command: run_project_rag_eval (MED-264 Phase 2 eval harness).
 
 Seeds the Phase 1 synthetic fixture (rag/tests/fixtures/project_rag_eval_dataset.json)
 into real Meeting/Draft/RetrospectiveTask rows inside a dedicated eval tenant,
-runs the real indexing pipeline (real chunking + real Gemini embeddings) and
+runs the real indexing pipeline (real chunking + the configured embeddings) and
 the real rag.retrieval.retrieve_chunks() pgvector path, then scores
 evidence-aware retrieval quality separately per question type.
 
@@ -624,7 +624,7 @@ def _get_or_create_eval_project(org: Organization, user) -> Project:
 class Command(BaseCommand):
     help = (
         "Seed the MED-264 RAG eval fixture into a dedicated eval tenant, run the "
-        "real indexing + retrieval pipeline (real Gemini embeddings, real pgvector), "
+        "real indexing + retrieval pipeline (the configured embedding provider, real pgvector), "
         "and report evidence-aware retrieval metrics by question type."
     )
 
@@ -635,21 +635,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         provider = settings.RAG_EMBEDDING_PROVIDER
-        if provider == 'gemini':
-            embedding_model = settings.RAG_EMBEDDING_MODEL
+        if provider == 'ollama':
+            embedding_model = settings.RAG_OLLAMA_EMBEDDING_MODEL
         elif provider == 'local':
             embedding_model = settings.RAG_LOCAL_EMBEDDING_MODEL
         else:
             raise CommandError(
-                f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'gemini' or 'local'."
-            )
-
-        if provider == 'gemini' and not settings.GEMINI_API_KEY:
-            raise CommandError(
-                "GEMINI_API_KEY is not configured. This command makes real Gemini "
-                "embedding calls (document + query) and cannot run without it. "
-                "Set RAG_EMBEDDING_PROVIDER=local to use the temporary local "
-                "embedding provider instead (eval/local-dev only)."
+                f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'ollama' or 'local'."
             )
 
         fixture_path: Path = options['fixture']
