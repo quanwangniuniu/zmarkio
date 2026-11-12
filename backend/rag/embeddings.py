@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from django.conf import settings
 
-from core.services import gemini_embeddings, local_embeddings
+from core.services import gemini_embeddings, local_embeddings, ollama_embeddings
 
 # Placeholder phrasing pending eval-driven tuning. What matters for
 # correctness right now is that document and query framing are distinct and
@@ -46,8 +46,9 @@ def _provider():
     existing caller gets by default -- this branch preserves the exact
     prior behavior (same module, same settings.RAG_EMBEDDING_MODEL). 'local'
     is a temporary MED-264 eval/local-dev unblock (see
-    core.services.local_embeddings) and is never selected unless a developer
-    or an eval run explicitly sets RAG_EMBEDDING_PROVIDER=local.
+    core.services.local_embeddings). 'ollama' calls a local Ollama embedding
+    model (see core.services.ollama_embeddings). Neither is selected unless a
+    developer or an eval run explicitly sets RAG_EMBEDDING_PROVIDER.
 
     Framing (_DOCUMENT_INSTRUCTION / _QUERY_INSTRUCTION below) is applied
     identically regardless of provider -- only which module receives the
@@ -63,8 +64,10 @@ def _provider():
         return gemini_embeddings, provider, settings.RAG_EMBEDDING_MODEL
     if provider == 'local':
         return local_embeddings, provider, settings.RAG_LOCAL_EMBEDDING_MODEL
+    if provider == 'ollama':
+        return ollama_embeddings, provider, settings.RAG_OLLAMA_EMBEDDING_MODEL
     raise ValueError(
-        f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'gemini' or 'local'."
+        f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'gemini', 'local', or 'ollama'."
     )
 
 

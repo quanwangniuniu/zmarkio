@@ -448,6 +448,15 @@ RAG_EMBEDDING_DIMENSIONS = config('RAG_EMBEDDING_DIMENSIONS', default=768, cast=
 RAG_EMBEDDING_PROVIDER = config('RAG_EMBEDDING_PROVIDER', default='gemini')
 RAG_LOCAL_EMBEDDING_MODEL = config('RAG_LOCAL_EMBEDDING_MODEL', default='BAAI/bge-base-en-v1.5')
 
+# Opt-in local Ollama embeddings (MED-537). Used only when
+# RAG_EMBEDDING_PROVIDER=ollama. The model must natively emit
+# RAG_EMBEDDING_DIMENSIONS values (768 for nomic-embed-text); the client
+# rejects any other width. Inside Docker, point RAG_OLLAMA_BASE_URL at
+# http://host.docker.internal:11434. This does not change the production default.
+RAG_OLLAMA_BASE_URL = config('RAG_OLLAMA_BASE_URL', default='http://localhost:11434')
+RAG_OLLAMA_EMBEDDING_MODEL = config('RAG_OLLAMA_EMBEDDING_MODEL', default='nomic-embed-text')
+RAG_OLLAMA_TIMEOUT_SECONDS = config('RAG_OLLAMA_TIMEOUT_SECONDS', default=60, cast=int)
+
 # Chunking (rag.chunking). Units are CHARACTERS, not tokens — chunking does
 # not use a tokenizer. Deliberately simple fixed-size+overlap for the first
 # implementation; do not retune without considering that any change here
