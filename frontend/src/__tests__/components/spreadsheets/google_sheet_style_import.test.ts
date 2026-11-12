@@ -1,4 +1,4 @@
-import { mapGoogleSheetStyles } from '@/components/spreadsheets/google_sheet_style_import';
+import { mapGoogleSheetStyles, parseNumberFormat } from '@/components/spreadsheets/google_sheet_style_import';
 
 const cell = (col: number, userEnteredFormat: object, effectiveFormat?: object) => ({
   row: 0,
@@ -140,5 +140,24 @@ describe('google sheet style import', () => {
       column: 2,
       number_format: { type: 'CURRENCY', currency_code: 'USD', decimal_places: 2 },
     });
+  });
+});
+
+describe('parseNumberFormat currencies', () => {
+  it('keeps the four supported currencies and rejects unsupported ones', () => {
+    expect(parseNumberFormat('$#,##0.00')).toEqual({ type: 'CURRENCY', currency_code: 'USD', decimal_places: 2 });
+    expect(parseNumberFormat('[$$-409]#,##0.00')).toEqual({ type: 'CURRENCY', currency_code: 'USD', decimal_places: 2 });
+    expect(parseNumberFormat('£#,##0.00')).toEqual({ type: 'CURRENCY', currency_code: 'GBP', decimal_places: 2 });
+    expect(parseNumberFormat('[$£-809]#,##0.00')).toEqual({ type: 'CURRENCY', currency_code: 'GBP', decimal_places: 2 });
+    expect(parseNumberFormat('€#,##0.00')).toEqual({ type: 'CURRENCY', currency_code: 'EUR', decimal_places: 2 });
+    expect(parseNumberFormat('[$€-407]#,##0.00')).toEqual({ type: 'CURRENCY', currency_code: 'EUR', decimal_places: 2 });
+    expect(parseNumberFormat('¥#,##0')).toEqual({ type: 'CURRENCY', currency_code: 'JPY', decimal_places: 0 });
+    expect(parseNumberFormat('[$¥-411]#,##0')).toEqual({ type: 'CURRENCY', currency_code: 'JPY', decimal_places: 0 });
+    expect(parseNumberFormat('[$¥]#,##0')).toEqual({ type: 'CURRENCY', currency_code: 'JPY', decimal_places: 0 });
+    expect(parseNumberFormat('[$$-C09]#,##0.00')).toBeNull();
+    expect(parseNumberFormat('[$$-1009]#,##0.0')).toBeNull();
+    expect(parseNumberFormat('"AUD" #,##0.00')).toBeNull();
+    expect(parseNumberFormat('[$₫]#,##0')).toBeNull();
+    expect(parseNumberFormat('[$₫-42A]#,##0')).toBeNull();
   });
 });

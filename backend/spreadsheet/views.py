@@ -95,7 +95,7 @@ from .access import (
     get_accessible_spreadsheet_or_404,
 )
 
-from .import_service import build_import_baseline, diff_sheet
+from .import_service import apply_excel_import_styles, build_import_baseline, diff_sheet
 
 logger = logging.getLogger(__name__)
 
@@ -1480,6 +1480,11 @@ class SheetImportSourceView(APIView):
         elif uploaded is not None:
             raise ValidationError({'file': 'A Google import does not take a file.'})
 
+        excel_bytes = None
+        if origin == SheetImportSource.Origin.EXCEL:
+            excel_bytes = uploaded.read()
+            uploaded.seek(0)
+
         defaults = {
             'origin': origin,
             'worksheet_name': data['worksheet_name'],
@@ -1489,6 +1494,7 @@ class SheetImportSourceView(APIView):
             'google_sheet_id': None,
             'source_url': '',
         }
+
         if origin == SheetImportSource.Origin.EXCEL:
             defaults['original_filename'] = (uploaded.name or '')[:255]
             defaults['file'] = uploaded
@@ -1497,10 +1503,15 @@ class SheetImportSourceView(APIView):
             defaults['google_sheet_id'] = data['google_sheet_id']
             defaults['source_url'] = data.get('source_url') or ''
             defaults['file'] = None
-        
-        defaults['baseline'] = build_import_baseline(sheet)
 
         with transaction.atomic():
+            if excel_bytes is not None:
+                # The backend converts the Excel formatting before the snapshot, so the
+                # baseline includes it. An error returns 400 and rolls back the formats,
+                # the snapshot and the source together.
+                apply_excel_import_styles(sheet, excel_bytes, data['worksheet_name'])
+            defaults['baseline'] = build_import_baseline(sheet)
+
             existing = (
                 SheetImportSource.objects.select_for_update()
                 .filter(sheet=sheet)

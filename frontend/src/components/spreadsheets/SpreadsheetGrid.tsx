@@ -26,7 +26,7 @@ import { adjustFormulaReferences, colLabelToIndex } from '@/lib/spreadsheet/form
 import { ApplyHighlightParams } from '@/types/patterns';
 import BrandSelect from '@/components/ui/BrandSelect';
 import type { SheetPresenceUser } from '@/lib/sheetSocketStore';
-import { parseSheetStyles } from '@/components/spreadsheets/xlsx_style_import'; 
+import { parseSheetValues } from '@/components/spreadsheets/xlsx_style_import';
 import { mapGoogleSheetStyles } from '@/components/spreadsheets/google_sheet_style_import';
 import { buildGoogleSheetExport, type AppCellFormat, type ExportCell, type ExportHighlight } from '@/components/spreadsheets/google_sheet_style_export';
 import {
@@ -1553,7 +1553,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     }
   }, [sheetId]);
 
-  const reloadSheetDecorations = useCallback(async () => {
+  const reloadSheetDecorations = useCallback(async (): Promise<boolean> => {
     try {
       const [highlightResponse, formatResponse] = await Promise.all([
         SpreadsheetAPI.getHighlights(spreadsheetId, sheetId),
@@ -1596,8 +1596,10 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         });
       });
       setCellFormatsBySheet((prev) => ({ ...prev, [sheetId]: map }));
+      return true;
     } catch (error) {
       console.error('Failed to reload sheet decorations:', error);
+      return false;
     }
   }, [spreadsheetId, sheetId]);
 
@@ -5069,20 +5071,24 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         }
 
         if (parsed.sheetNames.length === 1) {
-          const sheetname = parsed.sheetNames[0]; 
-          // ExcelJS reads this worksheet in the browser, including values and formatting.
-          const preview = await parseSheetStyles(file, sheetname)
-          // Save the values ExcelJS extracted.
-          const imported = await runImportMatrix(preview.matrix);
+          const sheetname = parsed.sheetNames[0];
+          // ExcelJS reads this worksheet's values in the browser.
+          const matrix = await parseSheetValues(file, sheetname);
+          const imported = await runImportMatrix(matrix);
           if (!imported) return;
-          // Save the formatting and highlights ExcelJS extracted.
-          await applyImportedStyles(preview.format_ops, preview.highlight_ops);
+          // The backend reads the Excel formatting from the uploaded file.
           try {
             await SpreadsheetAPI.saveExcelImportSource(spreadsheetId, sheetId, file, sheetname);
           } catch (sourceError) {
             console.error('[Import] Source save failed:', sourceError);
+            toast.error('Values imported, but the Excel formatting could not be imported.');
+            return;
           }
-          toast.success('Import complete');
+          if (await reloadSheetDecorations()) {
+            toast.success('Import complete');
+          } else {
+            toast.error('Import complete, but the formatting could not be displayed. Reload the page to see it.');
+          }
           return;
         }
 
@@ -5114,7 +5120,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
         e.target.value = '';
       }
     },
-    [runImportMatrix, parseImportError, spreadsheetId, sheetId]
+    [runImportMatrix, parseImportError, spreadsheetId, sheetId, reloadSheetDecorations]
   );
 
   const handleConfirmXlsxImport = useCallback(async () => {
@@ -5125,12 +5131,13 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     try {
       setIsImporting(true);
       setImportProgress({ current: 0, total: 0 });
-      const preview = await parseSheetStyles(xlsxImportFile, selectedXlsxSheet);
-      // Save the values ExcelJS extracted from the chosen worksheet.
-      const imported = await runImportMatrix(preview.matrix);
+      // ExcelJS reads the chosen worksheet's values in the browser.
+      // ExcelJS reads the chosen worksheet's values in the browser.
+      const matrix = await parseSheetValues(xlsxImportFile, selectedXlsxSheet);
+      const imported = await runImportMatrix(matrix);
       if (!imported) return;
-      // Save the formatting and highlights ExcelJS extracted.
-      await applyImportedStyles(preview.format_ops, preview.highlight_ops); 
+      // The backend reads the Excel formatting from the uploaded file.
+      let sourceSaved = true;
       try {
         await SpreadsheetAPI.saveExcelImportSource(
           spreadsheetId,
@@ -5139,11 +5146,19 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
           selectedXlsxSheet,
         );
       } catch (sourceError) {
+        sourceSaved = false;
         console.error('[Import] Source save failed:', sourceError);
+        toast.error('Values imported, but the Excel formatting could not be imported.');
       }
-      toast.success('Import complete');
+      if (sourceSaved) {
+        if (await reloadSheetDecorations()) {
+          toast.success('Import complete');
+        } else {
+          toast.error('Import complete, but the formatting could not be displayed. Reload the page to see it.');
+        }
+      }
       setXlsxImport(null);
-      setXlsxImportFile(null); 
+      setXlsxImportFile(null);
       setSelectedXlsxSheet('');
     } catch (error: any) {
       if (error?.name === 'AbortError') {
@@ -5162,7 +5177,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       setIsImporting(false);
       setImportProgress(null);
     }
-  }, [xlsxImport, xlsxImportFile, selectedXlsxSheet, runImportMatrix, parseImportError, spreadsheetId, sheetId]);
+  }, [xlsxImport, xlsxImportFile, selectedXlsxSheet, runImportMatrix, parseImportError, spreadsheetId, sheetId, reloadSheetDecorations]);
 
   const handleCancelXlsxImport = useCallback(() => {
     importAbortControllerRef.current?.abort();

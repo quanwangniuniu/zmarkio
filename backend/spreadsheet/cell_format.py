@@ -22,6 +22,14 @@ CURRENCY_LOCALES = {
     'JPY': '[$¥-411]',
 }
 
+# Font sizes the editor offers; imported sizes snap to the nearest one.
+FONT_SIZES = (9, 10, 11, 12, 14, 16, 18, 20, 24, 28)
+
+# Import direction: lower-cased Excel font name -> web font_family.
+IMPORT_FONT_FAMILIES = {
+    **{name.lower(): family for family, name in FONT_NAMES.items()},
+    'courier new': 'monospace',
+}
 
 def font_name(value):
     """Excel/Google font name for a web font_family value, or None when unsupported."""

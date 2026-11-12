@@ -1,12 +1,21 @@
+import io
+import re
 import tempfile
+import zipfile
 from decimal import Decimal
 from unittest import mock
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import DatabaseError
 from django.test import TestCase, override_settings
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+from openpyxl.styles.colors import Color
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
+
+from spreadsheet.import_service import apply_excel_import_styles
 
 from spreadsheet.models import (
     Cell,
@@ -23,6 +32,29 @@ from spreadsheet.tests.test_views import (
     create_test_spreadsheet,
     create_test_user,
 )
+
+def _xlsx(build=None):
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = 'Sheet1'
+    if build is not None:
+        build(worksheet)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue()
+
+
+def _with_normal_size(content, size):
+    """Rewrite the first <sz val="11"/> in styles.xml, as the browser test does."""
+    output = io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(content)) as source, zipfile.ZipFile(output, 'w') as target:
+        for item in source.infolist():
+            data = source.read(item.filename)
+            if item.filename == 'xl/styles.xml':
+                data = re.sub(rb'<sz val="11(?:\.0)?"/>', f'<sz val="{size}"/>'.encode(), data, count=1)
+            target.writestr(item, data)
+    return output.getvalue()
+
 
 
 @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
@@ -47,10 +79,10 @@ class SheetImportSourceBaselineTests(TestCase):
             f'sheets/{self.sheet.id}/import-source/'
         )
 
-    def _post_excel(self):
+    def _post_excel(self, content=None):
         uploaded = SimpleUploadedFile(
             'book.xlsx',
-            b'PK\x03\x04fake',
+            _xlsx() if content is None else content,
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         )
         return self.client.post(
@@ -235,3 +267,118 @@ class SheetImportSourceBaselineTests(TestCase):
         source = SheetImportSource.objects.get(sheet=self.sheet)
         self.assertFalse(source.is_deleted)
         self.assertEqual(source.origin, 'GOOGLE')
+
+    def _apply(self, content):
+        apply_excel_import_styles(self.sheet, content, 'Sheet1')
+        formats = {
+            (fmt.row_index, fmt.column_index): fmt
+            for fmt in SpreadsheetCellFormat.objects.filter(sheet=self.sheet)
+        }
+        fills = {
+            (h.row_index, h.col_index): h.color
+            for h in SpreadsheetHighlight.objects.filter(sheet=self.sheet, scope='CELL')
+        }
+        return formats, fills
+
+    def test_excel_style_conversion_matches_the_browser_rules(self):
+        """Cases from xlsx_style_import.test.ts, plus theme tints."""
+        def build(ws):
+            ws['A1'] = 'plain'
+            ws['B1'] = 'explicit'
+            ws['B1'].font = Font(size=9)
+            for row, font in enumerate(
+                [Font(bold=True), Font(italic=True), Font(strike=True), Font(name='Arial'), Font(name='Calibri')],
+                start=2,
+            ):
+                ws.cell(row=row, column=1, value='styled').font = font
+            text_colors = [
+                Color('FFDC2626'), Color('FFFF0000'), Color('FF376092'), Color('FF000000'), Color('FFFFFFFF'),
+                Color(theme=4, tint=0.3999755851924192), Color(theme=3, tint=-0.249977111117893),
+            ]
+            for row, color in enumerate(text_colors, start=1):
+                ws.cell(row=row, column=3, value='colour').font = Font(color=color)
+            fills = [
+                ('solid', 'FFFEF08A'), ('solid', 'FFFDE047'), ('solid', 'FF376092'), ('solid', 'FFFF0000'),
+                ('darkHorizontal', 'FFFEF08A'), ('solid', 'FF000000'), ('solid', 'FFFFFFFF'),
+            ]
+            for row, (pattern, argb) in enumerate(fills, start=1):
+                ws.cell(row=row, column=4, value='fill').fill = PatternFill(fill_type=pattern, fgColor=argb)
+            codes = [
+                (0.5, '0.00%'), (0.5, '0%'), (1.5, '#,##0.00'), (1, '$#,##0.00'),
+                (1, 'General'), (1, '[$£-809]#,##0.00'), (1, '[$$-C09]#,##0.00'),
+            ]
+            for row, (value, code) in enumerate(codes, start=1):
+                ws.cell(row=row, column=5, value=value).number_format = code
+
+        content = _xlsx(build)
+        patched = _with_normal_size(content, 14)
+        self.assertNotEqual(patched, content)
+        formats, fills = self._apply(patched)
+
+        self.assertEqual(formats[(0, 0)].font_size, 14)
+        self.assertEqual(formats[(0, 1)].font_size, 9)
+        self.assertEqual(
+            [(formats[(r, 0)].bold, formats[(r, 0)].italic, formats[(r, 0)].strikethrough) for r in (1, 2, 3)],
+            [(True, False, False), (False, True, False), (False, False, True)],
+        )
+        self.assertEqual(formats[(4, 0)].font_family, 'Arial, sans-serif')
+        self.assertIsNone(formats[(5, 0)].font_family)
+        self.assertEqual(
+            [formats[(r, 2)].text_color for r in range(7)],
+            ['#DC2626', '#FF0000', '#376092', None, None, '#95B3D7', '#17375E'],
+        )
+        self.assertEqual(fills, {
+            (0, 3): '#FEF08A', (1, 3): '#FDE047', (2, 3): '#376092', (3, 3): '#FF0000',
+        })
+        self.assertEqual(
+            [formats[(r, 4)].number_format for r in range(7)],
+            [
+                {'type': 'PERCENT', 'currency_code': None, 'decimal_places': 2},
+                {'type': 'PERCENT', 'currency_code': None, 'decimal_places': 0},
+                {'type': 'NUMBER', 'currency_code': None, 'decimal_places': 2},
+                {'type': 'CURRENCY', 'currency_code': 'USD', 'decimal_places': 2},
+                None,
+                {'type': 'CURRENCY', 'currency_code': 'GBP', 'decimal_places': 2},
+                None,
+            ],
+        )
+
+    def test_excel_style_conversion_empty_and_merged_cells(self):
+        def build(ws):
+            ws['A1'].font = Font(bold=True)
+            ws['A3'] = 'kept'
+            ws.merge_cells('A5:B5')
+            ws['A5'] = 'Hello'
+
+        formats, _fills = self._apply(_xlsx(build))
+        self.assertTrue(formats[(0, 0)].bold)
+        self.assertIsNone(formats[(0, 0)].font_size)
+        self.assertNotIn((1, 0), formats)
+        self.assertIn((4, 0), formats)
+        self.assertNotIn((4, 1), formats)
+
+
+    def test_unreadable_excel_or_missing_worksheet_raises(self):
+        with self.assertRaises(ValidationError):
+            apply_excel_import_styles(self.sheet, b'PK\x03\x04fake', 'Sheet1')
+        with self.assertRaises(ValidationError):
+            apply_excel_import_styles(self.sheet, _xlsx(), 'Missing')
+
+
+    def test_excel_post_writes_styles_before_the_snapshot(self):
+        def build(ws):
+            ws['A1'] = 'x'
+            ws['A1'].font = Font(bold=True)
+
+        response = self._post_excel(_xlsx(build))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(
+            SpreadsheetCellFormat.objects.get(sheet=self.sheet, row_index=0, column_index=0).bold
+        )
+        baseline = SheetImportSource.objects.get(sheet=self.sheet).baseline
+        self.assertTrue(baseline['formats']['0,0']['bold'])
+
+    def test_unreadable_excel_post_returns_400_without_a_source(self):
+        response = self._post_excel(b'PK\x03\x04fake')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(SheetImportSource.objects.filter(sheet=self.sheet).exists())

@@ -7,13 +7,23 @@ Spreadsheet import helpers.
 
 from __future__ import annotations
 
+import io
 import logging
+import math
 import os
+import re
+import zipfile
 from typing import Any
 
 from django.db import transaction
+from openpyxl import load_workbook
+from openpyxl.cell.cell import MergedCell
+from openpyxl.utils.exceptions import InvalidFileException
+from openpyxl.xml.functions import fromstring
+from rest_framework.exceptions import ValidationError
 
 from core.models import Project
+from spreadsheet.cell_format import CURRENCY_LOCALES, FONT_SIZES, IMPORT_FONT_FAMILIES
 from spreadsheet.models import (
     Cell,
     SheetColumn,
@@ -22,6 +32,7 @@ from spreadsheet.models import (
     SpreadsheetCellFormat,
     SpreadsheetHighlight,
 )
+from spreadsheet.serializers import SpreadsheetCellFormatOpSerializer
 from spreadsheet.services import CellService, SheetService, SpreadsheetService
 
 logger = logging.getLogger(__name__)
@@ -480,3 +491,324 @@ def diff_sheet(source):
     )
 
 
+
+
+# ---------------------------------------------------------------------------
+# Excel import styles (server-side port of the browser's xlsx_style_import.ts)
+# ---------------------------------------------------------------------------
+
+# Excel theme colour index -> slot name in xl/theme/theme1.xml
+_THEME_SLOTS = (
+    'lt1', 'dk1', 'lt2', 'dk2',
+    'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6',
+    'hlink', 'folHlink',
+)
+# '[$$-409]' -> '$-409' -> 'USD', and '$' -> 'USD'
+_CURRENCY_BY_LOCALE = {prefix[2:-1]: code for code, prefix in CURRENCY_LOCALES.items()}
+_CURRENCY_BY_SYMBOL = {locale.split('-')[0]: code for locale, code in _CURRENCY_BY_LOCALE.items()}
+_CURRENCY_SYMBOL_ORDER = ('£', '€', '¥', '$')
+_BRACKET_CURRENCY = re.compile(r'\[\$([^\]]*)\]')
+_LOCALE_SPLIT = re.compile(r'^(.*)-([0-9A-Fa-f]+)$')
+_QUOTED = re.compile(r'"([^"]*)"')
+_UNDEFINED = object()  # a JavaScript `undefined` result in the ported lookups
+
+
+def _local(tag):
+    return tag.rsplit('}', 1)[-1]
+
+
+def _number(text):
+    """JavaScript Number(text) for an XML attribute: blank -> 0, invalid -> None."""
+    text = (text or '').strip()
+    if not text:
+        return 0.0
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    return value if math.isfinite(value) else None
+
+
+def _item(items, index):
+    """items[index] as JavaScript reads it: a missing or fractional index is undefined."""
+    if index is None or index != int(index) or not 0 <= index < len(items):
+        return None
+    return items[int(index)]
+
+
+def _excel_theme_palette(archive):
+    """Port of readThemePalette: theme colours in Excel's theme-index order."""
+    try:
+        root = fromstring(archive.read('xl/theme/theme1.xml'))
+    except KeyError:
+        return []
+    scheme = next((el for el in root.iter() if _local(el.tag) == 'clrScheme'), None)
+    if scheme is None:
+        return []
+    slots = {}
+    for slot in scheme:
+        value = None
+        for node in slot:
+            if _local(node.tag) == 'srgbClr':
+                value = node.get('val')
+            elif _local(node.tag) == 'sysClr':
+                value = node.get('lastClr')
+        slots[_local(slot.tag)] = value.upper() if value else None
+    return [slots.get(name) for name in _THEME_SLOTS]
+
+
+def _excel_default_font_size(archive):
+    """Port of readWorkbookDefaultFontSize: the Normal style's font size, or None."""
+    try:
+        root = fromstring(archive.read('xl/styles.xml'))
+    except KeyError:
+        return None
+    elements = list(root.iter())
+    fonts = next((el for el in elements if _local(el.tag) == 'fonts'), None)
+    font_elements = [el for el in fonts.iter() if _local(el.tag) == 'font'] if fonts is not None else []
+    if not font_elements:
+        return None
+    xf_id = next(
+        (
+            _number(el.get('xfId') or '0')
+            for el in elements
+            if _local(el.tag) == 'cellStyle' and el.get('name') == 'Normal'
+        ),
+        0.0,
+    )
+    style_xfs = next((el for el in elements if _local(el.tag) == 'cellStyleXfs'), None)
+    xfs = [el for el in style_xfs.iter() if _local(el.tag) == 'xf'] if style_xfs is not None else []
+    xf = _item(xfs, xf_id)
+    font_id = _number(xf.get('fontId') or '0') if xf is not None else 0.0
+
+    def sz_value(font):
+        sz = next((el for el in font.iter() if _local(el.tag) == 'sz'), None) if font is not None else None
+        return _UNDEFINED if sz is None else sz.get('val')  # None is JavaScript null
+
+    value = sz_value(_item(font_elements, font_id))
+    if value is _UNDEFINED or value is None:
+        value = sz_value(font_elements[0])
+    if value is _UNDEFINED:
+        return None
+    return 0.0 if value is None else _number(value)
+
+
+def _apply_tint(hex6, tint):
+    """Port of the browser's colourHsl / hslToHex / applyTint, so the result is identical."""
+    if not tint:
+        return hex6
+    red, green, blue = (int(hex6[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    high, low = max(red, green, blue), min(red, green, blue)
+    hue = sat = 0.0
+    light = (high + low) / 2
+    if high != low:
+        delta = high - low
+        sat = delta / (2 - high - low) if light > 0.5 else delta / (high + low)
+        if high == red:
+            hue = (green - blue) / delta + (6 if green < blue else 0)
+        elif high == green:
+            hue = (blue - red) / delta + 2
+        else:
+            hue = (red - green) / delta + 4
+        hue *= 60
+    light = light * (1 + tint) if tint < 0 else light * (1 - tint) + tint
+    light = min(1, max(0, light))
+    if sat == 0:
+        channels = (light, light, light)
+    else:
+        q = light * (1 + sat) if light < 0.5 else light + sat - light * sat
+        p = 2 * light - q
+
+        def hue_to_rgb(t):
+            if t < 0:
+                t += 1
+            if t > 1:
+                t -= 1
+            if t < 1 / 6:
+                return p + (q - p) * 6 * t
+            if t < 1 / 2:
+                return q
+            if t < 2 / 3:
+                return p + (q - p) * (2 / 3 - t) * 6
+            return p
+
+        k = hue / 360
+        channels = (hue_to_rgb(k + 1 / 3), hue_to_rgb(k), hue_to_rgb(k - 1 / 3))
+    return ''.join(f'{math.floor(channel * 255 + 0.5):02X}' for channel in channels)
+
+
+def _excel_hex(color, palette):
+    """Port of resolveExcelColor + argbToHex: '#RRGGBB', or None (also for exact black/white)."""
+    if color is None:
+        return None
+    if color.type == 'rgb':
+        argb = color.rgb
+    elif color.type == 'theme':
+        theme = color.theme
+        base = palette[theme] if isinstance(theme, int) and 0 <= theme < len(palette) else None
+        if not base:
+            return None
+        argb = 'FF' + _apply_tint(base, color.tint or 0)
+    else:
+        return None
+    if not isinstance(argb, str):
+        return None
+    rgb = argb[-6:].upper()
+    return None if rgb in ('000000', 'FFFFFF') else f'#{rgb}'
+
+
+def _nearest_font_size(size):
+    """Port of nearestSize: snap to the nearest editor size; a tie keeps the larger size."""
+    if size is None:
+        return None
+    best = FONT_SIZES[0]
+    for candidate in FONT_SIZES[1:]:
+        if not abs(best - size) < abs(candidate - size):
+            best = candidate
+    return best
+
+
+def _import_number_format(code):
+    """Port of parseNumberFormat: Excel format code -> web number_format, or None."""
+    if not code or code == 'General':
+        return None
+    if '%' in code:
+        places = code.count('0') - 1 if '.' in code else 0
+        return {'type': 'PERCENT', 'currency_code': None, 'decimal_places': places}
+    fraction = code.split('.')[-1] if '.' in code else ''
+    places = fraction.count('0')
+    bracket = _BRACKET_CURRENCY.search(code)
+    if bracket:
+        body = bracket.group(1)
+        split = _LOCALE_SPLIT.match(body)
+        symbol = (split.group(1) if split else body).strip()
+        locale = split.group(2).upper() if split else None
+        if locale:
+            currency = _CURRENCY_BY_LOCALE.get(f'{symbol}-{locale}')
+        else:
+            currency = _CURRENCY_BY_SYMBOL.get(symbol) or (
+                symbol.upper() if symbol.upper() in CURRENCY_LOCALES else None
+            )
+        if not currency:
+            return None
+        return {'type': 'CURRENCY', 'currency_code': currency, 'decimal_places': places}
+    quoted = _QUOTED.search(code)
+    if quoted and re.fullmatch(r'[A-Za-z]{3}', quoted.group(1).strip()):
+        token = quoted.group(1).strip().upper()
+        if token not in CURRENCY_LOCALES:
+            return None
+        return {'type': 'CURRENCY', 'currency_code': token, 'decimal_places': places}
+    symbol = next((s for s in _CURRENCY_SYMBOL_ORDER if s in code), None)
+    if symbol:
+        return {'type': 'CURRENCY', 'currency_code': _CURRENCY_BY_SYMBOL[symbol], 'decimal_places': places}
+    if '0' in code:
+        return {'type': 'NUMBER', 'currency_code': None, 'decimal_places': places}
+    return None
+
+
+def _read_excel_import_styles(content, worksheet_name):
+    """Convert one worksheet's styles to validated web format ops and cell fills."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            palette = _excel_theme_palette(archive)
+            default_size = _nearest_font_size(_excel_default_font_size(archive))
+        workbook = load_workbook(io.BytesIO(content))
+    except (zipfile.BadZipFile, InvalidFileException, KeyError, OSError, SyntaxError, TypeError, ValueError) as exc:
+        raise ValidationError({'file': 'The Excel file could not be read.'}) from exc
+    if worksheet_name not in workbook.sheetnames:
+        raise ValidationError({'worksheet_name': 'This worksheet is not in the Excel file.'})
+
+    format_ops = []
+    highlights = []
+    for row in workbook[worksheet_name].iter_rows():
+        for cell in row:
+            if isinstance(cell, MergedCell):
+                continue
+            has_value = cell.value is not None
+            styled = cell.has_style
+            if not has_value and not styled:
+                continue
+            # ExcelJS resolves no style for a cell on style 0: it has no font, fill or
+            # number format of its own, and a value cell gets the Normal size.
+            font = cell.font if styled else None
+            bold = bool(font is not None and font.bold)
+            italic = bool(font is not None and font.italic)
+            strike = bool(font is not None and font.strike)
+            text_color = _excel_hex(font.color, palette) if font is not None else None
+            fill = cell.fill if styled else None
+            fill_color = (
+                _excel_hex(getattr(fill, 'fgColor', None), palette)
+                if getattr(fill, 'fill_type', None) == 'solid'
+                else None
+            )
+            family = (
+                IMPORT_FONT_FAMILIES.get((font.name or '').strip().lower())
+                if font is not None
+                else None
+            )
+            number_format = _import_number_format(cell.number_format) if styled else None
+            if not has_value and not (
+                bold or italic or strike or text_color or family or number_format or fill_color
+            ):
+                continue
+            reported_size = _nearest_font_size(font.size) if font is not None else None
+            size = (reported_size or default_size) if has_value else None
+            if bold or italic or strike or text_color or family or size or number_format:
+                format_ops.append({
+                    'row': cell.row - 1,
+                    'column': cell.column - 1,
+                    'bold': bold,
+                    'italic': italic,
+                    'strikethrough': strike,
+                    'text_color': text_color,
+                    'font_family': family,
+                    'font_size': size,
+                    'number_format': number_format,
+                })
+            if fill_color:
+                highlights.append((cell.row - 1, cell.column - 1, fill_color))
+
+    # Same validation and stored values as the batch format endpoint.
+    serializer = SpreadsheetCellFormatOpSerializer(data=format_ops, many=True)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data, highlights
+
+
+def _format_row(op):
+    """The stored SpreadsheetCellFormat values for one validated op."""
+    return {
+        'bold': op['bold'],
+        'italic': op['italic'],
+        'strikethrough': op['strikethrough'],
+        'text_color': op.get('text_color') or None,
+        'font_family': op.get('font_family') or None,
+        'font_size': op.get('font_size'),
+        'number_format': dict(op['number_format']) if op.get('number_format') else None,
+    }
+
+def apply_excel_import_styles(sheet, content, worksheet_name):
+    """Convert one worksheet's styles from the uploaded .xlsx and write them.
+
+    Formats and fills are upserted for the cells the workbook formats; other
+    existing formats and fills are left as they are, as the browser import did.
+    Raises ValidationError when the file, worksheet or a converted value is invalid.
+    """
+    try:
+        format_ops, highlights = _read_excel_import_styles(content, worksheet_name)
+    except (AttributeError, IndexError, TypeError, ValueError) as exc:
+        raise ValidationError({'file': 'The Excel formatting could not be read.'}) from exc
+    for op in format_ops:
+        SpreadsheetCellFormat.objects.update_or_create(
+            sheet=sheet,
+            row_index=op['row'],
+            column_index=op['column'],
+            defaults={**_format_row(op), 'is_deleted': False},
+        )
+    for row_index, col_index, color in highlights:
+        SpreadsheetHighlight.objects.update_or_create(
+            sheet=sheet,
+            scope='CELL',
+            row_index=row_index,
+            col_index=col_index,
+            defaults={'spreadsheet': sheet.spreadsheet, 'color': color},
+        )
