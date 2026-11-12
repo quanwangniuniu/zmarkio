@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Id } from "@/types/common";
 import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
+import * as yup from "yup";
 import { ArrowLeft, Loader2, Pencil } from "lucide-react";
 
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
@@ -28,6 +29,37 @@ import type {
   AdCopyVariationSourceMode,
   AdCopyVariationStatus,
 } from "@/types/adCopyVariation";
+
+const externalUrlSchema = yup
+  .string()
+  .trim()
+  .transform((value) => {
+    if (!value) return value;
+
+    // Preserve an explicitly supplied protocol.
+    if (/^[a-zA-Z][a-zA-Z\d+.-]*:\/\//.test(value)) {
+      return value;
+    }
+
+    // Default to HTTPS when no protocol is provided.
+    return `https://${value}`;
+  })
+  .required("Enter a URL.")
+  .url("Enter a valid URL.")
+  .test(
+    "http-or-https",
+    "URL must use HTTP or HTTPS.",
+    (value) => {
+      if (!value) return true;
+
+      try {
+        const parsedUrl = new URL(value);
+        return parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:";
+      } catch {
+        return false;
+      }
+    }
+  );
 
 const SECTION_LABEL =
   "text-[11px] font-semibold uppercase tracking-wider text-gray-400 mb-2";
@@ -144,6 +176,7 @@ function VariationsStudioContent() {
   const [creativeMetaLoading, setCreativeMetaLoading] = useState<boolean>(false);
   const [customBase, setCustomBase] = useState<AdCopyVariationCopy>(EMPTY_COPY);
   const [externalUrl, setExternalUrl] = useState<string>("");
+  const [externalUrlError, setExternalUrlError] = useState<string>("");
   const [instruction, setInstruction] = useState<string>("");
   const [count, setCount] = useState<number>(10);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -182,7 +215,7 @@ function VariationsStudioContent() {
     ? (creativeMeta.body || "").split("\n", 1)[0]
     : "";
 
-  const externalUrlValid = /^https?:\/\//.test(externalUrl.trim());
+  const externalUrlValid = externalUrlSchema.isValidSync(externalUrl);
 
   const sourceInputValid =
     (mode === "existing" && !!creativeMeta) ||
@@ -213,7 +246,7 @@ function VariationsStudioContent() {
     setCount(clamped);
   };
 
-  const buildSourcePayload = () => {
+  const buildSourcePayload = (normalizedExternalUrl?: string) => {
     if (mode === "existing") {
       return {
         creative_id: creativeMeta?.id,
@@ -221,7 +254,7 @@ function VariationsStudioContent() {
       };
     }
     if (mode === "external_url") {
-      return { url: externalUrl.trim() };
+      return { url: normalizedExternalUrl ?? externalUrl.trim() };
     }
     return { base_copy: customBase };
   };
@@ -232,12 +265,28 @@ function VariationsStudioContent() {
       return;
     }
     if (!sourceInputValid) {
+      if (mode === "external_url") {
+        try {
+          externalUrlSchema.validateSync(externalUrl);
+          setExternalUrlError("");
+        } catch (error) {
+          setExternalUrlError(
+            error instanceof yup.ValidationError
+              ? error.message
+              : "Enter a valid URL."
+          );
+        }
+      }
       toast.error("Source input is incomplete.");
       return;
     }
     setIsGenerating(true);
     try {
-      const payload = buildSourcePayload();
+      const normalizedExternalUrl =
+        mode === "external_url"
+          ? externalUrlSchema.validateSync(externalUrl)
+          : undefined;
+      const payload = buildSourcePayload(normalizedExternalUrl);
       const res = await generateVariation({
         project_id: projectId,
         source_mode: mode,
@@ -245,7 +294,7 @@ function VariationsStudioContent() {
         instruction,
         creative_id: payload.creative_id,
         base_copy: mode === "custom" ? customBase : undefined,
-        url: mode === "external_url" ? externalUrl.trim() : undefined,
+        url: normalizedExternalUrl,
       });
       setLastBatchSummary({
         requested: res.count_requested,
@@ -523,12 +572,58 @@ function VariationsStudioContent() {
             <TabsContent value="external_url" className="pt-4 mt-0">
               <div className={SECTION_LABEL}>Ad URL</div>
               <input
-                type="url"
+                type="text"
+                inputMode="url"
                 value={externalUrl}
-                onChange={(e) => setExternalUrl(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setExternalUrl(value);
+
+                  if (externalUrlError) {
+                    try {
+                      externalUrlSchema.validateSync(value);
+                      setExternalUrlError("");
+                    } catch (error) {
+                      setExternalUrlError(
+                        error instanceof yup.ValidationError
+                          ? error.message
+                          : "Enter a valid URL."
+                      );
+                    }
+                  }
+                }}
+                onBlur={() => {
+                  try {
+                    externalUrlSchema.validateSync(externalUrl);
+                    setExternalUrlError("");
+                  } catch (error) {
+                    setExternalUrlError(
+                      error instanceof yup.ValidationError
+                        ? error.message
+                        : "Enter a valid URL."
+                    );
+                  }
+                }}
                 placeholder="https://www.facebook.com/ads/library/?id=..."
-                className="w-full bg-transparent text-[14px] text-gray-700 placeholder:text-gray-400 outline-none border-0 border-b border-gray-200 focus:border-[#3CCED7] transition py-1"
+                aria-invalid={!!externalUrlError}
+                aria-describedby={
+                  externalUrlError ? "external-url-error" : undefined
+                }
+                className={`w-full bg-transparent text-[14px] text-gray-700 placeholder:text-gray-400 outline-none border-0 border-b transition py-1 ${
+                  externalUrlError
+                    ? "border-red-500 focus:border-red-500"
+                    : "border-gray-200 focus:border-[#3CCED7]"
+                }`}
               />
+              {externalUrlError && (
+                <p
+                  id="external-url-error"
+                  role="alert"
+                  className="mt-1 text-[12px] text-red-600"
+                >
+                  {externalUrlError}
+                </p>
+              )}
               <p className="mt-1 text-[11px] text-gray-400">
                 Paste a public Meta Ad Library URL. The page is fetched via a
                 managed headless browser, then ad copy is extracted and rewritten.
