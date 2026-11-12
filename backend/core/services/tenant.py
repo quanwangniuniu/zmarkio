@@ -1,9 +1,8 @@
 """
 Tenant schema provisioning utilities.
 
-All PostgreSQL schema operations (CREATE SCHEMA, SET search_path, table creation)
-are centralised here so that no other module needs to know about schema names
-or safe identifier quoting.
+Django tenant schema creation and additive table repair are centralised here.
+Studio-owned tables are migrated separately by the Studio runner.
 
 Usage:
     Organization.save() locks provisioning before its INSERT, then calls this
@@ -79,7 +78,10 @@ def lock_tenant_provisioning() -> None:
 @transaction.atomic
 def provision_tenant_schema(slug: str) -> None:
     """
-    Create a PostgreSQL schema and populate it with all tenant tables.
+    Create a PostgreSQL schema and populate its Django-managed tenant tables.
+
+    Variation tables are created separately by the Studio migration runner;
+    callers must not assume they exist when this synchronous function returns.
 
     Owns an atomic block for standalone callers, nesting safely inside
     Organization.save(). If CREATE SCHEMA or any table creation fails, the
@@ -116,7 +118,7 @@ def provision_tenant_schema(slug: str) -> None:
 @transaction.atomic
 def _create_tenant_tables(schema_name: str) -> None:
     """
-    Use Django's SchemaEditor to create all tenant model tables inside the
+    Use Django's SchemaEditor to create registered tenant model tables inside the
     given schema. search_path is switched only for this call and then restored
     to whatever the caller had selected (not hard-coded back to public).
 

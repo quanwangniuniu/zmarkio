@@ -4,14 +4,14 @@ import { runMigrations } from '@/lib/migrate';
 import { prisma } from '@/lib/prisma';
 import { slugToSchemaName } from '@/lib/tenant';
 
-async function main(): Promise<void> {
-  const [command, ...extra] = process.argv.slice(2);
+export async function main(args = process.argv.slice(2)): Promise<void> {
+  const [command, ...extra] = args;
   if (extra.length || (command !== 'apply' && command !== 'status' && command !== 'dry-run')) {
     throw new Error('Expected exactly one command: apply, status or dry-run');
   }
   try {
     const organizations = await prisma.organization.findMany({
-      where: { isActive: true }, orderBy: { slug: 'asc' }, select: { slug: true },
+      orderBy: { slug: 'asc' }, select: { slug: true },
     });
     const report = await runMigrations({
       command,
@@ -23,7 +23,9 @@ async function main(): Promise<void> {
   } finally { await prisma.$disconnect(); }
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : 'Migration command failed');
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : 'Migration command failed');
+    process.exitCode = 1;
+  });
+}
