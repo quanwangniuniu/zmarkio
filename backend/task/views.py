@@ -49,7 +49,7 @@ from core.utils.project import get_user_active_project
 from notifications.models import NotificationCategory, NotificationEventType
 from notifications.services import create_notification
 from notifications.action_urls import task_action_url
-from org_customization.services import get_enabled_task_types, get_user_organization
+from org_customization.services import get_enabled_task_types
 import json
 import traceback
 
@@ -2338,9 +2338,9 @@ class TaskAttachmentDownloadView(APIView):
 def get_task_types(request):
     """
     Get available task types with their labels.
-    Returns the task types enabled in the organization's task config.
+    Returns the task types enabled in the active project's task config.
     """
-    task_types = get_enabled_task_types(get_user_organization(request.user))
+    task_types = get_enabled_task_types(get_user_active_project(request.user))
 
     return Response({'task_types': task_types}, status=status.HTTP_200_OK)
 

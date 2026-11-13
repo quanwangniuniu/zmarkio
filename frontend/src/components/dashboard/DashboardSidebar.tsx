@@ -31,6 +31,7 @@ import {
   isNestedProjectNavActive,
 } from '@/lib/projectNestedRoutes';
 import { useBuildUrl } from '@/lib/buildUrl';
+import { loadTaskConfig } from '@/lib/tasks/taskConfig';
 
 const getInitials = (name?: string | null): string => {
   if (!name) return '?';
@@ -139,7 +140,6 @@ const adminGroup: NavGroup = {
     { label: 'Permissions', href: '/admin/permissions', icon: Shield },
     { label: 'Approvers', href: '/admin/approvers', icon: UserCheck },
     { label: 'Override Audit Log', href: '/admin/override-audits', icon: History },
-    { label: 'Task Config', href: '/admin/task-config', icon: SlidersHorizontal },
   ],
 };
 
@@ -158,6 +158,7 @@ export default function DashboardSidebar() {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [projectHeaderChecking, setProjectHeaderChecking] = useState(true);
+  const [canEditConfig, setCanEditConfig] = useState(false);
   const { projects, loading, fetchProjects } = useProjects();
   const activeProject = useProjectStore((state) => state.activeProject);
   const hasProjectStoreHydrated = useProjectStore((state) => state.hasHydrated);
@@ -213,6 +214,18 @@ export default function DashboardSidebar() {
     };
   }, [activeProject, hasProjectStoreHydrated, projects.length, fetchProjects]);
 
+  useEffect(() => {
+    setCanEditConfig(false);
+    if (!activeProject?.id) return;
+    let cancelled = false;
+    loadTaskConfig(activeProject.id).then((config) => {
+      if (!cancelled) setCanEditConfig(Boolean(config?.can_edit));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProject?.id]);
+
   const toggle = (label: string) => {
     setExpanded((prev) =>
       prev.includes(label) ? prev.filter((l) => l !== label) : [...prev, label]
@@ -244,53 +257,66 @@ export default function DashboardSidebar() {
       </div>
 
       {/* Project header — clickable to switch project */}
-      <button
-        onClick={() => router.push('/select-project')}
-        className="w-full border-b border-gray-100 px-2 py-3 text-left transition-colors hover:bg-gray-50 sm:px-4 group"
-        title="Switch project"
-        aria-label="Switch project"
-      >
-        <div className="flex items-center justify-center gap-3 sm:justify-start">
-          {projectHeaderLoading ? (
-            <Skeleton className="h-8 w-8 rounded-md shrink-0" />
-          ) : (
-            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-[#3CCED7] to-[#A6E661] flex items-center justify-center shrink-0">
-              <span className="text-white text-xs font-bold">
-                {activeProject ? getInitials(activeProject.name) : '—'}
-              </span>
-            </div>
-          )}
-          <div className="hidden min-w-0 flex-1 sm:block">
+      <div className="group/project relative">
+        <button
+          onClick={() => router.push('/select-project')}
+          className="w-full border-b border-gray-100 px-2 py-3 text-left transition-colors hover:bg-gray-50 sm:px-4 group"
+          title="Switch project"
+          aria-label="Switch project"
+        >
+          <div className="flex items-center justify-center gap-3 sm:justify-start">
             {projectHeaderLoading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-28" />
-                <Skeleton className="h-3 w-20" />
-              </div>
-            ) : activeProject ? (
-              <>
-                <div className="text-sm font-medium text-gray-900 truncate">
-                  {activeProject.name}
-                </div>
-                <div className="text-xs text-gray-400 truncate">
-                  {formatBudgetShort(activeProject.total_monthly_budget) ||
-                    activeProject.organization?.name ||
-                    'No budget set'}
-                </div>
-              </>
+              <Skeleton className="h-8 w-8 rounded-md shrink-0" />
             ) : (
-              <>
-                <div className="text-sm font-medium text-gray-900 truncate">
-                  {loading ? 'Loading…' : 'Select a project'}
-                </div>
-                <div className="text-xs text-gray-400 truncate">
-                  {loading ? '' : 'No active project'}
-                </div>
-              </>
+              <div className="w-8 h-8 rounded-md bg-gradient-to-br from-[#3CCED7] to-[#A6E661] flex items-center justify-center shrink-0">
+                <span className="text-white text-xs font-bold">
+                  {activeProject ? getInitials(activeProject.name) : '—'}
+                </span>
+              </div>
             )}
+            <div className="hidden min-w-0 flex-1 sm:block">
+              {projectHeaderLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+              ) : activeProject ? (
+                <>
+                  <div className="text-sm font-medium text-gray-900 truncate">
+                    {activeProject.name}
+                  </div>
+                  <div className="text-xs text-gray-400 truncate">
+                    {formatBudgetShort(activeProject.total_monthly_budget) ||
+                      activeProject.organization?.name ||
+                      'No budget set'}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm font-medium text-gray-900 truncate">
+                    {loading ? 'Loading…' : 'Select a project'}
+                  </div>
+                  <div className="text-xs text-gray-400 truncate">
+                    {loading ? '' : 'No active project'}
+                  </div>
+                </>
+              )}
+            </div>
+            <ChevronsUpDown className="hidden w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 sm:block" />
           </div>
-          <ChevronsUpDown className="hidden w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 sm:block" />
-        </div>
-      </button>
+        </button>
+        {canEditConfig && (
+          <div className="absolute left-2 top-full z-20 hidden w-52 rounded-md border border-gray-200 bg-white p-1 shadow-md group-focus-within/project:block group-hover/project:block">
+            <Link
+              href={buildUrl('/system-config')}
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] text-gray-700 hover:bg-gray-50"
+            >
+              <SlidersHorizontal className="size-3.5 text-gray-500" />
+              <span>System Configuration</span>
+            </Link>
+          </div>
+        )}
+      </div>
 
       {/* Navigation */}
       <nav className="dashboard-scrollbar flex-1 overflow-y-auto px-1 pb-2 pt-3 sm:px-2 sm:pt-4">

@@ -42,6 +42,7 @@ export interface TaskConfig {
   task_priorities: TaskPriorityConfig[];
   task_field_options: TaskFieldOptionConfig[];
   status_categories: StatusCategory[];
+  can_edit: boolean;
 }
 
 export type TaskConfigUpdate = Partial<

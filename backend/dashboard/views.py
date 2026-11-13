@@ -10,11 +10,12 @@ from datetime import timedelta, date
 from task.models import Task, ApprovalRecord, TaskComment
 from decision.models import Decision
 from spreadsheet.models import Spreadsheet
+from core.models import Project
 from core.slug_mixins import resolve_project_pk
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from .serializers import DashboardSummarySerializer, ProjectWorkspaceDashboardSerializer
 from .services import get_rollup, ALL_FIELDS
-from org_customization.services import STATUS_CATEGORIES, get_task_status_categories, get_user_organization
+from org_customization.services import STATUS_CATEGORIES, get_task_status_categories
 
 
 logger = logging.getLogger(__name__)
@@ -178,7 +179,7 @@ class DashboardSummaryView(APIView):
             # ── Status breakdown ─────────────────────────────────────────────
             total_work_items = queryset.count()
 
-            status_categories = get_task_status_categories(get_user_organization(request.user))
+            status_categories = get_task_status_categories(Project.objects.filter(pk=project_id).first())
 
             status_counts: dict = {}
             for task_status in queryset.values('status').annotate(count=Count('status')):

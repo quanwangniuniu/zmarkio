@@ -28,7 +28,6 @@ import { useBuildUrl } from '@/lib/buildUrl';
 import { authApi } from '@/lib/api/authApi';
 import { useAuthStore } from '@/lib/authStore';
 import type { PasswordRotationStatus } from '@/types/auth';
-import { loadTaskConfig } from '@/lib/tasks/taskConfig';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -123,10 +122,6 @@ export default function DashboardLayout({
   // Establish the SSE connection for real-time notification push.
   useNotificationSSE();
   useStripProjectIdFromUrl();
-
-  useEffect(() => {
-    loadTaskConfig();
-  }, []);
 
   const {
     upcomingMeetingsPanelOpen: isPanelOpen,

@@ -5,7 +5,8 @@ import { applyTaskTypeConfig } from '@/lib/tasks/taskTypes';
 import { applyTaskFieldOptionConfig } from '@/lib/tasks/typeFieldSchemas';
 import type { TaskConfig } from '@/types/orgCustomization';
 
-let taskConfigRequest: Promise<void> | null = null;
+const taskConfigRequests = new Map<string, Promise<TaskConfig | null>>();
+let currentProjectKey: string | null = null;
 
 export function applyTaskConfig(config: TaskConfig): void {
   applyTaskTypeConfig(config.task_types);
@@ -14,13 +15,24 @@ export function applyTaskConfig(config: TaskConfig): void {
   applyTaskFieldOptionConfig(config.task_field_options);
 }
 
-export function loadTaskConfig(): Promise<void> {
-  if (!taskConfigRequest) {
-    taskConfigRequest = fetchTaskConfig()
-      .then(applyTaskConfig)
-      .catch(() => {
-        taskConfigRequest = null;
-      });
+export function loadTaskConfig(projectId: number | string): Promise<TaskConfig | null> {
+  const key = String(projectId);
+  currentProjectKey = key;
+  let request = taskConfigRequests.get(key);
+  if (!request) {
+    request = fetchTaskConfig(projectId).catch(() => {
+      taskConfigRequests.delete(key);
+      return null;
+    });
+    taskConfigRequests.set(key, request);
   }
-  return taskConfigRequest;
+  return request.then((config) => {
+    if (config && currentProjectKey === key) applyTaskConfig(config);
+    return config;
+  });
+}
+
+export function storeTaskConfig(projectId: number | string, config: TaskConfig): void {
+  taskConfigRequests.set(String(projectId), Promise.resolve(config));
+  if (currentProjectKey === String(projectId)) applyTaskConfig(config);
 }

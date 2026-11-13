@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
-import Layout from '@/components/layout/Layout';
+import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { getApiErrorDetail } from '@/lib/api/errorMessage';
 import { fetchTaskConfig, saveTaskConfig } from '@/lib/api/orgCustomizationApi';
-import { applyTaskConfig } from '@/lib/tasks/taskConfig';
+import { useProjectStore } from '@/lib/projectStore';
+import { storeTaskConfig } from '@/lib/tasks/taskConfig';
 import { getTaskTypeDefinition } from '@/lib/tasks/taskTypes';
 import { getDefaultFieldOptions } from '@/lib/tasks/typeFieldSchemas';
 import type { TaskConfig, TaskFieldOptionConfig } from '@/types/orgCustomization';
@@ -83,7 +84,9 @@ function OrderInput({ value, onChange }: { value: number; onChange: (value: numb
   );
 }
 
-export default function TaskConfigPage() {
+export default function SystemConfigPage() {
+  const activeProject = useProjectStore((state) => state.activeProject);
+  const projectId = activeProject?.id;
   const [config, setConfig] = useState<TaskConfig | null>(null);
   const [optionRows, setOptionRows] = useState<OptionRow[]>([]);
   const [optionType, setOptionType] = useState('');
@@ -95,10 +98,12 @@ export default function TaskConfigPage() {
   };
 
   useEffect(() => {
-    fetchTaskConfig()
+    if (!projectId) return;
+    setConfig(null);
+    fetchTaskConfig(projectId)
       .then(loadConfig)
-      .catch((error) => toast.error(getApiErrorDetail(error, 'Failed to load task config')));
-  }, []);
+      .catch((error) => toast.error(getApiErrorDetail(error, 'Failed to load system configuration')));
+  }, [projectId]);
 
   const optionTypes = useMemo(
     () => Array.from(new Set(optionRows.map((row) => row.task_type))),
@@ -123,44 +128,52 @@ export default function TaskConfigPage() {
     setOptionRows((prev) => prev.map((row) => (row === target ? { ...row, ...patch } : row)));
 
   const handleSave = async () => {
-    if (!config) return;
+    if (!config || !projectId) return;
     setSaving(true);
     try {
-      const saved = await saveTaskConfig({
+      const saved = await saveTaskConfig(projectId, {
         task_types: config.task_types,
         task_statuses: config.task_statuses,
         task_priorities: config.task_priorities,
         task_field_options: optionRowsToSave(optionRows),
       });
       loadConfig(saved);
-      applyTaskConfig(saved);
-      toast.success('Task config saved');
+      storeTaskConfig(projectId, saved);
+      toast.success('System configuration saved');
     } catch (error) {
-      toast.error(getApiErrorDetail(error, 'Failed to save task config'));
+      toast.error(getApiErrorDetail(error, 'Failed to save system configuration'));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <ProtectedRoute requireAdmin fallback="/unauthorized">
-      <Layout showPermissionRole={true}>
+    <ProtectedRoute>
+      <DashboardLayout hideRightPanel mainClassName="p-0">
         <div className="p-6 space-y-6">
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">Task Config</h1>
+              <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">System Configuration</h1>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Choose which task types your organization uses, and rename or reorder types, statuses,
-                priorities and dropdown options.
+                Choose which task types {activeProject?.name ?? 'this project'} uses, and rename or reorder types,
+                statuses, priorities and dropdown options.
               </p>
             </div>
-            <Button onClick={handleSave} disabled={!config || saving}>
-              {saving ? 'Saving...' : 'Save'}
-            </Button>
+            {config?.can_edit && (
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? 'Saving...' : 'Save'}
+              </Button>
+            )}
           </div>
 
           {!config ? (
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading...</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {projectId ? 'Loading...' : 'Select a project to configure.'}
+            </p>
+          ) : !config.can_edit ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Only project admins can change the system configuration.
+            </p>
           ) : (
             <>
               <section className="space-y-2">
@@ -341,7 +354,7 @@ export default function TaskConfigPage() {
             </>
           )}
         </div>
-      </Layout>
+      </DashboardLayout>
     </ProtectedRoute>
   );
 }

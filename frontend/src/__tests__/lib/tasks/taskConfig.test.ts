@@ -1,4 +1,5 @@
-import { applyTaskConfig } from '@/lib/tasks/taskConfig';
+import { fetchTaskConfig } from '@/lib/api/orgCustomizationApi';
+import { applyTaskConfig, loadTaskConfig } from '@/lib/tasks/taskConfig';
 import { getTaskPriorityDefinition } from '@/lib/tasks/taskPriorities';
 import { getTaskStatusDefinition } from '@/lib/tasks/taskStatuses';
 import { getTaskTypeDefinition, TASK_TYPE_SHORT_LABEL_BY_VALUE } from '@/lib/tasks/taskTypes';
@@ -13,6 +14,7 @@ const config = (overrides: Partial<TaskConfig>): TaskConfig => ({
   task_priorities: [],
   task_field_options: [],
   status_categories: [],
+  can_edit: false,
   ...overrides,
 });
 
@@ -73,5 +75,26 @@ describe('applyTaskConfig', () => {
     expect(options[0]).toEqual({ value: 'roas', label: 'Return on ad spend' });
     expect(options.map((option) => option.value).slice(0, 3)).toEqual(['roas', 'ctr', 'spend']);
     expect(options.map((option) => option.value)).not.toContain('cpa');
+  });
+});
+
+describe('loadTaskConfig', () => {
+  afterEach(() => applyTaskConfig(resetConfig));
+
+  it('applies the latest project config and caches each project', async () => {
+    let resolveFirst: (value: TaskConfig) => void = () => {};
+    (fetchTaskConfig as jest.Mock)
+      .mockReturnValueOnce(new Promise<TaskConfig>((resolve) => { resolveFirst = resolve; }))
+      .mockResolvedValueOnce(resetConfig);
+
+    const first = loadTaskConfig(1);
+    await loadTaskConfig(2);
+    resolveFirst(customConfig);
+    await first;
+    expect(getTaskTypeDefinition('budget')?.label).toBe('Budget');
+
+    await loadTaskConfig(1);
+    expect(getTaskTypeDefinition('budget')?.label).toBe('Spend Request');
+    expect(fetchTaskConfig).toHaveBeenCalledTimes(2);
   });
 });
