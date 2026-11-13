@@ -556,6 +556,33 @@ class SpreadsheetCellFormatBatchSerializer(serializers.Serializer):
     ops = SpreadsheetCellFormatOpSerializer(many=True, min_length=1, max_length=2000)
     base_revision = serializers.IntegerField(min_value=0, required=False)
 
+class SheetImportSourceCreateSerializer(serializers.Serializer):
+    origin = serializers.ChoiceField(choices=['EXCEL', 'GOOGLE'])
+    worksheet_name = serializers.CharField(max_length=200, trim_whitespace=True)
+    google_spreadsheet_id = serializers.CharField(
+        required=False, allow_blank=True, max_length=128, default=''
+    )
+    google_sheet_id = serializers.IntegerField(
+        required=False, allow_null=True, min_value=0
+    )
+    source_url = serializers.CharField(required=False, allow_blank=True, default='')
+
+    def validate(self, attrs):
+        attrs['worksheet_name'] = attrs['worksheet_name'].strip()
+        if not attrs['worksheet_name']:
+            raise serializers.ValidationError({'worksheet_name': 'This field is required.'})
+        if attrs['origin'] == 'GOOGLE':
+            spreadsheet_id = (attrs.get('google_spreadsheet_id') or '').strip()
+            if not spreadsheet_id:
+                raise serializers.ValidationError(
+                    {'google_spreadsheet_id': 'This field is required for a Google import.'}
+                )
+            if attrs.get('google_sheet_id') is None:
+                raise serializers.ValidationError(
+                    {'google_sheet_id': 'This field is required for a Google import.'}
+                )
+            attrs['google_spreadsheet_id'] = spreadsheet_id
+        return attrs
 
 class WorkflowPatternListSerializer(serializers.ModelSerializer):
     createdAt = serializers.DateTimeField(source='created_at', read_only=True)
