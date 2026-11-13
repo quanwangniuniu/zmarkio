@@ -15,7 +15,6 @@ class Command(BaseCommand):
             'campaign.Campaign',
             'workflows.Workflow',
             'core.Project',
-            'ad_copy_variation.AdCopyVariation',
             'miro.Board',
             'mailchimp.Campaign',
             'klaviyo.EmailDraft',

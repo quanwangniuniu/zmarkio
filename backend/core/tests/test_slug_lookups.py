@@ -363,7 +363,6 @@ class SlugOnlyApiLookupExtraModulesTest(APITestCase):
         import datetime
         from miro.models import Board
         from klaviyo.models import EmailDraft as KlaviyoDraft
-        from ad_copy_variation.models import AdCopyVariation
         from campaign.models import Campaign as MarketingCampaign, CampaignTemplate
         from mailchimp.models import Campaign as MailchimpCampaign, CampaignSettings
         from notion_editor.models import Draft as NotionDraft
@@ -392,12 +391,6 @@ class SlugOnlyApiLookupExtraModulesTest(APITestCase):
             user=self.user,
             name="Slug Lookup Klaviyo",
             subject="Subject Line",
-        )
-        self.variation = AdCopyVariation.objects.create(
-            project=self.project,
-            source_mode="custom",
-            headline="Slug Lookup Variation",
-            created_by=self.user,
         )
         self.campaign = MarketingCampaign.objects.create(
             project=self.project,
@@ -466,15 +459,6 @@ class SlugOnlyApiLookupExtraModulesTest(APITestCase):
 
     def test_klaviyo_draft_numeric_url_is_rejected(self):
         response = self.client.get("/api/klaviyo/klaviyo-drafts/999999/")
-        self.assertEqual(response.status_code, 404)
-
-    # ad_copy_variation -------------------------------------------------
-    def test_variation_slug_url_resolves(self):
-        response = self.client.get(f"/api/ad_copy_variation/variations/{self.variation.slug}/")
-        self.assertEqual(response.status_code, 200)
-
-    def test_variation_numeric_url_is_rejected(self):
-        response = self.client.get("/api/ad_copy_variation/variations/999999/")
         self.assertEqual(response.status_code, 404)
 
     # campaign ----------------------------------------------------------
