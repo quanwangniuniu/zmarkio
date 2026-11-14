@@ -17,6 +17,7 @@ from rest_framework import serializers
 from core.models import ProjectMember
 from meetings.models import Meeting, MeetingActionItem, MeetingTaskOrigin
 from meetings.services import validate_meeting_for_origin_link
+from org_customization.services import is_task_type_enabled
 from task.models import Task
 
 User = get_user_model()
@@ -70,11 +71,15 @@ def _resolve_approver(*, project, current_approver_id: int | None):
     return approver
 
 
-def _validate_task_type(task_type: str) -> str:
+def _validate_task_type(task_type: str, project) -> str:
     valid = {c[0] for c in Task._meta.get_field("type").choices}
     if task_type not in valid:
         raise serializers.ValidationError(
             {"type": f"Invalid task type. Must be one of: {sorted(valid)}"},
+        )
+    if not is_task_type_enabled(project, task_type):
+        raise serializers.ValidationError(
+            {"type": "This task type is disabled for this project."},
         )
     return task_type
 
@@ -117,7 +122,7 @@ def convert_meeting_action_item_to_task(
     )
     _ensure_not_already_converted(action_item)
 
-    task_type = _validate_task_type(task_type)
+    task_type = _validate_task_type(task_type, meeting.project)
     priority = _validate_priority(priority)
     owner = _resolve_owner(project=meeting.project, request_user=user, owner_id=owner_id)
     current_approver = _resolve_approver(
@@ -191,7 +196,7 @@ def bulk_convert_meeting_action_items(
         for row in items:
             aid = int(row["action_item_id"])
             ai = by_id[aid]
-            task_type = _validate_task_type(row["type"])
+            task_type = _validate_task_type(row["type"], meeting.project)
             priority = _validate_priority(row.get("priority"))
             owner = _resolve_owner(
                 project=meeting.project,
