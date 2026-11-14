@@ -51,6 +51,39 @@ export async function findVariationsByIds(
     WHERE project_id = ${projectId} AND id IN (${idList(ids)})`;
 }
 
+export async function findVariationsByIdsForUpdate(
+  schema: string,
+  projectId: bigint,
+  ids: bigint[],
+  db: SqlClient = prisma
+): Promise<VariationRow[]> {
+  if (!ids.length) return [];
+
+  return db.$queryRaw<VariationRow[]>`
+    SELECT ${COLUMNS} FROM ${table(schema)}
+    WHERE project_id = ${projectId}
+      AND id IN (${idList(ids)})
+    FOR UPDATE`;
+}
+
+export async function findBatchVariationsByIdsForUpdate(
+  schema: string,
+  projectId: bigint,
+  batchId: string,
+  ids: bigint[],
+  db: SqlClient = prisma
+): Promise<VariationRow[]> {
+  if (!ids.length) return [];
+
+  return db.$queryRaw<VariationRow[]>`
+    SELECT ${COLUMNS} FROM ${table(schema)}
+    WHERE project_id = ${projectId}
+      AND batch_id = ${batchId}::uuid
+      AND id IN (${idList(ids)})
+    FOR UPDATE`;
+}
+
+
 export async function findVariationsByIdsAnyProject(
   schema: string,
   ids: bigint[],
@@ -281,6 +314,26 @@ export async function deleteVariationsByIds(
       RETURNING id
     )
     SELECT COUNT(*)::bigint AS count FROM deleted`;
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function deleteVariationsByIdsForProject(
+  schema: string,
+  projectId: bigint,
+  ids: bigint[],
+  db: SqlClient = prisma
+): Promise<number> {
+  if (!ids.length) return 0;
+
+  const rows = await db.$queryRaw<{ count: bigint }[]>`
+    WITH deleted AS (
+      DELETE FROM ${table(schema)}
+      WHERE project_id = ${projectId}
+        AND id IN (${idList(ids)})
+      RETURNING id
+    )
+    SELECT COUNT(*)::bigint AS count FROM deleted`;
+
   return Number(rows[0]?.count ?? 0);
 }
 

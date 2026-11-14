@@ -4,6 +4,7 @@ import { ApiError, responseFromUnknown, startBulkPost } from '@/lib/bulk';
 import { prisma } from '@/lib/prisma';
 import {
   findVariationsByIds,
+  findVariationsByIdsForUpdate,
   markReviewed,
 } from '@/lib/variationStore';
 import { serializeVariation } from '@/lib/variations';
@@ -16,7 +17,7 @@ export async function POST(request: Request) {
 
   try {
     const payload = await prisma.$transaction(async (tx) => {
-      const rows = await findVariationsByIds(
+      const rows = await findVariationsByIdsForUpdate(
         ctx.schema,
         ctx.projectId,
         ctx.selectedBigIds,
