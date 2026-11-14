@@ -1836,8 +1836,8 @@ class AgentOrchestrator:
         try:
             result = _call_llm_unified(
                 agent_session=self.session,
-                provider='gemini',
-                model='gemini-2.5-flash-lite',
+                provider='ollama',
+                model=settings.RAG_OLLAMA_CHAT_MODEL,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=0.3,

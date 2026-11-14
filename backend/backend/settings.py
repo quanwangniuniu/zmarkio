@@ -443,6 +443,10 @@ RAG_EMBEDDING_PROVIDER = config('RAG_EMBEDDING_PROVIDER', default='ollama')
 RAG_LOCAL_EMBEDDING_MODEL = config('RAG_LOCAL_EMBEDDING_MODEL', default='BAAI/bge-base-en-v1.5')
 RAG_OLLAMA_BASE_URL = config('RAG_OLLAMA_BASE_URL', default='http://localhost:11434')
 RAG_OLLAMA_EMBEDDING_MODEL = config('RAG_OLLAMA_EMBEDDING_MODEL', default='nomic-embed-text')
+# Chat model for project-RAG rewrite and grounded answers. This is not the
+# embedding model: nomic-embed-text cannot generate text. qwen3 thinks by
+# default; the chat client sends think=false so a rewrite stays one line.
+RAG_OLLAMA_CHAT_MODEL = config('RAG_OLLAMA_CHAT_MODEL', default='qwen3:4b')
 RAG_OLLAMA_TIMEOUT_SECONDS = config('RAG_OLLAMA_TIMEOUT_SECONDS', default=60, cast=int)
 
 # Chunking (rag.chunking). Units are CHARACTERS, not tokens — chunking does
@@ -473,12 +477,12 @@ RAG_RETRIEVAL_MIN_SIMILARITY = config(
 )
 
 # Query rewrite for project RAG (agent.answer_project_question). Only the
-# knobs we expect to retune live here. The rewrite model and temperature stay
-# fixed in code (gemini-2.5-flash-lite, temperature 0). History turns are
+# knobs we expect to retune live here. The rewrite model is
+# RAG_OLLAMA_CHAT_MODEL; temperature stays 0 in code. History turns are
 # completed user+assistant pairs before the current question. Assistant
 # replies are truncated before they are sent to the rewrite model. The
-# timeout is shorter than GEMINI_TIMEOUT_SECONDS because a failed or slow
-# rewrite falls back to the original question instead of blocking the answer.
+# timeout is short because a failed or slow rewrite falls back to the
+# original question instead of blocking the answer.
 RAG_QUERY_REWRITE_HISTORY_TURNS = config(
     'RAG_QUERY_REWRITE_HISTORY_TURNS', default=3, cast=int
 )
@@ -1069,6 +1073,8 @@ MODEL_TOKEN_MULTIPLIER = {
     'claude-haiku-4-5': 0.2,
     'claude-opus-4-6': 5.0,
     'gemini-2.5-flash-lite': 0.15,
+    # Local Ollama chat has no API price. Multiplier 1.0 keeps quota math defined.
+    'qwen3:4b': 1.0,
 }
 # Actual API cost table in cents per 1M tokens (for LLMCallLog cost_cents)
 LLM_PRICE_TABLE = {
@@ -1077,6 +1083,7 @@ LLM_PRICE_TABLE = {
     'claude-haiku-4-5': {'input': 80, 'output': 400},
     'claude-opus-4-6': {'input': 1500, 'output': 7500},
     'gemini-2.5-flash-lite': {'input': 10, 'output': 40},
+    'qwen3:4b': {'input': 0, 'output': 0},
 }
 FAIR_USE_THRESHOLD_RATIO = 0.30   # alert when user > 30% of org quota
 FREE_USER_MAX_COST_CENTS = 200    # safety cap for fair-use alert on Free tier

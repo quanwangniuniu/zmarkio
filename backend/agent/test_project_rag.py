@@ -218,6 +218,8 @@ class AnswerProjectQuestionTest(TestCase):
 
         mock_rewrite.assert_called_once_with(self.session, self.project, 'Why was that?')
         mock_retrieve.assert_called_once_with(self.project.id, 'Why did we pick vendor A?')
+        self.assertEqual(mock_llm.call_args.kwargs['provider'], 'ollama')
+        self.assertEqual(mock_llm.call_args.kwargs['model'], 'qwen3:4b')
         user_prompt = mock_llm.call_args.kwargs['user_prompt']
         self.assertIn('Question to answer: Why did we pick vendor A?', user_prompt)
         self.assertIn("User's exact wording: Why was that?", user_prompt)

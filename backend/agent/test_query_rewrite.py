@@ -41,8 +41,8 @@ class RewriteProjectQuestionTest(SimpleTestCase):
         self.assertEqual(rewritten, 'Why did we pick vendor A?')
         kwargs = mock_llm.call_args.kwargs
         self.assertEqual(kwargs['agent_session'], self.session)
-        self.assertEqual(kwargs['provider'], 'gemini')
-        self.assertEqual(kwargs['model'], 'gemini-2.5-flash-lite')
+        self.assertEqual(kwargs['provider'], 'ollama')
+        self.assertEqual(kwargs['model'], 'qwen3:4b')
         self.assertEqual(kwargs['temperature'], 0)
         self.assertEqual(kwargs['timeout'], 15)
         self.assertIn('Vendor A.', kwargs['user_prompt'])

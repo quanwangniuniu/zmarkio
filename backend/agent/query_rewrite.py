@@ -17,7 +17,6 @@ from agent.models import AgentMessage
 
 logger = logging.getLogger(__name__)
 
-_REWRITE_MODEL = 'gemini-2.5-flash-lite'
 _REWRITE_TEMPERATURE = 0
 _REWRITE_MAX_OUTPUT_TOKENS = 256
 _REWRITE_SYSTEM_PROMPT = (
@@ -138,8 +137,8 @@ def rewrite_project_question_result(session, project, question: str) -> RewriteR
 
         result = call_llm(
             agent_session=session,
-            provider='gemini',
-            model=_REWRITE_MODEL,
+            provider='ollama',
+            model=settings.RAG_OLLAMA_CHAT_MODEL,
             system_prompt=_REWRITE_SYSTEM_PROMPT,
             user_prompt=_rewrite_user_prompt(turns, original),
             max_output_tokens=_REWRITE_MAX_OUTPUT_TOKENS,

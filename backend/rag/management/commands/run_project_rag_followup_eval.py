@@ -6,10 +6,12 @@ Arms:
   B -- retrieve with the human expected_rewrite (upper-bound reference only)
   C -- retrieve with rewrite_project_question() output (real rewrite path)
 
-Default runs A,B,C. Use --arms A,B to skip the real rewrite call. When C is
-included, failures/timeouts that fall back to the original question still
-count toward C's score. Reports must state that C is what proves rewrite
-helps relative to A; B is only an ideal-completion ceiling.
+Default runs A,B,C. Use --arms A,B to skip the real rewrite call. Arm C
+calls the local Ollama chat model (RAG_OLLAMA_CHAT_MODEL) and does not
+need GEMINI_API_KEY. When C is included, failures/timeouts that fall back
+to the original question still count toward C's score. Reports must state
+that C is what proves rewrite helps relative to A; B is only an
+ideal-completion ceiling.
 """
 from __future__ import annotations
 
@@ -457,12 +459,6 @@ class Command(BaseCommand):
             raise CommandError(
                 f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'ollama' or 'local'."
             )
-        if 'C' in arms and not settings.GEMINI_API_KEY:
-            raise CommandError(
-                "Arm C calls rewrite_project_question and requires GEMINI_API_KEY. "
-                "Pass --arms A,B to skip real rewrite, or set GEMINI_API_KEY."
-            )
-
         followup_path: Path = options['fixture']
         top_k: int = options['top_k']
         followup_data = _load_json(followup_path)
@@ -507,6 +503,7 @@ class Command(BaseCommand):
                 'embedding_provider': provider,
                 'embedding_model': embedding_model,
                 'embedding_dimensions': settings.RAG_EMBEDDING_DIMENSIONS,
+                'rewrite_model': settings.RAG_OLLAMA_CHAT_MODEL,
                 'min_similarity': None,
                 'top_k': top_k,
                 'eval_org_schema': eval_schema,

@@ -155,14 +155,14 @@ def test_gemini_embedding_provider_is_rejected_before_arm_c():
 
 
 @override_settings(RAG_EMBEDDING_PROVIDER='ollama', GEMINI_API_KEY='')
-def test_arm_c_requires_gemini_api_key_even_with_ollama_embeddings():
-    with pytest.raises(CommandError, match='Arm C .* GEMINI_API_KEY'):
+def test_arm_c_does_not_require_gemini_api_key():
+    with pytest.raises(CommandError, match='Fixture not found'):
         Command().handle(fixture=_NONEXISTENT, output=None, top_k=10, arms='A,B,C')
 
 
 @override_settings(RAG_EMBEDDING_PROVIDER='local', GEMINI_API_KEY='')
-def test_arm_c_requires_gemini_api_key_even_with_local_embeddings():
-    with pytest.raises(CommandError, match='Arm C .* GEMINI_API_KEY'):
+def test_arm_c_with_local_embeddings_does_not_require_gemini_api_key():
+    with pytest.raises(CommandError, match='Fixture not found'):
         Command().handle(fixture=_NONEXISTENT, output=None, top_k=10, arms='A,B,C')
 
 
@@ -251,7 +251,7 @@ def test_ab_phase_runs_both_arms_and_states_scope(tmp_path):
     }
 
 
-@override_settings(RAG_EMBEDDING_PROVIDER='local', GEMINI_API_KEY='fake-key-for-test')
+@override_settings(RAG_EMBEDDING_PROVIDER='local', GEMINI_API_KEY='')
 def test_arm_c_records_rewrite_meta_and_compares_to_a(tmp_path):
     from agent.query_rewrite import RewriteResult
 
