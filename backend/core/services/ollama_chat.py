@@ -74,28 +74,32 @@ def chat(
     temperature: float,
     max_output_tokens: int,
     timeout: int | None = None,
+    format: dict | None = None,
 ) -> dict:
     """One non-streaming chat completion.
 
     Returns text plus prompt_eval_count / eval_count when Ollama sent them.
     Either count is None when the field is missing or not a non-negative int.
+
+    `format` is Ollama's structured-output schema. It is sent only when the
+    caller passes one, so a free-text answer does not ask for JSON.
     """
-    data = _post_chat(
-        {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "stream": False,
-            "think": False,
-            "options": {
-                "temperature": temperature,
-                "num_predict": max_output_tokens,
-            },
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "stream": False,
+        "think": False,
+        "options": {
+            "temperature": temperature,
+            "num_predict": max_output_tokens,
         },
-        timeout=timeout,
-    )
+    }
+    if format is not None:
+        payload["format"] = format
+    data = _post_chat(payload, timeout=timeout)
     message = data.get("message")
     if not isinstance(message, dict) or not isinstance(message.get("content"), str):
         raise OllamaChatResponseError("Ollama chat response missing message content")

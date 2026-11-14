@@ -39,6 +39,7 @@ def call_llm(
     response_mime_type: str | None = None,
     call_purpose: str = 'other',
     timeout: int | None = None,
+    response_format: dict | None = None,
 ) -> dict[str, Any]:
     """
     Unified LLM call.
@@ -87,7 +88,8 @@ def call_llm(
                                   timeout=timeout)
         elif provider == 'ollama':
             result = _call_ollama(model, system_prompt, user_prompt,
-                                  max_output_tokens, temperature, timeout=timeout)
+                                  max_output_tokens, temperature, timeout=timeout,
+                                  response_format=response_format)
         else:
             raise ValueError(f'Unknown LLM provider: {provider!r}')
 
@@ -184,6 +186,7 @@ def _call_ollama(
     max_output_tokens: int,
     temperature: float,
     timeout: int | None = None,
+    response_format: dict | None = None,
 ) -> dict:
     """Local Ollama /api/chat. Used by project-RAG rewrite and answers.
 
@@ -202,6 +205,7 @@ def _call_ollama(
         temperature=temperature,
         max_output_tokens=max_output_tokens,
         timeout=timeout,
+        format=response_format,
     )
     input_tokens = data["prompt_eval_count"]
     output_tokens = data["eval_count"]

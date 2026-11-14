@@ -49,6 +49,28 @@ def test_chat_posts_api_chat_with_think_disabled():
         {'role': 'user', 'content': 'user'},
     ]
     assert kwargs['json']['options'] == {'temperature': 0, 'num_predict': 256}
+    assert 'format' not in kwargs['json']
+
+
+@override_settings(RAG_OLLAMA_BASE_URL='http://ollama.test:11434', RAG_OLLAMA_TIMEOUT_SECONDS=5)
+def test_chat_includes_format_only_when_the_caller_passes_one():
+    schema = {'type': 'object', 'properties': {'question': {'type': 'string'}}, 'required': ['question']}
+    with patch('core.services.ollama_chat.requests.post') as mock_post:
+        mock_post.return_value = _response(200, {
+            'message': {'content': '{"question": "Why?"}'},
+            'prompt_eval_count': 1,
+            'eval_count': 1,
+        })
+        chat(
+            model='qwen3:4b',
+            system_prompt='s',
+            user_prompt='u',
+            temperature=0,
+            max_output_tokens=64,
+            format=schema,
+        )
+
+    assert mock_post.call_args.kwargs['json']['format'] == schema
 
 
 @override_settings(RAG_OLLAMA_BASE_URL='http://ollama.test:11434')
