@@ -55,7 +55,7 @@ def sync_recent_meta(days: int = 2) -> dict:
 
 
 @shared_task
-def sync_single_ad_account(ad_account_id: int, days: int = 30) -> dict:
+def sync_single_ad_account(ad_account_id: int, days: int = 30, tenant_schema: str = "public") -> dict:
     """Manual sync trigger used by the UI Refresh button."""
     try:
         ad_account = MetaAdAccount.objects.get(pk=ad_account_id)
@@ -64,7 +64,7 @@ def sync_single_ad_account(ad_account_id: int, days: int = 30) -> dict:
     token = ad_account.connection.get_access_token()
     if not token:
         return {"error": "no_token"}
-    run = sync_ad_account(ad_account, token, days=days, kind="manual")
+    run = sync_ad_account(ad_account, token, days=days, kind="manual", tenant_schema=tenant_schema)
     return {"status": run.status, "level_counts": run.level_counts, "error": run.error_message}
 
 

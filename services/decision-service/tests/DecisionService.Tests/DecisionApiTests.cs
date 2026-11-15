@@ -6,6 +6,7 @@ using DecisionService.Decisions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
@@ -130,6 +131,15 @@ public sealed class DecisionApiTests
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
+            builder.ConfigureAppConfiguration((context, config) =>
+            {
+                config.AddInMemoryCollection(
+                    new Dictionary<string, string?>
+                    {
+                        ["DJANGO_JWT_SIGNING_KEY"] = "test-signing-key"
+                    });
+            });
+
             builder.ConfigureServices(services =>
             {
                 services.RemoveAll<IDecisionRepository>();

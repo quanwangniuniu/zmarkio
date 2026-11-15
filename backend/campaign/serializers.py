@@ -63,11 +63,12 @@ class CampaignSerializer(serializers.ModelSerializer):
             'owner', 'owner_id', 'creator', 'assignee', 'assignee_id',
             'project', 'project_id', 'budget_estimate',
             'status', 'status_note', 'latest_performance_summary',
-            'created_at', 'updated_at', 'is_deleted'
+            'created_at', 'updated_at', 'is_deleted', 'last_sync_error', 'last_sync_attempted_at'
         ]
         read_only_fields = ['slug', 
             'id', 'creator', 'status', 'actual_completion_date',
-            'latest_performance_summary', 'created_at', 'updated_at', 'is_deleted'
+            'latest_performance_summary', 'created_at', 'updated_at', 'is_deleted',
+            'last_sync_error', 'last_sync_attempted_at'
         ]
 
     def validate_platforms(self, value):

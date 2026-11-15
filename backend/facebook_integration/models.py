@@ -90,6 +90,7 @@ class MetaAdAccount(models.Model):
         null=True,
         blank=True,
         related_name="linked_meta_accounts",
+        db_constraint=False,  # Project lives in tenant schema; no cross-schema FK constraint
     )
 
     created_at = models.DateTimeField(auto_now_add=True)

@@ -44,6 +44,10 @@ function parseBatchGenerateResponse(data: unknown): BatchGenerateResponse | null
   return data as BatchGenerateResponse;
 }
 
+export async function initializeStudio(projectId: number | string): Promise<void> {
+  await api.post('/api/ad_copy_variation/initialize/', { project_id: projectId });
+}
+
 export async function generateVariation(
   req: GenerateVariationRequest
 ): Promise<BatchGenerateResponse> {

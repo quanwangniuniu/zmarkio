@@ -1,8 +1,8 @@
 """
 Management command: migrate_all_tenants
 
-Iterates over all active Organizations and ensures each one's PostgreSQL
-schema exists and contains all current tenant tables.
+Repairs Django-managed tables in existing schemas for active Organizations.
+For variation tables, run `npm run migrate` in variations-studio-api separately.
 
 Usage
 -----
@@ -56,7 +56,7 @@ def _schema_exists(schema_name: str) -> bool:
 
 class Command(BaseCommand):
     help = (
-        'Provision / repair PostgreSQL schemas for all active Organizations. '
+        'Repair Django-managed tenant tables for all active Organizations. '
         'Safe to run multiple times (idempotent).'
     )
 
@@ -144,7 +144,7 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write(self.style.SUCCESS('Dry-run complete.'))
         elif errors == 0:
-            self.stdout.write(self.style.SUCCESS('All tenants up to date.'))
+            self.stdout.write(self.style.SUCCESS('Django-managed tenant tables up to date.'))
         else:
             self.stdout.write(
                 self.style.ERROR(f'{errors} tenant(s) failed. Review errors above.')

@@ -189,6 +189,20 @@ components:
           type: object
           default: {}
           description: Latest performance snapshot data for dashboard display
+        last_sync_error:
+          type: string
+          enum:
+            - ''
+            - auth
+            - transient
+          readOnly: true
+          description: Outcome of the last Meta sync for the campaign's project (auth means the ad account must be reconnected)
+        last_sync_attempted_at:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
+          description: When the last Meta sync for the campaign's project was attempted
         created_at:
           type: string
           format: date-time

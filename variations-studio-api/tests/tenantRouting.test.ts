@@ -188,8 +188,9 @@ describe('4) header fallback only when both org FKs are null', () => {
     expect(schema).toBe(fixture.orgA.schema);
   });
 
-  it('falls back to public when header-only user omits the header', async () => {
-    await expect(resolvedSchema(tokenHeaderOnly)).resolves.toBe('public');
+  it('requires an organization when header-only user omits the header', async () => {
+    await expect(requireStudioContext(studioRequest('/api/me', { token: tokenHeaderOnly })))
+      .resolves.toEqual({ status: 403, error: 'An organization is required to use Studio.' });
   });
 
   it('does not use header when current_organization is already set', async () => {
@@ -201,20 +202,20 @@ describe('4) header fallback only when both org FKs are null', () => {
 });
 
 describe('5) unknown / inactive org header behavior', () => {
-  it('does not enter a foreign schema for an unknown slug (falls to public)', async () => {
-    const schema = await resolvedSchema(tokenHeaderOnly, {
-      'X-Organization-Slug': 'no-such-org-studio-routing',
-    });
-    expect(schema).toBe('public');
-    expect(schema).not.toBe(fixture.orgA.schema);
-    expect(schema).not.toBe(fixture.orgB.schema);
+  it('rejects an unknown organization header instead of using public', async () => {
+    const result = await requireStudioContext(studioRequest('/api/me', {
+      token: tokenHeaderOnly,
+      headers: { 'X-Organization-Slug': 'no-such-org-studio-routing' },
+    }));
+    expect(result).toEqual({ status: 403, error: 'An organization is required to use Studio.' });
   });
 
   it('does not enter schema for an inactive organization slug', async () => {
-    const schema = await resolvedSchema(tokenHeaderOnly, {
-      'X-Organization-Slug': fixture.inactiveOrgSlug,
-    });
-    expect(schema).toBe('public');
+    const result = await requireStudioContext(studioRequest('/api/me', {
+      token: tokenHeaderOnly,
+      headers: { 'X-Organization-Slug': fixture.inactiveOrgSlug },
+    }));
+    expect(result).toEqual({ status: 403, error: 'An organization is required to use Studio.' });
   });
 
   it('pinned user still stays on A if they send unknown header', async () => {

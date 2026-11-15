@@ -1,0 +1,1504 @@
+{
+  "dataset_name": "project_rag_eval_dataset",
+  "dataset_version": "2.1.0",
+  "created_date": "2026-09-04",
+  "description": "Synthetic evaluation fixture for MED-264 project-document RAG retrieval. Sources model a single fictional agency's Aurora Retail Q3/Q4 campaign work plus two new client onboardings (Willow & Pine, Northbridge Financial) and an internal RAG-tool beta pilot, across meetings, notion drafts, and retrospectives, with realistic length variation and intentional near-duplicate distractor pairs. Expanded in v2.0.0 (MED-264 Phase 2b) from 26/22 to 58/43 sources/questions, adding 3- and 4-source multi-hop questions on top of the original 2-source-only multi-source set.",
+  "scoring_notes": "Only questions with include_in_ranking_metrics == true (question_type in ['single-source', 'multi-source']) should feed Hit@K / MRR / Recall / Precision / Full-Coverage@K. The 4 no-answer questions (question_type == 'no-answer') must be scored separately (e.g. correct-abstention rate) and excluded from ranking-metric aggregation.",
+  "distractor_pairs": [
+    {
+      "pair": [
+        "meeting-003",
+        "meeting-004"
+      ],
+      "reason": "Both are Q3 sync meetings that mention a 'launch', but meeting-003 is the client-facing loyalty-program landing page launch (Oct 15) and meeting-004 is an unrelated internal sales-enablement deck launch (Nov 1)."
+    },
+    {
+      "pair": [
+        "notion-002",
+        "notion-005"
+      ],
+      "reason": "notion-002 is the rejected v1 welcome email draft (10% off, do-not-send) and notion-005 is the approved v2 revision (15% off, send starting Oct 1). Near-identical subject/body structure."
+    },
+    {
+      "pair": [
+        "retro-002",
+        "retro-005"
+      ],
+      "reason": "Both retros describe the same recurring Aurora Retail checkout-flow bug in different sprints (Sprint 15 root-cause identification vs. Sprint 18 regression / still-unresolved)."
+    },
+    {
+      "pair": [
+        "notion-011",
+        "notion-012"
+      ],
+      "reason": "notion-011 is the rejected v1 Northbridge welcome series (missing required NCUA disclosures, do-not-send) and notion-012 is the compliance-approved v2 revision. Near-identical subject/body structure."
+    },
+    {
+      "pair": [
+        "retro-009",
+        "retro-010"
+      ],
+      "reason": "Both retros describe a new client's 'first month' onboarding in the same period (Nov 18 vs Nov 25), but retro-009 is Willow & Pine's general onboarding retro and retro-010 is Northbridge Financial's compliance-specific retro."
+    }
+  ],
+  "sources": [
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-001",
+      "title": "Weekly Standup \u2014 Sept 2, 2026",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Weekly Standup \u2014 Sept 2, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Finished the homepage banner mockups, sent to client for review.\nMarcus: Blocked on stock photography licensing for the Aurora Retail winter sale page.\nDev: QA pass on the new email template starts tomorrow.\nNo blockers reported for the sprint otherwise."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-002",
+      "title": "Kickoff: Aurora Retail Q4 Campaign",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Kickoff: Aurora Retail Q4 Campaign \u2014 Sept 3, 2026\nAttendees: Priya (Creative Lead), Marcus (Strategy), Jade (Account Manager), client stakeholders Lena Ortiz and Sam Petrov from Aurora Retail.\nJade opened by confirming the campaign budget of $85,000 for Q4, covering paid social, email, and landing page production.\nLena confirmed the primary goal is driving holiday gift-card sales, with a target of 4,000 gift cards sold by December 24.\nMarcus proposed a three-phase rollout: teaser (Oct 1-15), main push (Nov 1-30), and last-chance reminders (Dec 15-24).\nAction item: Priya to deliver first creative concepts by Sept 20."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-003",
+      "title": "Q3 Marketing Sync \u2014 Launch Timeline",
+      "length_tier": "medium",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "content": "Q3 Marketing Sync \u2014 Launch Timeline \u2014 Aug 12, 2026\nAttendees: Priya, Marcus, Jade.\nMarcus confirmed the Aurora Retail Q3 loyalty-program landing page will launch on October 15, 2026.\nThe launch will coincide with the loyalty program's public announcement email.\nJade noted the client wants a soft-launch email to VIP customers three days earlier, on October 12.\nPriya flagged that the hero image is still pending final approval from the client's legal team."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-004",
+      "title": "Q3 Sales Sync \u2014 Pipeline Review",
+      "length_tier": "medium",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "content": "Q3 Sales Sync \u2014 Pipeline Review \u2014 Aug 14, 2026\nAttendees: Dev, Jade, Sales team.\nThe team reviewed the Q3 pipeline and discussed the sales-enablement deck launch, which Dev confirmed will go live internally on November 1, 2026.\nJade noted this is separate from the client-facing Aurora Retail loyalty launch and should not be referenced in external materials.\nDev will circulate the finished deck to the sales team the week before launch."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-005",
+      "title": "Quarterly Business Review \u2014 Full Transcript",
+      "length_tier": "long",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "content": "Quarterly Business Review \u2014 Full Transcript \u2014 Sept 25, 2026\nAttendees: Jade (Account Manager), Priya (Creative Lead), Marcus (Strategy), Dev (Engineering), and agency leadership: Corinne Blake (Managing Director).\n\nBudget Review\nCorinne opened with the Q3 budget summary: total agency spend was $412,000 against a planned $430,000, a 4% underspend driven mainly by delayed vendor invoices from the print supplier. Marcus noted that the Aurora Retail account alone accounted for $138,000 of that spend, primarily creative production and paid media.\n\nHeadcount\nCorinne announced that the team will add one new mid-level copywriter in Q4, with an anticipated start date of November 2. Priya will lead the hiring process and expects to have a shortlist by October 10.\n\nCampaign Performance\nMarcus presented Q3 campaign results: the Aurora Retail loyalty-program launch generated 5,600 sign-ups against a goal of 4,000, a 40% overperformance. Click-through rate on the launch email was 6.2%, well above the agency's 3.5% benchmark. However, the winter-sale teaser campaign underperformed, generating only 1,100 landing-page visits against a goal of 3,000.\n\nRisks\nDev flagged a recurring risk: the checkout flow on the Aurora Retail site has intermittent failures under high traffic, which caused a partial outage during the loyalty-program launch on October 15. Dev is coordinating with Aurora Retail's engineering team on a fix before the Q4 holiday push. Corinne asked that this risk be tracked explicitly in the next retrospective."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-006",
+      "title": "Client Check-in \u2014 Aurora Retail",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Client Check-in \u2014 Aurora Retail \u2014 Sept 30, 2026\nAttendees: Jade, Lena Ortiz (Aurora Retail).\nLena approved the final homepage banner concept, Option B (blue gradient with gift-card imagery).\nJade confirmed the winter sale landing page copy is on track for review by Oct 5.\nNo new action items."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-007",
+      "title": "Creative Review \u2014 Homepage Banner Concepts",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Creative Review \u2014 Homepage Banner Concepts \u2014 Sept 18, 2026\nAttendees: Priya, Marcus, Jade, freelance designer Theo Nkemelu.\nTheo presented three homepage banner concepts: Option A (warm red/orange holiday theme), Option B (blue gradient with gift-card imagery), and Option C (minimalist white with gold accents).\nPriya recommended Option B as the strongest fit for Aurora Retail's brand guidelines.\nMarcus asked Theo to prepare a mobile-responsive version of Option B for the next review.\nJade will present all three options to the client on Sept 22."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-008",
+      "title": "Vendor Call \u2014 Print Supplier",
+      "length_tier": "short",
+      "tags": [
+        "exact-id"
+      ],
+      "content": "Vendor Call \u2014 Print Supplier \u2014 Sept 8, 2026\nAttendees: Marcus, print supplier rep Alan Cho.\nAlan confirmed purchase order PO-88214 for the holiday gift-card inserts has shipped, with delivery expected Sept 14.\nMarcus asked Alan to send tracking details once available.\nUnit cost was confirmed at $0.42 per insert for the run of 20,000 units."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-009",
+      "title": "Retrospective Planning Meeting",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Retrospective Planning Meeting \u2014 Sept 10, 2026\nAttendees: Dev, Priya, Jade.\nThe team agreed to hold sprint retrospectives every two weeks going forward, alternating between a written retro doc and a live session.\nDev proposed adding a standing agenda item for tracking recurring bugs across sprints, specifically citing the checkout flow issue as a candidate.\nJade will own scheduling the retro calendar invites starting Sprint 15."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-010",
+      "title": "All-Hands: FY26 Planning",
+      "length_tier": "long",
+      "tags": [
+        "long-document",
+        "multi-chunk",
+        "topic-present-unresolved"
+      ],
+      "content": "All-Hands: FY26 Planning \u2014 Oct 1, 2026\nAttendees: Full agency team, led by Corinne Blake (Managing Director).\n\nAgency Goals\nCorinne outlined three company-wide goals for FY26: grow revenue by 18%, launch a formal RAG-assisted internal knowledge tool for account teams, and reduce average campaign turnaround time from 21 days to 14 days.\n\nNew Client Wins\nCorinne announced two new client wins closing in October: a mid-size home goods brand, Willow & Pine, and a regional credit union, Northbridge Financial. Onboarding for Willow & Pine begins Oct 20; Northbridge Financial begins Nov 3.\n\nTooling Investment\nDev presented the roadmap for the internal RAG-assisted knowledge tool, which will let account teams ask natural-language questions across meeting notes, Notion drafts, and retrospectives instead of searching manually. Dev estimated a beta rollout to the Aurora Retail account team by end of Q4.\n\nOrg Changes\nCorinne confirmed Priya will be promoted to Head of Creative effective Nov 1, taking on hiring and creative-direction responsibilities across all accounts. Marcus will take on an additional strategy lead role for the two new client accounts.\n\nQ&A\nIn the Q&A, a team member asked about pricing changes for FY26; Corinne said pricing details would be shared in a separate finance meeting in November and were not finalized as of this all-hands."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-011",
+      "title": "1:1 \u2014 Jade & Manager",
+      "length_tier": "short",
+      "tags": [],
+      "content": "1:1 \u2014 Jade & Manager \u2014 Sept 12, 2026\nAttendees: Jade, Corinne.\nJade raised concerns about bandwidth on the Aurora Retail account given the upcoming winter sale push.\nCorinne agreed to loop in a second account coordinator starting Oct 1 to help balance the workload.\nNo other topics discussed."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-012",
+      "title": "Post-Launch Debrief \u2014 Nova Campaign",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Post-Launch Debrief \u2014 Nova Campaign \u2014 Sept 5, 2026\nAttendees: Priya, Marcus, Dev, Jade.\nThe team reviewed the Project Nova product-launch campaign, which ran Aug 1-31.\nMarcus reported the campaign generated 12,400 website visits and 890 email sign-ups, against goals of 10,000 visits and 750 sign-ups.\nDev noted the landing page load time averaged 2.1 seconds, within the 3-second target.\nPriya flagged that the paid social creative underperformed relative to organic posts and recommended revisiting the ad creative strategy for the next campaign."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-001",
+      "title": "Blog Draft: 5 Ways to Prep for Holiday Shopping",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Blog Draft: 5 Ways to Prep for Holiday Shopping\nStatus: In review\nAuthor: Priya\n\nIntro: The holidays sneak up fast, and shoppers who plan ahead save both money and stress. Here are five practical ways to get ready for the season.\n\n1. Set a gift budget early and track it.\n2. Make a list of recipients before you start browsing.\n3. Sign up for loyalty programs to unlock early-access deals \u2014 Aurora Retail's loyalty program, for example, gives members first access to sales before the public.\n4. Compare shipping deadlines across retailers.\n5. Keep gift receipts organized for easy returns.\n\nCTA: Join the Aurora Retail loyalty program today."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-002",
+      "title": "Email Draft v1: Welcome Series \u2014 Step 1",
+      "length_tier": "medium",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "content": "Email Draft v1: Welcome Series \u2014 Step 1\nStatus: Draft \u2014 needs revision\nSubject line: Welcome to Aurora Retail!\n\nBody: Thanks for joining Aurora Retail. As a welcome gift, enjoy 10% off your first order with code WELCOME10.\n\nNote from Priya: Marketing flagged that 10% is too low compared to competitor welcome offers; revised version should use 15%. Do not send this version \u2014 see v2."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-003",
+      "title": "Social Caption Bank \u2014 October",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Social Caption Bank \u2014 October\nStatus: Approved\n\n1. \"Cozy season, cozy savings. \ud83c\udf42\" \u2014 Instagram, Oct 3\n2. \"Your holiday list called \u2014 it wants Aurora Retail.\" \u2014 Instagram, Oct 10\n3. \"First dibs go to loyalty members. Join free today.\" \u2014 Instagram, Oct 17"
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-004",
+      "title": "Landing Page Copy: Aurora Retail Winter Sale",
+      "length_tier": "long",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "content": "Landing Page Copy: Aurora Retail Winter Sale\nStatus: Client review\nAuthor: Priya, edited by Marcus\n\nHero Section\nHeadline: \"Winter Savings Start Here\"\nSubhead: \"Up to 40% off sitewide, plus free shipping on orders over $50.\"\nCTA button: \"Shop the Sale\"\n\nLoyalty Callout Section\nHeadline: \"Loyalty Members Get First Access\"\nBody: Loyalty members can shop the winter sale three days early, starting November 12, before it opens to the public on November 15. Sign up is free and takes less than a minute.\n\nProduct Grid Intro\nHeadline: \"Top Picks for Gift-Giving\"\nBody: From cozy home goods to statement accessories, these are the picks our stylists say will make the best gifts this season.\n\nFAQ Section\nQ: When does the sale end?\nA: The winter sale runs through December 24, while supplies last.\nQ: Can I combine the sale discount with a loyalty coupon?\nA: Yes, loyalty coupons can be stacked with the sitewide winter sale discount, up to a maximum combined discount of 50%.\nQ: Is the sale available in-store?\nA: This promotion is online-only; in-store pricing may differ.\n\nFooter CTA\nHeadline: \"Don't Miss Out\"\nBody: Join the Aurora Retail loyalty program now to unlock early access before November 12."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-005",
+      "title": "Email Draft v2: Welcome Series \u2014 Step 1 (Revised)",
+      "length_tier": "medium",
+      "tags": [
+        "distractor-heavy",
+        "exact-id"
+      ],
+      "content": "Email Draft v2: Welcome Series \u2014 Step 1 (Revised)\nStatus: Approved for send\nSubject line: Welcome to Aurora Retail \u2014 here's 15% off\n\nBody: Thanks for joining Aurora Retail. As a welcome gift, enjoy 15% off your first order with code WELCOME15.\n\nNote from Priya: Updated per Marketing's feedback to be competitive with industry-standard welcome offers. This is the version to send starting Oct 1."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-006",
+      "title": "Press Release Snippet \u2014 Product Launch",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Press Release Snippet \u2014 Product Launch\nStatus: Draft\n\n\"Aurora Retail today announced the launch of its redesigned loyalty program, giving members early access to seasonal sales and exclusive gift-card bonuses,\" said Lena Ortiz, VP of Marketing at Aurora Retail. The program launched October 15, 2026."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-007",
+      "title": "Case Study Draft: Aurora Retail Results",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Case Study Draft: Aurora Retail Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the Q3 loyalty-program launch for Aurora Retail.\n\nResults: The loyalty-program launch generated 5,600 sign-ups in the first month against a goal of 4,000 \u2014 a 40% overperformance. Email click-through rate hit 6.2%, compared to the agency's 3.5% benchmark average.\n\nClient quote (pending approval): \"The team's execution on the loyalty launch exceeded every benchmark we set.\" \u2014 Lena Ortiz, VP of Marketing, Aurora Retail."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-008",
+      "title": "Ad Copy Variations \u2014 Meta Feed",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Ad Copy Variations \u2014 Meta Feed\nStatus: Approved\n\nVariant A: \"40% off winter must-haves. Loyalty members shop first.\"\nVariant B: \"Your gift list, sorted. Up to 40% off sitewide.\"\nVariant C: \"Early access starts Nov 12 for loyalty members.\""
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-001",
+      "title": "Sprint 14 Retrospective",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Sprint 14 Retrospective \u2014 Sept 1, 2026\nParticipants: Dev, Priya, Marcus, Jade.\n\nWhat went well: The homepage banner concepts were delivered a day ahead of schedule. Client feedback turnaround was faster than usual, at under 24 hours.\n\nWhat didn't go well: Two email templates had to be rebuilt after a last-minute brand-guideline change wasn't communicated to the design team in time.\n\nAction items: Jade to create a shared brand-guideline changelog so design and copy teams are notified automatically."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-002",
+      "title": "Sprint 15 Retrospective \u2014 Checkout Flow Bug",
+      "length_tier": "medium",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "content": "Sprint 15 Retrospective \u2014 Checkout Flow Bug \u2014 Sept 15, 2026\nParticipants: Dev, Jade, Marcus.\n\nWhat went well: The loyalty-program landing page shipped on time for the October 15 launch.\n\nWhat didn't go well: Dev identified an intermittent checkout flow failure under high traffic, first observed during load testing on Sept 13. Root cause was traced to a session-timeout misconfiguration on Aurora Retail's checkout server, not on the agency's landing page.\n\nAction items: Dev to share findings with Aurora Retail's engineering team and follow up before the winter sale launch."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-003",
+      "title": "Retro: Nova Launch Week",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Retro: Nova Launch Week \u2014 Sept 6, 2026\nParticipants: Priya, Marcus, Dev, Jade.\n\nWent well: Landing page load time stayed under the 3-second target throughout launch week.\nDidn't go well: Paid social creative underperformed organic posts; team agreed to revisit ad creative strategy next campaign."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-004",
+      "title": "Quarterly Retrospective \u2014 Q3 Wrap-up",
+      "length_tier": "long",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "content": "Quarterly Retrospective \u2014 Q3 Wrap-up \u2014 Sept 28, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat went well\nThe Aurora Retail loyalty-program launch overperformed its sign-up goal by 40%, reaching 5,600 sign-ups against a target of 4,000. The team also successfully shifted to a two-week retrospective cadence, which surfaced the checkout flow issue earlier than it would have been caught otherwise.\n\nWhat didn't go well\nThe winter-sale teaser campaign underperformed, generating only 1,100 landing-page visits against a goal of 3,000 \u2014 the team attributed this to a delayed creative-approval cycle that pushed the teaser's launch back by six days. Print vendor delays also caused a minor budget underspend that complicated Q3 financial reporting.\n\nRecurring themes\nThis is the second consecutive quarter where a brand-guideline change wasn't communicated to the full team in time, causing rework. The team also flagged that the checkout flow issue identified in Sprint 15 recurred again in a later sprint and was not fully resolved before the winter sale.\n\nAction items\n1. Formalize the brand-guideline changelog process (owner: Jade).\n2. Escalate the checkout flow issue to Aurora Retail's engineering leadership directly rather than routing through the account team (owner: Dev).\n3. Build creative-approval buffer time into future campaign timelines (owner: Priya)."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-005",
+      "title": "Sprint 18 Retrospective \u2014 Checkout Flow Regression",
+      "length_tier": "medium",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "content": "Sprint 18 Retrospective \u2014 Checkout Flow Regression \u2014 Oct 27, 2026\nParticipants: Dev, Jade.\n\nWhat went well: The Willow & Pine onboarding kicked off smoothly with no blockers.\n\nWhat didn't go well: The checkout flow issue from Sprint 15 recurred during a traffic spike on Oct 24. Dev confirmed Aurora Retail's engineering team had not yet deployed the session-timeout fix discussed in Sprint 15.\n\nAction items: Dev to escalate directly to Aurora Retail's engineering lead rather than the account team, given the fix has been pending for six weeks."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-006",
+      "title": "Retro: Client Onboarding Process",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Retro: Client Onboarding Process \u2014 Oct 20, 2026\nParticipants: Jade, Marcus.\n\nWent well: The new onboarding checklist cut kickoff prep time roughly in half for the Willow & Pine account.\nDidn't go well: The checklist doesn't yet cover credit union clients; Marcus to adapt it before Northbridge Financial onboarding begins Nov 3."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-013",
+      "title": "Weekly Standup \u2014 Oct 7, 2026",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Weekly Standup \u2014 Oct 7, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Finalizing Nov main-push social creative.\nMarcus: Confirmed the main-push paid social budget allocation of $32,000 out of the $85,000 total campaign budget.\nDev: Monitoring checkout flow post-fix verification.\nNo blockers reported for the sprint otherwise."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-014",
+      "title": "Main Push Launch Readiness Review",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Main Push Launch Readiness Review \u2014 Nov 1, 2026\nAttendees: Priya, Marcus, Jade, Dev.\nJade confirmed the main push phase officially launched Nov 1 across email, paid social, and the landing page.\nJade confirmed the gift-card sales tracking dashboard is live.\nInterim tally as of Nov 1: 1,200 gift cards sold toward the 4,000 goal.\nNo blockers reported."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-015",
+      "title": "Client Check-in \u2014 Aurora Retail Nov",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Client Check-in \u2014 Aurora Retail Nov \u2014 Nov 10, 2026\nAttendees: Jade, Lena Ortiz (Aurora Retail).\nLena requested an extra Instagram carousel ad promoting the last-chance phase.\nJade confirmed the agency will add it for the Dec 15-24 window.\nNo other topics discussed."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-016",
+      "title": "New Copywriter \u2014 Hiring Debrief",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "New Copywriter \u2014 Hiring Debrief \u2014 Oct 12, 2026\nAttendees: Priya, Corinne.\nPriya reported a shortlist of 4 candidates ready, meeting the Oct 10 deadline set at the Q3 quarterly business review.\nThe team recommend Nadia Reyes for the Q4 copywriter role.\nStart date will match the plan set at the quarterly business review.\nCorinne approved the recommendation."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-017",
+      "title": "Willow & Pine Kickoff",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Willow & Pine Kickoff \u2014 Oct 20, 2026\nAttendees: Jade, Marcus, Willow & Pine stakeholder Ben Alden (Marketing Director).\nBudget confirmed at $52,000 for the Q4 onboarding phase and Q1 campaign prep.\nPrimary goal: rebuild the email list through re-engagement, targeting 2,500 reactivated subscribers by end of Q1.\nJade will own the onboarding checklist; Marcus will lead campaign strategy."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-018",
+      "title": "Northbridge Financial Kickoff",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Northbridge Financial Kickoff \u2014 Nov 3, 2026\nAttendees: Jade, Marcus, Corinne, Northbridge stakeholder Grace Whitfield (VP Member Experience).\nCompliance requirement flagged: all member communications must be reviewed by Northbridge's compliance team with a 5-business-day turnaround before send.\nMarcus confirms updated onboarding checklist now covers a credit-union compliance review step.\nOnboarding begins immediately."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-019",
+      "title": "RAG Tool Beta Kickoff \u2014 Aurora Retail Pilot",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "RAG Tool Beta Kickoff \u2014 Aurora Retail Pilot \u2014 Nov 5, 2026\nAttendees: Dev, Priya, Marcus, Jade.\nDev presented the beta RAG-assisted knowledge tool, per the FY26 tooling commitment from the all-hands.\nThe beta covers meeting notes, Notion drafts, and retrospectives.\nThe pilot will run through end of Q4 with the Aurora Retail team as the first user group.\nDev will collect feedback weekly."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-020",
+      "title": "Weekly Standup \u2014 Nov 18, 2026",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Weekly Standup \u2014 Nov 18, 2026\nAttendees: Priya, Marcus, Dev.\nPriya: Last-chance phase creative for the Dec 15-24 reminders is in progress.\nMarcus: Gift-card sales tally at 3,100 as of Nov 18.\nDev: No new checkout flow incidents since the Oct 24 spike; monitoring continues."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-021",
+      "title": "Post-Launch Debrief \u2014 Main Push Phase",
+      "length_tier": "long",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "content": "Post-Launch Debrief \u2014 Main Push Phase \u2014 Dec 2, 2026\nAttendees: Jade, Priya, Marcus, Dev, Corinne.\n\nSales Results\nMarcus reported 2,900 gift cards sold during main push alone. Final cumulative results against the original goal will be confirmed in the upcoming quarterly wrap-up retro.\n\nBudget\nMain push paid social spend came in at $34,500 against the $32,000 allocation, a $2,500 overage attributed to a mid-month bid increase to counter rising CPMs. Corinne asked Marcus to document the CPM-driven overage in the next retro for FY26 budgeting reference.\n\nLast-Chance Phase Framing\nJade flagged the last-chance phase (Dec 15-24) will now function as stretch-goal messaging rather than goal-critical, since the 4,000 target was already met.\n\nCheckout Flow\nDev reported the checkout flow held up under Black Friday traffic (Nov 27) with no repeat incidents, confirming Aurora Retail's engineering team's fix resolved the issue."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-022",
+      "title": "Client Check-in \u2014 Willow & Pine",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Client Check-in \u2014 Willow & Pine \u2014 Nov 15, 2026\nAttendees: Jade, Ben Alden (Willow & Pine).\nBen approved the re-engagement email subject-line test plan.\nFirst send scheduled for Nov 22.\nNo other topics discussed."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-023",
+      "title": "Compliance Review Sync \u2014 Northbridge Financial",
+      "length_tier": "medium",
+      "tags": [
+        "exact-id"
+      ],
+      "content": "Compliance Review Sync \u2014 Northbridge Financial \u2014 Nov 20, 2026\nAttendees: Marcus, Jade, Grace Whitfield (Northbridge Financial).\nGrace's compliance team returned first-round feedback on the welcome email series within the agreed 5-business-day window.\nTwo required disclosure lines must be added per NCUA guidance.\nMarcus confirms revised copy will be resubmitted by Nov 24."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-024",
+      "title": "1:1 \u2014 Jade & Manager (Nov)",
+      "length_tier": "short",
+      "tags": [],
+      "content": "1:1 \u2014 Jade & Manager (Nov) \u2014 Nov 21, 2026\nAttendees: Jade, Corinne.\nJade reported the second account coordinator, added Oct 1, has cut her average weekly overtime from 6 hours to under 1 hour.\nCorinne confirmed no further staffing changes needed for Q4."
+    },
+    {
+      "source_type": "meeting",
+      "source_ref": "meeting-025",
+      "title": "FY26 Progress Check-in",
+      "length_tier": "medium",
+      "tags": [
+        "topic-present-unresolved"
+      ],
+      "content": "FY26 Progress Check-in \u2014 Dec 5, 2026\nAttendees: Full agency team, led by Corinne Blake.\nCorinne reviewed FY26 goals progress: revenue growth tracking at 11% year-to-date against the 18% target.\nThe RAG tool beta is in pilot with the Aurora Retail account team.\nAverage campaign turnaround time has improved from 21 days to 17 days, short of the 14-day target.\nCorinne says a formal FY26 progress report with finalized numbers will go to leadership in January; today's figures are preliminary."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-009",
+      "title": "Main Push Email Copy \u2014 Aurora Retail",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Main Push Email Copy \u2014 Aurora Retail\nStatus: Approved\nSubject line: Your gift card is calling \ud83c\udf81\n\nBody: The Aurora Retail holiday gift-card sale is live through November. Join 1,200+ shoppers who've already grabbed their gift cards.\n\nCTA button: \"Get My Gift Card\""
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-010",
+      "title": "Willow & Pine Re-engagement Email Draft",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Willow & Pine Re-engagement Email Draft\nStatus: Client review\nSubject line: We miss you at Willow & Pine\n\nBody: It's been a while! Come back and enjoy 20% off your next order to lapsed subscribers, only through this email.\n\nGoal note: This email is part of the re-engagement push targeting 2,500 reactivated subscribers by end of Q1."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-011",
+      "title": "Northbridge Financial Welcome Series \u2014 v1",
+      "length_tier": "medium",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "content": "Northbridge Financial Welcome Series \u2014 v1\nStatus: Draft \u2014 needs compliance revision\nSubject line: Welcome to Northbridge Financial\n\nBody: Thanks for joining Northbridge Financial Credit Union. Explore your new member benefits today.\n\nNote from Marcus: Pending compliance team's two required disclosure additions before resend. Do not send this version \u2014 see v2."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-012",
+      "title": "Northbridge Financial Welcome Series \u2014 v2 (Compliance-Approved)",
+      "length_tier": "medium",
+      "tags": [
+        "distractor-heavy",
+        "exact-id"
+      ],
+      "content": "Northbridge Financial Welcome Series \u2014 v2 (Compliance-Approved)\nStatus: Approved for send\nSubject line: Welcome to Northbridge Financial\n\nBody: Thanks for joining Northbridge Financial Credit Union. Explore your new member benefits today. Northbridge Financial Credit Union is federally insured by NCUA.\n\nNote from Marcus: Resubmitted Nov 24 and cleared compliance the same day. This is the version to send."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-013",
+      "title": "Last-Chance Reminder Email Series \u2014 Aurora Retail",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Last-Chance Reminder Email Series \u2014 Aurora Retail\nStatus: Approved\n\nThree-email sequence for the Dec 15-24 window, branded as stretch-goal messaging rather than goal-critical, since the 4,000 gift-card goal was already reached Nov 28.\n\nEmail 1 (Dec 15): \"Last chance for gift cards\"\nEmail 2 (Dec 20): \"5 days left\"\nEmail 3 (Dec 24): \"Final hours\""
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-014",
+      "title": "Social Caption Bank \u2014 November",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Social Caption Bank \u2014 November\nStatus: Approved\n\n1. \"Main push is on. Grab your gift card today.\" \u2014 Instagram, Nov 1\n2. \"Halfway to the season's biggest savings.\" \u2014 Instagram, Nov 15\n3. \"Goal? Crushed. 4,000 gift cards and counting. \ud83c\udf89\" \u2014 Instagram, Nov 29"
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-015",
+      "title": "Case Study Draft: Aurora Retail Full-Year Results",
+      "length_tier": "long",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "content": "Case Study Draft: Aurora Retail Full-Year Results\nStatus: In progress\nAuthor: Marcus\n\nOverview: This case study covers the full Q3-Q4 Aurora Retail engagement, from the loyalty-program launch through the Q4 gift-card campaign.\n\nQ3 Results: The loyalty-program launch generated 5,600 sign-ups against a goal of 4,000, a 40% overperformance, with a 6.2% email click-through rate.\n\nQ4 Results: The Q4 gift-card campaign reached its 4,000-card goal on Nov 28, finishing the main push phase with 4,100 total gift cards sold.\n\nClient quote (pending approval): \"This has been our strongest year of holiday marketing yet, across every channel.\" \u2014 Lena Ortiz, VP of Marketing, Aurora Retail."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-016",
+      "title": "RAG Tool Beta \u2014 Internal FAQ Draft",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "RAG Tool Beta \u2014 Internal FAQ Draft\nStatus: Draft\nAuthor: Dev\n\nQ: What is the RAG tool beta?\nA: An internal tool that lets account teams ask natural-language questions across meeting notes, Notion drafts, and retrospectives.\n\nQ: What happens after the pilot?\nA: Beta feedback will shape the full FY26 rollout decision."
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-017",
+      "title": "Ad Copy Variations \u2014 Willow & Pine Meta Feed",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Ad Copy Variations \u2014 Willow & Pine Meta Feed\nStatus: Approved\n\nVariant A: \"We miss you. Here's 20% off to come back.\"\nVariant B: \"Your home, refreshed. Welcome back to Willow & Pine.\""
+    },
+    {
+      "source_type": "notion_draft",
+      "source_ref": "notion-018",
+      "title": "Blog Draft: Choosing a Credit Union That Gets You",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Blog Draft: Choosing a Credit Union That Gets You\nStatus: In review\nAuthor: Nadia Reyes\n\nFirst deliverable from new copywriter Nadia Reyes, written for the Northbridge Financial account.\n\nIntro: Choosing a financial institution is a personal decision. Here's what makes a member-owned credit union different from a traditional bank, and what to look for."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-007",
+      "title": "Sprint 19 Retrospective \u2014 Main Push Kickoff",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Sprint 19 Retrospective \u2014 Main Push Kickoff \u2014 Nov 3, 2026\nParticipants: Marcus, Priya, Dev, Jade.\n\nWhat went well: Main push launched on time Nov 1 across all channels.\n\nWhat didn't go well: The paid social bid strategy needed a mid-month adjustment because CPMs rose faster than forecast.\n\nAction items: Marcus to build a CPM-contingency buffer into future paid social budgets."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-008",
+      "title": "Sprint 20 Retrospective \u2014 Checkout Flow Fix Deployed",
+      "length_tier": "medium",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "content": "Sprint 20 Retrospective \u2014 Checkout Flow Fix Deployed \u2014 Nov 21, 2026\nParticipants: Dev, Jade.\n\nWhat went well: Aurora Retail's engineering team deployed the session-timeout fix on Nov 20, six weeks after it was first escalated in Sprint 18. Dev confirmed no incidents during the following week, including a stress test.\n\nWhat didn't go well: None flagged.\n\nAction items: Close out the checkout-flow risk item that's been tracked since Sprint 15."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-009",
+      "title": "Retro: Willow & Pine Onboarding \u2014 First Month",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Retro: Willow & Pine Onboarding \u2014 First Month \u2014 Nov 18, 2026\nParticipants: Jade, Marcus.\n\nWhat went well: The onboarding checklist worked smoothly for a second consumer-brand client.\n\nWhat didn't go well: Initial budget scope discussions took longer than expected because Willow & Pine's Q1 campaign needs weren't fully defined at kickoff.\n\nAction items: Marcus to draft a Q1 scoping template before the next consumer-brand onboarding."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-010",
+      "title": "Retro: Northbridge Financial Compliance Process",
+      "length_tier": "medium",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "content": "Retro: Northbridge Financial Compliance Process \u2014 Nov 25, 2026\nParticipants: Marcus, Jade.\n\nWhat went well: This round of review caught the missing NCUA disclosures before external send, avoiding a compliance issue.\n\nWhat didn't go well: The extra 5-business-day compliance turnaround wasn't factored into the original welcome-series timeline, causing a one-week slip.\n\nAction items: Jade to build compliance-review lead time into future credit-union client timelines by default."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-011",
+      "title": "Sprint 21 Retrospective \u2014 Main Push Goal Reached",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Sprint 21 Retrospective \u2014 Main Push Goal Reached \u2014 Nov 30, 2026\nParticipants: Marcus, Priya, Dev, Jade.\n\nWhat went well: Cumulative gift-card sales crossed the 4,000 goal on Nov 28, two days before main push officially ended.\n\nWhat didn't go well: The paid social overage wasn't caught until the Dec 2 debrief; the team agreed budget-tracking check-ins should happen weekly during active pushes, not just at phase-end.\n\nAction items: Marcus to set up weekly budget check-ins for all active campaign pushes."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-012",
+      "title": "Quarterly Retrospective \u2014 Q4 Wrap-up",
+      "length_tier": "long",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "content": "Quarterly Retrospective \u2014 Q4 Wrap-up \u2014 Dec 3, 2026\nParticipants: Full account team plus Corinne Blake.\n\nWhat went well\nAurora Retail's full Q4 campaign exceeded its gift-card goal (4,100 vs 4,000, reached Nov 28), and the loyalty launch overperformance from Q3 carried strong momentum into Q4. Two new client relationships, Willow & Pine and Northbridge Financial, were onboarded successfully in the quarter.\n\nWhat didn't go well\nThe recurring checkout-flow issue wasn't fully resolved until Nov 20, nearly 10 weeks after first identified in Sprint 15 -- the team flags escalating directly to client engineering leadership sooner next time a fix stalls this long. The Northbridge Financial welcome series also slipped a week due to an unbudgeted compliance-review turnaround.\n\nRecurring themes\nThis is the third consecutive quarter where a client-side technical or compliance dependency caused a schedule slip; the team recommends building standard buffer time for external dependencies into every client timeline going forward, not just creative-approval buffers.\n\nAction items\n1. Add external-dependency buffer (client eng fixes, compliance reviews) to the standard timeline template, owner Jade.\n2. Track paid social budget weekly during active campaign pushes, owner Marcus.\n3. Document the RAG tool beta pilot feedback from the Aurora Retail team ahead of the FY26 rollout decision, owner Dev."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-013",
+      "title": "Retro: New Copywriter Onboarding",
+      "length_tier": "short",
+      "tags": [],
+      "content": "Retro: New Copywriter Onboarding \u2014 Nov 9, 2026\nParticipants: Priya, Nadia Reyes.\n\nWent well: Nadia Reyes's first week ramped quickly using the brand-guideline changelog created after Sprint 14.\nDidn't go well: None flagged."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-014",
+      "title": "Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback",
+      "length_tier": "medium",
+      "tags": [
+        "topic-present-unresolved"
+      ],
+      "content": "Sprint 22 Retrospective \u2014 RAG Tool Pilot Feedback \u2014 Dec 8, 2026\nParticipants: Dev, Priya, Jade.\n\nWhat went well: Early feedback from the Aurora Retail account team on the RAG tool beta was positive, particularly for surfacing retrospective action items quickly.\n\nWhat didn't go well: Dev notes that answers got noticeably shakier whenever a question needed to pull facts from several different meetings and documents at once, rather than just one; this is being tracked as a beta-phase limitation, not yet resolved as of this retro.\n\nAction items: Dev to compile a formal pilot report summarizing beta usage patterns before the next sprint planning cycle."
+    },
+    {
+      "source_type": "retrospective",
+      "source_ref": "retro-015",
+      "title": "Retro: FY26 Turnaround Time Progress",
+      "length_tier": "medium",
+      "tags": [],
+      "content": "Retro: FY26 Turnaround Time Progress \u2014 Dec 6, 2026\nParticipants: Corinne, Jade, Marcus.\n\nWhat went well: The campaign-turnaround-time metric Corinne reviewed at her December check-in continued to trend in the right direction this year.\n\nWhat didn't go well: The metric remains behind its FY26 target; the team attributes the gap partly to the external-dependency delays flagged in the Q4 wrap-up.\n\nAction items: Revisit target feasibility once external-dependency buffers are in place for a full quarter."
+    }
+  ],
+  "questions": [
+    {
+      "id": "q01",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What purchase order number was confirmed for the holiday gift-card inserts?",
+      "tags": [
+        "exact-id"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-008",
+          "evidence": [
+            "purchase order PO-88214"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q02",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What promo code was included in the approved welcome email that Marketing signed off on sending?",
+      "tags": [
+        "exact-id",
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-005",
+          "evidence": [
+            "code WELCOME15"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q03",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "On what date is Aurora Retail's Q3 loyalty-program landing page launching?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-003",
+          "evidence": [
+            "will launch on October 15, 2026"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q04",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "Who did Corinne confirm would be promoted to Head of Creative, and effective when?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": [
+            "Priya will be promoted to Head of Creative effective Nov 1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q05",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What was the total agency spend for Q3 according to the quarterly business review?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-005",
+          "evidence": [
+            "total agency spend was $412,000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q06",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "How did the winter-sale teaser campaign perform against its landing-page visit goal, per the Q3 wrap-up retro?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-004",
+          "evidence": [
+            "generating only 1,100 landing-page visits against a goal of 3,000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q07",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What root cause did Dev trace the Sprint 15 checkout flow bug to?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-002",
+          "evidence": [
+            "session-timeout misconfiguration on Aurora Retail's checkout server"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q08",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What is the pending client quote drafted for the Aurora Retail case study?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-007",
+          "evidence": [
+            "The team's execution on the loyalty launch exceeded every benchmark we set."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q09",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "When does early access for loyalty members start on the winter sale landing page, ahead of the public sale date?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-004",
+          "evidence": [
+            "starting November 12, before it opens to the public on November 15"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q10",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What campaign budget did Jade confirm at the Aurora Retail Q4 kickoff?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-002",
+          "evidence": [
+            "confirming the campaign budget of $85,000 for Q4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q11",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "Which homepage banner option did Priya recommend during the creative review?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-007",
+          "evidence": [
+            "Priya recommended Option B as the strongest fit for Aurora Retail's brand guidelines."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q12",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What was the average landing page load time for the Project Nova campaign, per the post-launch debrief?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-012",
+          "evidence": [
+            "landing page load time averaged 2.1 seconds"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q13",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What effect did the new onboarding checklist have on kickoff prep time for the Willow & Pine account?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-006",
+          "evidence": [
+            "cut kickoff prep time roughly in half for the Willow & Pine account"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q14",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What is the approved Instagram caption scheduled for October 17?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-003",
+          "evidence": [
+            "First dibs go to loyalty members. Join free today."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq01",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "Why was the welcome email discount changed from 10% to 15%, and starting when was the revised version actually sent?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-002",
+          "evidence": [
+            "Marketing flagged that 10% is too low compared to competitor welcome offers"
+          ]
+        },
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-005",
+          "evidence": [
+            "This is the version to send starting Oct 1."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq02",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "What checkout flow issue recurred between Sprint 15 and Sprint 18, and had Aurora Retail's engineering team deployed the fix by Sprint 18?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-002",
+          "evidence": [
+            "session-timeout misconfiguration on Aurora Retail's checkout server"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-005",
+          "evidence": [
+            "Aurora Retail's engineering team had not yet deployed the session-timeout fix discussed in Sprint 15"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq03",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "Which homepage banner option did the creative review recommend, and did the client end up approving that option?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-007",
+          "evidence": [
+            "Priya recommended Option B as the strongest fit for Aurora Retail's brand guidelines."
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-006",
+          "evidence": [
+            "Lena approved the final homepage banner concept, Option B (blue gradient with gift-card imagery)."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq04",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "What is the maximum combined discount when stacking a loyalty coupon with the winter sale, and which ad variant promotes the loyalty early-access date?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-004",
+          "evidence": [
+            "up to a maximum combined discount of 50%"
+          ]
+        },
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-008",
+          "evidence": [
+            "Early access starts Nov 12 for loyalty members."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq05",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "What Q4 campaign budget did Jade confirm at kickoff, and how much of Q3 agency spend did the Aurora Retail account alone account for?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-002",
+          "evidence": [
+            "confirming the campaign budget of $85,000 for Q4"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-005",
+          "evidence": [
+            "the Aurora Retail account alone accounted for $138,000 of that spend"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq06",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "What gap in the onboarding checklist did the retro flag, and which new credit-union client does that gap need to be closed before?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-006",
+          "evidence": [
+            "The checklist doesn't yet cover credit union clients"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": [
+            "a regional credit union, Northbridge Financial"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nq01",
+      "question_type": "no-answer",
+      "include_in_ranking_metrics": false,
+      "question": "What is the office's policy on how many remote work days employees get per week?",
+      "tags": [
+        "topic-absent"
+      ],
+      "expected_sources": [],
+      "expected_answer_behavior": "abstain",
+      "notes": "No source in the corpus discusses remote-work policy at all; a correct retriever should return no confident match rather than hallucinating an answer."
+    },
+    {
+      "id": "nq02",
+      "question_type": "no-answer",
+      "include_in_ranking_metrics": false,
+      "question": "What are the finalized FY26 pricing changes?",
+      "tags": [
+        "topic-present-unresolved"
+      ],
+      "expected_sources": [],
+      "related_but_unresolved_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": [
+            "pricing details would be shared in a separate finance meeting in November and were not finalized as of this all-hands"
+          ]
+        }
+      ],
+      "expected_answer_behavior": "abstain",
+      "notes": "FY26 pricing is explicitly raised in meeting-010, so a retriever will legitimately surface that source, but no source states finalized pricing changes -- the question must not be answered as if it were resolved."
+    },
+    {
+      "id": "q15",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What was the confirmed budget for the Aurora Retail main-push paid social allocation?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-013",
+          "evidence": [
+            "paid social budget allocation of $32,000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q16",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "How many gift cards had been sold as of the Nov 1 main-push launch readiness review?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-014",
+          "evidence": [
+            "1,200 gift cards sold toward the 4,000 goal"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q17",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "Who did the team recommend for the new Q4 copywriter role?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-016",
+          "evidence": [
+            "The team recommend Nadia Reyes for the Q4 copywriter role"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q18",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What is Willow & Pine's confirmed budget for the Q4 onboarding phase and Q1 campaign prep?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-017",
+          "evidence": [
+            "Budget confirmed at $52,000 for the Q4 onboarding phase and Q1 campaign prep"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q19",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What compliance turnaround requirement did Northbridge Financial's kickoff establish for member communications?",
+      "tags": [
+        "exact-id"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-018",
+          "evidence": [
+            "all member communications must be reviewed by Northbridge's compliance team with a 5-business-day turnaround before send"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q20",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "Which account team is the first user group for the RAG tool beta pilot?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-019",
+          "evidence": [
+            "the Aurora Retail team as the first user group"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q21",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What discount did the Willow & Pine re-engagement email offer lapsed subscribers?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-010",
+          "evidence": [
+            "20% off your next order"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q22",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What federally-insured disclosure line was added to the compliance-approved Northbridge welcome series?",
+      "tags": [
+        "exact-id",
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-012",
+          "evidence": [
+            "Northbridge Financial Credit Union is federally insured by NCUA."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q23",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "When was Aurora Retail's engineering team's session-timeout fix finally deployed?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-008",
+          "evidence": [
+            "deployed the session-timeout fix on Nov 20"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "q24",
+      "question_type": "single-source",
+      "include_in_ranking_metrics": true,
+      "question": "What early limitation did Dev flag with the RAG tool beta during the Sprint 22 retro?",
+      "tags": [
+        "topic-present-unresolved"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-014",
+          "evidence": [
+            "answers got noticeably shakier whenever a question needed to pull facts from several different meetings and documents at once, rather than just one"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq07",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "What was the paid social budget overage during the main push phase, and what mid-sprint issue foreshadowed it?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-021",
+          "evidence": [
+            "a $2,500 overage attributed to a mid-month bid increase to counter rising CPMs"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-007",
+          "evidence": [
+            "CPMs rose faster than forecast"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq08",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "How many gift cards did the main push phase sell on its own, and per the Q4 wrap-up retro, what was the final result against the goal?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-021",
+          "evidence": [
+            "2,900 gift cards sold during main push alone"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-012",
+          "evidence": [
+            "exceeded its gift-card goal (4,100 vs 4,000, reached Nov 28)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq09",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "What gap did the Northbridge compliance retro flag in the original welcome-series timeline, and how many required disclosure lines did compliance ask to add?",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-010",
+          "evidence": [
+            "The extra 5-business-day compliance turnaround wasn't factored into the original welcome-series timeline"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-023",
+          "evidence": [
+            "Two required disclosure lines must be added per NCUA guidance"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq10",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "Trace the checkout-flow issue from its Sprint 15 root cause through its Sprint 18 recurrence to when it was finally fixed.",
+      "tags": [
+        "distractor-heavy"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-002",
+          "evidence": [
+            "session-timeout misconfiguration on Aurora Retail's checkout server"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-005",
+          "evidence": [
+            "Aurora Retail's engineering team had not yet deployed the session-timeout fix discussed in Sprint 15"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-008",
+          "evidence": [
+            "deployed the session-timeout fix on Nov 20"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq11",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "What onboarding gap did an earlier retro flag for credit-union clients, how was the checklist updated for Northbridge's kickoff, and what compliance benefit did that update deliver?",
+      "tags": [],
+      "expected_sources": [
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-006",
+          "evidence": [
+            "The checklist doesn't yet cover credit union clients"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-018",
+          "evidence": [
+            "Marcus confirms updated onboarding checklist now covers a credit-union compliance review step"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-010",
+          "evidence": [
+            "caught the missing NCUA disclosures before external send, avoiding a compliance issue"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq12",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "What FY26 goal did Corinne set for campaign turnaround time, what was the progress as of her December check-in, and what did the team attribute the remaining gap to?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": [
+            "reduce average campaign turnaround time from 21 days to 14 days"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-025",
+          "evidence": [
+            "Average campaign turnaround time has improved from 21 days to 17 days, short of the 14-day target"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-015",
+          "evidence": [
+            "the team attributes the gap partly to the external-dependency delays flagged in the Q4 wrap-up"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq13",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "Walk through the Aurora Retail Q4 gift-card campaign end-to-end: the original goal, how many cards had sold by Nov 1, how many the main push phase sold on its own, and the final cumulative confirmation in the quarterly retro.",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-002",
+          "evidence": [
+            "a target of 4,000 gift cards sold by December 24"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-014",
+          "evidence": [
+            "1,200 gift cards sold toward the 4,000 goal"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-021",
+          "evidence": [
+            "2,900 gift cards sold during main push alone"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-012",
+          "evidence": [
+            "exceeded its gift-card goal (4,100 vs 4,000, reached Nov 28)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq14",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "Trace the Q4 copywriter hire from the original headcount plan through to their first deliverable: what start date was planned, who was recommended, how did their first week go, and what was their first deliverable?",
+      "tags": [
+        "long-document",
+        "multi-chunk"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-005",
+          "evidence": [
+            "an anticipated start date of November 2"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-016",
+          "evidence": [
+            "The team recommend Nadia Reyes for the Q4 copywriter role"
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-013",
+          "evidence": [
+            "Nadia Reyes's first week ramped quickly using the brand-guideline changelog"
+          ]
+        },
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-018",
+          "evidence": [
+            "First deliverable from new copywriter Nadia Reyes"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mq15",
+      "question_type": "multi-source",
+      "include_in_ranking_metrics": true,
+      "question": "Trace the RAG-assisted knowledge tool from its FY26 goal announcement, through which team piloted the beta first, to what the beta feedback will determine next, and what limitation Sprint 22 surfaced along the way.",
+      "tags": [
+        "long-document",
+        "multi-chunk",
+        "topic-present-unresolved"
+      ],
+      "expected_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-010",
+          "evidence": [
+            "launch a formal RAG-assisted internal knowledge tool for account teams"
+          ]
+        },
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-019",
+          "evidence": [
+            "the Aurora Retail team as the first user group"
+          ]
+        },
+        {
+          "source_type": "notion_draft",
+          "source_ref": "notion-016",
+          "evidence": [
+            "Beta feedback will shape the full FY26 rollout decision."
+          ]
+        },
+        {
+          "source_type": "retrospective",
+          "source_ref": "retro-014",
+          "evidence": [
+            "answers got noticeably shakier whenever a question needed to pull facts from several different meetings and documents at once, rather than just one"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "nq03",
+      "question_type": "no-answer",
+      "include_in_ranking_metrics": false,
+      "question": "What is the referral bonus amount for employees who bring in new clients?",
+      "tags": [
+        "topic-absent"
+      ],
+      "expected_sources": [],
+      "expected_answer_behavior": "abstain",
+      "notes": "No source in the corpus discusses an employee client-referral bonus program at all; a correct retriever should return no confident match rather than hallucinating an answer."
+    },
+    {
+      "id": "nq04",
+      "question_type": "no-answer",
+      "include_in_ranking_metrics": false,
+      "question": "What is the final, finalized FY26 revenue growth percentage for the year?",
+      "tags": [
+        "topic-present-unresolved"
+      ],
+      "expected_sources": [],
+      "related_but_unresolved_sources": [
+        {
+          "source_type": "meeting",
+          "source_ref": "meeting-025",
+          "evidence": [
+            "today's figures are preliminary"
+          ]
+        }
+      ],
+      "expected_answer_behavior": "abstain",
+      "notes": "FY26 revenue progress is explicitly raised in meeting-025 (11% year-to-date, preliminary), so a retriever will legitimately surface that source, but no source states finalized year-end revenue growth -- the question must not be answered as if it were resolved."
+    },
+    {
+      "id": "nq05",
+      "question_type": "no-answer",
+      "include_in_ranking_metrics": false,
+      "question": "What is the agency's standard invoice payment-terms window for new clients?",
+      "tags": [
+        "topic-absent"
+      ],
+      "expected_sources": [],
+      "expected_answer_behavior": "abstain",
+      "notes": "No source in the corpus discusses invoice payment terms for clients at all; a correct retriever should return no confident match rather than hallucinating an answer."
+    }
+  ],
+  "expected_source_counts": {
+    "meeting": 25,
+    "notion_draft": 18,
+    "retrospective": 15
+  },
+  "expected_question_counts": {
+    "single-source": 24,
+    "multi-source": 15,
+    "no-answer": 5
+  }
+}

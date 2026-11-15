@@ -570,7 +570,9 @@ class OrchestratorTests(TestCase):
             project=self.project,
         )
 
-    def test_handle_message_general_chat(self):
+    @patch('rag.retrieval.retrieve_chunks')
+    def test_handle_message_general_chat(self, mock_retrieve_chunks):
+        mock_retrieve_chunks.return_value = []
         orchestrator = AgentOrchestrator(self.user, self.project, self.session)
         chunks = list(orchestrator.handle_message("hello"))
         types = [c['type'] for c in chunks]
@@ -1587,8 +1589,10 @@ class WorkflowEngineTests(TestCase):
         )
         self.assertEqual(failed_exec.count(), 1)
 
-    def test_legacy_backward_compat(self):
+    @patch('rag.retrieval.retrieve_chunks')
+    def test_legacy_backward_compat(self, mock_retrieve_chunks):
         """Runs without workflow_definition use legacy logic."""
+        mock_retrieve_chunks.return_value = []
         orchestrator = AgentOrchestrator(self.user, self.project, self.session)
         chunks = list(orchestrator.handle_message("hello"))
         types = [c['type'] for c in chunks]

@@ -15,7 +15,11 @@ from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
+from campaign.models import Campaign
+from core.tenant_context import tenant_schema_context
 from facebook_integration.models import MetaAdAccount
+from notifications.models import NotificationCategory, NotificationEventType
+from notifications.services import create_notification
 from utils.ad_preview_cache_keys import creative_preview_cache_key
 
 from .meta_client import MetaApiError, graph_get, graph_paged
@@ -206,11 +210,14 @@ def _set_phase(run_id: int, phase: str, progress: str) -> None:
     )
 
 
-def sync_ad_account(ad_account: MetaAdAccount, access_token: str, *, days: int = 30, kind: str = "hourly") -> MetaSyncRun:
+def sync_ad_account(
+    ad_account: MetaAdAccount, access_token: str, *, days: int = 30, kind: str = "hourly", tenant_schema: str = "public"
+) -> MetaSyncRun:
     """Run a full hydration pass. Returns the MetaSyncRun log row."""
     run = MetaSyncRun.objects.create(ad_account=ad_account, kind=kind, status="running")
     counts: dict[str, int] = {}
     error_message = ""
+    sync_error = None
     try:
         _set_phase(run.id, "campaigns", "Fetching campaigns")
         counts["campaigns"] = sync_campaigns(ad_account, access_token)
@@ -248,10 +255,12 @@ def sync_ad_account(ad_account: MetaAdAccount, access_token: str, *, days: int =
         counts["insights_rows"] = sync_insights(ad_account, access_token, days=days)
         status = "ok"
     except MetaApiError as err:
+        sync_error = err
         logger.warning("sync_ad_account %s failed: %s", ad_account.meta_account_id, err)
         error_message = str(err)[:2000]
         status = "error"
     except Exception as err:  # pragma: no cover - defensive
+        sync_error = err
         logger.exception("sync_ad_account %s exploded", ad_account.meta_account_id)
         error_message = f"unhandled: {err}"[:2000]
         status = "error"
@@ -265,7 +274,60 @@ def sync_ad_account(ad_account: MetaAdAccount, access_token: str, *, days: int =
         updated_at=timezone.now(),
     )
     run.refresh_from_db()
+    _record_campaign_sync_result(ad_account, sync_error, tenant_schema)
     return run
+
+
+# Campaign sync health ---------------------------------------------------------
+
+
+def _classify_sync_error(error: Exception) -> str:
+    """Auth errors need the user to reconnect; anything else is retried by the next sync."""
+    if not isinstance(error, MetaApiError):
+        return "transient"
+    detail = error.body.get("error") if isinstance(error.body, dict) else None
+    code = str(detail.get("code")) if isinstance(detail, dict) else ""
+    # Meta reports expired or revoked tokens as code 190 (or 102 for sessions).
+    if code in ("190", "102") or error.status_code == 401:
+        return "auth"
+    return "transient"
+
+
+def _notify_campaign_sync_auth_error(campaign: Campaign, ad_account: MetaAdAccount) -> None:
+    connector = ad_account.connection.user
+    create_notification(
+        recipient_id=campaign.owner_id,
+        actor_id=None,
+        category=NotificationCategory.INTEGRATIONS,
+        event_type=NotificationEventType.ACCOUNT_PERMISSION,
+        title=f"Reconnect Meta for {campaign.name}",
+        body=(
+            f"Meta authorization for {ad_account.name or 'the linked ad account'} has expired "
+            f"or been revoked, so campaign metrics may be out of date. "
+            f"{connector.get_full_name() or connector.username} must reconnect the account."
+        ),
+        related_object_type="campaign",
+        related_object_id=str(campaign.id),
+        action_url=f"/campaigns/{campaign.slug}",
+        metadata={"change_type": "campaign_sync_auth_error", "project_id": campaign.project_id},
+    )
+
+
+def _record_campaign_sync_result(ad_account: MetaAdAccount, error: Exception | None, tenant_schema: str) -> None:
+    if not ad_account.project_id:
+        return
+    error_code = _classify_sync_error(error) if error is not None else ""
+    with tenant_schema_context(tenant_schema):
+        for campaign in Campaign.objects.filter(project_id=ad_account.project_id, is_deleted=False):
+            if error_code and Campaign.Platform.META not in (campaign.platforms or []):
+                continue
+            was_auth_error = campaign.last_sync_error == "auth"
+            new_error = "auth" if was_auth_error and error_code == "transient" else error_code
+            Campaign.objects.filter(pk=campaign.pk).update(
+                last_sync_error=new_error, last_sync_attempted_at=timezone.now()
+            )
+            if new_error == "auth" and not was_auth_error:
+                _notify_campaign_sync_auth_error(campaign, ad_account)
 
 
 # Per-level syncers ------------------------------------------------------------

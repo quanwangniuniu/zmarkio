@@ -24,6 +24,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.models import Project
+from core.tenant_context import current_tenant_schema
 from facebook_integration.access import (
     get_accessible_meta_ad_account_or_404,
     get_accessible_meta_ad_accounts,
@@ -324,7 +325,7 @@ class MetaSyncRunTriggerView(APIView):
                 {"detail": "You do not have permission to sync this ad account."},
                 status=403,
             )
-        async_result = sync_single_ad_account.delay(ad_account.id)
+        async_result = sync_single_ad_account.delay(ad_account.id, tenant_schema=current_tenant_schema())
         return Response(
             {
                 "status": "queued",

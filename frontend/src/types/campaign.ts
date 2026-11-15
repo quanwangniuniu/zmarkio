@@ -4,6 +4,7 @@ import type { Id } from './common';
 export type CampaignStatus = 'PLANNING' | 'TESTING' | 'SCALING' | 'OPTIMIZING' | 'PAUSED' | 'COMPLETED' | 'ARCHIVED';
 export type CampaignObjective = 'AWARENESS' | 'CONSIDERATION' | 'CONVERSION' | 'RETENTION' | 'ENGAGEMENT' | 'TRAFFIC' | 'LEAD_GENERATION' | 'APP_PROMOTION';
 export type CampaignPlatform = 'META' | 'GOOGLE_ADS' | 'TIKTOK' | 'LINKEDIN' | 'SNAPCHAT' | 'TWITTER' | 'PINTEREST' | 'REDDIT' | 'PROGRAMMATIC' | 'EMAIL';
+export type CampaignSyncError = '' | 'auth' | 'transient';
 
 // User and Project summaries (reuse from task types if available)
 export interface UserSummary {
@@ -43,6 +44,8 @@ export interface CampaignData {
   status: CampaignStatus;
   status_note?: string;
   latest_performance_summary?: Record<string, any>;
+  last_sync_error?: CampaignSyncError;
+  last_sync_attempted_at?: string | null;
   created_at: string;
   updated_at: string;
   is_deleted?: boolean;

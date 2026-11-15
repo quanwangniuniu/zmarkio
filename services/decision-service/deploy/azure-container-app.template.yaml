@@ -30,7 +30,7 @@ properties:
               port: 8080
           - type: Readiness
             httpGet:
-              path: /health
+              path: /ready
               port: 8080
     scale:
       minReplicas: 1
