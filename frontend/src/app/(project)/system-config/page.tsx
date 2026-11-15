@@ -8,12 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { getApiErrorDetail } from '@/lib/api/errorMessage';
-import { fetchTaskConfig, saveTaskConfig } from '@/lib/api/orgCustomizationApi';
+import { fetchOptionConfig, fetchTaskConfig, saveOptionConfig, saveTaskConfig } from '@/lib/api/orgCustomizationApi';
+import { storeCsmConfig } from '@/lib/csm/csmConfig';
 import { useProjectStore } from '@/lib/projectStore';
 import { storeTaskConfig } from '@/lib/tasks/taskConfig';
 import { getTaskTypeDefinition } from '@/lib/tasks/taskTypes';
 import { getDefaultFieldOptions } from '@/lib/tasks/typeFieldSchemas';
-import type { TaskConfig, TaskFieldOptionConfig } from '@/types/orgCustomization';
+import type { OptionConfig, TaskConfig, TaskFieldOptionConfig } from '@/types/orgCustomization';
 
 const headerCell = 'px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400';
 const bodyCell = 'px-4 py-2 text-sm text-gray-900 dark:text-gray-100';
@@ -23,6 +24,10 @@ const bodyClass = 'divide-y divide-gray-200 dark:divide-gray-700';
 const sectionTitle = 'text-lg font-semibold text-gray-900 dark:text-gray-100';
 
 type ConfigListKey = 'task_types' | 'task_statuses' | 'task_priorities';
+
+const CSM_FIELD_TITLES: Record<string, string> = {
+  ticket_priority: 'Ticket Priorities',
+};
 
 interface OptionRow extends TaskFieldOptionConfig {
   fieldLabel: string;
@@ -84,12 +89,70 @@ function OrderInput({ value, onChange }: { value: number; onChange: (value: numb
   );
 }
 
+function OptionConfigTables({ options, fieldTitles, onChange }: {
+  options: OptionConfig[];
+  fieldTitles: Record<string, string>;
+  onChange: (target: OptionConfig, patch: Partial<OptionConfig>) => void;
+}) {
+  return (
+    <>
+      {Object.entries(fieldTitles).map(([field, title]) => (
+        <div key={field} className="space-y-1">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">{title}</h3>
+          <table className={tableClass}>
+            <thead>
+              <tr>
+                <th className={headerCell}>Enabled</th>
+                <th className={headerCell}>Option</th>
+                <th className={headerCell}>Label</th>
+                <th className={headerCell}>Color</th>
+                <th className={headerCell}>Order</th>
+              </tr>
+            </thead>
+            <tbody className={bodyClass}>
+              {options.filter((row) => row.field === field).map((row) => (
+                <tr key={row.value}>
+                  <td className={bodyCell}>
+                    <Checkbox
+                      checked={row.enabled}
+                      disabled={row.is_default}
+                      onCheckedChange={(checked) => onChange(row, { enabled: checked === true })}
+                      aria-label={`Enable ${row.default_label}`}
+                    />
+                  </td>
+                  <td className={bodyCell}>{row.default_label}</td>
+                  <td className={bodyCell}>
+                    <LabelInput value={row.label} placeholder={row.default_label} onChange={(label) => onChange(row, { label })} />
+                  </td>
+                  <td className={bodyCell}>
+                    <input
+                      type="color"
+                      className="h-9 w-14 cursor-pointer rounded border border-gray-200 dark:border-gray-700"
+                      value={row.color ?? '#94a3b8'}
+                      onChange={(e) => onChange(row, { color: e.target.value })}
+                      aria-label={`${row.default_label} color`}
+                    />
+                  </td>
+                  <td className={bodyCell}>
+                    <OrderInput value={row.order} onChange={(order) => onChange(row, { order })} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </>
+  );
+}
+
 export default function SystemConfigPage() {
   const activeProject = useProjectStore((state) => state.activeProject);
   const projectId = activeProject?.id;
   const [config, setConfig] = useState<TaskConfig | null>(null);
   const [optionRows, setOptionRows] = useState<OptionRow[]>([]);
   const [optionType, setOptionType] = useState('');
+  const [csmOptions, setCsmOptions] = useState<OptionConfig[]>([]);
   const [saving, setSaving] = useState(false);
 
   const loadConfig = (next: TaskConfig) => {
@@ -103,6 +166,9 @@ export default function SystemConfigPage() {
     fetchTaskConfig(projectId)
       .then(loadConfig)
       .catch((error) => toast.error(getApiErrorDetail(error, 'Failed to load system configuration')));
+    fetchOptionConfig('csm', projectId)
+      .then((next) => setCsmOptions(next.options))
+      .catch((error) => toast.error(getApiErrorDetail(error, 'Failed to load CSM configuration')));
   }, [projectId]);
 
   const optionTypes = useMemo(
@@ -127,18 +193,26 @@ export default function SystemConfigPage() {
   const updateOption = (target: OptionRow, patch: Partial<OptionRow>) =>
     setOptionRows((prev) => prev.map((row) => (row === target ? { ...row, ...patch } : row)));
 
+  const updateCsmOption = (target: OptionConfig, patch: Partial<OptionConfig>) =>
+    setCsmOptions((prev) => prev.map((row) => (row === target ? { ...row, ...patch } : row)));
+
   const handleSave = async () => {
     if (!config || !projectId) return;
     setSaving(true);
     try {
-      const saved = await saveTaskConfig(projectId, {
-        task_types: config.task_types,
-        task_statuses: config.task_statuses,
-        task_priorities: config.task_priorities,
-        task_field_options: optionRowsToSave(optionRows),
-      });
+      const [saved, savedCsm] = await Promise.all([
+        saveTaskConfig(projectId, {
+          task_types: config.task_types,
+          task_statuses: config.task_statuses,
+          task_priorities: config.task_priorities,
+          task_field_options: optionRowsToSave(optionRows),
+        }),
+        saveOptionConfig('csm', projectId, csmOptions),
+      ]);
       loadConfig(saved);
       storeTaskConfig(projectId, saved);
+      setCsmOptions(savedCsm.options);
+      storeCsmConfig(projectId, savedCsm);
       toast.success('System configuration saved');
     } catch (error) {
       toast.error(getApiErrorDetail(error, 'Failed to save system configuration'));
@@ -155,8 +229,8 @@ export default function SystemConfigPage() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">System Configuration</h1>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Choose which task types {activeProject?.name ?? 'this project'} uses, and rename or reorder types,
-                statuses, priorities and dropdown options.
+                Choose which task types and CSM options {activeProject?.name ?? 'this project'} uses, and rename,
+                recolor or reorder them.
               </p>
             </div>
             {config?.can_edit && (
@@ -350,6 +424,11 @@ export default function SystemConfigPage() {
                     </table>
                   </div>
                 ))}
+              </section>
+
+              <section className="space-y-3">
+                <h2 className={sectionTitle}>CSM</h2>
+                <OptionConfigTables options={csmOptions} fieldTitles={CSM_FIELD_TITLES} onChange={updateCsmOption} />
               </section>
             </>
           )}

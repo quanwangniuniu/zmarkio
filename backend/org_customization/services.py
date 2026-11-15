@@ -1,8 +1,16 @@
 from django.db import transaction
+from rest_framework import serializers
 
+from csm.models import Ticket
 from task.models import Task
 
-from .models import TaskFieldOptionConfig, TaskPriorityConfig, TaskStatusConfig, TaskTypeConfig
+from .models import OptionConfig, TaskFieldOptionConfig, TaskPriorityConfig, TaskStatusConfig, TaskTypeConfig
+
+MODULE_OPTION_FIELDS = {
+    'csm': {
+        'ticket_priority': Ticket._meta.get_field('priority'),
+    },
+}
 
 STATUS_CATEGORIES = {
     'TO_DO': ('To Do', '#94A3B8'),
@@ -132,3 +140,39 @@ def save_task_config(project, data):
         data.get('task_field_options', []),
         ['task_type', 'field', 'value'],
     )
+
+
+def get_option_config(project, module):
+    rows = {
+        (row.field, row.value): row
+        for row in _project_rows(OptionConfig, project).filter(module=module)
+    }
+    options = []
+    for field, model_field in MODULE_OPTION_FIELDS[module].items():
+        items = []
+        for index, (value, default_label) in enumerate(model_field.choices):
+            row = rows.get((field, value))
+            items.append({
+                'field': field,
+                'value': value,
+                'default_label': default_label,
+                'label': row.label if row else None,
+                'color': row.color if row else None,
+                'enabled': row.enabled if row else True,
+                'order': row.order if row else index,
+                'is_default': value == model_field.default,
+            })
+        options.extend(sorted(items, key=lambda item: item['order']))
+    return {'options': options}
+
+
+def ensure_option_enabled(project, module, field, value, error_field):
+    if value and _project_rows(OptionConfig, project).filter(
+        module=module, field=field, value=value, enabled=False
+    ).exists():
+        raise serializers.ValidationError({error_field: 'This option is disabled for this project.'})
+
+
+@transaction.atomic
+def save_option_config(project, module, items):
+    _save_rows(OptionConfig, project, [{**item, 'module': module} for item in items], ['module', 'field', 'value'])

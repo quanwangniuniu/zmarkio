@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from task.models import Task
 
-from .services import STATUS_CATEGORIES
+from .services import MODULE_OPTION_FIELDS, STATUS_CATEGORIES
 
 TASK_TYPE_CHOICES = Task._meta.get_field('type').choices
 
@@ -55,3 +55,24 @@ class TaskConfigSerializer(serializers.Serializer):
     task_statuses = TaskStatusConfigItemSerializer(many=True, required=False)
     task_priorities = TaskPriorityConfigItemSerializer(many=True, required=False)
     task_field_options = TaskFieldOptionConfigItemSerializer(many=True, required=False)
+
+
+class OptionConfigItemSerializer(serializers.Serializer):
+    field = serializers.CharField(max_length=50)
+    value = serializers.CharField(max_length=100)
+    label = label_field()
+    color = color_field()
+    enabled = serializers.BooleanField(required=False, default=True)
+    order = order_field()
+
+    def validate(self, attrs):
+        model_field = MODULE_OPTION_FIELDS[self.context['module']].get(attrs['field'])
+        if model_field is None or attrs['value'] not in dict(model_field.choices):
+            raise serializers.ValidationError('Unknown option.')
+        if not attrs['enabled'] and attrs['value'] == model_field.default:
+            raise serializers.ValidationError('The default option cannot be disabled.')
+        return attrs
+
+
+class OptionConfigSerializer(serializers.Serializer):
+    options = OptionConfigItemSerializer(many=True)

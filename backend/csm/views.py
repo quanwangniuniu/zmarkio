@@ -19,6 +19,7 @@ from core.permissions import IsProjectMember, IsProjectOwner
 from core.viewset_mixins import ProjectScopedViewSetMixin
 from core.slug_mixins import SlugLookupViewSetMixin
 from csm.services.scope import accessible_queues_for
+from org_customization.services import ensure_option_enabled
 
 from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, Ticket, CsmNotification,
@@ -689,8 +690,10 @@ class ConversationViewSet(viewsets.ModelViewSet):
                 {'detail': 'A queue must be selected to create a ticket.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if not self._accessible_queues().filter(id=queue_id).exists():
+        queue = self._accessible_queues().filter(id=queue_id).first()
+        if queue is None:
             raise PermissionDenied('You cannot create a ticket in that queue.')
+        ensure_option_enabled(queue.project, 'csm', 'ticket_priority', priority, 'priority')
 
         ticket = Ticket.objects.create(
             queue_id=queue_id,

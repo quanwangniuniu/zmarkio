@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from experience_group.models import ExperienceGroup
+from org_customization.services import ensure_option_enabled
 from .models import (
     Queue, QueueAgent, QueueTeam, CustomerUser, CsmNotification,
     Conversation, ConversationMessage, Ticket, QuickReplyTemplate, QuickReplyTemplateHistory,
@@ -391,6 +392,13 @@ class TicketSerializer(serializers.ModelSerializer):
     def get_sla(self, obj):
         from csm.services.sla import get_sla_status
         return get_sla_status(obj)
+
+    def validate(self, attrs):
+        priority = attrs.get('priority')
+        if priority and priority != getattr(self.instance, 'priority', None):
+            queue = attrs.get('queue', getattr(self.instance, 'queue', None))
+            ensure_option_enabled(queue.project if queue else None, 'csm', 'ticket_priority', priority, 'priority')
+        return attrs
 
 
 class QuickReplyTemplateSerializer(serializers.ModelSerializer):

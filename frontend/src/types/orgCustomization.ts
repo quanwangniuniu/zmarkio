@@ -48,3 +48,19 @@ export interface TaskConfig {
 export type TaskConfigUpdate = Partial<
   Pick<TaskConfig, 'task_types' | 'task_statuses' | 'task_priorities' | 'task_field_options'>
 >;
+
+export interface OptionConfig {
+  field: string;
+  value: string;
+  default_label: string;
+  label: string | null;
+  color: string | null;
+  enabled: boolean;
+  order: number;
+  is_default: boolean;
+}
+
+export interface OptionModuleConfig {
+  options: OptionConfig[];
+  can_edit: boolean;
+}
