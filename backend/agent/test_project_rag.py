@@ -263,7 +263,10 @@ class AnswerProjectQuestionTest(TestCase):
         question = self._seed_follow_up()
         rewritten = 'Why did we pick vendor A?'
         mock_retrieve.return_value = [_chunk(content='Vendor A was cheaper.')]
-        mock_llm.side_effect = [_llm_ok(rewritten), _llm_ok('Because it was cheaper.')]
+        mock_llm.side_effect = [
+            _llm_ok('{"question": "Why did we pick vendor A?"}'),
+            _llm_ok('Because it was cheaper.'),
+        ]
 
         chunks = list(self.orch.answer_project_question(question))
 
