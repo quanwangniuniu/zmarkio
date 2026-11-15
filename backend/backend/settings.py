@@ -447,7 +447,7 @@ RAG_OLLAMA_EMBEDDING_MODEL = config('RAG_OLLAMA_EMBEDDING_MODEL', default='nomic
 # Chat model for project-RAG rewrite and grounded answers. This is not the
 # embedding model: nomic-embed-text cannot generate text. qwen3 thinks by
 # default; the chat client sends think=false so a rewrite stays one line.
-RAG_OLLAMA_CHAT_MODEL = config('RAG_OLLAMA_CHAT_MODEL', default='qwen3:4b')
+RAG_OLLAMA_CHAT_MODEL = config('RAG_OLLAMA_CHAT_MODEL', default='qwen3:8b')
 RAG_OLLAMA_TIMEOUT_SECONDS = config('RAG_OLLAMA_TIMEOUT_SECONDS', default=60, cast=int)
 
 # Chunking (rag.chunking). Units are CHARACTERS, not tokens — chunking does

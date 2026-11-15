@@ -42,7 +42,7 @@ class RewriteProjectQuestionTest(SimpleTestCase):
         kwargs = mock_llm.call_args.kwargs
         self.assertEqual(kwargs['agent_session'], self.session)
         self.assertEqual(kwargs['provider'], 'ollama')
-        self.assertEqual(kwargs['model'], 'qwen3:4b')
+        self.assertEqual(kwargs['model'], 'qwen3:8b')
         self.assertEqual(kwargs['temperature'], 0)
         self.assertEqual(kwargs['timeout'], 15)
         self.assertEqual(kwargs['response_format']['required'], ['question'])
