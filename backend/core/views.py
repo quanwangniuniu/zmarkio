@@ -156,7 +156,6 @@ class PersonalDataExportRequestListCreateView(APIView):
             event_type="privacy.data_export.requested",
             actor=request.user,
             organization=getattr(request.user, "current_organization", None),
-            project=getattr(request.user, "active_project", None),
             target_type="data_export_request",
             target_id=export_request.id,
             after={
@@ -199,7 +198,6 @@ class PersonalDataExportDownloadView(APIView):
             event_type="privacy.data_export.downloaded",
             actor=export_request.user,
             organization=getattr(export_request.user, "current_organization", None),
-            project=getattr(export_request.user, "active_project", None),
             target_type="data_export_request",
             target_id=export_request.id,
             after={

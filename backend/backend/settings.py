@@ -132,6 +132,7 @@ INSTALLED_APPS = [
     'portal',
     'external_api',
     'rag.apps.RagConfig',
+    'org_customization.apps.OrgCustomizationConfig',
 ]
 
 MIDDLEWARE = [

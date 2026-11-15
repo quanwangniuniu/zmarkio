@@ -65,8 +65,15 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
             });
         }
 
-        var decision = await repository.UpdateDraftAsync(lookup, access.UserId, request, cancellationToken);
-        return decision is null ? BadRequest(new { detail = "Draft decision cannot be updated." }) : Ok(decision);
+        try
+        {
+            var decision = await repository.UpdateDraftAsync(lookup, access.UserId, request, cancellationToken);
+            return decision is null ? BadRequest(new { detail = "Draft decision cannot be updated." }) : Ok(decision);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
     }
 
     private int? ProjectId()

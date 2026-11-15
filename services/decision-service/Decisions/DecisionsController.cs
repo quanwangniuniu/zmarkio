@@ -137,8 +137,17 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        var decision = await repository.UpdateDraftAsync(lookup, access.UserId, request, cancellationToken);
-        return decision is null ? BadRequest(new { detail = "Decision cannot be updated in its current state." }) : Ok(decision);
+        
+        try
+        {
+            var decision = await repository.UpdateDraftAsync(lookup, access.UserId, request, cancellationToken);
+            return decision is null ? BadRequest(new { detail = "Decision cannot be updated in its current state." }) : Ok(decision);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
+        
     }
 
     [HttpPost("{lookup}/commit")]

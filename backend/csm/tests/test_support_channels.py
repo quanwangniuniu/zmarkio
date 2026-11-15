@@ -1,5 +1,6 @@
 import pytest
 from django.urls import reverse
+from freezegun import freeze_time
 from rest_framework import status
 
 from csm.models import Conversation, SupportChannel, SupportChannelExperienceGroup
@@ -361,6 +362,8 @@ class TestOperatingHoursService:
 
 
 class TestRuntimeAPI:
+    # Keep online checks within business hours; the 23:59 end time is exclusive.
+    @freeze_time("2026-01-05 12:00:00")
     def test_config_by_embed_key_online(self, api_client, always_open_live_chat_channel):
         url = _portal_channel_config_url(always_open_live_chat_channel.embed_key)
         response = api_client.get(url)
@@ -443,6 +446,7 @@ class TestPortalConversationGuard:
         assert conversation.support_channel_id is None
         assert conversation.queue_id == csm_queue.id
 
+    @freeze_time("2026-01-05 12:00:00")
     def test_create_live_chat_when_online(
         self, portal_customer_client, customer, always_open_live_chat_channel,
     ):
