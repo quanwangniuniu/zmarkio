@@ -293,6 +293,7 @@ def _run_arm_c(user, project, question_row: dict) -> dict[str, Any]:
         'reason': result.reason,
         'latency_ms': latency_ms,
         'session_id': str(session.id),
+        'rejected_output': result.rejected_text,
     }
 
 

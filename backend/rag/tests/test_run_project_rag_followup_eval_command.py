@@ -350,6 +350,7 @@ def test_arm_c_records_rewrite_meta_and_compares_to_a(tmp_path):
     assert arm_c['rewritten_question'] == 'Why did we pick vendor A?'
     assert arm_c['fell_back'] is False
     assert arm_c['reason'] == 'rewritten'
+    assert arm_c['rejected_output'] == ''
     assert isinstance(arm_c['latency_ms'], (int, float))
     assert row['history_turn_count'] == 1
     assert row['multi_turn'] is False
