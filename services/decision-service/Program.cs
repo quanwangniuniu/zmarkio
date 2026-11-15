@@ -1,4 +1,6 @@
 using DecisionService.Decisions;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
 using System.Text.Json.Serialization;
 
@@ -10,7 +12,7 @@ builder.Services
     {
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
-builder.Services.AddHealthChecks();
+var healthChecks = builder.Services.AddHealthChecks();
 
 builder.Services.AddOptions<DjangoJwtOptions>()
     .Configure(options =>
@@ -38,7 +40,14 @@ if (string.Equals(storage, "postgres", StringComparison.OrdinalIgnoreCase))
         throw new InvalidOperationException("Decision service Postgres storage requires ConnectionStrings:DecisionDb.");
     }
 
-    builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
+    var dataSource = NpgsqlDataSource.Create(connectionString);
+    builder.Services.AddSingleton(dataSource);
+    healthChecks.AddAsyncCheck("postgres", async ct =>
+    {
+        await using var command = dataSource.CreateCommand("SELECT 1");
+        await command.ExecuteScalarAsync(ct);
+        return HealthCheckResult.Healthy();
+    }, tags: ["ready"], timeout: TimeSpan.FromSeconds(3));
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddScoped<TenantConnectionFactory>();
     builder.Services.AddScoped<IDecisionRepository, PostgresDecisionRepository>();
@@ -50,7 +59,8 @@ else
 
 var app = builder.Build();
 
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
 app.MapControllers();
 
 app.Run();
