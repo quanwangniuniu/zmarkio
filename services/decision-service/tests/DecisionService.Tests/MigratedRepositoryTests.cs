@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using DecisionService.Decisions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
@@ -299,6 +300,26 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
 
         Assert.Equal(DecisionStatus.REVIEWED, reviewed?.Status);
         Assert.Equal("GOOD", Assert.Single((await repository.ListReviewsAsync(created.Slug, CancellationToken.None))!).DecisionQuality);
+    }
+
+    [Fact]
+    public async Task Cancelled_token_cancels_the_running_query()
+    {
+        await using var blocker = await database.DataSource.OpenConnectionAsync();
+        await using var lockTransaction = await blocker.BeginTransactionAsync();
+        await using (var lockTable = new NpgsqlCommand("LOCK TABLE decisions IN ACCESS EXCLUSIVE MODE", blocker, lockTransaction))
+        {
+            await lockTable.ExecuteNonQueryAsync();
+        }
+
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var stopwatch = Stopwatch.StartNew();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => repository.ListAsync(ProjectId, null, 10, 0, cancellation.Token));
+
+        Assert.InRange(stopwatch.Elapsed, TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(5));
+        Assert.Equal(0, await database.Count("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'"));
     }
 
     private static CreateDecisionDraftRequest Draft(string title, IReadOnlyList<int>? parents = null, int? meetingId = null) =>
