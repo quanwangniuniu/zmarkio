@@ -231,3 +231,19 @@ def restore_formula_rewrites(sheet, payload) -> List[Cell]:
     if changed:
         Cell.objects.bulk_update(changed, ['raw_input', 'formula_value'])
     return changed
+
+
+def formulas_for_revert(sheet, operation, inverse_op_type) -> List[Cell]:
+    """Formula cells to change when undoing a structural operation.
+
+    Restores the exact text the operation saved. An operation saved before
+    formula_rewrites existed falls back to rewriting for the inverse operation.
+    """
+    if operation.formula_rewrites is None:
+        return rewrite_cells_for_operation(
+            sheet.id,
+            inverse_op_type,
+            operation.anchor_position,
+            operation.count,
+        )
+    return restore_formula_rewrites(sheet, operation.formula_rewrites)
