@@ -45,7 +45,7 @@ def _xlsx(build=None):
 
 
 def _with_normal_size(content, size):
-    """Rewrite the first <sz val="11"/> in styles.xml, as the browser test does."""
+    """Rewrite the first <sz val="11"/> in styles.xml to change the workbook's Normal font size."""
     output = io.BytesIO()
     with zipfile.ZipFile(io.BytesIO(content)) as source, zipfile.ZipFile(output, 'w') as target:
         for item in source.infolist():
@@ -137,6 +137,7 @@ class SheetImportSourceBaselineTests(TestCase):
         self.assertEqual(baseline['cells']['0,0'], {'raw_input': '100'})
         self.assertEqual(baseline['cells']['0,1'], {'raw_input': '=A1*2'})
         self.assertNotIn('computed_number', str(baseline))
+        self.assertEqual(baseline['structure_operation_checkpoint'], 0)
 
     def test_empty_raw_input_is_omitted(self):
         Cell.objects.create(
@@ -280,8 +281,8 @@ class SheetImportSourceBaselineTests(TestCase):
         }
         return formats, fills
 
-    def test_excel_style_conversion_matches_the_browser_rules(self):
-        """Cases from xlsx_style_import.test.ts, plus theme tints."""
+    def test_excel_style_conversion_rules(self):
+        """Fonts, sizes, colours (including theme tints), fills and number formats from a workbook."""
         def build(ws):
             ws['A1'] = 'plain'
             ws['B1'] = 'explicit'
