@@ -4,23 +4,23 @@ namespace DecisionService.Decisions;
 
 public interface IDecisionRepository
 {
-    DecisionListResponse List(int? projectId, DecisionStatus? status, int pageSize, int pageToken);
-    DecisionDetailDto? Get(string lookup);
-    DecisionDetailDto Create(int? projectId, int? actorId, CreateDecisionDraftRequest request);
-    DecisionDetailDto? UpdateDraft(string lookup, int? actorId, UpdateDecisionDraftRequest request);
-    DecisionDetailDto? Transition(string lookup, int? actorId, DecisionStatus targetStatus);
-    bool Delete(string lookup, int? actorId);
-    DecisionSignalListResponse ListSignals(string lookup);
-    DecisionSignalDto? CreateSignal(string lookup, int? actorId, DecisionSignalInput input);
-    DecisionSignalDto? UpdateSignal(string lookup, int signalId, DecisionSignalInput input);
-    bool DeleteSignal(string lookup, int signalId);
-    DecisionConnectionsResponse? GetConnections(string lookup);
-    DecisionConnectionsResponse? UpdateConnections(string lookup, int? actorId, DecisionConnectionsUpdateRequest request);
-    DecisionGraphResponse GetGraph(int projectId, bool allProjects, int userId, bool isSuperuser);
-    DecisionTopicLabelResponse? UpsertTopicLabel(int projectId, string topic, string title);
-    TopicLabelDeleteResult DeleteTopicLabel(int projectId, string topic);
-    IReadOnlyList<DecisionReviewDto>? ListReviews(string lookup);
-    DecisionDetailDto? CreateReview(string lookup, int? actorId, DecisionReviewInput input);
+    Task<DecisionListResponse> ListAsync(int? projectId, DecisionStatus? status, int pageSize, int pageToken, CancellationToken ct);
+    Task<DecisionDetailDto?> GetAsync(string lookup, CancellationToken ct);
+    Task<DecisionDetailDto> CreateAsync(int? projectId, int? actorId, CreateDecisionDraftRequest request, CancellationToken ct);
+    Task<DecisionDetailDto?> UpdateDraftAsync(string lookup, int? actorId, UpdateDecisionDraftRequest request, CancellationToken ct);
+    Task<DecisionDetailDto?> TransitionAsync(string lookup, int? actorId, DecisionStatus targetStatus, CancellationToken ct);
+    Task<bool> DeleteAsync(string lookup, int? actorId, CancellationToken ct);
+    Task<DecisionSignalListResponse> ListSignalsAsync(string lookup, CancellationToken ct);
+    Task<DecisionSignalDto?> CreateSignalAsync(string lookup, int? actorId, DecisionSignalInput input, CancellationToken ct);
+    Task<DecisionSignalDto?> UpdateSignalAsync(string lookup, int signalId, DecisionSignalInput input, CancellationToken ct);
+    Task<bool> DeleteSignalAsync(string lookup, int signalId, CancellationToken ct);
+    Task<DecisionConnectionsResponse?> GetConnectionsAsync(string lookup, CancellationToken ct);
+    Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, DecisionConnectionsUpdateRequest request, CancellationToken ct);
+    Task<DecisionGraphResponse> GetGraphAsync(int projectId, bool allProjects, int userId, bool isSuperuser, CancellationToken ct);
+    Task<DecisionTopicLabelResponse?> UpsertTopicLabelAsync(int projectId, string topic, string title, CancellationToken ct);
+    Task<TopicLabelDeleteResult> DeleteTopicLabelAsync(int projectId, string topic, CancellationToken ct);
+    Task<IReadOnlyList<DecisionReviewDto>?> ListReviewsAsync(string lookup, CancellationToken ct);
+    Task<DecisionDetailDto?> CreateReviewAsync(string lookup, int? actorId, DecisionReviewInput input, CancellationToken ct);
 }
 
 public enum TopicLabelDeleteResult
@@ -42,7 +42,7 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
     private int _nextOptionId = 1;
     private int _nextSignalId = 1;
 
-    public DecisionListResponse List(int? projectId, DecisionStatus? status, int pageSize, int pageToken)
+    public Task<DecisionListResponse> ListAsync(int? projectId, DecisionStatus? status, int pageSize, int pageToken, CancellationToken ct)
     {
         var query = _decisions.Values
             .Where(decision => !projectId.HasValue || decision.ProjectId == projectId)
@@ -54,18 +54,18 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
         var hasMore = items.Count > pageSize;
         var page = items.Take(pageSize).Select(ToSummary).ToList();
 
-        return new DecisionListResponse(
+        return Task.FromResult(new DecisionListResponse(
             page,
             hasMore ? (pageToken + pageSize).ToString() : null
-        );
+        ));
     }
 
-    public DecisionDetailDto? Get(string lookup)
+    public Task<DecisionDetailDto?> GetAsync(string lookup, CancellationToken ct)
     {
-        return Find(lookup) is { } decision ? ToDetail(decision) : null;
+        return Task.FromResult<DecisionDetailDto?>(Find(lookup) is { } decision ? ToDetail(decision) : null);
     }
 
-    public DecisionDetailDto Create(int? projectId, int? actorId, CreateDecisionDraftRequest request)
+    public Task<DecisionDetailDto> CreateAsync(int? projectId, int? actorId, CreateDecisionDraftRequest request, CancellationToken ct)
     {
         var now = DateTimeOffset.UtcNow;
         var id = Interlocked.Increment(ref _nextDecisionId) - 1;
@@ -107,18 +107,18 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
             Options = BuildOptions(id, now, request.Options),
         };
         _decisions[id] = decision;
-        return ToDetail(decision);
+        return Task.FromResult(ToDetail(decision));
     }
 
-    public DecisionDetailDto? UpdateDraft(string lookup, int? actorId, UpdateDecisionDraftRequest request)
+    public Task<DecisionDetailDto?> UpdateDraftAsync(string lookup, int? actorId, UpdateDecisionDraftRequest request, CancellationToken ct)
     {
         if (Find(lookup) is not { } existing)
         {
-            return null;
+            return Task.FromResult<DecisionDetailDto?>(null);
         }
         if (existing.Status is not (DecisionStatus.PREDRAFT or DecisionStatus.DRAFT or DecisionStatus.AWAITING_APPROVAL))
         {
-            return null;
+            return Task.FromResult<DecisionDetailDto?>(null);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -138,14 +138,14 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
             Options = request.Options is null ? existing.Options : BuildOptions(existing.Id, now, request.Options),
         };
         _decisions[existing.Id] = updated;
-        return ToDetail(updated);
+        return Task.FromResult<DecisionDetailDto?>(ToDetail(updated));
     }
 
-    public DecisionDetailDto? Transition(string lookup, int? actorId, DecisionStatus targetStatus)
+    public Task<DecisionDetailDto?> TransitionAsync(string lookup, int? actorId, DecisionStatus targetStatus, CancellationToken ct)
     {
         if (Find(lookup) is not { } existing)
         {
-            return null;
+            return Task.FromResult<DecisionDetailDto?>(null);
         }
 
         var allowed = (existing.Status, targetStatus) switch
@@ -161,7 +161,7 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
         };
         if (!allowed)
         {
-            return null;
+            return Task.FromResult<DecisionDetailDto?>(null);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -173,46 +173,46 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
             CommittedAt = targetStatus == DecisionStatus.COMMITTED ? now : existing.CommittedAt,
         };
         _decisions[existing.Id] = updated;
-        return ToDetail(updated);
+        return Task.FromResult<DecisionDetailDto?>(ToDetail(updated));
     }
 
-    public bool Delete(string lookup, int? actorId)
+    public Task<bool> DeleteAsync(string lookup, int? actorId, CancellationToken ct)
     {
         if (Find(lookup) is not { } existing)
         {
-            return false;
+            return Task.FromResult(false);
         }
-        return _decisions.TryRemove(existing.Id, out _);
+        return Task.FromResult(_decisions.TryRemove(existing.Id, out _));
     }
 
-    public DecisionSignalListResponse ListSignals(string lookup)
+    public Task<DecisionSignalListResponse> ListSignalsAsync(string lookup, CancellationToken ct)
     {
         var signals = Find(lookup)?.Signals ?? Array.Empty<DecisionSignalDto>();
-        return new DecisionSignalListResponse(signals);
+        return Task.FromResult(new DecisionSignalListResponse(signals));
     }
 
-    public DecisionSignalDto? CreateSignal(string lookup, int? actorId, DecisionSignalInput input)
+    public Task<DecisionSignalDto?> CreateSignalAsync(string lookup, int? actorId, DecisionSignalInput input, CancellationToken ct)
     {
         if (Find(lookup) is not { } existing)
         {
-            return null;
+            return Task.FromResult<DecisionSignalDto?>(null);
         }
         var now = DateTimeOffset.UtcNow;
         var signal = BuildSignals(existing.Id, actorId, now, new[] { input }).Single();
         _decisions[existing.Id] = existing with { Signals = existing.Signals.Concat(new[] { signal }).ToList() };
-        return signal;
+        return Task.FromResult<DecisionSignalDto?>(signal);
     }
 
-    public DecisionSignalDto? UpdateSignal(string lookup, int signalId, DecisionSignalInput input)
+    public Task<DecisionSignalDto?> UpdateSignalAsync(string lookup, int signalId, DecisionSignalInput input, CancellationToken ct)
     {
         if (Find(lookup) is not { } existing)
         {
-            return null;
+            return Task.FromResult<DecisionSignalDto?>(null);
         }
         var signal = existing.Signals.FirstOrDefault(item => item.Id == signalId);
         if (signal is null)
         {
-            return null;
+            return Task.FromResult<DecisionSignalDto?>(null);
         }
         var now = DateTimeOffset.UtcNow;
         var displayText = input.DisplayTextOverride
@@ -235,41 +235,41 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
         {
             Signals = existing.Signals.Select(item => item.Id == signalId ? updated : item).ToList(),
         };
-        return updated;
+        return Task.FromResult<DecisionSignalDto?>(updated);
     }
 
-    public bool DeleteSignal(string lookup, int signalId)
+    public Task<bool> DeleteSignalAsync(string lookup, int signalId, CancellationToken ct)
     {
         if (Find(lookup) is not { } existing || existing.Signals.All(item => item.Id != signalId))
         {
-            return false;
+            return Task.FromResult(false);
         }
         _decisions[existing.Id] = existing with
         {
             Signals = existing.Signals.Where(item => item.Id != signalId).ToList(),
         };
-        return true;
+        return Task.FromResult(true);
     }
 
-    public DecisionConnectionsResponse? GetConnections(string lookup)
+    public Task<DecisionConnectionsResponse?> GetConnectionsAsync(string lookup, CancellationToken ct)
     {
         if (Find(lookup) is not { } existing)
         {
-            return null;
+            return Task.FromResult<DecisionConnectionsResponse?>(null);
         }
-        return new DecisionConnectionsResponse(
+        return Task.FromResult<DecisionConnectionsResponse?>(new DecisionConnectionsResponse(
             new DecisionConnectionSelfDto(existing.Id, existing.ProjectSeq),
             Array.Empty<DecisionConnectionNodeDto>(),
             Array.Empty<DecisionConnectionEdgeDto>()
-        );
+        ));
     }
 
-    public DecisionConnectionsResponse? UpdateConnections(string lookup, int? actorId, DecisionConnectionsUpdateRequest request)
+    public Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, DecisionConnectionsUpdateRequest request, CancellationToken ct)
     {
-        return GetConnections(lookup);
+        return GetConnectionsAsync(lookup, ct);
     }
 
-    public DecisionGraphResponse GetGraph(int projectId, bool allProjects, int userId, bool isSuperuser)
+    public Task<DecisionGraphResponse> GetGraphAsync(int projectId, bool allProjects, int userId, bool isSuperuser, CancellationToken ct)
     {
         var projectIds = allProjects
             ? _decisions.Values
@@ -309,33 +309,33 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
             .Select(topic => new DecisionGraphTopicDto(topic, TopicLabel(topic), TopicLabel(topic)))
             .ToList();
 
-        return new DecisionGraphResponse(nodes, Array.Empty<DecisionGraphEdgeDto>(), topics);
+        return Task.FromResult(new DecisionGraphResponse(nodes, Array.Empty<DecisionGraphEdgeDto>(), topics));
     }
 
-    public DecisionTopicLabelResponse? UpsertTopicLabel(int projectId, string topic, string title)
+    public Task<DecisionTopicLabelResponse?> UpsertTopicLabelAsync(int projectId, string topic, string title, CancellationToken ct)
     {
         var normalizedTopic = NormalizeTopic(topic);
-        return new DecisionTopicLabelResponse(normalizedTopic, title.Trim(), TopicLabel(normalizedTopic));
+        return Task.FromResult<DecisionTopicLabelResponse?>(new DecisionTopicLabelResponse(normalizedTopic, title.Trim(), TopicLabel(normalizedTopic)));
     }
 
-    public TopicLabelDeleteResult DeleteTopicLabel(int projectId, string topic)
+    public Task<TopicLabelDeleteResult> DeleteTopicLabelAsync(int projectId, string topic, CancellationToken ct)
     {
         var normalizedTopic = NormalizeTopic(topic);
-        return _decisions.Values.Any(decision =>
+        return Task.FromResult(_decisions.Values.Any(decision =>
             decision.ProjectId == projectId &&
             string.Equals(decision.Topic, normalizedTopic, StringComparison.OrdinalIgnoreCase))
             ? TopicLabelDeleteResult.NotEmpty
-            : TopicLabelDeleteResult.Deleted;
+            : TopicLabelDeleteResult.Deleted);
     }
 
-    public IReadOnlyList<DecisionReviewDto>? ListReviews(string lookup)
+    public Task<IReadOnlyList<DecisionReviewDto>?> ListReviewsAsync(string lookup, CancellationToken ct)
     {
-        return Find(lookup) is null ? null : Array.Empty<DecisionReviewDto>();
+        return Task.FromResult<IReadOnlyList<DecisionReviewDto>?>(Find(lookup) is null ? null : Array.Empty<DecisionReviewDto>());
     }
 
-    public DecisionDetailDto? CreateReview(string lookup, int? actorId, DecisionReviewInput input)
+    public async Task<DecisionDetailDto?> CreateReviewAsync(string lookup, int? actorId, DecisionReviewInput input, CancellationToken ct)
     {
-        return Transition(lookup, actorId, DecisionStatus.REVIEWED) ?? Get(lookup);
+        return await TransitionAsync(lookup, actorId, DecisionStatus.REVIEWED, ct) ?? await GetAsync(lookup, ct);
     }
 
     private DecisionRecord? Find(string lookup)

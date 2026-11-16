@@ -5,6 +5,7 @@ import { Client, escapeIdentifier } from 'pg';
 
 import { TenantStatus } from '@/lib/migrationStatus';
 import { assertSchemaName } from '@/lib/tenant';
+import { STUDIO_MIGRATIONS_TABLE } from '@/lib/variationSchema';
 
 export type MigrationCommand = 'apply' | 'status' | 'dry-run';
 type Migration = { version: string; file: string; sql: string; checksum: string };
@@ -74,7 +75,7 @@ async function runTenant(
   };
   const client = new Client({ connectionString, connectionTimeoutMillis: 10_000 });
   const quotedSchema = escapeIdentifier(schema);
-  const ledger = `${quotedSchema}."studio_migrations"`;
+  const ledger = `${quotedSchema}.${escapeIdentifier(STUDIO_MIGRATIONS_TABLE)}`;
   let currentMigration: Migration | undefined;
   let commitAttempted = false;
   // Queries report failures; also consume idle errors so a disconnect cannot crash the process.

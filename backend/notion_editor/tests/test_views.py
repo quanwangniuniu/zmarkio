@@ -124,6 +124,7 @@ class DraftViewSetTest(TestCase):
         
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['title'], 'New Draft')
+        self.assertTrue(response.data['slug'])
         # User field might not be included in CreateDraftSerializer response
         # Check that the draft was created successfully
         self.assertEqual(len(response.data['content_blocks']), 1)

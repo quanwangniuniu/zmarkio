@@ -695,12 +695,9 @@ jobs:
         with:
           services: db redis clamav backend
 
-      # The Studio service is a separate Next.js app that talks to the same
-      # Postgres. Its tests need one org whose tenant schema exists, because
-      # core_project / core_projectmember are per-org tables.
-      # Studio tests need an org tenant schema. AdCopyVariation is tenant-scoped
-      # and FKs to public.meta_ad_creatives, so public migrations (incl. meta_ads)
-      # must be applied before Organization.save() → provision_tenant_schema().
+      # Django creates the public parent tables and each organization's schema,
+      # core_project and core_projectmember. The one-shot Studio runner below
+      # creates variation tables before Jest; migration failures must fail CI.
       - name: Provision a tenant schema for variations-studio tests
         run: |
           docker compose exec -T backend sh <<'EOS'

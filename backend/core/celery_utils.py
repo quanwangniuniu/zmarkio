@@ -9,6 +9,8 @@ import logging
 import os
 
 from celery import Task
+from celery._state import _task_stack
+from django.db import connections
 
 logger = logging.getLogger(__name__)
 
@@ -96,8 +98,14 @@ class TimeoutEnforcedTask(Task):
         if not seconds or os.environ.get('PYTEST_CURRENT_TEST'):
             return self.run(*args, **kwargs)
 
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(self.run, *args, **kwargs)
+        request = self.request  # thread-local; hand it to the executor thread
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix=f'{self.name}.timeout_enforced',
+        )
+        future = executor.submit(
+            self._run_in_executor_thread, request, args, kwargs,
+        )
         try:
             result = future.result(timeout=seconds)
         except concurrent.futures.TimeoutError:
@@ -105,7 +113,8 @@ class TimeoutEnforcedTask(Task):
                 "%s exceeded its %ss timeout — abandoning. The Celery "
                 "worker is freed to pick up new work, but the "
                 "underlying call may still be running in the "
-                "background (Python cannot forcibly stop a thread).",
+                "background (Python cannot forcibly stop a thread); its "
+                "database connection is released when it finishes.",
                 self.name,
                 seconds,
             )
@@ -126,3 +135,27 @@ class TimeoutEnforcedTask(Task):
         else:
             executor.shutdown(wait=True)
             return result
+
+    def _run_in_executor_thread(self, request, args, kwargs):
+        """
+        Run the body with Celery's task/request stacks on this thread, and close
+        this thread's DB connections afterwards: the Django fixup only closes the
+        pool thread's, so these would otherwise leak until a full GC.
+        """
+        _task_stack.push(self)
+        self.request_stack.push(request)
+        try:
+            return self.run(*args, **kwargs)
+        finally:
+            try:
+                connections.close_all()
+            except Exception:
+                logger.warning(
+                    "%s: could not close the database connections opened "
+                    "on its executor thread",
+                    self.name,
+                    exc_info=True,
+                )
+            finally:
+                self.request_stack.pop()
+                _task_stack.pop()

@@ -48,11 +48,13 @@ urlpatterns = [
     path('api/core/', include('core.urls')),
     path('api/alerting/', include('alerting.urls')),
     path('api/report/', include('report.urls')),
+    path('api/org-customization/', include('org_customization.urls')),
     path('api/', include('comments.urls')),
     # Must be before any path("api/", include(...)) so /api/google-*/ is not routed to task.urls.
     path("api/google-docs/", include("google_docs_integration.urls")),
     path("api/google-calendar/", include("google_calendar_integration.urls")),
     path("api/v1/linear/", include("linear_integration.urls")),
+    path('', include('external_api.views')),
     path('api/', include('task.urls')),
     path('api/policy/', include('policy.urls')),
     path('api/dashboard/', include('dashboard.urls')),

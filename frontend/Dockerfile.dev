@@ -5,22 +5,27 @@ FROM node:20-bullseye
 # Set work directory
 WORKDIR /app
 
-# Create non-root user
-RUN adduser --disabled-password --gecos "" --home /home/appuser appuser
-RUN mkdir -p /app/.next && chown -R appuser:appuser /app/.next
+# Run as `node`, renumbered to the host UID/GID so writes into the bind-mounted
+# source (next-env.d.ts etc.) are owned by the developer. Linux only; see env.example.
+ARG HOST_UID=1000
+ARG HOST_GID=1000
+RUN if [ "$HOST_UID" != "$(id -u node)" ] || [ "$HOST_GID" != "$(id -g node)" ]; then \
+      groupmod -o -g "$HOST_GID" node && usermod -o -u "$HOST_UID" -g "$HOST_GID" node; \
+    fi
+RUN mkdir -p /app/.next && chown -R node:node /app/.next
 
 # Install dependencies
 # RUN npm install -g sonarqube-scanner 
 # RUN apt-get update && apt-get install -y curl
 
 # Copy the rest of the application
-COPY --chown=appuser:appuser . /app
+COPY --chown=node:node . /app
 
 # Assign permission
-RUN chown appuser:appuser /app
+RUN chown node:node /app
 
 # Switch to non-root user
-USER appuser
+USER node
 RUN npm install
 
 ENV NODE_ENV=development

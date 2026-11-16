@@ -11,7 +11,7 @@ import { ApiError, projectIdParam } from '@/src/platform/http';
 import { getPlatformSpec, type PlatformSpec } from '@/src/platforms';
 import { applyCtaPolicy } from '@/src/platforms/cta';
 import { requireProjectForUser } from '@/lib/projects';
-import { allocateSlugs } from '@/lib/slugs';
+import { allocateSlugs, readSlugSource } from '@/lib/slugs';
 import { insertVariations } from '@/src/repo';
 import { serializeVariation } from '@/lib/variations';
 
@@ -79,13 +79,6 @@ async function generateCopies(
   };
 }
 
-function readCopyField(copy: CopyJson, field: string): string {
-  if (!Object.prototype.hasOwnProperty.call(copy, field)) {
-    throw new Error(`Generated copy is missing field "${field}"`);
-  }
-  return copy[field as keyof CopyJson];
-}
-
 async function persistBatch(args: {
   schema: string;
   spec: PlatformSpec;
@@ -101,29 +94,29 @@ async function persistBatch(args: {
 }) {
   const { spec } = args;
   const slugs = allocateSlugs(
-    args.copies.map((copy) => readCopyField(copy, spec.slugSource.field))
+    args.copies.map((copy) => readSlugSource(copy, spec))
   );
-  return insertVariations(
-    args.schema,
-    args.copies.map((copy, index) => ({
-      sourceMode: args.sourceMode,
-      sourceRef: args.sourceRef,
-      hook: copy.hook,
-      headline: copy.headline,
-      description: copy.description,
-      cta: applyCtaPolicy(spec.cta, copy.cta),
-      instruction: args.instruction,
-      modelName: args.modelName,
-      promptVersion: spec.promptVersion,
-      batchId: args.batchId,
-      batchPosition: index,
-      status: 'draft',
-      createdById: BigInt(args.userId),
-      creativeId: args.creativeId,
-      projectId: args.projectId,
-      slug: slugs[index],
-    }))
-  );
+  const rows = args.copies.map((copy, index) => ({
+    sourceMode: args.sourceMode,
+    sourceRef: args.sourceRef,
+    hook: copy.hook,
+    headline: copy.headline,
+    description: copy.description,
+    cta: applyCtaPolicy(spec.cta, copy.cta),
+    instruction: args.instruction,
+    modelName: args.modelName,
+    promptVersion: spec.promptVersion,
+    batchId: args.batchId,
+    batchPosition: index,
+    status: 'draft',
+    createdById: BigInt(args.userId),
+    creativeId: args.creativeId,
+    projectId: args.projectId,
+    slug: slugs[index],
+  }));
+
+  // insertVariations opens the transaction itself when no client is passed.
+  return insertVariations(args.schema, rows);
 }
 
 export async function runCustomGenerate(args: {

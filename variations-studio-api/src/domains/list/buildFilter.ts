@@ -36,7 +36,9 @@ export async function parseListRequest(
     Math.max(1, Number(url.searchParams.get('page_size') || DEFAULT_PAGE_SIZE) || DEFAULT_PAGE_SIZE)
   );
 
-  const filter: VariationListFilter = {};
+  const filter: VariationListFilter = {
+    platform: url.searchParams.get('platform') || 'meta',
+  };
 
   if (projectParam) {
     const projectId = await resolveProjectId(schema, projectParam);

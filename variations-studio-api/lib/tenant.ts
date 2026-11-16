@@ -5,8 +5,14 @@ import {
   requireAccessUser,
   type AccessUser,
   type AuthFailure,
+  type StudioContextFailure,
 } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import {
+  REQUIRED_STUDIO_MIGRATION,
+  STUDIO_MIGRATIONS_TABLE,
+  VARIATION_TABLE,
+} from '@/lib/variationSchema';
 
 export type StudioContext = AccessUser & { schema: string };
 
@@ -34,10 +40,9 @@ export function assertSchemaName(schema: string): string {
 /**
  * Prisma bakes the datasource schema into generated SQL and ignores
  * search_path, so per-request tenant tables cannot go through model queries.
- * Tenant-scoped tables (see backend/core/tenant_config.py) must be reached
- * with raw SQL qualified by this helper. Everything still declared in
- * schema.prisma lives in `public`. AdCopyVariation, core_project and
- * core_projectmember are tenant-scoped.
+ * Tenant-scoped tables must be reached with raw SQL qualified by this helper.
+ * Everything still declared in schema.prisma lives in `public`. AdCopyVariation,
+ * core_project and core_projectmember are tenant-scoped.
  */
 export function tenantTable(schema: string, table: string): Prisma.Sql {
   return Prisma.raw(`"${assertSchemaName(schema)}"."${table}"`);
@@ -60,14 +65,13 @@ async function isActiveOrgSlug(slug: string): Promise<boolean> {
 }
 
 /**
- * Match Django TenantSchemaMiddleware._resolve_schema, without the Fernet
- * X-Organization-Token path. Studio always has a user JWT; Django prefers
- * user.current_organization over that header anyway.
+ * Preserve Django's organization precedence, but require an organization
+ * instead of falling back to public. Studio uses a user JWT, not Fernet.
  */
 async function schemaForUser(
   request: Request,
   user: UserOrgRow
-): Promise<string> {
+): Promise<string | null> {
   const orgId = user.currentOrganizationId ?? user.organizationId;
   if (orgId) {
     const slug = await slugForOrgId(orgId);
@@ -79,12 +83,43 @@ async function schemaForUser(
     return assertSchemaName(slugToSchemaName(headerSlug));
   }
 
-  return 'public';
+  return null;
 }
 
-export async function requireStudioContext(
+/** Check committed tenant state before any variation query or generation. */
+export async function isStudioReady(schema: string): Promise<boolean> {
+  const namespace = `"${assertSchemaName(schema)}"`;
+  const relations = await prisma.$queryRaw<{ present: boolean }[]>`
+    SELECT to_regclass(${`${namespace}.${VARIATION_TABLE}`}) IS NOT NULL
+       AND to_regclass(${`${namespace}.${STUDIO_MIGRATIONS_TABLE}`}) IS NOT NULL AS present`;
+  if (!relations[0]?.present) return false;
+
+  const rows = await prisma.$queryRaw<{ ready: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM ${tenantTable(schema, STUDIO_MIGRATIONS_TABLE)}
+      WHERE version = ${REQUIRED_STUDIO_MIGRATION}
+    ) AS ready`;
+  return rows[0]?.ready ?? false;
+}
+
+export async function inspectStudioSchema(schema: string): Promise<{
+  schemaExists: boolean;
+  variationTableExists: boolean;
+}> {
+  const namespace = `"${assertSchemaName(schema)}"`;
+  const rows = await prisma.$queryRaw<{
+    schemaExists: boolean;
+    variationTableExists: boolean;
+  }[]>`
+    SELECT to_regnamespace(${namespace}) IS NOT NULL AS "schemaExists",
+           to_regclass(${`${namespace}.${VARIATION_TABLE}`}) IS NOT NULL AS "variationTableExists"`;
+  return rows[0];
+}
+
+/** Resolve authentication and tenant without requiring a variation table. */
+export async function resolveStudioContext(
   request: Request
-): Promise<StudioContext | AuthFailure> {
+): Promise<StudioContext | AuthFailure | StudioContextFailure> {
   const auth = await requireAccessUser(request);
   if (isAuthFailure(auth)) return auth;
 
@@ -100,8 +135,20 @@ export async function requireStudioContext(
     return { error: 'Invalid or expired token.', status: 401 };
   }
 
-  return {
-    userId: auth.userId,
-    schema: await schemaForUser(request, user),
-  };
+  const schema = await schemaForUser(request, user);
+  if (!schema) {
+    return { error: 'An organization is required to use Studio.', status: 403 };
+  }
+  return { userId: auth.userId, schema };
+}
+
+export async function requireStudioContext(
+  request: Request
+): Promise<StudioContext | AuthFailure | StudioContextFailure> {
+  const context = await resolveStudioContext(request);
+  if (isAuthFailure(context)) return context;
+  if (!(await isStudioReady(context.schema))) {
+    return { error: 'Studio is being initialized or upgraded. Please try again shortly.', status: 503 };
+  }
+  return context;
 }

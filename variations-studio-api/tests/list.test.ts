@@ -2,7 +2,8 @@ import { randomUUID } from 'crypto';
 
 import { GET as listVariations } from '@/app/api/ad_copy_variation/variations/route';
 import { prisma } from '@/lib/prisma';
-import { deleteVariationsByIds } from '@/lib/variationStore';
+import { tenantTable } from '@/lib/tenant';
+import { deleteVariationsByIds, VARIATION_TABLE } from '@/lib/variationStore';
 
 import {
   createTestVariation,
@@ -22,6 +23,7 @@ let reviewed: TestVariation;
 let external: TestVariation;
 let withCreative: TestVariation;
 let inOtherProject: TestVariation;
+let nonMeta: TestVariation;
 
 beforeAll(async () => {
   fixture = await setupStudioFixture();
@@ -61,12 +63,21 @@ beforeAll(async () => {
     userId: fixture.memberUserId,
     status: 'draft',
   });
+  nonMeta = await createTestVariation({
+    schema: fixture.schema,
+    projectId: fixture.projectA,
+    userId: fixture.memberUserId,
+    status: 'draft',
+  });
+  await prisma.$executeRaw`
+    UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+    SET platform = 'google_rsa' WHERE id = ${nonMeta.id}`;
 });
 
 afterAll(async () => {
   await deleteVariationsByIds(
     fixture.schema,
-    [draft, reviewed, external, withCreative, inOtherProject].map((row) => row.id)
+    [draft, reviewed, external, withCreative, inOtherProject, nonMeta].map((row) => row.id)
   );
   await teardownStudioFixture(fixture);
   await prisma.$disconnect();
@@ -85,6 +96,28 @@ async function list(query: string) {
 const projectA = () => `project_id=${fixture.projectA}`;
 
 describe('list filters', () => {
+  it.each(['', '&platform=', '&platform=meta'])('selects Meta for platform query %j', async (query) => {
+    const { body, ids } = await list(`${projectA()}${query}`);
+    const expected = [fixture.draftA, fixture.reviewedA, draft, reviewed, external, withCreative];
+
+    expect(ids.sort()).toEqual(expected.map((row) => row.id).sort());
+    expect(body.count).toBe(expected.length);
+  });
+
+  it('filters by an explicitly stored platform without requiring registration', async () => {
+    const { body, ids } = await list(`${projectA()}&platform=google_rsa`);
+
+    expect(ids).toEqual([nonMeta.id]);
+    expect(body.count).toBe(1);
+  });
+
+  it('returns no rows when the exact platform value has no match', async () => {
+    const { body, ids } = await list(`${projectA()}&platform=GOOGLE_RSA`);
+
+    expect(ids).toEqual([]);
+    expect(body.count).toBe(0);
+  });
+
   it('scopes results to the requested project', async () => {
     const { ids } = await list(projectA());
 
