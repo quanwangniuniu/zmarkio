@@ -80,9 +80,15 @@ const optionRowsToSave = (rows: OptionRow[]) => {
 function LabelInput({ value, placeholder, onChange }: {
   value: string | null;
   placeholder: string;
-  onChange: (value: string) => void;
+  onChange: (value: string | null) => void;
 }) {
-  return <Input value={value ?? ''} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />;
+  return (
+    <Input
+      value={value ?? placeholder}
+      placeholder={placeholder}
+      onChange={(e) => onChange(e.target.value === placeholder ? null : e.target.value)}
+    />
+  );
 }
 
 function OrderInput({ value, onChange }: { value: number; onChange: (value: number) => void }) {
