@@ -1,5 +1,5 @@
 """
-RAG-specific embedding calls (MED-264, MED-537).
+RAG-specific embedding calls.
 
 Document and query embeddings share one provider and one model. The
 production default is a local Ollama model (settings.RAG_OLLAMA_EMBEDDING_MODEL,

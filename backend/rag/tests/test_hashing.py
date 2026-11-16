@@ -1,5 +1,5 @@
 """Tests for content_hash (rag.extraction) and current_pipeline_hash
-(rag.indexing) sensitivity (MED-264).
+(rag.indexing) sensitivity.
 
 current_pipeline_hash() reads FRAMING_VERSION via `from rag.embeddings import
 FRAMING_VERSION` inside rag/indexing.py -- that binds the name into

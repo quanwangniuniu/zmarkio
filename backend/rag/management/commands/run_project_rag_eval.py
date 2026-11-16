@@ -1,5 +1,5 @@
 """
-Management command: run_project_rag_eval (MED-264 Phase 2 eval harness).
+Management command: run_project_rag_eval.
 
 Seeds the Phase 1 synthetic fixture (rag/tests/fixtures/project_rag_eval_dataset.json)
 into real Meeting/Draft/RetrospectiveTask rows inside a dedicated eval tenant,
@@ -33,7 +33,7 @@ rag/tasks.py.
 RAG-enqueue suppression during seeding
 ----------------------------------------
 Creating/updating Meeting/MeetingDocument/Draft/ContentBlock/DraftProjectLink/
-RetrospectiveTask rows fires the MED-264 post_save signals (meetings/signals.py,
+RetrospectiveTask rows fires the post_save signals (meetings/signals.py,
 notion_editor/signals.py, retrospective/signals.py), which all funnel into
 `rag.tasks.index_document_task.delay(...)` via a transaction.on_commit closure.
 Left alone, seeding would race real synchronous `index_source_document()` calls
@@ -110,7 +110,7 @@ def _load_fixture(path: Path) -> dict:
 def _validate_fixture_shape(data: dict, path: Path) -> None:
     """Validate source/question counts against this fixture's own declared
     shape (`expected_source_counts` / `expected_question_counts`) if it
-    declares one, else against the canonical MED-264 Phase-1 dataset shape
+    declares one, else against the canonical Phase-1 dataset shape
     (EXPECTED_SOURCE_COUNTS / EXPECTED_QUESTION_COUNTS). This is purely
     additive: the canonical fixture has never declared those keys, so its
     validation behavior is byte-for-byte unchanged. A variant fixture (e.g.

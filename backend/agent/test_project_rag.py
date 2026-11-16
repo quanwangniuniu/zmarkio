@@ -1,5 +1,5 @@
 """Tests for AgentOrchestrator.answer_project_question, the generic
-project-document RAG fallback (MED-264 agent integration).
+project-document RAG fallback.
 
 Follows the same pattern as test_draft_context.py: real ORM (Django
 TestCase), mock only the retrieval call and the LLM call, never hit Gemini.

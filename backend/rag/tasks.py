@@ -1,5 +1,5 @@
 """
-Celery tasks for RAG indexing (MED-264).
+Celery tasks for RAG indexing.
 
 Thin wrappers around rag.indexing.index_source_document: these own tenant
 schema switching (core.tenant_context.tenant_schema_context) and Celery
@@ -22,7 +22,7 @@ Three retry layers, deliberately kept separate rather than merged:
      exhausted by the time FAILED is returned, so this is a second, slower
      layer on top, not a duplicate of the same wait.
 
-reconcile_dirty_rag_states (MED-264 Problem 7 reliability fix) is a fourth,
+reconcile_dirty_rag_states is a fourth,
 independent layer: none of the three above help if a source mutation's
 Celery `.delay()` publish itself was lost (broker unreachable at enqueue
 time) or a worker crashed before ever reaching this module's retry logic —
@@ -68,8 +68,7 @@ def _failed_retry_countdown(retries: int) -> int:
 def index_document_task(self, tenant_schema: str, project_id: int, source_type: str, source_id: str):
     """Index one source document. The exact same task both signals and
     `rebuild_project_index_task` enqueue — there is no separate rebuild code
-    path, per MED-264's "reuse the exact same source-level indexing service"
-    requirement.
+    path. It reuses the exact same source-level indexing service.
 
     MOVED/EXCLUDED/INDEXED/SKIPPED_UNCHANGED/METADATA_REFRESHED are all
     terminal, never retried — a MOVED result has already cleaned up
@@ -115,7 +114,7 @@ def rebuild_project_index_task(self, tenant_schema: str, project_id: int):
     that was hard-deleted without its delete signal ever firing (e.g. a
     dropped Celery task, a direct DB deletion bypassing the ORM) would not
     be found or cleaned up by this task. No orphan-repair pass is being
-    added for MED-264 unless a concrete test/production case shows it's
+    added unless a concrete test/production case shows it's
     needed — normal deletes always go through `index_document_task`
     (enqueued by the relevant delete signal) and are cleaned up there.
     """
@@ -159,7 +158,7 @@ def rebuild_project_index(org_slug: str, project_id: int) -> None:
 
 @shared_task
 def reconcile_dirty_rag_states():
-    """Periodic reliability backstop (MED-264 Problem 7): re-enqueues
+    """Periodic reliability backstop: re-enqueues
     `index_document_task` for every `DocumentIndexState` row that has been
     dirty (see `rag.indexing.mark_source_dirty`) for longer than
     `settings.RAG_RECONCILE_STALE_SECONDS`, across every tenant.

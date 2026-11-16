@@ -1770,8 +1770,7 @@ class AgentOrchestrator:
         yield {"type": "text", "content": answer_text}
 
     def answer_project_question(self, message):
-        """Answer a question grounded in this project's indexed documents
-        (MED-264 retrieval phase).
+        """Answer a question grounded in this project's indexed documents.
 
         Generic fallback only -- reached from _legacy_handle's trailing else,
         which means every dedicated route (spreadsheet, calendar, draft,

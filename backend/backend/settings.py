@@ -426,7 +426,7 @@ GEMINI_CB_THRESHOLD = config('GEMINI_CB_THRESHOLD', default=5, cast=int)
 GEMINI_CB_WINDOW_SECONDS = config('GEMINI_CB_WINDOW_SECONDS', default=60, cast=int)
 GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, cast=int)
 
-# RAG document retrieval (MED-264, MED-537). Document and query embeddings
+# RAG document retrieval. Document and query embeddings
 # use one provider and one model. Mixing widths at retrieval time produces
 # meaningless similarity scores with no error, since pgvector only rejects a
 # literal width mismatch. Changing the model or RAG_EMBEDDING_DIMENSIONS
@@ -435,7 +435,7 @@ GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, ca
 # at the column type.
 RAG_EMBEDDING_DIMENSIONS = config('RAG_EMBEDDING_DIMENSIONS', default=768, cast=int)
 
-# 'ollama' is the production default (MED-537). 'local' is the FastEmbed
+# 'ollama' is the production default. 'local' is the FastEmbed
 # fallback (BAAI/bge-base-en-v1.5, also 768-dim). The selected model must
 # natively emit RAG_EMBEDDING_DIMENSIONS values; the client rejects any
 # other width. Inside Docker, point RAG_OLLAMA_BASE_URL at
@@ -501,7 +501,7 @@ if RAG_QUERY_REWRITE_TIMEOUT_SECONDS < 1:
     raise ImproperlyConfigured("RAG_QUERY_REWRITE_TIMEOUT_SECONDS must be >= 1")
 
 # Reliability backstop for a lost Celery publish / never-reconciled indexing
-# attempt (rag.tasks.reconcile_dirty_rag_states, MED-264 Problem 7). How long
+# attempt (rag.tasks.reconcile_dirty_rag_states). How long
 # a DocumentIndexState row may sit with dirty_since set before the periodic
 # reconciler re-enqueues it -- comfortably longer than normal indexing
 # latency (embedding call + chunking), so an in-flight, healthy attempt is
@@ -916,7 +916,7 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute='*/15'),
         'options': {'timezone': 'UTC'},
     },
-    # RAG reliability backstop (MED-264 Problem 7): re-enqueues indexing for
+    # RAG reliability backstop: re-enqueues indexing for
     # any source still dirty after RAG_RECONCILE_STALE_SECONDS. A reliability
     # sweep, not a near-real-time path -- normal indexing already runs via
     # the signal -> on_commit -> Celery route within seconds.
@@ -956,8 +956,7 @@ CACHES = {
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             # No timeout was set here, so a stalled Redis connection blocked
-            # the calling thread indefinitely (found via MED-264 chat-hang
-            # investigation: _circuit_open()'s cache.get() has no bound of
+            # the calling thread indefinitely (_circuit_open()'s cache.get() has no bound of
             # its own and sits upstream of every Gemini call's retry/deadline
             # logic). A finite timeout lets that call's existing
             # `except Exception: return False` fail open instead of hanging.

@@ -1,6 +1,5 @@
 """
-Focused tests for rag/management/commands/run_project_rag_eval.py additions
-(MED-264 Phase 2 local-provider unblock):
+Focused tests for rag/management/commands/run_project_rag_eval.py additions:
 
 - fixture-declared expected source/question counts (partial fixture support)
 - canonical fixture validation behavior is unchanged (no declared counts ->

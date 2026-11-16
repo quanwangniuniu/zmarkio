@@ -1,5 +1,5 @@
 """
-Incremental source-document indexing service (MED-264).
+Incremental source-document indexing service.
 
 The one reusable entry point both signals and the rebuild/backfill path
 call: `index_source_document(project_id, source_type, source_id)`. Assumes
@@ -188,7 +188,7 @@ def _clear_locked(state: DocumentIndexState, project_id: int, source_type: str, 
     transaction — this function only mutates, it does not itself lock or
     re-verify anything.
 
-    Clears `dirty_since` (MED-264 Problem 7): every caller of this function
+    Clears `dirty_since`: every caller of this function
     (`_enter_pending`, `_reconcile_success`, `_reconcile_failure`, and the
     synchronous `clear_source_index` fast path below) only reaches it after
     confirming — while holding this same lock — that exclusion/absence/
@@ -210,8 +210,7 @@ def _clear_locked(state: DocumentIndexState, project_id: int, source_type: str, 
 
 def mark_source_dirty(project_id: int, source_type: str, source_id: str) -> None:
     """Durably record that (project_id, source_type, source_id) has a
-    mutation not yet confirmed reconciled into DocumentChunk (MED-264
-    Problem 7 reliability fix).
+    mutation not yet confirmed reconciled into DocumentChunk.
 
     Called synchronously from the signal layer — NOT deferred via
     `transaction.on_commit` — so the write happens as early as possible.
@@ -253,7 +252,7 @@ def mark_source_dirty(project_id: int, source_type: str, source_id: str) -> None
 
 def clear_source_index(project_id: int, source_type: str, source_id: str) -> None:
     """Synchronous, DB-only fast path that removes any derived RAG rows for
-    (project_id, source_type, source_id) — MED-264 Problem 7 reliability fix.
+    (project_id, source_type, source_id).
 
     For delete/exclusion/move-away events, this is what keeps deleted or
     moved-away content from remaining retrievable while waiting for the
@@ -505,7 +504,7 @@ def _reconcile_success(
         state.indexed_pipeline_hash = attempted_pipeline_hash
         state.indexed_source_updated_at = fresh.updated_at
         state.last_error = ''
-        # MED-264 Problem 7: only reached once the SUPERSEDED guards above
+        # Only reached once the SUPERSEDED guards above
         # have confirmed this attempt is embedding the current, not-yet-
         # superseded content -- i.e. the exact point where a dirty marker
         # (if any) is now genuinely resolved, never before it. A losing/
