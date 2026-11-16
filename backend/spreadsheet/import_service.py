@@ -16,6 +16,7 @@ import zipfile
 from typing import Any
 
 from django.db import transaction
+from django.db.models import Max
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 from openpyxl.utils.exceptions import InvalidFileException
@@ -28,12 +29,14 @@ from spreadsheet.models import (
     Cell,
     SheetColumn,
     SheetRow,
+    SheetStructureOperation,
     Spreadsheet,
     SpreadsheetCellFormat,
     SpreadsheetHighlight,
 )
 from spreadsheet.serializers import SpreadsheetCellFormatOpSerializer
 from spreadsheet.services import CellService, SheetService, SpreadsheetService
+from spreadsheet.structure_replay import replay_baseline_structure
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +190,16 @@ def create_spreadsheet_from_upload(
 def _cell_key(row_position: int, column_position: int) -> str:
     return f'{row_position},{column_position}'
 
+
+def _structure_operation_checkpoint(sheet) -> int:
+    latest = (
+        SheetStructureOperation.objects.filter(sheet=sheet)
+        .aggregate(latest=Max('id'))
+        .get('latest')
+    )
+    return int(latest or 0)
+
+
 def build_import_baseline(sheet) -> dict:
     row_ids = list(
         SheetRow.objects.filter(sheet=sheet, is_deleted=False)
@@ -244,6 +257,7 @@ def build_import_baseline(sheet) -> dict:
         'cells': cells_out,
         'formats': formats_out,
         'highlights': highlights_out,
+        'structure_operation_checkpoint': _structure_operation_checkpoint(sheet),
     }
 
 # ---------------------------------------------------------------------------
@@ -272,6 +286,7 @@ def _result(
     cells=None,
     formats=None,
     cell_highlights=None,
+    structural_operations=None,
 ):
     return {
         'requires_rebuild': requires_rebuild,
@@ -280,6 +295,7 @@ def _result(
         'cells': cells or {},
         'formats': formats or {},
         'highlights': {'cells': cell_highlights or {}},
+        'structural_operations': list(structural_operations or []),
     }
 
 
@@ -433,12 +449,23 @@ def _highlight_map_changed(before, after):
     return False
 
 
+def _has_replay_operations(sheet, baseline):
+    checkpoint = baseline.get('structure_operation_checkpoint')
+    if isinstance(checkpoint, bool) or not isinstance(checkpoint, int) or checkpoint < 0:
+        return False
+    return SheetStructureOperation.objects.filter(
+        sheet=sheet,
+        id__gt=checkpoint,
+        is_reverted=False,
+    ).exists()
+
 def diff_sheet(source):
     """Compare source.baseline with a fresh build_import_baseline(source.sheet).
 
-    Any insert, delete, or reorder of an original row or column changes the
-    id order and forces a rebuild. Undone operations restore the original ids,
-    so they stay on the patch path.
+    Insert and delete operations recorded after the import are replayed onto the
+    baseline first, so their row/column moves are not reported as edits and the
+    exporters can repeat them on the original file. A sort, a reorder, or any
+    replay mismatch still forces a rebuild. Undone operations are skipped.
     """
     baseline = getattr(source, 'baseline', None)
     if not isinstance(baseline, dict):
@@ -447,8 +474,35 @@ def diff_sheet(source):
         return _rebuild(source, ['unsupported_baseline_version'])
 
     current = build_import_baseline(source.sheet)
-    row_status = _id_prefix_status(baseline.get('row_ids'), current.get('row_ids'))
-    column_status = _id_prefix_status(baseline.get('column_ids'), current.get('column_ids'))
+    working = baseline
+    structural_operations = []
+    row_status = _id_prefix_status(working.get('row_ids'), current.get('row_ids'))
+    column_status = _id_prefix_status(working.get('column_ids'), current.get('column_ids'))
+    structure_changed = row_status == 'unsafe' or column_status == 'unsafe'
+    appended = row_status == 'append' or column_status == 'append'
+    if structure_changed or appended:
+        replay = replay_baseline_structure(
+            source.sheet,
+            baseline,
+            current.get('row_ids'),
+            current.get('column_ids'),
+        )
+        if replay.get('safe') is True:
+            working = {
+                'row_ids': replay['row_ids'],
+                'column_ids': replay['column_ids'],
+                'cells': replay['cells'],
+                'formats': replay['formats'],
+                'highlights': replay['highlights'],
+            }
+            structural_operations = list(replay.get('structural_operations') or [])
+            row_status = _id_prefix_status(working['row_ids'], current.get('row_ids'))
+            column_status = _id_prefix_status(working['column_ids'], current.get('column_ids'))
+        elif appended and _has_replay_operations(source.sheet, baseline):
+            if row_status == 'append':
+                row_status = 'unsafe'
+            if column_status == 'append':
+                column_status = 'unsafe'
 
     reasons = []
     if row_status == 'unsafe':
@@ -456,20 +510,20 @@ def diff_sheet(source):
     if column_status == 'unsafe':
         reasons.append('column_structure_changed')
 
-    baseline_highlights = baseline.get('highlights') or {}
+    baseline_highlights = working.get('highlights') or {}
     current_highlights = current.get('highlights') or {}
     if _highlight_map_changed(baseline_highlights.get('rows'), current_highlights.get('rows')):
         reasons.append('row_highlight_changed')
     if _highlight_map_changed(baseline_highlights.get('columns'), current_highlights.get('columns')):
         reasons.append('column_highlight_changed')
 
-    row_count = len(baseline.get('row_ids') or [])
-    col_count = len(baseline.get('column_ids') or [])
+    row_count = len(working.get('row_ids') or [])
+    col_count = len(working.get('column_ids') or [])
     cell_changes, cell_outside = diff_cells(
-        baseline.get('cells'), current.get('cells'), row_count, col_count,
+        working.get('cells'), current.get('cells'), row_count, col_count,
     )
     format_changes, format_outside = diff_formats(
-        baseline.get('formats'), current.get('formats'), row_count, col_count,
+        working.get('formats'), current.get('formats'), row_count, col_count,
     )
     highlight_changes, highlight_outside = diff_cell_highlights(
         baseline_highlights, current_highlights, row_count, col_count,
@@ -488,10 +542,8 @@ def diff_sheet(source):
         cells=cell_changes,
         formats=format_changes,
         cell_highlights=highlight_changes,
+        structural_operations=structural_operations,
     )
-
-
-
 
 # ---------------------------------------------------------------------------
 # Excel import styles (server-side port of the browser's xlsx_style_import.ts)

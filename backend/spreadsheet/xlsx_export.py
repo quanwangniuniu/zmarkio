@@ -16,8 +16,9 @@ from typing import Any, List, Optional
 from django.db.models import Q
 from openpyxl import Workbook, load_workbook
 from openpyxl.chart import LineChart, Reference
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.styles import Font, PatternFill
+from openpyxl.worksheet.cell_range import CellRange
 from openpyxl.styles.colors import Color
 from rest_framework.exceptions import ValidationError
 
@@ -284,6 +285,7 @@ def build_patched_workbook(source, diff, *, workbook_bytes=None, worksheet_name=
     sheet = source.sheet
     try:
         worksheet = _worksheet(workbook, selected_name)
+        _replay_structure(worksheet, diff.get('structural_operations') or [])
         cell_changes = diff.get('cells') or {}
         changed_cells = _reject_sparkline_changes(sheet, cell_changes)
         for key, change in cell_changes.items():
@@ -309,6 +311,191 @@ def _worksheet(workbook, worksheet_name):
         )
     return workbook[name]
 
+def _replay_structure(worksheet, operations):
+    """Apply validated insert and delete operations before cell patches."""
+    if not operations:
+        return
+    _reject_unshifted_formulas(worksheet)
+    for operation in operations:
+        if not isinstance(operation, dict):
+            raise XlsxPatchExportError('Bad structural operation.')
+        op_type = operation.get('op_type')
+        anchor = operation.get('anchor_position')
+        count = operation.get('count')
+        if isinstance(anchor, bool) or not isinstance(anchor, int) or anchor < 0:
+            raise XlsxPatchExportError('Bad structural anchor.')
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise XlsxPatchExportError('Bad structural count.')
+        excel_index = anchor + 1
+        if op_type in ('ROW_INSERT', 'ROW_DELETE'):
+            axis = 'row'
+        elif op_type in ('COL_INSERT', 'COL_DELETE'):
+            axis = 'column'
+        else:
+            raise XlsxPatchExportError(f'Unsupported structural operation {op_type!r}.')
+
+        deleting = op_type.endswith('_DELETE')
+        _reject_unsupported_structure(worksheet, axis, excel_index, count, deleting)
+        if deleting:
+            _drop_deleted_metadata(worksheet, axis, excel_index, count)
+        moved_merges = _take_merges_after_edit(worksheet, axis, excel_index, count, deleting)
+        _shift_dimensions_after_edit(worksheet, axis, excel_index, count, deleting)
+        if op_type == 'ROW_INSERT':
+            worksheet.insert_rows(excel_index, count)
+        elif op_type == 'ROW_DELETE':
+            worksheet.delete_rows(excel_index, count)
+        elif op_type == 'COL_INSERT':
+            worksheet.insert_cols(excel_index, count)
+        else:
+            worksheet.delete_cols(excel_index, count)
+        for ref in moved_merges:
+            worksheet.merge_cells(ref)
+
+
+def _reject_unshifted_formulas(worksheet):
+    for row in worksheet.iter_rows():
+        for cell in row:
+            value = cell.value
+            text = value if isinstance(value, str) else getattr(value, 'text', None)
+            if isinstance(text, str) and text.startswith('=') and ('$' in text or '!' in text):
+                raise XlsxPatchExportError('This formula reference cannot be shifted.')
+
+
+def _reject_unsupported_structure(worksheet, axis, excel_index, count, deleting):
+    """Refuse features an insert or delete would leave on the old index."""
+    if worksheet.conditional_formatting._cf_rules:
+        raise XlsxPatchExportError('Conditional formatting cannot be shifted.')
+    if worksheet.data_validations.dataValidation:
+        raise XlsxPatchExportError('Data validation cannot be shifted.')
+    if worksheet.tables:
+        raise XlsxPatchExportError('Tables cannot be shifted.')
+    if worksheet._charts or worksheet._images:
+        raise XlsxPatchExportError('Charts or images cannot be shifted.')
+    if worksheet.freeze_panes:
+        raise XlsxPatchExportError('Frozen panes cannot be shifted.')
+    if worksheet.auto_filter.ref:
+        raise XlsxPatchExportError('An auto filter cannot be shifted.')
+    if _defined_name_uses_sheet(worksheet):
+        raise XlsxPatchExportError('Named ranges cannot be shifted.')
+    span_end = excel_index + count
+    for merged in worksheet.merged_cells.ranges:
+        if axis == 'row' and _feature_blocks_structure(
+            merged.min_row, merged.max_row, excel_index, span_end, deleting,
+        ):
+            raise XlsxPatchExportError('A merged range crosses this row change.')
+        if axis == 'column' and _feature_blocks_structure(
+            merged.min_col, merged.max_col, excel_index, span_end, deleting,
+        ):
+            raise XlsxPatchExportError('A merged range crosses this column change.')
+    if axis == 'row':
+        for index, dimension in worksheet.row_dimensions.items():
+            if isinstance(index, int) and (dimension.height is not None or dimension.hidden):
+                if _feature_blocks_structure(index, index, excel_index, span_end, deleting):
+                    raise XlsxPatchExportError('Row heights cannot be shifted.')
+        return
+    for letter, dimension in worksheet.column_dimensions.items():
+        if dimension.width is None and not dimension.hidden:
+            continue
+        index = column_index_from_string(letter)
+        if _feature_blocks_structure(index, index, excel_index, span_end, deleting):
+            raise XlsxPatchExportError('Column widths cannot be shifted.')
+
+
+def _defined_name_uses_sheet(worksheet):
+    defined_names = getattr(worksheet.parent, 'defined_names', None)
+    if not defined_names:
+        return False
+    title = worksheet.title
+    quoted = "'" + title.replace("'", "''") + "'"
+    for defined in defined_names.values():
+        text = defined.attr_text or ''
+        if quoted in text or f'{title}!' in text:
+            return True
+    return False
+
+
+def _feature_blocks_structure(start, end, cut, span_end, deleting):
+    """True when this feature crosses the edit and cannot be moved as a whole."""
+    if end < cut:
+        return False
+    if deleting and start >= cut and end < span_end:
+        return False
+    if start >= (span_end if deleting else cut):
+        return False
+    return True
+
+
+def _drop_deleted_metadata(worksheet, axis, excel_index, count):
+    """Remove dimensions and merges that occupy only the rows or columns being deleted."""
+    span_end = excel_index + count
+    if axis == 'row':
+        for index in list(worksheet.row_dimensions):
+            if isinstance(index, int) and excel_index <= index < span_end:
+                del worksheet.row_dimensions[index]
+        for merged in list(worksheet.merged_cells.ranges):
+            if merged.min_row >= excel_index and merged.max_row < span_end:
+                worksheet.unmerge_cells(str(merged))
+        return
+    for letter in list(worksheet.column_dimensions):
+        index = column_index_from_string(letter)
+        if excel_index <= index < span_end:
+            del worksheet.column_dimensions[letter]
+    for merged in list(worksheet.merged_cells.ranges):
+        if merged.min_col >= excel_index and merged.max_col < span_end:
+            worksheet.unmerge_cells(str(merged))
+
+
+def _take_merges_after_edit(worksheet, axis, cut, count, deleting):
+    span_end = cut + count
+    move_from = span_end if deleting else cut
+    moved = []
+    for merged in list(worksheet.merged_cells.ranges):
+        start = merged.min_row if axis == 'row' else merged.min_col
+        if start < move_from:
+            continue
+        worksheet.unmerge_cells(range_string=str(merged))
+        shifted = CellRange(str(merged))
+        delta = -count if deleting else count
+        if axis == 'row':
+            shifted.shift(row_shift=delta)
+        else:
+            shifted.shift(col_shift=delta)
+        moved.append(str(shifted))
+    return moved
+
+
+def _shift_dimensions_after_edit(worksheet, axis, cut, count, deleting):
+    move_from = cut + count if deleting else cut
+    delta = -count if deleting else count
+    if axis == 'row':
+        pending = []
+        for index in list(worksheet.row_dimensions):
+            if not isinstance(index, int) or index < move_from:
+                continue
+            dimension = worksheet.row_dimensions[index]
+            if dimension.height is None and not dimension.hidden:
+                continue
+            pending.append((index, dimension.height, dimension.hidden))
+            del worksheet.row_dimensions[index]
+        for index, height, hidden in pending:
+            target = worksheet.row_dimensions[index + delta]
+            target.height = height
+            target.hidden = hidden
+        return
+    pending = []
+    for letter in list(worksheet.column_dimensions):
+        index = column_index_from_string(letter)
+        if index < move_from:
+            continue
+        dimension = worksheet.column_dimensions[letter]
+        if dimension.width is None and not dimension.hidden:
+            continue
+        pending.append((index, dimension.width, dimension.hidden))
+        del worksheet.column_dimensions[letter]
+    for index, width, hidden in pending:
+        target = worksheet.column_dimensions[get_column_letter(index + delta)]
+        target.width = width
+        target.hidden = hidden
 
 def _parse_coordinate(key):
     parts = str(key).split(',')

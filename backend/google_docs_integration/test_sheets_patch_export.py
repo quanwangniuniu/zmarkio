@@ -279,7 +279,7 @@ class TestGoogleSheetExportRouting:
             response = _post_export(setup)
         return response, SimpleNamespace(rebuild=rebuild, copy=copy, converted=converted)
 
-    def test_google_structural_edit_since_import_uses_rebuild(self, sheet_setup):
+    def test_google_structural_edit_since_import_uses_the_copier(self, sheet_setup):
         sheet = sheet_setup.sheet
         self._grid(sheet)
         _google_source(sheet, baseline=build_import_baseline(sheet))
@@ -287,9 +287,13 @@ class TestGoogleSheetExportRouting:
 
         response, routed = self._export_with_real_diff(sheet_setup)
         assert response.status_code == status.HTTP_200_OK
-        assert response.data["spreadsheet_id"] == "rebuilt"
-        routed.rebuild.assert_called_once()
-        routed.copy.assert_not_called()
+        assert response.data["spreadsheet_id"] == "copied"
+        routed.copy.assert_called_once()
+        routed.rebuild.assert_not_called()
+        diff = routed.copy.call_args.args[1]
+        assert diff["structural_operations"] == [
+            {"op_type": "COL_INSERT", "anchor_position": 1, "count": 1},
+        ]
 
     def test_google_undone_structural_edit_uses_the_copier(self, sheet_setup):
         sheet = sheet_setup.sheet
@@ -306,7 +310,7 @@ class TestGoogleSheetExportRouting:
         routed.rebuild.assert_not_called()
 
     @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
-    def test_excel_structural_edit_since_import_uses_rebuild(self, sheet_setup):
+    def test_excel_structural_edit_since_import_uses_conversion(self, sheet_setup):
         sheet = sheet_setup.sheet
         self._grid(sheet)
         source = _google_source(
@@ -321,9 +325,13 @@ class TestGoogleSheetExportRouting:
 
         response, routed = self._export_with_real_diff(sheet_setup)
         assert response.status_code == status.HTTP_200_OK
-        assert response.data["spreadsheet_id"] == "rebuilt"
-        routed.rebuild.assert_called_once()
-        routed.converted.assert_not_called()
+        assert response.data["spreadsheet_id"] == "copied"
+        routed.converted.assert_called_once()
+        routed.rebuild.assert_not_called()
+        diff = routed.converted.call_args.args[1]
+        assert diff["structural_operations"] == [
+            {"op_type": "ROW_DELETE", "anchor_position": 0, "count": 1},
+        ]
 
     @override_settings(MEDIA_ROOT=tempfile.mkdtemp())
     def test_excel_file_uses_conversion(self, sheet_setup):
@@ -464,6 +472,15 @@ class TestExportCopiedGoogleSheet:
                 return _ok(_created_payload())
             if url.endswith(":copyTo"):
                 return _ok(_copy_payload(copy_title))
+            if method == "get" and url == f"{GOOGLE_SHEETS_URL}/{DESTINATION_ID}":
+                return _ok({
+                    "sheets": [{
+                        "properties": {
+                            "sheetId": COPIED_SHEET_ID,
+                            "gridProperties": {"rowCount": 1000, "columnCount": 26},
+                        }
+                    }]
+                })
             return _ok({})
 
         with patch(
@@ -654,6 +671,48 @@ class TestExportCopiedGoogleSheet:
                 assert url.endswith(":copyTo")
             if url.endswith("/values:batchUpdate") or url.endswith(":batchUpdate"):
                 assert DESTINATION_ID in url
+
+    def test_delete_then_value_patch_uses_the_final_coordinate(self):
+        diff = _safe_diff(
+            has_changes=True,
+            structural_operations=[{"op_type": "COL_DELETE", "anchor_position": 1, "count": 1}],
+            cells={"0,1": {"raw_input": "moved"}},
+        )
+        _result, recorded = self._run(diff)
+        urls = [url for url, _body in recorded]
+        assert urls.index(f"{GOOGLE_SHEETS_URL}/{DESTINATION_ID}:batchUpdate") < urls.index(
+            f"{GOOGLE_SHEETS_URL}/{DESTINATION_ID}/values:batchUpdate"
+        )
+        values = next(body for url, body in recorded if url.endswith("/values:batchUpdate"))
+        assert values["data"] == [{"range": "'Budget'!B1", "values": [["moved"]]}]
+
+    def test_structural_export_does_not_rewrite_a_cross_sheet_formula(self):
+        from spreadsheet.formula_rewrite import rewrite_formula_text
+
+        rewritten = rewrite_formula_text("=Sheet2!A1", "COL_INSERT", 0, 1)
+        source = _source()
+        source.baseline = {"cells": {"0,0": {"raw_input": "=Sheet2!A1"}}}
+        diff = _safe_diff(
+            has_changes=True,
+            structural_operations=[{"op_type": "COL_INSERT", "anchor_position": 0, "count": 1}],
+            cells={"0,1": {"raw_input": rewritten}},
+        )
+        _result, recorded = self._run(diff, source=source)
+        assert not any(url.endswith("/values:batchUpdate") for url, _body in recorded)
+
+    def test_structural_export_still_writes_a_formula_the_user_edited(self):
+        source = _source()
+        source.baseline = {"cells": {"0,0": {"raw_input": "=B1"}}}
+        diff = _safe_diff(
+            has_changes=True,
+            structural_operations=[{"op_type": "COL_INSERT", "anchor_position": 0, "count": 1}],
+            cells={"0,1": {"raw_input": "=C1+5"}},
+        )
+        _result, recorded = self._run(diff, source=source)
+        values = next(body for url, body in recorded if url.endswith("/values:batchUpdate"))
+        assert values["data"] == [{"range": "'Budget'!B1", "values": [["=C1+5"]]}]
+
+
 
 @pytest.mark.django_db
 class TestGoogleCopyTokenRetry:

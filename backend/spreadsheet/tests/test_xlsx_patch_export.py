@@ -218,35 +218,49 @@ class TestXlsxPatchExport(TestCase):
         ):
             self._assert_rebuild()
 
-    def test_column_insert_since_import_rebuilds(self):
+    def test_column_insert_moves_the_underlined_cell(self):
         self._cell(0, 0, 'left')
         self._cell(0, 1, 'right')
         original = _workbook_bytes(
             lambda workbook, worksheet: (
                 worksheet.__setitem__('A1', 'left'),
                 worksheet.__setitem__('B1', 'right'),
+                setattr(worksheet['B1'], 'font', Font(underline='single')),
             )
         )
         self._save_excel_source(original)
-        SheetService.insert_columns(self.sheet, position=1, count=1)
-        with patch('spreadsheet.views.build_patched_workbook') as patcher:
-            self._assert_rebuild()
-        patcher.assert_not_called()
+        SheetService.insert_columns(self.sheet, position=1, count=1, created_by=self.user)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        with _open_exported(response.content) as workbook:
+            worksheet = workbook['Sheet1']
+            self.assertEqual(worksheet['A1'].value, 'left')
+            self.assertIsNone(worksheet['B1'].value)
+            self.assertEqual(worksheet['C1'].value, 'right')
+            self.assertEqual(worksheet['C1'].font.underline, 'single')
 
-    def test_row_delete_since_import_rebuilds(self):
+    def test_row_delete_patches_the_final_coordinate(self):
         self._cell(0, 0, 'drop')
-        self._cell(1, 0, 'keep')
+        kept = self._cell(1, 0, 'keep')
         original = _workbook_bytes(
             lambda workbook, worksheet: (
                 worksheet.__setitem__('A1', 'drop'),
                 worksheet.__setitem__('A2', 'keep'),
+                setattr(worksheet['A2'], 'font', Font(underline='single')),
             )
         )
         self._save_excel_source(original)
         SheetService.delete_rows(self.sheet, position=0, count=1, created_by=self.user)
-        with patch('spreadsheet.views.build_patched_workbook') as patcher:
-            self._assert_rebuild()
-        patcher.assert_not_called()
+        kept.raw_input = 'edited'
+        kept.string_value = 'edited'
+        kept.save(update_fields=['raw_input', 'string_value'])
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        with _open_exported(response.content) as workbook:
+            worksheet = workbook['Sheet1']
+            self.assertEqual(worksheet['A1'].value, 'edited')
+            self.assertEqual(worksheet['A1'].font.underline, 'single')
+            self.assertIsNone(worksheet['A2'].value)
 
     def test_undone_column_insert_returns_original_bytes(self):
         from spreadsheet.models import SheetStructureOperation
@@ -269,6 +283,33 @@ class TestXlsxPatchExport(TestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, original)
+
+    def test_relative_formula_is_patched_after_insert(self):
+        formula = self._cell(0, 0, '=B1')
+        self._cell(0, 1, '2')
+        original = _workbook_bytes(
+            lambda workbook, worksheet: (
+                worksheet.__setitem__('A1', '=B1'),
+                worksheet.__setitem__('B1', 2),
+            )
+        )
+        source = self._save_excel_source(original)
+        SheetService.insert_columns(self.sheet, position=1, count=1)
+        formula.refresh_from_db()
+        self.assertEqual(formula.raw_input, '=C1')
+        content = build_patched_workbook(source, diff_sheet(source))
+        with _open_exported(content) as workbook:
+            self.assertEqual(workbook['Sheet1']['A1'].value, '=C1')
+            self.assertEqual(workbook['Sheet1']['C1'].value, 2)
+
+    def test_absolute_formula_refuses_structural_replay(self):
+        self._cell(0, 0, '=$B$1')
+        original = _workbook_bytes(lambda workbook, worksheet: worksheet.__setitem__('A1', '=$B$1'))
+        source = self._save_excel_source(original)
+        SheetService.insert_columns(self.sheet, position=1, count=1)
+        with self.assertRaises(XlsxPatchExportError):
+            build_patched_workbook(source, diff_sheet(source))
+
 
     def _save_google_source(self):
         return SheetImportSource.objects.create(
@@ -360,15 +401,30 @@ class TestXlsxPatchExport(TestCase):
             self.assertEqual(cell.border.left.style, 'thin')
             self.assertEqual(cell.alignment.horizontal, 'center')
 
-    def test_google_column_insert_since_import_rebuilds(self):
+    def test_google_column_insert_moves_the_underlined_cell(self):
         self._cell(0, 0, 'left')
         self._cell(0, 1, 'right')
         self._save_google_source()
         self._connect_google()
+        original = _workbook_bytes(
+            lambda workbook, worksheet: (
+                worksheet.__setitem__('A1', 'left'),
+                worksheet.__setitem__('B1', 'right'),
+                setattr(worksheet['B1'], 'font', Font(underline='single')),
+            )
+        )
         SheetService.insert_columns(self.sheet, position=1, count=1, created_by=self.user)
-        with patch('spreadsheet.views.export_google_spreadsheet_xlsx') as fetch:
-            self._assert_rebuild()
-        fetch.assert_not_called()
+        with patch(
+            'spreadsheet.views.export_google_spreadsheet_xlsx',
+            return_value=(original, 'Sheet1'),
+        ):
+            response = self.client.get(self.url)
+        with _open_exported(response.content) as workbook:
+            worksheet = workbook['Sheet1']
+            self.assertEqual(worksheet['A1'].value, 'left')
+            self.assertIsNone(worksheet['B1'].value)
+            self.assertEqual(worksheet['C1'].value, 'right')
+            self.assertEqual(worksheet['C1'].font.underline, 'single')
 
     def test_google_undo_returns_the_exported_workbook(self):
         from spreadsheet.models import SheetStructureOperation
