@@ -1,5 +1,13 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "enabledManagers": ["github-actions"],
-  "extends": ["helpers:pinGitHubActionDigests"]
+  "enabledManagers": ["github-actions", "dockerfile"],
+  "extends": ["helpers:pinGitHubActionDigests", "docker:pinDigests"],
+  "dockerfile": {
+    "includePaths": [
+      "devops/sonarqube/Dockerfile.dev",
+      "devops/topic-init/Dockerfile.dev",
+      "pgbackrest/Dockerfile",
+      "k6/Dockerfile.k6"
+    ]
+  }
 }
