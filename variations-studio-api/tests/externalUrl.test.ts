@@ -3,6 +3,7 @@ import { callOllamaJson } from '@/src/ai/providers/ollama';
 import { prisma } from '@/lib/prisma';
 import { BrowserlessError, fetchUrlText } from '@/lib/urlFetch';
 import { findVariationById } from '@/lib/variationStore';
+import { lookup } from 'node:dns/promises';
 
 import {
   setupStudioFixture,
@@ -33,10 +34,15 @@ jest.mock('@/lib/urlFetch', () => {
   return { ...actual, fetchUrlText: jest.fn() };
 });
 
+// Real DNS is replaced so the SSRF guard runs its real logic against
+// addresses each test chooses.
+jest.mock('node:dns/promises', () => ({ lookup: jest.fn() }));
+
 const ollamaMock = callOllamaJson as jest.MockedFunction<
   typeof callOllamaJson
 >;
 const fetchMock = fetchUrlText as jest.MockedFunction<typeof fetchUrlText>;
+const lookupMock = lookup as unknown as jest.Mock;
 
 let fixture: StudioFixture;
 let token: string;
@@ -54,6 +60,7 @@ afterAll(async () => {
 beforeEach(() => {
   jest.clearAllMocks();
   fetchMock.mockResolvedValue('Landing page copy about a product.');
+  lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
   ollamaMock.mockResolvedValue({
     hook: 'URL hook',
     headline: 'URL headline',
@@ -110,6 +117,19 @@ describe('generate with source_mode=external_url', () => {
       error: 'url must be http or https',
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects a url that resolves to a private address before calling out', async () => {
+    lookupMock.mockResolvedValue([{ address: '10.0.0.5', family: 4 }]);
+
+    const response = await generateExternal({ url: 'https://internal.example.com/admin' });
+
+    expect(response.status).toBe(400);
+    await expect(readJson(response)).resolves.toEqual({
+      error: 'url must not point to a private or internal address',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(ollamaMock).not.toHaveBeenCalled();
   });
 
   it('returns 502 when the page cannot be fetched', async () => {

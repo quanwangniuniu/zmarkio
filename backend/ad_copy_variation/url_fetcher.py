@@ -1,13 +1,12 @@
 """URL fetcher for ad_copy_variation Mode 3 (external Meta ad URL).
 
 Vendor-agnostic interface: fetch_url_text(url) -> str returns the rendered
-text content of a JS-heavy page. Default implementation calls Browserless
-(managed headless browser as a service); swap vendor by overriding
-BROWSERLESS_BASE env and adapting the post body if the new vendor uses a
-different shape.
+text content of a JS-heavy page. Calls a self-hosted Browserless instance
+configured via BROWSERLESS_BASE; there is no hosted default, so a missing
+value fails closed (MED-506).
 
-Token MUST NOT leak in any error message — see _safe_post for redaction
-of the URL when re-raising.
+The token is sent in the Authorization header, never in the URL, and MUST
+NOT appear in any log or error message.
 """
 
 import logging
@@ -19,7 +18,6 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BASE = "https://chrome.browserless.io"
 DEFAULT_TIMEOUT = 30
 MAX_TEXT_CHARS = 20000
 
@@ -34,15 +32,20 @@ def _api_key() -> str:
 
 
 def _base_url() -> str:
-    return os.environ.get("BROWSERLESS_BASE") or DEFAULT_BASE
+    base = (os.environ.get("BROWSERLESS_BASE") or "").strip().rstrip("/")
+    if not base:
+        raise RuntimeError(
+            "BROWSERLESS_BASE is not configured. Point it at a self-hosted Browserless instance."
+        )
+    return base
 
 
 def _safe_post(endpoint_path: str, payload: dict, timeout: int) -> requests.Response:
-    """Post to Browserless. On error, redact the URL (which contains the token) before raising."""
+    """Post to Browserless with the token in the Authorization header."""
     url = f"{_base_url()}{endpoint_path}"
     response = requests.post(
         url,
-        params={"token": _api_key()},
+        headers={"Authorization": f"Bearer {_api_key()}"},
         json=payload,
         timeout=timeout,
     )

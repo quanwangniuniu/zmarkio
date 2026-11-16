@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { assertPublicUrl } from '@/lib/ssrfGuard';
 
 import { buildExternalUrlPrompt } from '@/src/ai/prompts';
 import { BrowserlessError, fetchUrlText, parseExternalUrl } from '@/lib/urlFetch';
@@ -12,6 +13,7 @@ export const externalUrlMode: SourceModeHandler = {
     body: Record<string, unknown>
   ): Promise<SourceModeResult | SourceModeEarlyReturn> {
     const sourceRef = parseExternalUrl(body.url);
+    await assertPublicUrl(sourceRef);
     try {
       const pageText = await fetchUrlText(sourceRef);
       return {
