@@ -13,6 +13,8 @@ channels==4.0.0
 channels-redis==4.1.0
 daphne==4.2.2
 celery==5.3.4
+# kombu 5.7+ rejects redis-py 5.0.1. Stay on 5.6.x until redis is upgraded.
+kombu==5.6.2
 clamd==1.0.2
 requests==2.31.0 
 Pillow==12.3.0
