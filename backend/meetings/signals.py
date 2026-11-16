@@ -1,5 +1,5 @@
 """
-Meeting signals: RAG indexing (MED-264) + transcript search_vector sync.
+Meeting signals: RAG indexing + transcript search_vector sync.
 
 RAG indexing
 ------------
@@ -22,7 +22,7 @@ helpers below catch and log exceptions from Celery `.delay()` rather than
 propagating them, so a broker outage does not fail the user-facing request
 that triggered the signal.
 
-MED-264 Problem 7 reliability handling:
+Dirty-marker reliability handling:
 
 Each RAG-relevant mutation synchronously calls
 `rag.indexing.mark_source_dirty` before registering its

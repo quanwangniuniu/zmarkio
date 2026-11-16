@@ -39,6 +39,7 @@ def call_llm(
     response_mime_type: str | None = None,
     call_purpose: str = 'other',
     timeout: int | None = None,
+    response_format: dict | None = None,
 ) -> dict[str, Any]:
     """
     Unified LLM call.
@@ -85,6 +86,10 @@ def call_llm(
             result = _call_gemini(model, system_prompt, user_prompt,
                                   max_output_tokens, temperature, response_mime_type,
                                   timeout=timeout)
+        elif provider == 'ollama':
+            result = _call_ollama(model, system_prompt, user_prompt,
+                                  max_output_tokens, temperature, timeout=timeout,
+                                  response_format=response_format)
         else:
             raise ValueError(f'Unknown LLM provider: {provider!r}')
 
@@ -171,6 +176,51 @@ def _call_anthropic(
             'input': message.usage.input_tokens,
             'output': message.usage.output_tokens,
         },
+    }
+
+
+def _call_ollama(
+    model: str,
+    system_prompt: str,
+    user_prompt: str,
+    max_output_tokens: int,
+    temperature: float,
+    timeout: int | None = None,
+    response_format: dict | None = None,
+) -> dict:
+    """Local Ollama /api/chat. Used by project-RAG rewrite and answers.
+
+    prompt_eval_count and eval_count are the input and output token counts.
+    If either is missing, fall back to the same estimate Gemini uses so a
+    quota row is still written.
+    """
+    from core.services.ollama_chat import chat
+
+    logger.info("_call_ollama model=%s system_chars=%d user_chars=%d",
+                model, len(system_prompt), len(user_prompt))
+    data = chat(
+        model=model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=temperature,
+        max_output_tokens=max_output_tokens,
+        timeout=timeout,
+        format=response_format,
+    )
+    input_tokens = data["prompt_eval_count"]
+    output_tokens = data["eval_count"]
+    if input_tokens is None or output_tokens is None:
+        logger.error(
+            "_call_ollama: token counts missing in chat response for model %s "
+            "— falling back to estimate; verify billing accuracy",
+            model,
+        )
+        from stripe_meta.services import estimate_input_tokens
+        input_tokens = estimate_input_tokens(system_prompt + user_prompt, model)
+        output_tokens = max_output_tokens // 4
+    return {
+        'text': data['text'].strip(),
+        'usage': {'input': input_tokens, 'output': output_tokens},
     }
 
 

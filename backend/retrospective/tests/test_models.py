@@ -16,10 +16,9 @@ User = get_user_model()
 
 class TenantRegistrationTests(SimpleTestCase):
     """
-    Regression test for MED-264: RetrospectiveTask/CampaignMetric/Insight
-    must stay registered as tenant models. See core/tenant_config.py's
-    "MED-264 tenancy fix" comment -- these were previously public-schema-only
-    despite being project-scoped.
+    Regression test: RetrospectiveTask/CampaignMetric/Insight
+    must stay registered as tenant models. See core/tenant_config.py --
+    these were previously public-schema-only despite being project-scoped.
     """
 
     def test_retrospective_models_are_tenant_models(self):

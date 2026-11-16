@@ -1,5 +1,5 @@
 """
-Source-document extraction for RAG indexing (MED-264).
+Source-document extraction for RAG indexing.
 
 Each extractor takes a live source row and returns a `SourceDocument` (the
 full text to chunk/embed, plus enough metadata to detect changes and render

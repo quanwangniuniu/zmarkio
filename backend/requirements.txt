@@ -13,6 +13,8 @@ channels==4.0.0
 channels-redis==4.1.0
 daphne==4.2.2
 celery==5.3.4
+# kombu 5.7+ rejects redis-py 5.0.1. Stay on 5.6.x until redis is upgraded.
+kombu==5.6.2
 clamd==1.0.2
 requests==2.31.0 
 Pillow==12.3.0
@@ -98,9 +100,3 @@ pyOpenSSL==26.4.0
 # itself must be installed at the database level — see postgres/Dockerfile for
 # CI/bundled Postgres, and DOCKER_README.md for local/host Postgres setup)
 pgvector==0.3.6
-
-# Temporary local embedding provider (MED-264 eval/local-dev unblock only --
-# NOT the production default; see RAG_EMBEDDING_PROVIDER in settings.py,
-# which stays 'gemini' unless explicitly overridden). ONNX-based, no torch.
-# Pulls in onnxruntime/numpy/tokenizers/huggingface_hub transitively.
-fastembed==0.8.0

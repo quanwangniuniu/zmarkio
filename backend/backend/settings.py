@@ -426,28 +426,26 @@ GEMINI_CB_THRESHOLD = config('GEMINI_CB_THRESHOLD', default=5, cast=int)
 GEMINI_CB_WINDOW_SECONDS = config('GEMINI_CB_WINDOW_SECONDS', default=60, cast=int)
 GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, cast=int)
 
-# RAG document retrieval (MED-264). Both document-chunk and query embeddings
-# MUST use this same model/dimension pair — mixing models or widths at
-# retrieval time produces meaningless similarity scores with no error, since
-# pgvector only rejects a literal width mismatch, not a same-width model swap.
-# Changing either value later requires re-embedding every existing
-# DocumentChunk row; changing RAG_EMBEDDING_DIMENSIONS additionally requires a
-# schema migration, since pgvector's VectorField width is fixed at the column
-# type level (not adjustable via settings alone).
-RAG_EMBEDDING_MODEL = config('RAG_EMBEDDING_MODEL', default='gemini-embedding-2')
+# RAG document retrieval. Document and query embeddings
+# use one provider and one model. Mixing widths at retrieval time produces
+# meaningless similarity scores with no error, since pgvector only rejects a
+# literal width mismatch. Changing the model or RAG_EMBEDDING_DIMENSIONS
+# requires re-embedding every existing DocumentChunk. Changing the width
+# also requires a schema migration: pgvector's VectorField width is fixed
+# at the column type.
 RAG_EMBEDDING_DIMENSIONS = config('RAG_EMBEDDING_DIMENSIONS', default=768, cast=int)
 
-# Embedding provider switch (MED-264 eval/local-dev unblock while Gemini
-# access is blocked). 'gemini' is the only production-supported value and
-# stays the default everywhere -- this must never be set to 'local' outside
-# a developer's own env or an eval run. 'local' routes through
-# core.services.local_embeddings (fastembed/ONNX, no Gemini dependency)
-# instead of core.services.gemini_embeddings. RAG_EMBEDDING_DIMENSIONS stays
-# 768 either way: BAAI/bge-base-en-v1.5 (the local model) natively outputs
-# 768-dim vectors, so no padding/truncation is needed to fit
-# DocumentChunk.embedding's fixed-width column.
-RAG_EMBEDDING_PROVIDER = config('RAG_EMBEDDING_PROVIDER', default='gemini')
-RAG_LOCAL_EMBEDDING_MODEL = config('RAG_LOCAL_EMBEDDING_MODEL', default='BAAI/bge-base-en-v1.5')
+# 'ollama' is the only supported provider. The selected model must natively
+# emit RAG_EMBEDDING_DIMENSIONS values; the client rejects any other width.
+# Inside Docker, point RAG_OLLAMA_BASE_URL at http://host.docker.internal:11434.
+RAG_EMBEDDING_PROVIDER = config('RAG_EMBEDDING_PROVIDER', default='ollama')
+RAG_OLLAMA_BASE_URL = config('RAG_OLLAMA_BASE_URL', default='http://localhost:11434')
+RAG_OLLAMA_EMBEDDING_MODEL = config('RAG_OLLAMA_EMBEDDING_MODEL', default='nomic-embed-text')
+# Chat model for project-RAG rewrite and grounded answers. This is not the
+# embedding model: nomic-embed-text cannot generate text. qwen3 thinks by
+# default; the chat client sends think=false so a rewrite stays one line.
+RAG_OLLAMA_CHAT_MODEL = config('RAG_OLLAMA_CHAT_MODEL', default='qwen3:8b')
+RAG_OLLAMA_TIMEOUT_SECONDS = config('RAG_OLLAMA_TIMEOUT_SECONDS', default=60, cast=int)
 
 # Chunking (rag.chunking). Units are CHARACTERS, not tokens — chunking does
 # not use a tokenizer. Deliberately simple fixed-size+overlap for the first
@@ -477,12 +475,12 @@ RAG_RETRIEVAL_MIN_SIMILARITY = config(
 )
 
 # Query rewrite for project RAG (agent.answer_project_question). Only the
-# knobs we expect to retune live here. The rewrite model and temperature stay
-# fixed in code (gemini-2.5-flash-lite, temperature 0). History turns are
+# knobs we expect to retune live here. The rewrite model is
+# RAG_OLLAMA_CHAT_MODEL; temperature stays 0 in code. History turns are
 # completed user+assistant pairs before the current question. Assistant
 # replies are truncated before they are sent to the rewrite model. The
-# timeout is shorter than GEMINI_TIMEOUT_SECONDS because a failed or slow
-# rewrite falls back to the original question instead of blocking the answer.
+# timeout is short because a failed or slow rewrite falls back to the
+# original question instead of blocking the answer.
 RAG_QUERY_REWRITE_HISTORY_TURNS = config(
     'RAG_QUERY_REWRITE_HISTORY_TURNS', default=3, cast=int
 )
@@ -500,7 +498,7 @@ if RAG_QUERY_REWRITE_TIMEOUT_SECONDS < 1:
     raise ImproperlyConfigured("RAG_QUERY_REWRITE_TIMEOUT_SECONDS must be >= 1")
 
 # Reliability backstop for a lost Celery publish / never-reconciled indexing
-# attempt (rag.tasks.reconcile_dirty_rag_states, MED-264 Problem 7). How long
+# attempt (rag.tasks.reconcile_dirty_rag_states). How long
 # a DocumentIndexState row may sit with dirty_since set before the periodic
 # reconciler re-enqueues it -- comfortably longer than normal indexing
 # latency (embedding call + chunking), so an in-flight, healthy attempt is
@@ -915,7 +913,7 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': crontab(minute='*/15'),
         'options': {'timezone': 'UTC'},
     },
-    # RAG reliability backstop (MED-264 Problem 7): re-enqueues indexing for
+    # RAG reliability backstop: re-enqueues indexing for
     # any source still dirty after RAG_RECONCILE_STALE_SECONDS. A reliability
     # sweep, not a near-real-time path -- normal indexing already runs via
     # the signal -> on_commit -> Celery route within seconds.
@@ -955,8 +953,7 @@ CACHES = {
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
             # No timeout was set here, so a stalled Redis connection blocked
-            # the calling thread indefinitely (found via MED-264 chat-hang
-            # investigation: _circuit_open()'s cache.get() has no bound of
+            # the calling thread indefinitely (_circuit_open()'s cache.get() has no bound of
             # its own and sits upstream of every Gemini call's retry/deadline
             # logic). A finite timeout lets that call's existing
             # `except Exception: return False` fail open instead of hanging.
@@ -1073,6 +1070,8 @@ MODEL_TOKEN_MULTIPLIER = {
     'claude-haiku-4-5': 0.2,
     'claude-opus-4-6': 5.0,
     'gemini-2.5-flash-lite': 0.15,
+    # Local Ollama chat has no API price. Multiplier 1.0 keeps quota math defined.
+    'qwen3:4b': 1.0,
 }
 # Actual API cost table in cents per 1M tokens (for LLMCallLog cost_cents)
 LLM_PRICE_TABLE = {
@@ -1081,6 +1080,7 @@ LLM_PRICE_TABLE = {
     'claude-haiku-4-5': {'input': 80, 'output': 400},
     'claude-opus-4-6': {'input': 1500, 'output': 7500},
     'gemini-2.5-flash-lite': {'input': 10, 'output': 40},
+    'qwen3:4b': {'input': 0, 'output': 0},
 }
 FAIR_USE_THRESHOLD_RATIO = 0.30   # alert when user > 30% of org quota
 FREE_USER_MAX_COST_CENTS = 200    # safety cap for fair-use alert on Free tier

@@ -1,5 +1,5 @@
 """
-Deterministic character-based chunking for RAG indexing (MED-264).
+Deterministic character-based chunking for RAG indexing.
 
 Pure text -> list[str] transformation: no DB access, no source-type
 awareness, no citation logic, no embedding calls. Extraction has already
