@@ -1,4 +1,4 @@
-"""Shared fixtures for rag app tests (MED-264 indexing phase).
+"""Shared fixtures for rag app tests.
 
 No factory_boy in this repo (see conventions in sibling apps) -- these are
 thin `Model.objects.create(...)` helpers, matching meetings/notion_editor/

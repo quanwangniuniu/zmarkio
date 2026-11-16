@@ -1,5 +1,5 @@
 """
-RAG indexing signals for the notion_editor app (MED-264).
+RAG indexing signals for the notion_editor app.
 
 Draft/ContentBlock handlers follow the same broad-save principle as
 meetings/signals.py: they just say "this draft's content may have changed"
@@ -9,7 +9,7 @@ docstring, and meetings/signals.py's, for the reliability trade-offs of
 `transaction.on_commit` + logged-and-swallowed `.delay()` failures — the
 same applies here, not repeated below).
 
-MED-264 Problem 7 reliability handling (mark_source_dirty / dirty_since /
+Dirty-marker reliability handling (mark_source_dirty / dirty_since /
 clear_source_index / reconcile_dirty_rag_states) follows the exact same
 pattern described in meetings/signals.py's module docstring — not repeated
 here either. The one addition specific to this app: DraftProjectLink's move

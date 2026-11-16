@@ -1,6 +1,6 @@
 """
-Tests for core.services.local_embeddings (MED-264 temporary local embedding
-provider). Mocks fastembed.TextEmbedding throughout -- these tests exercise
+Tests for core.services.local_embeddings, the local embedding provider.
+Mocks fastembed.TextEmbedding throughout -- these tests exercise
 this module's own caching/validation/dispatch logic, not fastembed's ONNX
 runtime itself (that's covered by the manual runtime probe against the real
 BAAI/bge-base-en-v1.5 model, run separately since it needs a model download).

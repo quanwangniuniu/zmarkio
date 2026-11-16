@@ -1,5 +1,5 @@
 """Tests for RAG indexing signal wiring across the meetings / notion_editor /
-retrospective apps (MED-264).
+retrospective apps.
 
 These tests only prove: the right signal fires, enqueues exactly the right
 (tenant_schema, project_id, source_type, source_id) via transaction.on_commit,
