@@ -19,7 +19,7 @@ from google_docs_integration.google_sheets_patch_export import (
     GooglePatchExportError,
     export_copied_google_sheet,
 )
-from google_docs_integration.google_sheets_patch_export import _format_body
+from google_docs_integration.google_sheets_patch_export import _format_body, stored_google_formats
 from google_docs_integration.models import GoogleDocsConnection
 from google_docs_integration.services import GOOGLE_SHEETS_URL, run_google_api_with_token_retry
 from spreadsheet.import_service import build_import_baseline
@@ -29,6 +29,8 @@ from spreadsheet.models import (
     SheetImportSource,
     SheetRow,
     SheetStructureOperation,
+    SpreadsheetCellFormat,
+    SpreadsheetHighlight,
 )
 from spreadsheet.services import SheetService
 from spreadsheet.tests.test_services import (
@@ -278,6 +280,22 @@ class TestGoogleSheetExportRouting:
         ) as converted:
             response = _post_export(setup)
         return response, SimpleNamespace(rebuild=rebuild, copy=copy, converted=converted)
+
+    def test_rebuild_uses_the_stored_formats(self, sheet_setup):
+        sheet = sheet_setup.sheet
+        SpreadsheetCellFormat.objects.create(sheet=sheet, row_index=0, column_index=0, bold=True)
+        SpreadsheetHighlight.objects.create(
+            spreadsheet=sheet.spreadsheet, sheet=sheet, scope="CELL",
+            row_index=5, col_index=0, color="#FEF08A",
+        )
+
+        response, routed = self._export_with_real_diff(sheet_setup)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.data["spreadsheet_id"] == "rebuilt"
+        routed.rebuild.assert_called_once()
+        assert routed.rebuild.call_args.args[3] == [
+            {"row": 0, "column": 0, "userEnteredFormat": {"textFormat": {"bold": True}}},
+        ]
 
     def test_google_structural_edit_since_import_uses_the_copier(self, sheet_setup):
         sheet = sheet_setup.sheet
@@ -805,3 +823,95 @@ class TestGoogleFormatBody:
     def test_no_format_fields_is_malformed(self):
         with pytest.raises(GooglePatchExportError):
             _format_body({"underline": True})
+
+@pytest.mark.django_db
+class TestStoredGoogleFormats:
+    def _fill(self, sheet, scope, color, row=None, col=None):
+        SpreadsheetHighlight.objects.create(
+            spreadsheet=sheet.spreadsheet, sheet=sheet, scope=scope,
+            row_index=row, col_index=col, color=color,
+        )
+
+    def test_maps_text_style_font_size_and_red(self, sheet_setup):
+        SpreadsheetCellFormat.objects.create(
+            sheet=sheet_setup.sheet, row_index=0, column_index=0,
+            bold=True, italic=True, strikethrough=True,
+            font_family="Arial, sans-serif", font_size=14, text_color="#DC2626",
+        )
+        assert stored_google_formats(sheet_setup.sheet, 1, 1) == [{
+            "row": 0,
+            "column": 0,
+            "userEnteredFormat": {"textFormat": {
+                "bold": True,
+                "italic": True,
+                "strikethrough": True,
+                "fontFamily": "Arial",
+                "fontSize": 14,
+                "foregroundColor": {"red": 220 / 255, "green": 38 / 255, "blue": 38 / 255},
+            }},
+        }]
+
+    def test_maps_number_formats_and_an_unknown_currency_as_a_number(self, sheet_setup):
+        stored = [
+            {"type": "NUMBER", "decimal_places": 0},
+            {"type": "NUMBER", "decimal_places": 2},
+            {"type": "PERCENT", "decimal_places": 0},
+            {"type": "PERCENT", "decimal_places": 2},
+            {"type": "CURRENCY", "currency_code": "USD", "decimal_places": 2},
+            {"type": "CURRENCY", "currency_code": "GBP", "decimal_places": 2},
+            {"type": "CURRENCY", "currency_code": "EUR", "decimal_places": 2},
+            {"type": "CURRENCY", "currency_code": "JPY", "decimal_places": 0},
+            {"type": "CURRENCY", "currency_code": "AUD", "decimal_places": 2},
+            {"type": "GENERAL"},
+        ]
+        for column, number_format in enumerate(stored):
+            SpreadsheetCellFormat.objects.create(
+                sheet=sheet_setup.sheet, row_index=0, column_index=column, number_format=number_format,
+            )
+        patterns = {
+            item["column"]: item["userEnteredFormat"]["numberFormat"]
+            for item in stored_google_formats(sheet_setup.sheet, 1, len(stored))
+        }
+        assert patterns == {
+            0: {"type": "NUMBER", "pattern": "#,##0"},
+            1: {"type": "NUMBER", "pattern": "#,##0.00"},
+            2: {"type": "PERCENT", "pattern": "0%"},
+            3: {"type": "PERCENT", "pattern": "0.00%"},
+            4: {"type": "CURRENCY", "pattern": "[$$-409]#,##0.00"},
+            5: {"type": "CURRENCY", "pattern": "[$£-809]#,##0.00"},
+            6: {"type": "CURRENCY", "pattern": "[$€-407]#,##0.00"},
+            7: {"type": "CURRENCY", "pattern": "[$¥-411]#,##0"},
+            8: {"type": "NUMBER", "pattern": "#,##0.00"},
+        }
+
+    def test_fill_precedence_blank_cells_and_matrix_bounds(self, sheet_setup):
+        sheet = sheet_setup.sheet
+        self._fill(sheet, "COLUMN", "#0000FF", col=1)
+        self._fill(sheet, "ROW", "#00FF00", row=1)
+        self._fill(sheet, "CELL", "#FEF08A", row=1, col=1)
+        self._fill(sheet, "CELL", "#FEF08A", row=9, col=0)
+        SpreadsheetCellFormat.objects.create(sheet=sheet, row_index=20, column_index=0, bold=True)
+
+        found = {
+            (item["row"], item["column"]): item["userEnteredFormat"]["backgroundColor"]
+            for item in stored_google_formats(sheet, 10, 2)
+        }
+        yellow = {"red": 254 / 255, "green": 240 / 255, "blue": 138 / 255}
+        green = {"red": 0.0, "green": 1.0, "blue": 0.0}
+        blue = {"red": 0.0, "green": 0.0, "blue": 1.0}
+        assert found[(1, 1)] == yellow
+        assert found[(1, 0)] == green
+        assert found[(0, 1)] == blue
+        assert found[(9, 0)] == yellow
+        assert (0, 0) not in found
+        assert all(row < 10 for row, _column in found)
+
+    def test_unsupported_values_are_skipped_not_raised(self, sheet_setup):
+        SpreadsheetCellFormat.objects.create(
+            sheet=sheet_setup.sheet, row_index=0, column_index=0,
+            bold=True, font_family="Comic Sans", font_size=0, text_color="red",
+            number_format={"type": "DATE"},
+        )
+        assert stored_google_formats(sheet_setup.sheet, 1, 1) == [{
+            "row": 0, "column": 0, "userEnteredFormat": {"textFormat": {"bold": True}},
+        }]

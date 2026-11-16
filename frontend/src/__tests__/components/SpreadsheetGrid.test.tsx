@@ -1174,7 +1174,6 @@ describe('SpreadsheetGrid toolbar menus to document.body', () => {
     expect(exportGoogleMock).toHaveBeenCalledWith(
       'spreadsheet-1-sheet-33',
       expect.any(Array),
-      expect.any(Array),
       1,
       33,
     );

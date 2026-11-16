@@ -28,7 +28,7 @@ import BrandSelect from '@/components/ui/BrandSelect';
 import type { SheetPresenceUser } from '@/lib/sheetSocketStore';
 import { parseSheetValues } from '@/components/spreadsheets/xlsx_style_import';
 import { mapGoogleSheetStyles } from '@/components/spreadsheets/google_sheet_style_import';
-import { buildGoogleSheetExport, type AppCellFormat, type ExportCell, type ExportHighlight } from '@/components/spreadsheets/google_sheet_style_export';
+import { buildGoogleSheetExport, type ExportCell, type ExportHighlight, type ExportPosition } from '@/components/spreadsheets/google_sheet_style_export';
 import {
   isTriggerMeaningfullyVisible,
   placeMenuInViewport,
@@ -5233,28 +5233,11 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       exportCells.push({ row, column: col, raw: cell.rawInput });
     });
     
-    const exportFormats: Array<{ row: number; column: number; format: AppCellFormat }> = [];
-    cellFormats.forEach((format, key) => {
+    // Positions only: they size the grid. The backend builds the formatting from stored formats.
+    const exportFormats: ExportPosition[] = [];
+    cellFormats.forEach((_format, key) => {
       const { row, col } = parseCellKey(key);
-      exportFormats.push({
-        row,
-        column: col,
-        format: {
-          bold: format.bold,
-          italic: format.italic,
-          strikethrough: format.strikethrough,
-          textColor: format.textColor,
-          fontFamily: format.fontFamily,
-          fontSize: format.fontSize,
-          numberFormat: format.numberFormat
-            ? {
-                type: format.numberFormat.type,
-                currencyCode: format.numberFormat.currencyCode ?? null,
-                decimalPlaces: format.numberFormat.decimalPlaces ?? null,
-              }
-            : null,
-        },
-      });
+      exportFormats.push({ row, column: col });
     });
 
     const exportHighlights: ExportHighlight[] = [];
@@ -5268,7 +5251,7 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
     Object.entries(colHighlights).forEach(([column, color]) => {
       exportHighlights.push({ scope: 'COLUMN', column: Number(column), color });
     });
-    const { matrix, formats } = buildGoogleSheetExport({
+    const { matrix } = buildGoogleSheetExport({
       cells: exportCells,
       formats: exportFormats,
       highlights: exportHighlights,
@@ -5281,7 +5264,6 @@ const SpreadsheetGrid = forwardRef<SpreadsheetGridHandle, SpreadsheetGridProps>(
       const result = await googleDocsApi.exportToGoogleSheets(
         title,
         matrix,
-        formats,
         spreadsheetId,
         sheetId,
       );

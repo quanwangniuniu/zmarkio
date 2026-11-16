@@ -9,6 +9,7 @@ from .services import GOOGLE_SHEETS_URL, _col_letter
 import json
 import uuid
 from spreadsheet.cell_format import CURRENCY_LOCALES, FormatStrategy, font_name, number_pattern, percent_pattern
+from spreadsheet.models import SpreadsheetCellFormat, SpreadsheetHighlight
 from spreadsheet.structure_replay import _shift_index
 
 _BATCH_SIZE = 2000
@@ -398,6 +399,103 @@ def _google_number_format(value):
             raise GooglePatchExportError("unsupported number format")
         return {"type": "CURRENCY", "pattern": prefix + number_pattern(places)}
     raise GooglePatchExportError("unsupported number format")
+
+_REBUILD_NUMBER_TYPES = ("NUMBER", "PERCENT", "CURRENCY")
+
+def _google_color_or_none(value):
+    """_google_color for a rebuild: an unsupported colour is skipped, not an error."""
+    try:
+        return _google_color(value)
+    except GooglePatchExportError:
+        return None
+
+
+def _rebuild_fields(fmt):
+    """The set, supported web fields of one stored format, for a rebuild export.
+
+    _GoogleFormatPatch raises on unsupported values so a patch can fall back to
+    a rebuild. A rebuild instead skips them, as the browser export did, and
+    writes an unknown currency as a plain number.
+    """
+    fields = {}
+    for name in ("bold", "italic", "strikethrough"):
+        if getattr(fmt, name):
+            fields[name] = True
+    if font_name(fmt.font_family):
+        fields["font_family"] = fmt.font_family
+    size = fmt.font_size
+    if isinstance(size, int) and not isinstance(size, bool) and size >= 1:
+        fields["font_size"] = size
+    if _google_color_or_none(fmt.text_color) is not None:
+        fields["text_color"] = fmt.text_color
+    number_format = fmt.number_format
+    if isinstance(number_format, dict) and number_format.get("type") in _REBUILD_NUMBER_TYPES:
+        code = str(number_format.get("currency_code") or "").upper()
+        if number_format["type"] == "CURRENCY" and code not in CURRENCY_LOCALES:
+            number_format = {**number_format, "type": "NUMBER"}
+        fields["number_format"] = number_format
+    return fields
+
+
+def stored_google_formats(sheet, row_count, column_count):
+    """Google rebuild formats from the sheet's stored formats and highlights.
+
+    Returns the {row, column, userEnteredFormat} entries export_to_google_sheet
+    applies, limited to the exported matrix. A cell highlight wins over a row
+    highlight, which wins over a column highlight. A blank cell keeps its fill.
+    """
+    def inside(row, column):
+        return 0 <= row < row_count and 0 <= column < column_count
+
+    text_formats = {}
+    for fmt in SpreadsheetCellFormat.objects.filter(sheet=sheet, is_deleted=False):
+        if not inside(fmt.row_index, fmt.column_index):
+            continue
+        fields = _rebuild_fields(fmt)
+        if not fields:
+            continue
+        target = {"text": {}, "fields": [], "number_format": None}
+        _GoogleFormatPatch.apply(target, fields)
+        user_format = {}
+        if target["text"]:
+            user_format["textFormat"] = target["text"]
+        if target["number_format"] is not None:
+            user_format["numberFormat"] = target["number_format"]
+        if user_format:
+            text_formats[(fmt.row_index, fmt.column_index)] = user_format
+
+    cell_fill, row_fill, column_fill = {}, {}, {}
+    for highlight in SpreadsheetHighlight.objects.filter(sheet=sheet, is_deleted=False):
+        if highlight.scope == "CELL" and highlight.row_index is not None and highlight.col_index is not None:
+            cell_fill[(highlight.row_index, highlight.col_index)] = highlight.color
+        elif highlight.scope == "ROW" and highlight.row_index is not None:
+            row_fill[highlight.row_index] = highlight.color
+        elif highlight.scope == "COLUMN" and highlight.col_index is not None:
+            column_fill[highlight.col_index] = highlight.color
+
+    coordinates = set(text_formats) | set(cell_fill)
+    for row in row_fill:
+        coordinates.update((row, column) for column in range(column_count))
+    for column in column_fill:
+        coordinates.update((row, column) for row in range(row_count))
+
+    entries = []
+    for row, column in sorted(coordinates):
+        if not inside(row, column):
+            continue
+        user_format = dict(text_formats.get((row, column), {}))
+        color = cell_fill.get((row, column))
+        if color is None:
+            color = row_fill.get(row)
+        if color is None:
+            color = column_fill.get(column)
+        background = _google_color_or_none(color) if color is not None else None
+        if background is not None:
+            user_format["backgroundColor"] = background
+        if user_format:
+            entries.append({"row": row, "column": column, "userEnteredFormat": user_format})
+    return entries
+
 
 def _request(method, url, access_token, *, timeout, **kwargs):
     try:

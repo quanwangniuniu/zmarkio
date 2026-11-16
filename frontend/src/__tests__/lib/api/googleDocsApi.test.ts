@@ -27,16 +27,14 @@ describe('googleDocsApi sheet export', () => {
       data: { spreadsheet_id: 'dest', url: 'https://docs.google.com/spreadsheets/d/dest/edit' },
     } as never);
     const matrix = [['CMP-11000']];
-    const formats = [{ row: 0, column: 0, userEnteredFormat: { textFormat: { bold: true } } }];
 
-    await googleDocsApi.exportToGoogleSheets('Budget-Sheet1', matrix, formats, 'budget', 119);
+    await googleDocsApi.exportToGoogleSheets('Budget-Sheet1', matrix, 'budget', 119);
 
     expect(mockApi.post).toHaveBeenCalledWith(
       '/api/google-docs/sheets/export/',
       {
         title: 'Budget-Sheet1',
         matrix,
-        formats,
         spreadsheet_id: 'budget',
         sheet_id: 119,
       },

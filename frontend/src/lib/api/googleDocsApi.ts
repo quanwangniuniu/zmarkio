@@ -1,6 +1,5 @@
 import api, { SYNC_TIMEOUT_MS } from "../api";
 import type { GoogleSheetCell } from '@/components/spreadsheets/google_sheet_style_import';
-import type { GoogleSheetExportFormat } from '@/components/spreadsheets/google_sheet_style_export';
 
 export interface GoogleDocsStatus {
   connected: boolean;
@@ -80,10 +79,10 @@ export const googleDocsApi = {
     };
   },
 
-  exportToGoogleSheets: async (title: string, matrix: string[][], formats: GoogleSheetExportFormat[] = [], spreadsheetId?: number | string, sheetId?: number,) => {
+  exportToGoogleSheets: async (title: string, matrix: string[][], spreadsheetId?: number | string, sheetId?: number) => {
     const response = await api.post(
-      "/api/google-docs/sheets/export/", 
-      { title, matrix, formats, spreadsheet_id: spreadsheetId, sheet_id: sheetId, },
+      "/api/google-docs/sheets/export/",
+      { title, matrix, spreadsheet_id: spreadsheetId, sheet_id: sheetId },
       { timeout: SYNC_TIMEOUT_MS }
     );
     return response.data as { spreadsheet_id: string; url: string };

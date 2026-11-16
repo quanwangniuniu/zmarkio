@@ -17,7 +17,8 @@ from .google_sheets_patch_export import (
     GoogleBlankTabCleanupError,
     GooglePatchExportError,
     export_copied_google_sheet,
-    export_converted_excel_sheet
+    export_converted_excel_sheet,
+    stored_google_formats,
 )
 from .models import GoogleDocsConnection
 from .serializers import (
@@ -375,11 +376,14 @@ class GoogleSheetsExportView(APIView):
 
         title = serializer.validated_data.get("title") or "Exported Sheet"
         matrix = serializer.validated_data.get("matrix") or []
-        formats = serializer.validated_data.get("formats") or []    
         spreadsheet_lookup = (serializer.validated_data.get("spreadsheet_id") or "").strip()
         sheet_id = serializer.validated_data.get("sheet_id")
+        sheet = None
 
         def rebuild():
+            # Formatting comes from the stored cell formats and highlights, limited to the matrix.
+            column_count = max((len(row) for row in matrix), default=0)
+            formats = stored_google_formats(sheet, len(matrix), column_count) if sheet is not None else []
             return run_google_api_with_token_retry(
                 connection,
                 lambda token: export_to_google_sheet(title, matrix, token, formats),

@@ -1,5 +1,4 @@
 from rest_framework import serializers
-from .format_serializers import GoogleSheetExportFormatSerializer
 
 class GoogleDocsStatusSerializer(serializers.Serializer):
     connected = serializers.BooleanField()
@@ -36,6 +35,5 @@ class GoogleSheetsExportSerializer(serializers.Serializer):
         child=serializers.ListField(child=serializers.CharField(allow_blank=True)),
         required=True,
     )
-    formats = GoogleSheetExportFormatSerializer(many=True, required=False, default=list)
     spreadsheet_id = serializers.CharField(required=False, allow_blank=True, max_length=255)
     sheet_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
