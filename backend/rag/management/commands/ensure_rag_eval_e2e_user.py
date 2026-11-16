@@ -1,10 +1,10 @@
 """
-Management command: ensure_med264_e2e_user.
+Management command: ensure_rag_eval_e2e_user.
 
 Idempotently creates/repairs the dedicated E2E test user for the
 "ask about my retrospective" Playwright test, and gives it active membership
 on the RAG Eval Fixture project (the fixture seeded by
-generate_med264_seed_sql.py / run_project_rag_eval.py).
+generate_rag_eval_seed_sql.py / run_project_rag_eval.py).
 
 Why a dedicated user
 ---------------------
@@ -84,7 +84,7 @@ class Command(BaseCommand):
         except Organization.DoesNotExist:
             raise CommandError(
                 f"Organization {EVAL_ORG_NAME!r} does not exist yet. Run "
-                "`python manage.py run_project_rag_eval` (or generate_med264_seed_sql's seed) first "
+                "`python manage.py run_project_rag_eval` (or generate_rag_eval_seed_sql's seed) first "
                 "to provision the eval tenant."
             )
         schema = slug_to_schema_name(org.slug)
@@ -112,7 +112,7 @@ class Command(BaseCommand):
             except Project.DoesNotExist:
                 raise CommandError(
                     f"Project {EVAL_PROJECT_NAME!r} does not exist in schema {schema!r}. Run "
-                    "`python manage.py run_project_rag_eval` (or generate_med264_seed_sql's seed) first."
+                    "`python manage.py run_project_rag_eval` (or generate_rag_eval_seed_sql's seed) first."
                 )
 
             project_membership, project_membership_created = ProjectMember.objects.get_or_create(

@@ -6,9 +6,9 @@ import { waitForLayoutMain } from '../navigation/navigation-helpers';
  *
  * Exercises the real Agent UI -> real HTTP/SSE chat endpoint -> real tenant
  * context -> real RAG retrieval -> real persisted citations, against the
- * RAG Eval Fixture project seeded by generate_med264_seed_sql.py /
+ * RAG Eval Fixture project seeded by generate_rag_eval_seed_sql.py /
  * run_project_rag_eval.py. Auth is the dedicated E2E user provisioned by
- * `python manage.py ensure_med264_e2e_user` (see that command's docstring),
+ * `python manage.py ensure_rag_eval_e2e_user` (see that command's docstring),
  * never a real developer's account -- reused via the existing real-login
  * `chromium` Playwright project (storageState: e2e/.auth/user.json, produced
  * by the existing e2e/auth.setup.ts, unmodified here).

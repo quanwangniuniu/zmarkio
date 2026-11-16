@@ -1,8 +1,8 @@
 """
-Management command: generate_med264_seed_sql.
+Management command: generate_rag_eval_seed_sql.
 
 Generates the committed eval-fixture seed SQL
-(rag/eval_seed/med264_seed.sql) directly from the JSON fixture
+(rag/eval_seed/rag_eval_seed.sql) directly from the JSON fixture
 (rag/tests/fixtures/project_rag_eval_dataset.json), so the fixture stays the
 single source of truth and the SQL is a derived, regeneratable artifact.
 
@@ -82,7 +82,7 @@ from retrospective.models import RetrospectiveTask
 
 _COMMAND_DIR = Path(__file__).resolve().parent
 _RAG_APP_DIR = _COMMAND_DIR.parents[1]  # backend/rag
-DEFAULT_OUTPUT = _RAG_APP_DIR / 'eval_seed' / 'med264_seed.sql'
+DEFAULT_OUTPUT = _RAG_APP_DIR / 'eval_seed' / 'rag_eval_seed.sql'
 
 # Fixed: re-running the generator against an *unchanged* fixture must always
 # derive the same ids, so this must never change.
@@ -430,12 +430,12 @@ class Command(BaseCommand):
         header = (
             "-- MED-264 eval-fixture seed SQL -- GENERATED FILE, DO NOT HAND-EDIT.\n"
             f"-- Source of truth: {fixture_path.as_posix()} (dataset_version={data.get('dataset_version')!r}).\n"
-            "-- Regenerate with: python manage.py generate_med264_seed_sql\n"
-            "-- Verify in sync with: python manage.py generate_med264_seed_sql --check\n"
+            "-- Regenerate with: python manage.py generate_rag_eval_seed_sql\n"
+            "-- Verify in sync with: python manage.py generate_rag_eval_seed_sql --check\n"
             "--\n"
             "-- Usage (target_schema is REQUIRED, no default -- never relies on the\n"
             "-- caller's existing search_path, to avoid silently seeding the wrong tenant):\n"
-            "--   psql <connection args> -v target_schema=org_rag_eval_harness -f med264_seed.sql\n"
+            "--   psql <connection args> -v target_schema=org_rag_eval_harness -f rag_eval_seed.sql\n"
             "--\n"
             "-- Portable: project/user rows are resolved at execution time by stable natural\n"
             f"-- keys (organization name '{EVAL_ORG_NAME}' + project name '{EVAL_PROJECT_NAME}'; user\n"
