@@ -14,32 +14,15 @@ public sealed partial class TenantConnectionFactory(
 
     private string? schema;
 
-    public string Schema => schema ??= ResolveSchema();
-
-    public TenantSession Open()
-    {
-        var connection = dataSource.OpenConnection();
-        try
-        {
-            var transaction = connection.BeginTransaction();
-            connection.Execute(SearchPathSql(Schema), transaction: transaction);
-            return new TenantSession(connection, transaction);
-        }
-        catch
-        {
-            connection.Dispose();
-            throw;
-        }
-    }
-
     public async Task<TenantSession> OpenAsync(CancellationToken cancellationToken)
     {
+        schema ??= await ResolveSchemaAsync(cancellationToken);
         var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         try
         {
             var transaction = await connection.BeginTransactionAsync(cancellationToken);
             await connection.ExecuteAsync(new CommandDefinition(
-                SearchPathSql(Schema),
+                SearchPathSql(schema),
                 transaction: transaction,
                 cancellationToken: cancellationToken
             ));
@@ -71,7 +54,7 @@ public sealed partial class TenantConnectionFactory(
         return $"SET LOCAL search_path = \"{schemaName}\", public";
     }
 
-    private string ResolveSchema()
+    private async Task<string> ResolveSchemaAsync(CancellationToken cancellationToken)
     {
         var token = httpContextAccessor.HttpContext?.Request.BearerToken();
         if (string.IsNullOrWhiteSpace(token))
@@ -85,10 +68,10 @@ public sealed partial class TenantConnectionFactory(
             return PublicSchema;
         }
 
-        using var connection = dataSource.OpenConnection();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
         var parameters = new DynamicParameters();
         parameters.Add("UserId", principal.UserId);
-        var slug = connection.ExecuteScalar<string?>(
+        var slug = await connection.ExecuteScalarAsync<string?>(new CommandDefinition(
             """
             SELECT o.slug
             FROM public.core_customuser u
@@ -96,8 +79,9 @@ public sealed partial class TenantConnectionFactory(
                 ON o.id = COALESCE(u.current_organization_id, u.organization_id)
             WHERE u.id = @UserId
             """,
-            parameters
-        );
+            parameters,
+            cancellationToken: cancellationToken
+        ));
         if (string.IsNullOrWhiteSpace(slug))
         {
             return PublicSchema;
@@ -120,7 +104,7 @@ public sealed class TenantSession(NpgsqlConnection connection, NpgsqlTransaction
 
     public NpgsqlTransaction Transaction { get; } = transaction;
 
-    public void Commit() => Transaction.Commit();
+    public Task CommitAsync() => Transaction.CommitAsync(CancellationToken.None);
 
     public void Dispose()
     {

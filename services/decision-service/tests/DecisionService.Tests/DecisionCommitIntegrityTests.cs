@@ -80,18 +80,19 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
     [InlineData(DecisionStatus.COMMITTED)]
     [InlineData(DecisionStatus.REVIEWED)]
     [InlineData(DecisionStatus.ARCHIVED)]
-    public void Protected_status_cannot_replace_options_or_signals(
+    public async Task Protected_status_cannot_replace_options_or_signals(
         DecisionStatus status)
     {
         var repository = Repository(TestUser);
 
-        var decision = repository.Create(
+        var decision = await repository.CreateAsync(
             TestProject,
             TestUser,
-            Draft("Test protected status")
+            Draft("Test protected status"),
+            CancellationToken.None
         );
 
-        repository.UpdateDraft(
+        await repository.UpdateDraftAsync(
             decision.Slug,
             TestUser,
             new UpdateDecisionDraftRequest(
@@ -108,30 +109,33 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
                     new DecisionOptionInput("Original option", true, 1)
                 },
                 null
-            )
+            ),
+            CancellationToken.None
         );
 
-        var committed = repository.Transition(
+        var committed = await repository.TransitionAsync(
             decision.Slug,
             TestUser,
-            DecisionStatus.COMMITTED
+            DecisionStatus.COMMITTED,
+            CancellationToken.None
         );
 
         Assert.NotNull(committed);
 
         if (status != DecisionStatus.COMMITTED)
         {
-            var transitioned = repository.Transition(
+            var transitioned = await repository.TransitionAsync(
                 decision.Slug,
                 TestUser,
-                status
+                status,
+                CancellationToken.None
             );
 
             Assert.NotNull(transitioned);
         }
 
-        Assert.Throws<DecisionValidationException>(() =>
-            repository.UpdateDraft(
+        await Assert.ThrowsAsync<DecisionValidationException>(() =>
+            repository.UpdateDraftAsync(
                 decision.Slug,
                 TestUser,
                 new UpdateDecisionDraftRequest(
@@ -142,12 +146,13 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
                         new DecisionOptionInput("Changed option", true, 1)
                     },
                     null
-                )
+                ),
+                CancellationToken.None
             )
         );
 
-        Assert.Throws<DecisionValidationException>(() =>
-            repository.UpdateDraft(
+        await Assert.ThrowsAsync<DecisionValidationException>(() =>
+            repository.UpdateDraftAsync(
                 decision.Slug,
                 TestUser,
                 new UpdateDecisionDraftRequest(
@@ -161,11 +166,12 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
                     },
                     null,
                     null
-                )
+                ),
+                CancellationToken.None
             )
         );
 
-        var updated = repository.Get(decision.Slug);
+        var updated = await repository.GetAsync(decision.Slug, CancellationToken.None);
 
         Assert.NotNull(updated);
         Assert.Equal(status, updated.Status);
@@ -186,13 +192,14 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
     {
         var repository = Repository(TestUser);
 
-        var decision = repository.Create(
+        var decision = await repository.CreateAsync(
             TestProject,
             TestUser,
-            Draft("Test commit snapshot")
+            Draft("Test commit snapshot"),
+            CancellationToken.None
         );
 
-        repository.UpdateDraft(
+        await repository.UpdateDraftAsync(
             decision.Slug,
             TestUser,
             new UpdateDecisionDraftRequest(
@@ -215,20 +222,22 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
                     new DecisionOptionInput("Option B", false, 2)
                 },
                 null
-            )
+            ),
+            CancellationToken.None
         );
 
-        var beforeCommit = repository.Get(decision.Slug);
+        var beforeCommit = await repository.GetAsync(decision.Slug, CancellationToken.None);
         Assert.NotNull(beforeCommit);
 
         var selectedOptionId = Assert.Single(
             beforeCommit.Options, o => o.IsSelected
         ).Id;
 
-        var committed = repository.Transition(
+        var committed = await repository.TransitionAsync(
             decision.Slug,
             TestUser,
-            DecisionStatus.COMMITTED
+            DecisionStatus.COMMITTED,
+            CancellationToken.None
         );
 
         Assert.NotNull(committed);
@@ -306,10 +315,11 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
     {
         var repository = Repository(TestUser);
 
-        var decision = repository.Create(
+        var decision = await repository.CreateAsync(
             TestProject,
             TestUser,
-            Draft("Test transaction rollback")
+            Draft("Test transaction rollback"),
+            CancellationToken.None
         );
 
         await Execute("""
@@ -318,11 +328,12 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
             CHECK (validation_snapshot IS NULL);
             """);
 
-        var exception = Assert.Throws<PostgresException>(() =>
-            repository.Transition(
+        var exception = await Assert.ThrowsAsync<PostgresException>(() =>
+            repository.TransitionAsync(
                 decision.Slug,
                 TestUser,
-                DecisionStatus.COMMITTED
+                DecisionStatus.COMMITTED,
+                CancellationToken.None
             )
         );
 
@@ -367,16 +378,18 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
     {
         var repository = Repository(TestUser);
 
-        var decision = repository.Create(
+        var decision = await repository.CreateAsync(
             TestProject,
             TestUser,
-            Draft("Test snapshot immutability")
+            Draft("Test snapshot immutability"),
+            CancellationToken.None
         );
 
-        var committed = repository.Transition(
+        var committed = await repository.TransitionAsync(
             decision.Slug,
             TestUser,
-            DecisionStatus.COMMITTED
+            DecisionStatus.COMMITTED,
+            CancellationToken.None
         );
 
         Assert.NotNull(committed);
@@ -388,7 +401,7 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
             WHERE decision_id = {decision.Id}
             """);
 
-        var updated = repository.UpdateDraft(
+        var updated = await repository.UpdateDraftAsync(
             decision.Slug,
             TestUser,
             new UpdateDecisionDraftRequest(
@@ -396,7 +409,8 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
                 "strategy", 
                 true, 
                 null, null, null, null
-            )
+            ),
+            CancellationToken.None
         );
 
         Assert.NotNull(updated);
@@ -427,16 +441,18 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
     {
         var repository = Repository(TestUser);
 
-        var decision = repository.Create(
+        var decision = await repository.CreateAsync(
             TestProject,
             TestUser,
-            Draft("Original title")
+            Draft("Original title"),
+            CancellationToken.None
         );
 
-        var committed = repository.Transition(
+        var committed = await repository.TransitionAsync(
             decision.Slug,
             TestUser,
-            DecisionStatus.COMMITTED
+            DecisionStatus.COMMITTED,
+            CancellationToken.None
         );
 
         Assert.NotNull(committed);
@@ -481,7 +497,7 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
             Assert.Single(errors["title"])
         );
 
-        var unchanged = repository.Get(decision.Slug);
+        var unchanged = await repository.GetAsync(decision.Slug, CancellationToken.None);
 
         Assert.NotNull(unchanged);
         Assert.Equal("Original title", unchanged.Title);

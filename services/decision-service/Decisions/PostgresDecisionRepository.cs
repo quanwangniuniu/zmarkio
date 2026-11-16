@@ -6,9 +6,9 @@ namespace DecisionService.Decisions;
 
 public sealed class PostgresDecisionRepository(TenantConnectionFactory connections) : IDecisionRepository
 {
-    public DecisionListResponse List(int? projectId, DecisionStatus? status, int pageSize, int pageToken)
+    public async Task<DecisionListResponse> ListAsync(int? projectId, DecisionStatus? status, int pageSize, int pageToken, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -55,8 +55,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("limit", pageSize + 1);
 
         var items = new List<DecisionSummaryDto>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
         {
             items.Add(new DecisionSummaryDto(
                 reader.GetInt32(reader.GetOrdinal("id")),
@@ -88,28 +88,28 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         );
     }
 
-    public DecisionDetailDto? Get(string lookup)
+    public async Task<DecisionDetailDto?> GetAsync(string lookup, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
-        return Get(connection, lookup);
+        return await GetAsync(connection, lookup, ct);
     }
 
-    public DecisionDetailDto Create(int? projectId, int? actorId, CreateDecisionDraftRequest request)
+    public async Task<DecisionDetailDto> CreateAsync(int? projectId, int? actorId, CreateDecisionDraftRequest request, CancellationToken ct)
     {
         if (projectId is null)
         {
             throw new InvalidOperationException("Project context is required.");
         }
 
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
         var originMeeting = request.OriginMeetingId.HasValue
-            ? ResolveOriginMeeting(connection, request.OriginMeetingId.Value, projectId.Value)
+            ? await ResolveOriginMeetingAsync(connection, request.OriginMeetingId.Value, projectId.Value, ct)
             : null;
         var transaction = session.Transaction;
         var now = DateTimeOffset.UtcNow;
-        var projectSeq = NextProjectSequence(connection, projectId.Value);
+        var projectSeq = await NextProjectSequenceAsync(connection, projectId.Value, ct);
         var topic = NormalizeTopic(request.Topic);
 
         using var command = connection.CreateCommand();
@@ -187,25 +187,25 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("topic", topic);
         command.Parameters.AddWithValue("slug", $"decision-{Guid.NewGuid():N}");
 
-        var id = Convert.ToInt32(command.ExecuteScalar());
-        ReplaceOptions(connection, transaction, id, now, request.Options);
-        ReplaceSignals(connection, transaction, id, actorId, now, request.Signals);
-        ReplaceParentEdges(connection, transaction, id, projectId.Value, actorId, request.ParentDecisionIds);
+        var id = Convert.ToInt32(await command.ExecuteScalarAsync(ct));
+        await ReplaceOptionsAsync(connection, transaction, id, now, request.Options, ct);
+        await ReplaceSignalsAsync(connection, transaction, id, actorId, now, request.Signals, ct);
+        await ReplaceParentEdgesAsync(connection, transaction, id, projectId.Value, actorId, request.ParentDecisionIds, ct);
         if (originMeeting is not null)
         {
-            CreateMeetingDecisionOrigin(connection, transaction, originMeeting.Id, id, actorId, now);
+            await CreateMeetingDecisionOriginAsync(connection, transaction, originMeeting.Id, id, actorId, now, ct);
         }
-        var created = Get(connection, id.ToString())!;
-        session.Commit();
+        var created = (await GetAsync(connection, id.ToString(), ct))!;
+        await session.CommitAsync();
         return created;
     }
 
-    public DecisionDetailDto? UpdateDraft(string lookup, int? actorId, UpdateDecisionDraftRequest request)
+    public async Task<DecisionDetailDto?> UpdateDraftAsync(string lookup, int? actorId, UpdateDecisionDraftRequest request, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
         var transaction = session.Transaction;
-        var existing = Get(connection, lookup);
+        var existing = await GetAsync(connection, lookup, ct);
         if (existing is null ||
             existing.Status is not (
                 DecisionStatus.PREDRAFT or
@@ -294,7 +294,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             AddNullableTimestamp(command, "planned_decision_date", request.PlannedDecisionDate);
         }
 
-        var rowAffected = command.ExecuteNonQuery();
+        var rowAffected = await command.ExecuteNonQueryAsync(ct);
         if (rowAffected != 1)
         {
             throw new DecisionValidationException("status", 
@@ -305,29 +305,29 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         {
             if (request.Options is not null)
             {
-                ReplaceOptions(connection, transaction, existing.Id, now, request.Options);
+                await ReplaceOptionsAsync(connection, transaction, existing.Id, now, request.Options, ct);
             }
             if (request.Signals is not null)
             {
-                ReplaceSignals(connection, transaction, existing.Id, actorId, now, request.Signals);
+                await ReplaceSignalsAsync(connection, transaction, existing.Id, actorId, now, request.Signals, ct);
             }
             if (request.ParentDecisionIds is not null && existing.ProjectId is not null)
             {
-                ReplaceParentEdges(connection, transaction, existing.Id, existing.ProjectId.Value, actorId, request.ParentDecisionIds);
+                await ReplaceParentEdgesAsync(connection, transaction, existing.Id, existing.ProjectId.Value, actorId, request.ParentDecisionIds, ct);
             }
         }
 
-        var updated = Get(connection, existing.Id.ToString());
-        session.Commit();
+        var updated = await GetAsync(connection, existing.Id.ToString(), ct);
+        await session.CommitAsync();
         return updated;
     }
 
-    public DecisionDetailDto? Transition(string lookup, int? actorId, DecisionStatus targetStatus)
+    public async Task<DecisionDetailDto?> TransitionAsync(string lookup, int? actorId, DecisionStatus targetStatus, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
         var transaction = session.Transaction;
-        var existing = Get(connection, lookup);
+        var existing = await GetAsync(connection, lookup, ct);
         if (existing is null)
         {
             return null;
@@ -369,10 +369,10 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("from_status", existing.Status.ToString());
         command.Parameters.AddWithValue("now", now);
         AddNullableInteger(command, "actor_id", actorId);
-        command.ExecuteNonQuery();
+        await command.ExecuteNonQueryAsync(ct);
 
-        RecordTransition(connection, transaction, existing.Id, existing.Status, targetStatus, actorId, now);
-        var updated = Get(connection, existing.Id.ToString());
+        await RecordTransitionAsync(connection, transaction, existing.Id, existing.Status, targetStatus, actorId, now, ct);
+        var updated = await GetAsync(connection, existing.Id.ToString(), ct);
 
         if (updated is null)
         {
@@ -383,18 +383,18 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         if (targetStatus == DecisionStatus.COMMITTED)
         {
             var snapshot = BuildValidationSnapshot(updated, now);
-            CreateCommitRecord(connection, transaction, existing.Id, actorId, now, snapshot);
+            await CreateCommitRecordAsync(connection, transaction, existing.Id, actorId, now, snapshot, ct);
         }
 
-        session.Commit();
+        await session.CommitAsync();
         return updated;
     }
 
-    public bool Delete(string lookup, int? actorId)
+    public async Task<bool> DeleteAsync(string lookup, int? actorId, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
-        var existing = Get(connection, lookup);
+        var existing = await GetAsync(connection, lookup, ct);
         if (existing is null)
         {
             return false;
@@ -408,24 +408,24 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("id", existing.Id);
         command.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
         AddNullableInteger(command, "actor_id", actorId);
-        var deleted = command.ExecuteNonQuery() > 0;
-        session.Commit();
+        var deleted = await command.ExecuteNonQueryAsync(ct) > 0;
+        await session.CommitAsync();
         return deleted;
     }
 
-    public DecisionSignalListResponse ListSignals(string lookup)
+    public async Task<DecisionSignalListResponse> ListSignalsAsync(string lookup, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
-        var decision = Get(connection, lookup);
-        return new DecisionSignalListResponse(decision is null ? Array.Empty<DecisionSignalDto>() : ListSignals(connection, decision.Id));
+        var decision = await GetAsync(connection, lookup, ct);
+        return new DecisionSignalListResponse(decision is null ? Array.Empty<DecisionSignalDto>() : await ListSignalsAsync(connection, decision.Id, ct));
     }
 
-    public DecisionSignalDto? CreateSignal(string lookup, int? actorId, DecisionSignalInput input)
+    public async Task<DecisionSignalDto?> CreateSignalAsync(string lookup, int? actorId, DecisionSignalInput input, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
-        var decision = Get(connection, lookup);
+        var decision = await GetAsync(connection, lookup, ct);
         if (decision is null)
         {
             return null;
@@ -485,17 +485,17 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         AddNullableText(command, "delta_unit", input.DeltaUnit);
         command.Parameters.AddWithValue("display_text", displayText);
         AddNullableText(command, "display_text_override", input.DisplayTextOverride);
-        var signalId = Convert.ToInt32(command.ExecuteScalar());
-        var created = ListSignals(connection, decision.Id).FirstOrDefault(signal => signal.Id == signalId);
-        session.Commit();
+        var signalId = Convert.ToInt32(await command.ExecuteScalarAsync(ct));
+        var created = (await ListSignalsAsync(connection, decision.Id, ct)).FirstOrDefault(signal => signal.Id == signalId);
+        await session.CommitAsync();
         return created;
     }
 
-    public DecisionSignalDto? UpdateSignal(string lookup, int signalId, DecisionSignalInput input)
+    public async Task<DecisionSignalDto?> UpdateSignalAsync(string lookup, int signalId, DecisionSignalInput input, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
-        var decision = Get(connection, lookup);
+        var decision = await GetAsync(connection, lookup, ct);
         if (decision is null)
         {
             return null;
@@ -534,20 +534,20 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         AddNullableText(command, "delta_unit", input.DeltaUnit);
         AddNullableText(command, "display_text", string.IsNullOrWhiteSpace(displayText) ? null : displayText);
         AddNullableText(command, "display_text_override", input.DisplayTextOverride);
-        if (command.ExecuteNonQuery() == 0)
+        if (await command.ExecuteNonQueryAsync(ct) == 0)
         {
             return null;
         }
-        var updated = ListSignals(connection, decision.Id).FirstOrDefault(signal => signal.Id == signalId);
-        session.Commit();
+        var updated = (await ListSignalsAsync(connection, decision.Id, ct)).FirstOrDefault(signal => signal.Id == signalId);
+        await session.CommitAsync();
         return updated;
     }
 
-    public bool DeleteSignal(string lookup, int signalId)
+    public async Task<bool> DeleteSignalAsync(string lookup, int signalId, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
-        var decision = Get(connection, lookup);
+        var decision = await GetAsync(connection, lookup, ct);
         if (decision is null)
         {
             return false;
@@ -561,31 +561,31 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
         command.Parameters.AddWithValue("signal_id", signalId);
         command.Parameters.AddWithValue("decision_id", decision.Id);
-        var deleted = command.ExecuteNonQuery() > 0;
-        session.Commit();
+        var deleted = await command.ExecuteNonQueryAsync(ct) > 0;
+        await session.CommitAsync();
         return deleted;
     }
 
-    public DecisionConnectionsResponse? GetConnections(string lookup)
+    public async Task<DecisionConnectionsResponse?> GetConnectionsAsync(string lookup, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
-        var decision = Get(connection, lookup);
-        return decision is null ? null : BuildConnectionsPayload(connection, decision.Id, decision.ProjectId, decision.ProjectSeq);
+        var decision = await GetAsync(connection, lookup, ct);
+        return decision is null ? null : await BuildConnectionsPayloadAsync(connection, decision.Id, decision.ProjectId, decision.ProjectSeq, ct);
     }
 
-    public DecisionConnectionsResponse? UpdateConnections(string lookup, int? actorId, DecisionConnectionsUpdateRequest request)
+    public async Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, DecisionConnectionsUpdateRequest request, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
         var transaction = session.Transaction;
-        var decision = Get(connection, lookup);
+        var decision = await GetAsync(connection, lookup, ct);
         if (decision is null || decision.ProjectId is null)
         {
             return null;
         }
 
-        var targetIds = ResolveConnectionTargetIds(connection, decision, request);
+        var targetIds = await ResolveConnectionTargetIdsAsync(connection, decision, request, ct);
         if (targetIds is null)
         {
             return null;
@@ -600,7 +600,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                   AND (from_decision_id = @decision_id OR to_decision_id = @decision_id)
                 """;
             deleteCommand.Parameters.AddWithValue("decision_id", decision.Id);
-            deleteCommand.ExecuteNonQuery();
+            await deleteCommand.ExecuteNonQueryAsync(ct);
         }
 
         foreach (var targetId in targetIds.Where(id => id != decision.Id).Distinct())
@@ -626,25 +626,25 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             insertCommand.Parameters.AddWithValue("from_id", fromId);
             insertCommand.Parameters.AddWithValue("to_id", toId);
             AddNullableInteger(insertCommand, "actor_id", actorId);
-            insertCommand.ExecuteNonQuery();
+            await insertCommand.ExecuteNonQueryAsync(ct);
         }
 
-        var payload = BuildConnectionsPayload(connection, decision.Id, decision.ProjectId, decision.ProjectSeq);
-        session.Commit();
+        var payload = await BuildConnectionsPayloadAsync(connection, decision.Id, decision.ProjectId, decision.ProjectSeq, ct);
+        await session.CommitAsync();
         return payload;
     }
 
-    public DecisionGraphResponse GetGraph(int projectId, bool allProjects, int userId, bool isSuperuser)
+    public async Task<DecisionGraphResponse> GetGraphAsync(int projectId, bool allProjects, int userId, bool isSuperuser, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
-        var projectIds = ResolveGraphProjectIds(connection, projectId, allProjects, userId, isSuperuser);
+        var projectIds = await ResolveGraphProjectIdsAsync(connection, projectId, allProjects, userId, isSuperuser, ct);
         if (projectIds.Count == 0)
         {
             return new DecisionGraphResponse(Array.Empty<DecisionGraphNodeDto>(), Array.Empty<DecisionGraphEdgeDto>(), Array.Empty<DecisionGraphTopicDto>());
         }
 
-        var topicLabels = LoadTopicLabels(connection, projectIds);
+        var topicLabels = await LoadTopicLabelsAsync(connection, projectIds, ct);
         using var nodesCommand = connection.CreateCommand();
         nodesCommand.CommandText = """
             SELECT
@@ -671,9 +671,9 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         nodesCommand.Parameters.AddWithValue("project_ids", projectIds.ToArray());
 
         var nodes = new List<DecisionGraphNodeDto>();
-        using (var reader = nodesCommand.ExecuteReader())
+        await using (var reader = await nodesCommand.ExecuteReaderAsync(ct))
         {
-            while (reader.Read())
+            while (await reader.ReadAsync(ct))
             {
                 var topic = NormalizeTopic(GetNullableString(reader, "topic"));
                 var label = topicLabels.TryGetValue((reader.GetInt32(reader.GetOrdinal("project_id")), topic), out var configuredLabel)
@@ -720,9 +720,9 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             """;
         edgesCommand.Parameters.AddWithValue("project_ids", projectIds.ToArray());
         var edges = new List<DecisionGraphEdgeDto>();
-        using (var reader = edgesCommand.ExecuteReader())
+        await using (var reader = await edgesCommand.ExecuteReaderAsync(ct))
         {
-            while (reader.Read())
+            while (await reader.ReadAsync(ct))
             {
                 edges.Add(new DecisionGraphEdgeDto(
                     reader.GetInt32(reader.GetOrdinal("from_decision_id")),
@@ -742,7 +742,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return new DecisionGraphResponse(nodes, edges, topics);
     }
 
-    public DecisionTopicLabelResponse? UpsertTopicLabel(int projectId, string topic, string title)
+    public async Task<DecisionTopicLabelResponse?> UpsertTopicLabelAsync(int projectId, string topic, string title, CancellationToken ct)
     {
         var normalizedTopic = NormalizeTopic(topic);
         var trimmedTitle = title.Trim();
@@ -751,7 +751,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             return null;
         }
 
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -766,8 +766,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("topic", normalizedTopic);
         command.Parameters.AddWithValue("title", trimmedTitle);
 
-        using var reader = command.ExecuteReader();
-        if (!reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
         {
             return null;
         }
@@ -778,15 +778,15 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             GetNullableString(reader, "title") ?? TopicLabel(savedTopic),
             TopicLabel(savedTopic)
         );
-        reader.Close();
-        session.Commit();
+        await reader.CloseAsync();
+        await session.CommitAsync();
         return saved;
     }
 
-    public TopicLabelDeleteResult DeleteTopicLabel(int projectId, string topic)
+    public async Task<TopicLabelDeleteResult> DeleteTopicLabelAsync(int projectId, string topic, CancellationToken ct)
     {
         var normalizedTopic = NormalizeTopic(topic);
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
 
         using (var usageCommand = connection.CreateCommand())
@@ -802,7 +802,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 """;
             usageCommand.Parameters.AddWithValue("project_id", projectId);
             usageCommand.Parameters.AddWithValue("topic", normalizedTopic);
-            if ((bool)usageCommand.ExecuteScalar()!)
+            if ((bool)(await usageCommand.ExecuteScalarAsync(ct))!)
             {
                 return TopicLabelDeleteResult.NotEmpty;
             }
@@ -819,16 +819,16 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
         command.Parameters.AddWithValue("project_id", projectId);
         command.Parameters.AddWithValue("topic", normalizedTopic);
-        var result = command.ExecuteNonQuery() > 0 ? TopicLabelDeleteResult.Deleted : TopicLabelDeleteResult.NotFound;
-        session.Commit();
+        var result = await command.ExecuteNonQueryAsync(ct) > 0 ? TopicLabelDeleteResult.Deleted : TopicLabelDeleteResult.NotFound;
+        await session.CommitAsync();
         return result;
     }
 
-    public IReadOnlyList<DecisionReviewDto>? ListReviews(string lookup)
+    public async Task<IReadOnlyList<DecisionReviewDto>?> ListReviewsAsync(string lookup, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
-        var decision = Get(connection, lookup);
+        var decision = await GetAsync(connection, lookup, ct);
         if (decision is null)
         {
             return null;
@@ -843,8 +843,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             """;
         command.Parameters.AddWithValue("decision_id", decision.Id);
         var reviews = new List<DecisionReviewDto>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
         {
             reviews.Add(new DecisionReviewDto(
                 reader.GetInt32(reader.GetOrdinal("id")),
@@ -858,12 +858,12 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return reviews;
     }
 
-    public DecisionDetailDto? CreateReview(string lookup, int? actorId, DecisionReviewInput input)
+    public async Task<DecisionDetailDto?> CreateReviewAsync(string lookup, int? actorId, DecisionReviewInput input, CancellationToken ct)
     {
-        using var session = connections.Open();
+        await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
         var transaction = session.Transaction;
-        var decision = Get(connection, lookup);
+        var decision = await GetAsync(connection, lookup, ct);
         if (decision is null || decision.Status is not (DecisionStatus.COMMITTED or DecisionStatus.REVIEWED))
         {
             return null;
@@ -893,7 +893,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             command.Parameters.AddWithValue("outcome_text", input.OutcomeText);
             command.Parameters.AddWithValue("reflection_text", input.ReflectionText);
             command.Parameters.AddWithValue("quality", string.IsNullOrWhiteSpace(input.DecisionQuality) ? "ACCEPTABLE" : input.DecisionQuality);
-            command.ExecuteNonQuery();
+            await command.ExecuteNonQueryAsync(ct);
         }
 
         if (decision.Status == DecisionStatus.COMMITTED)
@@ -908,16 +908,16 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             updateCommand.Parameters.AddWithValue("now", now);
             updateCommand.Parameters.AddWithValue("decision_id", decision.Id);
             AddNullableInteger(updateCommand, "actor_id", actorId);
-            updateCommand.ExecuteNonQuery();
-            RecordTransition(connection, transaction, decision.Id, DecisionStatus.COMMITTED, DecisionStatus.REVIEWED, actorId, now);
+            await updateCommand.ExecuteNonQueryAsync(ct);
+            await RecordTransitionAsync(connection, transaction, decision.Id, DecisionStatus.COMMITTED, DecisionStatus.REVIEWED, actorId, now, ct);
         }
 
-        var reviewed = Get(connection, decision.Id.ToString());
-        session.Commit();
+        var reviewed = await GetAsync(connection, decision.Id.ToString(), ct);
+        await session.CommitAsync();
         return reviewed;
     }
 
-    private DecisionDetailDto? Get(NpgsqlConnection connection, string lookup)
+    private async Task<DecisionDetailDto?> GetAsync(NpgsqlConnection connection, string lookup, CancellationToken ct)
     {
         var lookupIsId = int.TryParse(lookup, out var numericId);
         using var command = connection.CreateCommand();
@@ -953,8 +953,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("id", lookupIsId ? numericId : 0);
         command.Parameters.AddWithValue("slug", lookup);
 
-        using var reader = command.ExecuteReader();
-        if (!reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
         {
             return null;
         }
@@ -987,19 +987,19 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             Array.Empty<DecisionOptionDto>(),
             null
         );
-        reader.Close();
+        await reader.CloseAsync();
 
         return detail with
         {
-            Signals = ListSignals(connection, detail.Id),
-            Options = ListOptions(connection, detail.Id),
-            OriginMeeting = GetOriginMeeting(connection, detail.Id),
+            Signals = await ListSignalsAsync(connection, detail.Id, ct),
+            Options = await ListOptionsAsync(connection, detail.Id, ct),
+            OriginMeeting = await GetOriginMeetingAsync(connection, detail.Id, ct),
         };
     }
 
-    private DecisionOriginMeetingDto ResolveOriginMeeting(NpgsqlConnection connection, int meetingId, int projectId)
+    private async Task<DecisionOriginMeetingDto> ResolveOriginMeetingAsync(NpgsqlConnection connection, int meetingId, int projectId, CancellationToken ct)
     {
-        var origin = GetMeeting(connection, meetingId);
+        var origin = await GetMeetingAsync(connection, meetingId, ct);
         if (origin is null)
         {
             throw new DecisionValidationException("origin_meeting_id", "Meeting does not exist.");
@@ -1008,14 +1008,14 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         {
             throw new DecisionValidationException("origin_meeting_id", "Meeting must belong to the same project as the decision.");
         }
-        if (IsMeetingArchived(connection, meetingId))
+        if (await IsMeetingArchivedAsync(connection, meetingId, ct))
         {
             throw new DecisionValidationException("origin_meeting_id", "Archived meetings cannot be used as a decision origin.");
         }
         return origin;
     }
 
-    private DecisionOriginMeetingDto? GetOriginMeeting(NpgsqlConnection connection, int decisionId)
+    private async Task<DecisionOriginMeetingDto?> GetOriginMeetingAsync(NpgsqlConnection connection, int decisionId, CancellationToken ct)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -1025,11 +1025,11 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             LIMIT 1
             """;
         command.Parameters.AddWithValue("decision_id", decisionId);
-        var meetingId = command.ExecuteScalar();
-        return meetingId is null ? null : GetMeeting(connection, Convert.ToInt32(meetingId));
+        var meetingId = await command.ExecuteScalarAsync(ct);
+        return meetingId is null ? null : await GetMeetingAsync(connection, Convert.ToInt32(meetingId), ct);
     }
 
-    private DecisionOriginMeetingDto? GetMeeting(NpgsqlConnection connection, int meetingId)
+    private async Task<DecisionOriginMeetingDto?> GetMeetingAsync(NpgsqlConnection connection, int meetingId, CancellationToken ct)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -1047,8 +1047,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             """;
         command.Parameters.AddWithValue("meeting_id", meetingId);
 
-        using var reader = command.ExecuteReader();
-        if (!reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct))
         {
             return null;
         }
@@ -1069,21 +1069,22 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         );
     }
 
-    private bool IsMeetingArchived(NpgsqlConnection connection, int meetingId)
+    private async Task<bool> IsMeetingArchivedAsync(NpgsqlConnection connection, int meetingId, CancellationToken ct)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT is_archived FROM meetings_meeting WHERE id = @meeting_id";
         command.Parameters.AddWithValue("meeting_id", meetingId);
-        return command.ExecuteScalar() is true;
+        return await command.ExecuteScalarAsync(ct) is true;
     }
 
-    private static void CreateMeetingDecisionOrigin(
+    private static async Task CreateMeetingDecisionOriginAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         int meetingId,
         int decisionId,
         int? actorId,
-        DateTimeOffset now
+        DateTimeOffset now,
+        CancellationToken ct
     )
     {
         if (actorId is null)
@@ -1123,10 +1124,10 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             meeting_id = meetingId,
             decision_id = decisionId,
         });
-        command.ExecuteNonQuery();
+        await command.ExecuteNonQueryAsync(ct);
     }
 
-    private DecisionConnectionsResponse BuildConnectionsPayload(NpgsqlConnection connection, int decisionId, int? projectId, int projectSeq)
+    private async Task<DecisionConnectionsResponse> BuildConnectionsPayloadAsync(NpgsqlConnection connection, int decisionId, int? projectId, int projectSeq, CancellationToken ct)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -1158,8 +1159,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
 
         var connected = new Dictionary<int, DecisionConnectionNodeDto>();
         var edges = new List<DecisionConnectionEdgeDto>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
         {
             var otherId = reader.GetInt32(reader.GetOrdinal("other_id"));
             connected[otherId] = new DecisionConnectionNodeDto(
@@ -1183,10 +1184,11 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         );
     }
 
-    private IReadOnlyList<int>? ResolveConnectionTargetIds(
+    private async Task<IReadOnlyList<int>?> ResolveConnectionTargetIdsAsync(
         NpgsqlConnection connection,
         DecisionDetailDto decision,
-        DecisionConnectionsUpdateRequest request
+        DecisionConnectionsUpdateRequest request,
+        CancellationToken ct
     )
     {
         if (request.ConnectedDecisionIds is { Count: > 0 } && request.ConnectedDecisionSeqs is { Count: > 0 })
@@ -1221,8 +1223,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             byIdCommand.Parameters.AddWithValue("ids", requestedIds.ToArray());
 
             var byIdResult = new List<int>();
-            using var byIdReader = byIdCommand.ExecuteReader();
-            while (byIdReader.Read())
+            await using var byIdReader = await byIdCommand.ExecuteReaderAsync(ct);
+            while (await byIdReader.ReadAsync(ct))
             {
                 byIdResult.Add(byIdReader.GetInt32(0));
             }
@@ -1253,15 +1255,15 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("project_id", decision.ProjectId.Value);
         command.Parameters.AddWithValue("seqs", seqs.ToArray());
         var result = new List<int>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
         {
             result.Add(reader.GetInt32(0));
         }
         return result.Count == seqs.Count ? result : null;
     }
 
-    private IReadOnlyList<int> ResolveGraphProjectIds(NpgsqlConnection connection, int projectId, bool allProjects, int userId, bool isSuperuser)
+    private async Task<IReadOnlyList<int>> ResolveGraphProjectIdsAsync(NpgsqlConnection connection, int projectId, bool allProjects, int userId, bool isSuperuser, CancellationToken ct)
     {
         if (!allProjects)
         {
@@ -1296,15 +1298,15 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("user_id", userId);
 
         var result = new List<int>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
         {
             result.Add(reader.GetInt32(0));
         }
         return result;
     }
 
-    private Dictionary<(int ProjectId, string Topic), string> LoadTopicLabels(NpgsqlConnection connection, IReadOnlyList<int> projectIds)
+    private async Task<Dictionary<(int ProjectId, string Topic), string>> LoadTopicLabelsAsync(NpgsqlConnection connection, IReadOnlyList<int> projectIds, CancellationToken ct)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -1316,8 +1318,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("project_ids", projectIds.ToArray());
 
         var labels = new Dictionary<(int ProjectId, string Topic), string>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
         {
             labels[(reader.GetInt32(reader.GetOrdinal("project_id")), NormalizeTopic(GetNullableString(reader, "topic")))] =
                 reader.GetString(reader.GetOrdinal("title"));
@@ -1330,15 +1332,15 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return labels.FirstOrDefault(item => item.Key.Topic == topic).Value ?? TopicLabel(topic);
     }
 
-    private int NextProjectSequence(NpgsqlConnection connection, int projectId)
+    private async Task<int> NextProjectSequenceAsync(NpgsqlConnection connection, int projectId, CancellationToken ct)
     {
         using var command = connection.CreateCommand();
         command.CommandText = "SELECT COALESCE(MAX(project_seq), 0) + 1 FROM decisions WHERE project_id = @project_id";
         command.Parameters.AddWithValue("project_id", projectId);
-        return Convert.ToInt32(command.ExecuteScalar());
+        return Convert.ToInt32(await command.ExecuteScalarAsync(ct));
     }
 
-    private IReadOnlyList<DecisionSignalDto> ListSignals(NpgsqlConnection connection, int decisionId)
+    private async Task<IReadOnlyList<DecisionSignalDto>> ListSignalsAsync(NpgsqlConnection connection, int decisionId, CancellationToken ct)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -1365,8 +1367,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("decision_id", decisionId);
 
         var items = new List<DecisionSignalDto>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
         {
             items.Add(new DecisionSignalDto(
                 reader.GetInt32(reader.GetOrdinal("id")),
@@ -1389,7 +1391,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return items;
     }
 
-    private IReadOnlyList<DecisionOptionDto> ListOptions(NpgsqlConnection connection, int decisionId)
+    private async Task<IReadOnlyList<DecisionOptionDto>> ListOptionsAsync(NpgsqlConnection connection, int decisionId, CancellationToken ct)
     {
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -1401,8 +1403,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("decision_id", decisionId);
 
         var items = new List<DecisionOptionDto>();
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
         {
             items.Add(new DecisionOptionDto(
                 reader.GetInt32(reader.GetOrdinal("id")),
@@ -1417,12 +1419,13 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return items;
     }
 
-    private void ReplaceOptions(
+    private async Task ReplaceOptionsAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         int decisionId,
         DateTimeOffset now,
-        IReadOnlyList<DecisionOptionInput>? options
+        IReadOnlyList<DecisionOptionInput>? options,
+        CancellationToken ct
     )
     {
         using (var deleteCommand = connection.CreateCommand())
@@ -1430,7 +1433,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             deleteCommand.Transaction = transaction;
             deleteCommand.CommandText = "DELETE FROM decision_options WHERE decision_id = @decision_id";
             deleteCommand.Parameters.AddWithValue("decision_id", decisionId);
-            deleteCommand.ExecuteNonQuery();
+            await deleteCommand.ExecuteNonQueryAsync(ct);
         }
 
         foreach (var option in options ?? Array.Empty<DecisionOptionInput>())
@@ -1454,17 +1457,18 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             command.Parameters.AddWithValue("text", option.Text);
             command.Parameters.AddWithValue("is_selected", option.IsSelected);
             command.Parameters.AddWithValue("order", option.Order);
-            command.ExecuteNonQuery();
+            await command.ExecuteNonQueryAsync(ct);
         }
     }
 
-    private void ReplaceSignals(
+    private async Task ReplaceSignalsAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         int decisionId,
         int? actorId,
         DateTimeOffset now,
-        IReadOnlyList<DecisionSignalInput>? signals
+        IReadOnlyList<DecisionSignalInput>? signals,
+        CancellationToken ct
     )
     {
         using (var deleteCommand = connection.CreateCommand())
@@ -1472,7 +1476,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             deleteCommand.Transaction = transaction;
             deleteCommand.CommandText = "DELETE FROM decision_signals WHERE decision_id = @decision_id";
             deleteCommand.Parameters.AddWithValue("decision_id", decisionId);
-            deleteCommand.ExecuteNonQuery();
+            await deleteCommand.ExecuteNonQueryAsync(ct);
         }
 
         foreach (var signal in signals ?? Array.Empty<DecisionSignalInput>())
@@ -1530,17 +1534,18 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             AddNullableText(command, "delta_unit", signal.DeltaUnit);
             command.Parameters.AddWithValue("display_text", displayText);
             AddNullableText(command, "display_text_override", signal.DisplayTextOverride);
-            command.ExecuteNonQuery();
+            await command.ExecuteNonQueryAsync(ct);
         }
     }
 
-    private void ReplaceParentEdges(
+    private async Task ReplaceParentEdgesAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         int decisionId,
         int projectId,
         int? actorId,
-        IReadOnlyList<int>? parentDecisionIds
+        IReadOnlyList<int>? parentDecisionIds,
+        CancellationToken ct
     )
     {
         if (parentDecisionIds is null)
@@ -1553,7 +1558,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             deleteCommand.Transaction = transaction;
             deleteCommand.CommandText = "DELETE FROM decision_edges WHERE to_decision_id = @decision_id AND edge_type = 'FOLLOW_UP'";
             deleteCommand.Parameters.AddWithValue("decision_id", decisionId);
-            deleteCommand.ExecuteNonQuery();
+            await deleteCommand.ExecuteNonQueryAsync(ct);
         }
 
         foreach (var parentId in parentDecisionIds.Distinct().Where(parentId => parentId != decisionId))
@@ -1582,18 +1587,19 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             command.Parameters.AddWithValue("to_decision_id", decisionId);
             command.Parameters.AddWithValue("project_id", projectId);
             AddNullableInteger(command, "created_by_id", actorId);
-            command.ExecuteNonQuery();
+            await command.ExecuteNonQueryAsync(ct);
         }
     }
 
-    private void RecordTransition(
+    private async Task RecordTransitionAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         int decisionId,
         DecisionStatus fromStatus,
         DecisionStatus toStatus,
         int? actorId,
-        DateTimeOffset now
+        DateTimeOffset now,
+        CancellationToken ct
     )
     {
         using var command = connection.CreateCommand();
@@ -1632,7 +1638,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.AddWithValue("to_status", toStatus.ToString());
         command.Parameters.AddWithValue("transition_method", toStatus.ToString().ToLowerInvariant());
         AddNullableInteger(command, "triggered_by_id", actorId);
-        command.ExecuteNonQuery();
+        await command.ExecuteNonQueryAsync(ct);
     }
 
     private static void AddNullableText(NpgsqlCommand command, string name, string? value)
@@ -1870,13 +1876,14 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         };
     }
 
-    private static void CreateCommitRecord(
+    private static async Task CreateCommitRecordAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
         int decisionId,
         int? actorId,
         DateTimeOffset now,
-        object snapshot)
+        object snapshot,
+        CancellationToken ct)
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -1909,6 +1916,6 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         command.Parameters.Add("validation_snapshot", NpgsqlDbType.Jsonb).Value =
             JsonSerializer.Serialize(snapshot);
 
-        command.ExecuteNonQuery();
+        await command.ExecuteNonQueryAsync(ct);
     }
 }
