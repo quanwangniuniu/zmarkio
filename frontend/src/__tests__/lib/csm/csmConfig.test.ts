@@ -7,7 +7,7 @@ import type { OptionConfig, OptionModuleConfig } from '@/types/orgCustomization'
 jest.mock('@/lib/api/orgCustomizationApi', () => ({ fetchOptionConfig: jest.fn() }));
 
 const option = (field: string, value: string, overrides: Partial<OptionConfig> = {}): OptionConfig => ({
-  field, value, default_label: value, label: null, color: null, enabled: true, order: 0, is_default: false, ...overrides,
+  field, value, default_label: value, label: null, color: null, enabled: true, order: 0, is_default: false, editable: [], ...overrides,
 });
 
 const priorities = (overrides: Record<string, Partial<OptionConfig>> = {}) =>

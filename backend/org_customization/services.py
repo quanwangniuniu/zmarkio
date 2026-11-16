@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from operator import attrgetter
+
 from django.db import transaction
 from rest_framework import serializers
 
@@ -6,9 +9,24 @@ from task.models import Task
 
 from .models import OptionConfig, TaskFieldOptionConfig, TaskPriorityConfig, TaskStatusConfig, TaskTypeConfig
 
+OPTION_ATTRIBUTES = ('label', 'color', 'enabled', 'order')
+
+
+@dataclass(frozen=True)
+class OptionField:
+    model: type
+    field: str
+    project: str
+    editable: tuple = OPTION_ATTRIBUTES
+
+    @property
+    def model_field(self):
+        return self.model._meta.get_field(self.field)
+
+
 MODULE_OPTION_FIELDS = {
     'csm': {
-        'ticket_priority': Ticket._meta.get_field('priority'),
+        'ticket_priority': OptionField(Ticket, 'priority', 'queue.project'),
     },
 }
 
@@ -142,15 +160,22 @@ def save_task_config(project, data):
     )
 
 
+def get_system_config(project):
+    return {
+        'task': get_task_config(project),
+        **{module: get_option_config(project, module) for module in MODULE_OPTION_FIELDS},
+    }
+
+
 def get_option_config(project, module):
     rows = {
         (row.field, row.value): row
         for row in _project_rows(OptionConfig, project).filter(module=module)
     }
     options = []
-    for field, model_field in MODULE_OPTION_FIELDS[module].items():
+    for field, option in MODULE_OPTION_FIELDS[module].items():
         items = []
-        for index, (value, default_label) in enumerate(model_field.choices):
+        for index, (value, default_label) in enumerate(option.model_field.choices):
             row = rows.get((field, value))
             items.append({
                 'field': field,
@@ -160,19 +185,56 @@ def get_option_config(project, module):
                 'color': row.color if row else None,
                 'enabled': row.enabled if row else True,
                 'order': row.order if row else index,
-                'is_default': value == model_field.default,
+                'is_default': value == option.model_field.default,
+                'editable': list(option.editable),
             })
         options.extend(sorted(items, key=lambda item: item['order']))
     return {'options': options}
 
 
-def ensure_option_enabled(project, module, field, value, error_field):
-    if value and _project_rows(OptionConfig, project).filter(
-        module=module, field=field, value=value, enabled=False
-    ).exists():
-        raise serializers.ValidationError({error_field: 'This option is disabled for this project.'})
+def ensure_options_enabled(instance, update_fields=None):
+    for module, fields in MODULE_OPTION_FIELDS.items():
+        for key, option in fields.items():
+            if not isinstance(instance, option.model):
+                continue
+            if update_fields is not None and option.field not in update_fields:
+                continue
+            value = getattr(instance, option.field)
+            if value in (None, '', option.model_field.default):
+                continue
+            if getattr(instance, '_loaded_values', {}).get(option.field) == value:
+                continue
+            if _project_rows(OptionConfig, attrgetter(option.project)(instance)).filter(
+                module=module, field=key, value=value, enabled=False
+            ).exists():
+                raise serializers.ValidationError({option.field: 'This option is disabled for this project.'})
+
+
+def clean_options(module, items):
+    fields = MODULE_OPTION_FIELDS[module]
+    cleaned = []
+    for item in items:
+        option = fields.get(item['field'])
+        choices = dict(option.model_field.choices) if option else {}
+        if item['value'] not in choices:
+            raise serializers.ValidationError(f"Unknown option {item['field']}.{item['value']}.")
+        row = {key: value for key, value in item.items() if key in ('field', 'value', *option.editable)}
+        if row.get('enabled') is False and item['value'] == option.model_field.default:
+            raise serializers.ValidationError(f"{choices[item['value']]} is the default and cannot be disabled.")
+        cleaned.append(row)
+    return cleaned
 
 
 @transaction.atomic
 def save_option_config(project, module, items):
+    _project_rows(OptionConfig, project).filter(module=module).delete()
     _save_rows(OptionConfig, project, [{**item, 'module': module} for item in items], ['module', 'field', 'value'])
+
+
+@transaction.atomic
+def save_system_config(project, data):
+    if 'task' in data:
+        save_task_config(project, data['task'])
+    for module in MODULE_OPTION_FIELDS:
+        if module in data:
+            save_option_config(project, module, data[module]['options'])

@@ -1,18 +1,24 @@
 import pytest
 from django.urls import reverse
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from core.models import ProjectMember
 from csm.models import Conversation, CustomerUser, QueueAgent, Ticket
-from org_customization.models import OptionConfig
+from org_customization.models import OptionConfig, TaskTypeConfig
 
 pytestmark = pytest.mark.django_db
 
 CONFIG_PATH = reverse('org-customization-csm-config')
+SYSTEM_CONFIG_PATH = reverse('org-customization-system-config')
 
 
 def _config_url(project):
     return f'{CONFIG_PATH}?project_id={project.id}'
+
+
+def _system_config_url(project):
+    return f'{SYSTEM_CONFIG_PATH}?project_id={project.id}'
 
 
 def _disable(project, field, value):
@@ -45,22 +51,40 @@ def test_get_returns_defaults(api_client, user, project):
     assert [p['value'] for p in priorities] == [c[0] for c in Ticket.PRIORITY_CHOICES]
     assert all(p['enabled'] and p['label'] is None for p in priorities)
     assert [p['value'] for p in priorities if p['is_default']] == ['medium']
+    assert priorities[0]['editable'] == ['label', 'color', 'enabled', 'order']
     assert response.data['can_edit'] is True
+    assert api_client.put(_config_url(project), {'options': []}, format='json').status_code == 405
 
 
-def test_put_saves_and_orders_options(api_client, user, project):
+def test_system_config_saves_task_and_csm(api_client, user, project):
     api_client.force_authenticate(user=user)
 
-    response = api_client.put(_config_url(project), {'options': [
-        {'field': 'ticket_priority', 'value': 'low', 'label': 'Minor', 'color': '#123456', 'order': 0},
-        {'field': 'ticket_priority', 'value': 'critical', 'enabled': False, 'order': 5},
-    ]}, format='json')
+    response = api_client.put(_system_config_url(project), {
+        'task': {'task_types': [{'key': 'budget', 'label': 'Spend'}]},
+        'csm': {'options': [
+            {'field': 'ticket_priority', 'value': 'low', 'label': 'Minor', 'color': '#123456', 'order': 0},
+            {'field': 'ticket_priority', 'value': 'critical', 'enabled': False, 'order': 5},
+        ]},
+    }, format='json')
 
     assert response.status_code == status.HTTP_200_OK, response.data
-    priorities = _options(response, 'ticket_priority')
+    assert next(t for t in response.data['task']['task_types'] if t['key'] == 'budget')['label'] == 'Spend'
+    priorities = response.data['csm']['options']
     assert priorities[0]['value'] == 'low'
     assert (priorities[0]['label'], priorities[0]['color']) == ('Minor', '#123456')
     assert priorities[-1]['value'] == 'critical' and priorities[-1]['enabled'] is False
+
+
+def test_system_config_replaces_stale_rows(api_client, user, project):
+    api_client.force_authenticate(user=user)
+    _disable(project, 'ticket_priority', 'critical')
+
+    response = api_client.put(_system_config_url(project), {'csm': {'options': [
+        {'field': 'ticket_priority', 'value': 'low', 'label': 'Minor'},
+    ]}}, format='json')
+
+    assert response.status_code == status.HTTP_200_OK, response.data
+    assert list(OptionConfig.objects.values_list('value', flat=True)) == ['low']
 
 
 @pytest.mark.parametrize('item', [
@@ -68,13 +92,18 @@ def test_put_saves_and_orders_options(api_client, user, project):
     {'field': 'ticket_priority', 'value': 'urgent'},
     {'field': 'queue_tier', 'value': 'T1'},
 ])
-def test_put_rejects_invalid_options(api_client, user, project, item):
+def test_system_config_rejects_invalid_options_without_saving_task(api_client, user, project, item):
     api_client.force_authenticate(user=user)
 
-    response = api_client.put(_config_url(project), {'options': [item]}, format='json')
+    response = api_client.put(_system_config_url(project), {
+        'task': {'task_types': [{'key': 'budget', 'label': 'Spend'}]},
+        'csm': {'options': [item]},
+    }, format='json')
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert response.data['non_field_errors']
     assert not OptionConfig.objects.exists()
+    assert not TaskTypeConfig.objects.exists()
 
 
 def test_member_cannot_put(api_client, user2, project):
@@ -82,14 +111,30 @@ def test_member_cannot_put(api_client, user2, project):
     api_client.force_authenticate(user=user2)
 
     assert api_client.get(_config_url(project)).data['can_edit'] is False
-    response = api_client.put(_config_url(project), {'options': []}, format='json')
+    response = api_client.put(_system_config_url(project), {'csm': {'options': []}}, format='json')
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
-def test_ticket_api_rejects_disabled_priority(csm_admin_client, project, csm_queue):
-    _disable(project, 'ticket_priority', 'critical')
+def test_ticket_save_rejects_disabled_priority(project, csm_queue):
     ticket = Ticket.objects.create(queue=csm_queue, title='Existing', priority='critical')
+    _disable(project, 'ticket_priority', 'critical')
+    _disable(project, 'ticket_priority', 'high')
+
+    Ticket.objects.get(pk=ticket.pk).save()
+    with pytest.raises(ValidationError):
+        Ticket.objects.create(queue=csm_queue, title='New', priority='critical')
+    loaded = Ticket.objects.get(pk=ticket.pk)
+    loaded.priority = 'high'
+    with pytest.raises(ValidationError):
+        loaded.save()
+    loaded.priority = 'medium'
+    loaded.save()
+
+
+def test_ticket_api_rejects_disabled_priority(csm_admin_client, project, csm_queue):
+    ticket = Ticket.objects.create(queue=csm_queue, title='Existing', priority='critical')
+    _disable(project, 'ticket_priority', 'critical')
 
     create = csm_admin_client.post(
         reverse('ticket-list'), {'queue': csm_queue.id, 'title': 'New', 'priority': 'critical'}, format='json',
