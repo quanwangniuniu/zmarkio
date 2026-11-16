@@ -120,20 +120,3 @@ class TestCurrentPipelineHash:
         baseline = current_pipeline_hash()
         with override_settings(RAG_EMBED_BATCH_SIZE=999):
             assert current_pipeline_hash() == baseline
-
-    def test_switching_provider_ollama_to_local_changes_hash(self):
-        with override_settings(
-            RAG_EMBEDDING_PROVIDER='ollama', RAG_OLLAMA_EMBEDDING_MODEL='nomic-embed-text',
-        ):
-            ollama_hash = current_pipeline_hash()
-        with override_settings(
-            RAG_EMBEDDING_PROVIDER='local', RAG_LOCAL_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5',
-        ):
-            local_hash = current_pipeline_hash()
-        assert ollama_hash != local_hash
-
-    def test_changing_local_model_changes_hash(self):
-        with override_settings(RAG_EMBEDDING_PROVIDER='local', RAG_LOCAL_EMBEDDING_MODEL='BAAI/bge-base-en-v1.5'):
-            baseline = current_pipeline_hash()
-        with override_settings(RAG_EMBEDDING_PROVIDER='local', RAG_LOCAL_EMBEDDING_MODEL='BAAI/bge-small-en-v1.5'):
-            assert current_pipeline_hash() != baseline

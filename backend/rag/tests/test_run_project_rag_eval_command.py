@@ -4,12 +4,12 @@ Focused tests for rag/management/commands/run_project_rag_eval.py additions:
 - fixture-declared expected source/question counts (partial fixture support)
 - canonical fixture validation behavior is unchanged (no declared counts ->
   falls back to the hardcoded EXPECTED_SOURCE_COUNTS/EXPECTED_QUESTION_COUNTS)
-- the Ollama and FastEmbed providers do not require GEMINI_API_KEY
-- 'gemini' and any other unsupported provider fail fast, before any DB/tenant work
+- the Ollama provider does not require GEMINI_API_KEY
+- 'gemini', 'local', and any other unsupported provider fail fast, before any DB/tenant work
 - partial_baseline metadata flows from the loaded fixture into the JSON
   report's run_metadata untouched
 
-None of these hit a real database, real Ollama, or real fastembed/ONNX:
+None of these hit a real database or real Ollama:
 the credential/provider-gate tests raise before any DB access is attempted
 (proven by asserting *which* CommandError fires), and the partial_baseline
 test mocks every seeding/tenant/retrieval call so only the command's own
@@ -121,12 +121,8 @@ def test_gemini_provider_is_rejected():
 
 
 @override_settings(RAG_EMBEDDING_PROVIDER='local', GEMINI_API_KEY='')
-def test_local_provider_does_not_require_api_key():
-    """No GEMINI_API_KEY configured at all, provider is 'local' -- must not
-    raise the GEMINI_API_KEY error. Proven the same way: it gets past the
-    credential gate and fails on the (expected, harmless) missing fixture.
-    """
-    with pytest.raises(CommandError, match='Fixture not found'):
+def test_local_provider_is_rejected():
+    with pytest.raises(CommandError, match="Unknown RAG_EMBEDDING_PROVIDER 'local'"):
         Command().handle(fixture=_NONEXISTENT_FIXTURE, output=None, top_k=10)
 
 
@@ -209,7 +205,7 @@ def _stub_out_heavy_dependencies(monkeypatch, *, fixture_data: dict):
     return captured
 
 
-@override_settings(RAG_EMBEDDING_PROVIDER='local')
+@override_settings(RAG_EMBEDDING_PROVIDER='ollama', RAG_OLLAMA_EMBEDDING_MODEL='nomic-embed-text')
 def test_partial_baseline_metadata_is_retained_in_report(monkeypatch):
     fixture_data = {
         'dataset_version': '1.0.0-no-retro',
@@ -231,8 +227,8 @@ def test_partial_baseline_metadata_is_retained_in_report(monkeypatch):
 
     run_metadata = captured['report']['run_metadata']
     assert run_metadata['partial_baseline'] == fixture_data['partial_baseline']
-    assert run_metadata['embedding_provider'] == 'local'
-    assert run_metadata['embedding_model'] == 'BAAI/bge-base-en-v1.5'
+    assert run_metadata['embedding_provider'] == 'ollama'
+    assert run_metadata['embedding_model'] == 'nomic-embed-text'
 
 
 @override_settings(

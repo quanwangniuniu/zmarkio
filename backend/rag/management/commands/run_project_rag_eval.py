@@ -637,11 +637,9 @@ class Command(BaseCommand):
         provider = settings.RAG_EMBEDDING_PROVIDER
         if provider == 'ollama':
             embedding_model = settings.RAG_OLLAMA_EMBEDDING_MODEL
-        elif provider == 'local':
-            embedding_model = settings.RAG_LOCAL_EMBEDDING_MODEL
         else:
             raise CommandError(
-                f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'ollama' or 'local'."
+                f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'ollama'."
             )
 
         fixture_path: Path = options['fixture']

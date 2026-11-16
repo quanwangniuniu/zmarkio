@@ -98,8 +98,3 @@ pyOpenSSL==26.4.0
 # itself must be installed at the database level — see postgres/Dockerfile for
 # CI/bundled Postgres, and DOCKER_README.md for local/host Postgres setup)
 pgvector==0.3.6
-
-# Local embedding provider. Not the production default; see
-# RAG_EMBEDDING_PROVIDER in settings.py. ONNX-based, no torch.
-# Pulls in onnxruntime/numpy/tokenizers/huggingface_hub transitively.
-fastembed==0.8.0

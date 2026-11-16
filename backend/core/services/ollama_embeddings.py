@@ -4,8 +4,7 @@ Calls a local Ollama server's POST /api/embed. rag.embeddings selects this
 module when settings.RAG_EMBEDDING_PROVIDER == 'ollama', which is the
 production default.
 
-Same two-function surface as local_embeddings
-(embed_content / batch_embed_contents). Document/query framing is applied by
+Exposes embed_content and batch_embed_contents. Document/query framing is applied by
 rag.embeddings before text arrives here, so this client sends the text as-is
 and does not add an Ollama prompt template.
 

@@ -1,10 +1,8 @@
 """
 RAG-specific embedding calls.
 
-Document and query embeddings share one provider and one model. The
-production default is a local Ollama model (settings.RAG_OLLAMA_EMBEDDING_MODEL,
-768-dim nomic-embed-text). 'local' remains the FastEmbed fallback. There is
-no Gemini embedding provider.
+Document and query embeddings use the Ollama model in
+settings.RAG_OLLAMA_EMBEDDING_MODEL (768-dim nomic-embed-text).
 
 settings.RAG_EMBEDDING_DIMENSIONS is the single width for both calls.
 Neither function below takes a model or dimension override, so a document
@@ -19,7 +17,7 @@ from __future__ import annotations
 
 from django.conf import settings
 
-from core.services import local_embeddings, ollama_embeddings
+from core.services import ollama_embeddings
 
 # Placeholder phrasing pending eval-driven tuning. What matters for
 # correctness right now is that document and query framing are distinct and
@@ -39,12 +37,7 @@ FRAMING_VERSION = "1"
 def _provider():
     """Resolve settings.RAG_EMBEDDING_PROVIDER to (module, provider, model_name).
 
-    'ollama' is the production default (core.services.ollama_embeddings).
-    'local' is the FastEmbed fallback (core.services.local_embeddings).
-
-    Framing (_DOCUMENT_INSTRUCTION / _QUERY_INSTRUCTION below) is applied
-    identically regardless of provider -- only which module receives the
-    already-framed text differs here.
+    'ollama' is the only supported value (core.services.ollama_embeddings).
 
     `provider` is returned (not just re-read from settings by callers) so
     active_embedding_identity() below builds its fingerprint from the exact
@@ -53,10 +46,8 @@ def _provider():
     provider = settings.RAG_EMBEDDING_PROVIDER
     if provider == 'ollama':
         return ollama_embeddings, provider, settings.RAG_OLLAMA_EMBEDDING_MODEL
-    if provider == 'local':
-        return local_embeddings, provider, settings.RAG_LOCAL_EMBEDDING_MODEL
     raise ValueError(
-        f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'ollama' or 'local'."
+        f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'ollama'."
     )
 
 

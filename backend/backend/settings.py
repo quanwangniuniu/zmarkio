@@ -435,13 +435,10 @@ GEMINI_CB_COOLDOWN_SECONDS = config('GEMINI_CB_COOLDOWN_SECONDS', default=30, ca
 # at the column type.
 RAG_EMBEDDING_DIMENSIONS = config('RAG_EMBEDDING_DIMENSIONS', default=768, cast=int)
 
-# 'ollama' is the production default. 'local' is the FastEmbed
-# fallback (BAAI/bge-base-en-v1.5, also 768-dim). The selected model must
-# natively emit RAG_EMBEDDING_DIMENSIONS values; the client rejects any
-# other width. Inside Docker, point RAG_OLLAMA_BASE_URL at
-# http://host.docker.internal:11434.
+# 'ollama' is the only supported provider. The selected model must natively
+# emit RAG_EMBEDDING_DIMENSIONS values; the client rejects any other width.
+# Inside Docker, point RAG_OLLAMA_BASE_URL at http://host.docker.internal:11434.
 RAG_EMBEDDING_PROVIDER = config('RAG_EMBEDDING_PROVIDER', default='ollama')
-RAG_LOCAL_EMBEDDING_MODEL = config('RAG_LOCAL_EMBEDDING_MODEL', default='BAAI/bge-base-en-v1.5')
 RAG_OLLAMA_BASE_URL = config('RAG_OLLAMA_BASE_URL', default='http://localhost:11434')
 RAG_OLLAMA_EMBEDDING_MODEL = config('RAG_OLLAMA_EMBEDDING_MODEL', default='nomic-embed-text')
 # Chat model for project-RAG rewrite and grounded answers. This is not the
