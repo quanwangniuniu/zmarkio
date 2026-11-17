@@ -1,5 +1,5 @@
 """Tests for AgentOrchestrator.answer_project_question, the generic
-project-document RAG fallback (MED-264 agent integration).
+project-document RAG fallback.
 
 Follows the same pattern as test_draft_context.py: real ORM (Django
 TestCase), mock only the retrieval call and the LLM call, never hit Gemini.
@@ -218,6 +218,8 @@ class AnswerProjectQuestionTest(TestCase):
 
         mock_rewrite.assert_called_once_with(self.session, self.project, 'Why was that?')
         mock_retrieve.assert_called_once_with(self.project.id, 'Why did we pick vendor A?')
+        self.assertEqual(mock_llm.call_args.kwargs['provider'], 'ollama')
+        self.assertEqual(mock_llm.call_args.kwargs['model'], 'qwen3:8b')
         user_prompt = mock_llm.call_args.kwargs['user_prompt']
         self.assertIn('Question to answer: Why did we pick vendor A?', user_prompt)
         self.assertIn("User's exact wording: Why was that?", user_prompt)
@@ -261,7 +263,10 @@ class AnswerProjectQuestionTest(TestCase):
         question = self._seed_follow_up()
         rewritten = 'Why did we pick vendor A?'
         mock_retrieve.return_value = [_chunk(content='Vendor A was cheaper.')]
-        mock_llm.side_effect = [_llm_ok(rewritten), _llm_ok('Because it was cheaper.')]
+        mock_llm.side_effect = [
+            _llm_ok('{"question": "Why did we pick vendor A?"}'),
+            _llm_ok('Because it was cheaper.'),
+        ]
 
         chunks = list(self.orch.answer_project_question(question))
 

@@ -164,6 +164,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     from spreadsheet.models import (
         Spreadsheet,
         Sheet,
+        SheetImportSource,
         PivotConfig,
         SheetRow,
         SheetColumn,
@@ -250,7 +251,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     )
 
     # ------------------------------------------------------------------
-    # retrospective (MED-264 tenancy fix). RetrospectiveTask/CampaignMetric
+    # retrospective. RetrospectiveTask/CampaignMetric
     # depend only on Project; Insight depends on RetrospectiveTask. All three
     # were previously public-schema-only despite being project-scoped, which
     # is what made RAG retrieval over retrospective sources unreliable
@@ -261,7 +262,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
     from retrospective.models import CampaignMetric, Insight, RetrospectiveTask
 
     # ------------------------------------------------------------------
-    # rag — RAG document retrieval (MED-264). DocumentChunk only FKs to
+    # rag — RAG document retrieval. DocumentChunk only FKs to
     # Project; source_type/source_id are plain fields, not FKs, so it has no
     # dependency on meetings/notion_editor/retrospective tables.
     # ------------------------------------------------------------------
@@ -355,6 +356,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         # spreadsheet
         Spreadsheet,
         Sheet,
+        SheetImportSource,
         PivotConfig,
         SheetRow,
         SheetColumn,
@@ -405,7 +407,7 @@ def get_tenant_models():  # noqa: C901 — long but intentionally explicit
         MediaFile,
         NotionConnection,
         DraftProjectLink,       # depends on Draft + Project
-        # retrospective (MED-264 tenancy fix) -- RetrospectiveTask/CampaignMetric
+        # retrospective -- RetrospectiveTask/CampaignMetric
         # depend on Project; Insight depends on RetrospectiveTask
         RetrospectiveTask,
         CampaignMetric,

@@ -69,3 +69,24 @@ class TaskFieldOptionConfig(models.Model):
                 name='uniq_config_task_field_option',
             ),
         ]
+
+
+class OptionConfig(models.Model):
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE)
+    project = project_field()
+    module = models.CharField(max_length=50)
+    field = models.CharField(max_length=50)
+    value = models.CharField(max_length=100)
+    label = models.CharField(max_length=100, null=True, blank=True)
+    color = models.CharField(max_length=7, null=True, blank=True)
+    enabled = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = 'config"."option'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['organization', 'project', 'module', 'field', 'value'],
+                name='uniq_config_option',
+            ),
+        ]

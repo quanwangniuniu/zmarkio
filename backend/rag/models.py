@@ -135,7 +135,7 @@ class DocumentIndexState(models.Model):
     (e.g. "when did the underlying row last change vs. when did we last
     index it") — it is not a correctness guard.
 
-    `dirty_since` (MED-264 Problem 7 reliability fix) is a DIFFERENT axis
+    `dirty_since` is a DIFFERENT axis
     from `status` and must not be conflated with it: `status` is the
     indexing-attempt lifecycle (pending/complete/failed), owned entirely by
     `rag.indexing`'s locked worker-side flow. `dirty_since` durably records

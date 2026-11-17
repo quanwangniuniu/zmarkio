@@ -1,6 +1,5 @@
 from rest_framework import serializers
 
-
 class GoogleDocsStatusSerializer(serializers.Serializer):
     connected = serializers.BooleanField()
     google_email = serializers.CharField(allow_null=True, required=False)
@@ -36,3 +35,5 @@ class GoogleSheetsExportSerializer(serializers.Serializer):
         child=serializers.ListField(child=serializers.CharField(allow_blank=True)),
         required=True,
     )
+    spreadsheet_id = serializers.CharField(required=False, allow_blank=True, max_length=255)
+    sheet_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)

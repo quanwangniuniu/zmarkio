@@ -104,6 +104,7 @@
     "date-fns": "^2.30.0",
     "elkjs": "^0.9.3",
     "emoji-picker-react": "^4.16.1",
+    "exceljs": "^4.4.0",
     "framer-motion": "^12.35.2",
     "highlight.js": "^11.11.1",
     "html-to-image": "^1.11.13",

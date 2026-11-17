@@ -1,4 +1,4 @@
-"""Tests for rag.retrieval.retrieve_chunks (MED-264 retrieval phase).
+"""Tests for rag.retrieval.retrieve_chunks.
 
 No network calls -- rag.retrieval.embed_query (the name imported into the
 module under test) is monkeypatched to a fixed vector, matching the
@@ -161,7 +161,7 @@ def test_min_similarity_filters_low_similarity_results(project, mock_query_embed
 
 
 class TestStalePipelineGuard:
-    """MED-264 Problem 3: retrieve_chunks() must not compare a fresh query
+    """retrieve_chunks() must not compare a fresh query
     vector against chunks embedded under a different pipeline (e.g. a
     provider switch mid-rebuild) -- see the module docstring in
     rag/retrieval.py.

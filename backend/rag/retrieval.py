@@ -1,5 +1,5 @@
 """
-Retrieval over DocumentChunk for a single project (MED-264 retrieval phase).
+Retrieval over DocumentChunk for a single project.
 
 Exact pgvector cosine distance (sequential scan) over non-deleted,
 non-null-embedding chunks — no ANN index, reranking, or hybrid/keyword

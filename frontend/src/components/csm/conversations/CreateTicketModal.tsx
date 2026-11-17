@@ -2,6 +2,8 @@
 
 import React, { useState, useEffect } from 'react';
 import { CustomerProfile } from '@/types/csmConversation';
+import { PRIORITY_LABELS, TicketPriority } from '@/types/csm';
+import { CSM_PRIORITY } from '@/lib/csm/csmConfig';
 import CsmConversationAPI from '@/lib/api/csmConversationApi';
 import { useCsmConversationStore } from '@/lib/csmConversationStore';
 import { AlertCircle, ExternalLink } from 'lucide-react';
@@ -189,10 +191,9 @@ export function CreateTicketModal({
               onChange={(e) => setPriority(e.target.value as typeof priority)}
               className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
             >
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
+              {CSM_PRIORITY.values.map((value) => (
+                <option key={value} value={value}>{PRIORITY_LABELS[value as TicketPriority]}</option>
+              ))}
             </select>
           </div>
 

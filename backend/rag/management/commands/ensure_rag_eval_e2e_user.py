@@ -1,10 +1,10 @@
 """
-Management command: ensure_med264_e2e_user (MED-264 Playwright acceptance test).
+Management command: ensure_rag_eval_e2e_user.
 
-Idempotently creates/repairs the dedicated E2E test user for the MED-264
+Idempotently creates/repairs the dedicated E2E test user for the
 "ask about my retrospective" Playwright test, and gives it active membership
-on the MED-264 RAG Eval Fixture project (the fixture seeded by
-generate_med264_seed_sql.py / run_project_rag_eval.py).
+on the RAG Eval Fixture project (the fixture seeded by
+generate_rag_eval_seed_sql.py / run_project_rag_eval.py).
 
 Why a dedicated user
 ---------------------
@@ -19,7 +19,7 @@ this test depends on with one command, regardless of what else is in the DB.
 Two separate membership records are required, not one
 -------------------------------------------------------
 - ProjectMember (tenant-scoped, inside the org's schema): grants
-  GET /api/core/projects/ visibility into the MED-264 project (via
+  GET /api/core/projects/ visibility into the RAG Eval Fixture project (via
   ProjectViewSet.get_queryset's `member_ids` filter).
 - OrganizationMembership (public schema): GET /api/core/onboarding-status/
   computes `needs_onboarding` purely from
@@ -57,9 +57,9 @@ DEFAULT_USERNAME = 'med264_e2e_user'
 
 class Command(BaseCommand):
     help = (
-        "Idempotently create/repair the dedicated E2E test user for the MED-264 "
+        "Idempotently create/repair the dedicated E2E test user for the "
         "Playwright acceptance test, with active Organization + Project membership "
-        "on the MED-264 RAG Eval Fixture. Run this once before `npx playwright test` "
+        "on the RAG Eval Fixture. Run this once before `npx playwright test` "
         "locally or in CI; safe to re-run any time."
     )
 
@@ -84,8 +84,8 @@ class Command(BaseCommand):
         except Organization.DoesNotExist:
             raise CommandError(
                 f"Organization {EVAL_ORG_NAME!r} does not exist yet. Run "
-                "`python manage.py run_project_rag_eval` (or generate_med264_seed_sql's seed) first "
-                "to provision the MED-264 eval tenant."
+                "`python manage.py run_project_rag_eval` (or generate_rag_eval_seed_sql's seed) first "
+                "to provision the eval tenant."
             )
         schema = slug_to_schema_name(org.slug)
 
@@ -112,7 +112,7 @@ class Command(BaseCommand):
             except Project.DoesNotExist:
                 raise CommandError(
                     f"Project {EVAL_PROJECT_NAME!r} does not exist in schema {schema!r}. Run "
-                    "`python manage.py run_project_rag_eval` (or generate_med264_seed_sql's seed) first."
+                    "`python manage.py run_project_rag_eval` (or generate_rag_eval_seed_sql's seed) first."
                 )
 
             project_membership, project_membership_created = ProjectMember.objects.get_or_create(

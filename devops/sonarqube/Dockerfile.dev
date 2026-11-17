@@ -1,4 +1,4 @@
-FROM sonarqube:latest
+FROM sonarqube:latest@sha256:65541accbdb92e27fe770fc6ba99988a3dd5a0c71ffafd67f88abfad366996fa
 
 USER root
 RUN mkdir -p /token && chmod -R 777 /token

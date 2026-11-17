@@ -1153,6 +1153,47 @@ class FormulaRewriteTest(TestCase):
         
         column_zz = CellService._get_or_create_column(self.sheet, position=701)
         self.assertEqual(column_zz.name, 'ZZ')
+    
+    def test_rewrite_protects_quotes_sheet_refs_and_absolute_marks(self):
+        from spreadsheet.formula_rewrite import rewrite_formula_text
+
+        self.assertEqual(rewrite_formula_text('=$A$1', 'ROW_INSERT', 0, 1), '=$A$2')
+        self.assertEqual(rewrite_formula_text('=$A$1', 'COL_INSERT', 0, 1), '=$B$1')
+        self.assertEqual(rewrite_formula_text('=$A1', 'COL_INSERT', 0, 1), '=$B1')
+        self.assertEqual(rewrite_formula_text('=A$1', 'ROW_INSERT', 0, 1), '=A$2')
+        self.assertEqual(rewrite_formula_text('=A$1', 'COL_INSERT', 0, 1), '=B$1')
+        self.assertEqual(rewrite_formula_text('="A1"', 'COL_INSERT', 0, 1), '="A1"')
+        self.assertEqual(rewrite_formula_text('=A1&"B2"', 'COL_INSERT', 0, 1), '=B1&"B2"')
+        self.assertEqual(
+            rewrite_formula_text("='Sales 2026'!A1", 'ROW_DELETE', 0, 1),
+            "='Sales 2026'!A1",
+        )
+        self.assertEqual(
+            rewrite_formula_text("='Sales 2026'!A1:B5", 'ROW_DELETE', 0, 1),
+            "='Sales 2026'!A1:B5",
+        )
+        self.assertEqual(rewrite_formula_text("='Q1'!A1", 'COL_INSERT', 0, 1), "='Q1'!A1")
+        self.assertEqual(
+            rewrite_formula_text("='Bob''s Shop'!A1", 'COL_INSERT', 0, 1),
+            "='Bob''s Shop'!A1",
+        )
+        self.assertEqual(rewrite_formula_text('=Sheet2!A1', 'COL_INSERT', 0, 1), '=Sheet2!A1')
+        self.assertEqual(
+            rewrite_formula_text('=A1+Sheet2!B2', 'COL_INSERT', 0, 1),
+            '=B1+Sheet2!B2',
+        )
+        self.assertEqual(
+            rewrite_formula_text('=SUM(A1:B5)', 'COL_DELETE', 0, 1),
+            '=SUM(#REF!:A5)',
+        )
+        self.assertEqual(
+            rewrite_formula_text('=SUM(A1:B5)', 'ROW_DELETE', 0, 1),
+            '=SUM(#REF!:B4)',
+        )
+        self.assertEqual(rewrite_formula_text('=FY24', 'COL_INSERT', 0, 1), '=FZ24')
+        self.assertEqual(rewrite_formula_text('=A1+DATA1', 'COL_INSERT', 0, 1), '=A1+DATA1')
+        self.assertEqual(rewrite_formula_text('=FY_24', 'COL_INSERT', 0, 1), '=FY_24')
+        self.assertEqual(rewrite_formula_text('=Table1[Col1]', 'COL_INSERT', 0, 1), '=Table1[Col1]')
 
 
 class WorkflowPatternServiceTest(TestCase):

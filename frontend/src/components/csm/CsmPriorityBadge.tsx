@@ -2,6 +2,7 @@
 
 import type { TicketPriority } from '@/types/csm';
 import { PRIORITY_LABELS } from '@/types/csm';
+import { CSM_PRIORITY } from '@/lib/csm/csmConfig';
 
 const BADGE_STYLES: Record<TicketPriority, string> = {
   critical: 'bg-red-50 text-red-700 ring-red-200',
@@ -27,6 +28,7 @@ export function CsmPriorityBadge({ priority, size = 'sm' }: CsmPriorityBadgeProp
   const badgeStyle = BADGE_STYLES[p] ?? 'bg-gray-100 text-gray-500 ring-gray-200';
   const dotStyle   = DOT_STYLES[p]   ?? 'bg-gray-400';
   const label      = PRIORITY_LABELS[p] ?? priority;
+  const color      = CSM_PRIORITY.colors[priority];
 
   return (
     <span
@@ -34,7 +36,10 @@ export function CsmPriorityBadge({ priority, size = 'sm' }: CsmPriorityBadgeProp
         size === 'md' ? 'px-2 py-0.5 text-xs' : 'px-1.5 py-0.5 text-[11px]'
       }`}
     >
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotStyle}`} />
+      <span
+        className={`w-1.5 h-1.5 rounded-full shrink-0 ${color ? '' : dotStyle}`}
+        style={color ? { backgroundColor: color } : undefined}
+      />
       {label}
     </span>
   );

@@ -149,18 +149,24 @@ def test_compare_a_to_b_labels():
 
 
 @override_settings(RAG_EMBEDDING_PROVIDER='gemini', GEMINI_API_KEY='')
-def test_gemini_provider_requires_api_key():
-    with pytest.raises(CommandError, match='GEMINI_API_KEY is not configured'):
+def test_gemini_embedding_provider_is_rejected_before_arm_c():
+    with pytest.raises(CommandError, match="Unknown RAG_EMBEDDING_PROVIDER 'gemini'"):
         Command().handle(fixture=_NONEXISTENT, output=None, top_k=10, arms='A,B')
 
 
-@override_settings(RAG_EMBEDDING_PROVIDER='local', GEMINI_API_KEY='')
-def test_arm_c_requires_gemini_api_key_even_with_local_embeddings():
-    with pytest.raises(CommandError, match='Arm C .* GEMINI_API_KEY'):
+@override_settings(RAG_EMBEDDING_PROVIDER='ollama', GEMINI_API_KEY='')
+def test_arm_c_does_not_require_gemini_api_key():
+    with pytest.raises(CommandError, match='Fixture not found'):
         Command().handle(fixture=_NONEXISTENT, output=None, top_k=10, arms='A,B,C')
 
 
 @override_settings(RAG_EMBEDDING_PROVIDER='local', GEMINI_API_KEY='')
+def test_local_embedding_provider_is_rejected_before_arm_c():
+    with pytest.raises(CommandError, match="Unknown RAG_EMBEDDING_PROVIDER 'local'"):
+        Command().handle(fixture=_NONEXISTENT, output=None, top_k=10, arms='A,B')
+
+
+@override_settings(RAG_EMBEDDING_PROVIDER='ollama', GEMINI_API_KEY='')
 def test_ab_phase_runs_both_arms_and_states_scope(tmp_path):
     followup = {
         'dataset_version': '1.0.0-test',
@@ -245,7 +251,7 @@ def test_ab_phase_runs_both_arms_and_states_scope(tmp_path):
     }
 
 
-@override_settings(RAG_EMBEDDING_PROVIDER='local', GEMINI_API_KEY='fake-key-for-test')
+@override_settings(RAG_EMBEDDING_PROVIDER='ollama', GEMINI_API_KEY='')
 def test_arm_c_records_rewrite_meta_and_compares_to_a(tmp_path):
     from agent.query_rewrite import RewriteResult
 
@@ -344,6 +350,7 @@ def test_arm_c_records_rewrite_meta_and_compares_to_a(tmp_path):
     assert arm_c['rewritten_question'] == 'Why did we pick vendor A?'
     assert arm_c['fell_back'] is False
     assert arm_c['reason'] == 'rewritten'
+    assert arm_c['rejected_output'] == ''
     assert isinstance(arm_c['latency_ms'], (int, float))
     assert row['history_turn_count'] == 1
     assert row['multi_turn'] is False

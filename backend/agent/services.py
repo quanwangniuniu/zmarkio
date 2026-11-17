@@ -1770,8 +1770,7 @@ class AgentOrchestrator:
         yield {"type": "text", "content": answer_text}
 
     def answer_project_question(self, message):
-        """Answer a question grounded in this project's indexed documents
-        (MED-264 retrieval phase).
+        """Answer a question grounded in this project's indexed documents.
 
         Generic fallback only -- reached from _legacy_handle's trailing else,
         which means every dedicated route (spreadsheet, calendar, draft,
@@ -1836,8 +1835,8 @@ class AgentOrchestrator:
         try:
             result = _call_llm_unified(
                 agent_session=self.session,
-                provider='gemini',
-                model='gemini-2.5-flash-lite',
+                provider='ollama',
+                model=settings.RAG_OLLAMA_CHAT_MODEL,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=0.3,
