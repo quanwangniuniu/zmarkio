@@ -8,12 +8,13 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { getApiErrorDetail } from '@/lib/api/errorMessage';
-import { fetchTaskConfig, saveTaskConfig } from '@/lib/api/orgCustomizationApi';
+import { fetchSystemConfig, saveSystemConfig } from '@/lib/api/orgCustomizationApi';
+import { storeCsmConfig } from '@/lib/csm/csmConfig';
 import { useProjectStore } from '@/lib/projectStore';
 import { storeTaskConfig } from '@/lib/tasks/taskConfig';
 import { getTaskTypeDefinition } from '@/lib/tasks/taskTypes';
 import { getDefaultFieldOptions } from '@/lib/tasks/typeFieldSchemas';
-import type { TaskConfig, TaskFieldOptionConfig } from '@/types/orgCustomization';
+import type { OptionConfig, SystemConfig, TaskConfig, TaskFieldOptionConfig } from '@/types/orgCustomization';
 
 const headerCell = 'px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400';
 const bodyCell = 'px-4 py-2 text-sm text-gray-900 dark:text-gray-100';
@@ -23,6 +24,10 @@ const bodyClass = 'divide-y divide-gray-200 dark:divide-gray-700';
 const sectionTitle = 'text-lg font-semibold text-gray-900 dark:text-gray-100';
 
 type ConfigListKey = 'task_types' | 'task_statuses' | 'task_priorities';
+
+const CSM_FIELD_TITLES: Record<string, string> = {
+  ticket_priority: 'Ticket Priorities',
+};
 
 interface OptionRow extends TaskFieldOptionConfig {
   fieldLabel: string;
@@ -51,6 +56,14 @@ const buildOptionRows = (saved: TaskFieldOptionConfig[]): OptionRow[] =>
       };
     }),
   );
+
+const findInvalidOption = (options: OptionConfig[]): string | null => {
+  const disabledDefault = options.find((row) => row.is_default && !row.enabled);
+  if (disabledDefault) return `${disabledDefault.default_label} is the default and cannot be disabled.`;
+  const longLabel = options.find((row) => (row.label ?? '').length > 100);
+  if (longLabel) return `${longLabel.default_label} label must be 100 characters or fewer.`;
+  return null;
+};
 
 const optionGroupKey = (row: OptionRow) => `${row.task_type}.${row.field}`;
 
@@ -84,23 +97,94 @@ function OrderInput({ value, onChange }: { value: number; onChange: (value: numb
   );
 }
 
+function OptionConfigTables({ options, fieldTitles, onChange }: {
+  options: OptionConfig[];
+  fieldTitles: Record<string, string>;
+  onChange: (target: OptionConfig, patch: Partial<OptionConfig>) => void;
+}) {
+  return (
+    <>
+      {Object.entries(fieldTitles).map(([field, title]) => {
+        const rows = options.filter((row) => row.field === field);
+        const editable = new Set(rows[0]?.editable ?? []);
+        return (
+          <div key={field} className="space-y-1">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">{title}</h3>
+            <table className={tableClass}>
+              <thead>
+                <tr>
+                  {editable.has('enabled') && <th className={headerCell}>Enabled</th>}
+                  <th className={headerCell}>Option</th>
+                  {editable.has('label') && <th className={headerCell}>Label</th>}
+                  {editable.has('color') && <th className={headerCell}>Color</th>}
+                  {editable.has('order') && <th className={headerCell}>Order</th>}
+                </tr>
+              </thead>
+              <tbody className={bodyClass}>
+                {rows.map((row) => (
+                  <tr key={row.value}>
+                    {editable.has('enabled') && (
+                      <td className={bodyCell}>
+                        <Checkbox
+                          checked={row.enabled}
+                          disabled={row.is_default}
+                          onCheckedChange={(checked) => onChange(row, { enabled: checked === true })}
+                          aria-label={`Enable ${row.default_label}`}
+                        />
+                      </td>
+                    )}
+                    <td className={bodyCell}>{row.default_label}</td>
+                    {editable.has('label') && (
+                      <td className={bodyCell}>
+                        <LabelInput value={row.label} placeholder={row.default_label} onChange={(label) => onChange(row, { label })} />
+                      </td>
+                    )}
+                    {editable.has('color') && (
+                      <td className={bodyCell}>
+                        <input
+                          type="color"
+                          className="h-9 w-14 cursor-pointer rounded border border-gray-200 dark:border-gray-700"
+                          value={row.color ?? '#94a3b8'}
+                          onChange={(e) => onChange(row, { color: e.target.value })}
+                          aria-label={`${row.default_label} color`}
+                        />
+                      </td>
+                    )}
+                    {editable.has('order') && (
+                      <td className={bodyCell}>
+                        <OrderInput value={row.order} onChange={(order) => onChange(row, { order })} />
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
 export default function SystemConfigPage() {
   const activeProject = useProjectStore((state) => state.activeProject);
   const projectId = activeProject?.id;
   const [config, setConfig] = useState<TaskConfig | null>(null);
   const [optionRows, setOptionRows] = useState<OptionRow[]>([]);
   const [optionType, setOptionType] = useState('');
+  const [csmOptions, setCsmOptions] = useState<OptionConfig[]>([]);
   const [saving, setSaving] = useState(false);
 
-  const loadConfig = (next: TaskConfig) => {
-    setConfig(next);
-    setOptionRows(buildOptionRows(next.task_field_options));
+  const loadConfig = (next: SystemConfig) => {
+    setConfig({ ...next.task, can_edit: next.can_edit });
+    setOptionRows(buildOptionRows(next.task.task_field_options));
+    setCsmOptions(next.csm.options);
   };
 
   useEffect(() => {
     if (!projectId) return;
     setConfig(null);
-    fetchTaskConfig(projectId)
+    fetchSystemConfig(projectId)
       .then(loadConfig)
       .catch((error) => toast.error(getApiErrorDetail(error, 'Failed to load system configuration')));
   }, [projectId]);
@@ -127,18 +211,30 @@ export default function SystemConfigPage() {
   const updateOption = (target: OptionRow, patch: Partial<OptionRow>) =>
     setOptionRows((prev) => prev.map((row) => (row === target ? { ...row, ...patch } : row)));
 
+  const updateCsmOption = (target: OptionConfig, patch: Partial<OptionConfig>) =>
+    setCsmOptions((prev) => prev.map((row) => (row === target ? { ...row, ...patch } : row)));
+
   const handleSave = async () => {
     if (!config || !projectId) return;
+    const invalid = findInvalidOption(csmOptions);
+    if (invalid) {
+      toast.error(invalid);
+      return;
+    }
     setSaving(true);
     try {
-      const saved = await saveTaskConfig(projectId, {
-        task_types: config.task_types,
-        task_statuses: config.task_statuses,
-        task_priorities: config.task_priorities,
-        task_field_options: optionRowsToSave(optionRows),
+      const saved = await saveSystemConfig(projectId, {
+        task: {
+          task_types: config.task_types,
+          task_statuses: config.task_statuses,
+          task_priorities: config.task_priorities,
+          task_field_options: optionRowsToSave(optionRows),
+        },
+        csm: { options: csmOptions },
       });
       loadConfig(saved);
-      storeTaskConfig(projectId, saved);
+      storeTaskConfig(projectId, { ...saved.task, can_edit: saved.can_edit });
+      storeCsmConfig(projectId, { ...saved.csm, can_edit: saved.can_edit });
       toast.success('System configuration saved');
     } catch (error) {
       toast.error(getApiErrorDetail(error, 'Failed to save system configuration'));
@@ -155,8 +251,8 @@ export default function SystemConfigPage() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">System Configuration</h1>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Choose which task types {activeProject?.name ?? 'this project'} uses, and rename or reorder types,
-                statuses, priorities and dropdown options.
+                Choose which task types and CSM options {activeProject?.name ?? 'this project'} uses, and rename,
+                recolor or reorder them.
               </p>
             </div>
             {config?.can_edit && (
@@ -350,6 +446,11 @@ export default function SystemConfigPage() {
                     </table>
                   </div>
                 ))}
+              </section>
+
+              <section className="space-y-3">
+                <h2 className={sectionTitle}>CSM</h2>
+                <OptionConfigTables options={csmOptions} fieldTitles={CSM_FIELD_TITLES} onChange={updateCsmOption} />
               </section>
             </>
           )}
