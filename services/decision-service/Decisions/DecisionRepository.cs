@@ -2,13 +2,22 @@ using System.Collections.Concurrent;
 
 namespace DecisionService.Decisions;
 
+public enum DecisionTransitionAction
+{
+    PromoteToDraft,
+    Commit,
+    Approve,
+    MarkReviewed,
+    Archive,
+}
 public interface IDecisionRepository
 {
+
     Task<DecisionListResponse> ListAsync(int? projectId, DecisionStatus? status, int pageSize, int pageToken, CancellationToken ct);
     Task<DecisionDetailDto?> GetAsync(string lookup, CancellationToken ct);
     Task<DecisionDetailDto> CreateAsync(int? projectId, int? actorId, CreateDecisionDraftRequest request, CancellationToken ct);
     Task<DecisionDetailDto?> UpdateDraftAsync(string lookup, int? actorId, UpdateDecisionDraftRequest request, CancellationToken ct);
-    Task<DecisionDetailDto?> TransitionAsync(string lookup, int? actorId, DecisionStatus targetStatus, CancellationToken ct);
+    Task<DecisionDetailDto?> TransitionAsync(string lookup, int? actorId, DecisionTransitionAction action, CancellationToken ct);
     Task<bool> DeleteAsync(string lookup, int? actorId, CancellationToken ct);
     Task<DecisionSignalListResponse> ListSignalsAsync(string lookup, CancellationToken ct);
     Task<DecisionSignalDto?> CreateSignalAsync(string lookup, int? actorId, DecisionSignalInput input, CancellationToken ct);
@@ -21,6 +30,7 @@ public interface IDecisionRepository
     Task<TopicLabelDeleteResult> DeleteTopicLabelAsync(int projectId, string topic, CancellationToken ct);
     Task<IReadOnlyList<DecisionReviewDto>?> ListReviewsAsync(string lookup, CancellationToken ct);
     Task<DecisionDetailDto?> CreateReviewAsync(string lookup, int? actorId, DecisionReviewInput input, CancellationToken ct);
+
 }
 
 public enum TopicLabelDeleteResult
@@ -141,28 +151,72 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
         return Task.FromResult<DecisionDetailDto?>(ToDetail(updated));
     }
 
-    public Task<DecisionDetailDto?> TransitionAsync(string lookup, int? actorId, DecisionStatus targetStatus, CancellationToken ct)
+public Task<DecisionDetailDto?> TransitionAsync(
+    string lookup,
+    int? actorId,
+    DecisionTransitionAction action,
+    CancellationToken ct)
     {
         if (Find(lookup) is not { } existing)
         {
             return Task.FromResult<DecisionDetailDto?>(null);
         }
 
-        var allowed = (existing.Status, targetStatus) switch
+        var allowed = (existing.Status, action) switch
         {
-            (DecisionStatus.PREDRAFT, DecisionStatus.DRAFT) => true,
-            (DecisionStatus.PREDRAFT, DecisionStatus.COMMITTED) => true,
-            (DecisionStatus.DRAFT, DecisionStatus.COMMITTED) => true,
-            (DecisionStatus.AWAITING_APPROVAL, DecisionStatus.COMMITTED) => true,
-            (DecisionStatus.COMMITTED, DecisionStatus.REVIEWED) => true,
-            (DecisionStatus.COMMITTED, DecisionStatus.ARCHIVED) => true,
-            (DecisionStatus.REVIEWED, DecisionStatus.ARCHIVED) => true,
+            (DecisionStatus.PREDRAFT, DecisionTransitionAction.PromoteToDraft) => true,
+            (DecisionStatus.PREDRAFT, DecisionTransitionAction.Commit) => true,
+            (DecisionStatus.DRAFT, DecisionTransitionAction.Commit) => true,
+            (DecisionStatus.AWAITING_APPROVAL, DecisionTransitionAction.Approve) => true,
+            (DecisionStatus.COMMITTED, DecisionTransitionAction.MarkReviewed) => true,
+            (DecisionStatus.COMMITTED, DecisionTransitionAction.Archive) => true,
+            (DecisionStatus.REVIEWED, DecisionTransitionAction.Archive) => true,
             _ => false,
         };
         if (!allowed)
         {
             return Task.FromResult<DecisionDetailDto?>(null);
         }
+        DecisionStatus targetStatus;
+        switch (action)
+    {
+        case DecisionTransitionAction.Commit:
+            targetStatus = existing.RiskLevel == DecisionRiskLevel.HIGH
+                ? DecisionStatus.AWAITING_APPROVAL
+                : DecisionStatus.COMMITTED;
+            break;
+
+        case DecisionTransitionAction.Approve:
+            targetStatus = DecisionStatus.COMMITTED;
+            break;
+
+        case DecisionTransitionAction.PromoteToDraft:
+            targetStatus = DecisionStatus.DRAFT;
+            break;
+
+        case DecisionTransitionAction.MarkReviewed:
+            targetStatus = DecisionStatus.REVIEWED;
+            break;
+
+        case DecisionTransitionAction.Archive:
+            targetStatus = DecisionStatus.ARCHIVED;
+            break;
+
+        default:
+            return Task.FromResult<DecisionDetailDto?>(null);
+    }
+            if (action == DecisionTransitionAction.Commit ||
+        action == DecisionTransitionAction.Approve)
+    {
+        if (string.IsNullOrWhiteSpace(existing.Title))
+        {
+            throw new DecisionValidationException(
+                "title",
+                "Title is required before commit."
+            );
+        }
+    }
+
 
         var now = DateTimeOffset.UtcNow;
         var updated = existing with
@@ -170,7 +224,7 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
             Status = targetStatus,
             LastEditedAt = now,
             LastEditedBy = actorId,
-            CommittedAt = targetStatus == DecisionStatus.COMMITTED ? now : existing.CommittedAt,
+            CommittedAt = action == DecisionTransitionAction.Commit ? now : existing.CommittedAt,
         };
         _decisions[existing.Id] = updated;
         return Task.FromResult<DecisionDetailDto?>(ToDetail(updated));
@@ -335,7 +389,12 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
 
     public async Task<DecisionDetailDto?> CreateReviewAsync(string lookup, int? actorId, DecisionReviewInput input, CancellationToken ct)
     {
-        return await TransitionAsync(lookup, actorId, DecisionStatus.REVIEWED, ct) ?? await GetAsync(lookup, ct);
+    return await TransitionAsync(
+    lookup,
+    actorId,
+    DecisionTransitionAction.MarkReviewed,
+    ct
+    ) ?? await GetAsync(lookup, ct);
     }
 
     private DecisionRecord? Find(string lookup)
