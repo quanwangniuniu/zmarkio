@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from task.models import Task
 
-from .services import STATUS_CATEGORIES
+from .services import MODULE_OPTION_FIELDS, STATUS_CATEGORIES, clean_options
 
 TASK_TYPE_CHOICES = Task._meta.get_field('type').choices
 
@@ -55,3 +55,31 @@ class TaskConfigSerializer(serializers.Serializer):
     task_statuses = TaskStatusConfigItemSerializer(many=True, required=False)
     task_priorities = TaskPriorityConfigItemSerializer(many=True, required=False)
     task_field_options = TaskFieldOptionConfigItemSerializer(many=True, required=False)
+
+
+class OptionConfigItemSerializer(serializers.Serializer):
+    field = serializers.CharField(max_length=50)
+    value = serializers.CharField(max_length=100)
+    label = label_field()
+    color = color_field()
+    enabled = serializers.BooleanField(required=False, default=True)
+    order = order_field()
+
+
+class OptionConfigSerializer(serializers.Serializer):
+    options = OptionConfigItemSerializer(many=True)
+
+
+class SystemConfigSerializer(serializers.Serializer):
+    task = TaskConfigSerializer(required=False)
+
+    def get_fields(self):
+        fields = super().get_fields()
+        fields.update({module: OptionConfigSerializer(required=False) for module in MODULE_OPTION_FIELDS})
+        return fields
+
+    def validate(self, attrs):
+        for module in MODULE_OPTION_FIELDS:
+            if module in attrs:
+                attrs[module]['options'] = clean_options(module, attrs[module]['options'])
+        return attrs

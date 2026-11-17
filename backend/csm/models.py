@@ -6,6 +6,7 @@ from django.conf import settings
 from django.utils import timezone
 from core.models import TimeStampedModel, Project, Team
 from core.slug_mixins import SluggedResourceModelMixin
+from org_customization.mixins import ConfigurableOptionsMixin
 
 
 def default_operating_hours():
@@ -172,7 +173,7 @@ class CsmNotification(TimeStampedModel):
         return f"{self.notification_type} → {self.recipient.email} ({self.action_status})"
 
 
-class Ticket(TimeStampedModel):
+class Ticket(ConfigurableOptionsMixin, TimeStampedModel):
     # Built-in statuses. The per-project status machine
     # (TicketStatus / TicketStatusTransition) is the source of truth for
     # transitions and custom statuses; these choices give the five built-ins a

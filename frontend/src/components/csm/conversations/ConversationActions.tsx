@@ -4,6 +4,8 @@ import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { Conversation, ConversationStatus, UpdateConversationPayload, AssignableAgent } from '@/types/csmConversation';
 import { TicketPriority, PRIORITY_LABELS } from '@/types/csm';
+import { CSM_PRIORITY } from '@/lib/csm/csmConfig';
+import { visibleOptions } from '@/lib/orgCustomization/optionConfig';
 import CsmConversationAPI from '@/lib/api/csmConversationApi';
 import { TicketAPI } from '@/lib/api/csmConversationApi';
 import { useCsmConversationStore } from '@/lib/csmConversationStore';
@@ -21,13 +23,6 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
   resolved: 'bg-blue-100 text-blue-700',
   closed:   'bg-gray-100 text-gray-500',
 };
-
-const PRIORITY_OPTIONS: { value: TicketPriority; label: string }[] = [
-  { value: 'critical', label: 'Critical' },
-  { value: 'high',     label: 'High' },
-  { value: 'medium',   label: 'Medium' },
-  { value: 'low',      label: 'Low' },
-];
 
 const PRIORITY_SELECT_COLORS: Record<string, string> = {
   critical: 'bg-red-50 text-red-700',
@@ -151,6 +146,8 @@ export function ConversationActions({ conversation, onPriorityChanged }: Convers
     }
   };
 
+  const priorityColor = CSM_PRIORITY.colors[ticketPriority];
+
   const handleAddTag = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && tagInput.trim()) {
       patch({ tags: [...(conversation.tags ?? []), tagInput.trim()] });
@@ -195,8 +192,9 @@ export function ConversationActions({ conversation, onPriorityChanged }: Convers
         <div className="relative flex items-center">
           <span
             className={`absolute left-2 w-1.5 h-1.5 rounded-full pointer-events-none z-10 ${
-              PRIORITY_DOT[ticketPriority] ?? 'bg-gray-400'
+              priorityColor ? '' : PRIORITY_DOT[ticketPriority] ?? 'bg-gray-400'
             }`}
+            style={priorityColor ? { backgroundColor: priorityColor } : undefined}
           />
           <select
             value={ticketPriority}
@@ -206,8 +204,8 @@ export function ConversationActions({ conversation, onPriorityChanged }: Convers
               PRIORITY_SELECT_COLORS[ticketPriority] ?? 'bg-gray-100 text-gray-500'
             }`}
           >
-            {PRIORITY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            {visibleOptions(CSM_PRIORITY, ticketPriority).map((value) => (
+              <option key={value} value={value}>{PRIORITY_LABELS[value as TicketPriority]}</option>
             ))}
           </select>
         </div>
