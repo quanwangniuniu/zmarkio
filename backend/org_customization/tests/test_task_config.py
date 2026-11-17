@@ -1,4 +1,7 @@
+from io import StringIO
+
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -34,6 +37,10 @@ def make_project(name, organization, owner, members=()):
     return project
 
 
+def set_config(model, project, key, **fields):
+    model.objects.filter(project_id=project.id, key=key).update(**fields)
+
+
 def config_url(project):
     return f'{TASK_CONFIG_PATH}?project_id={project.id}'
 
@@ -49,15 +56,17 @@ class TaskConfigViewTest(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(self.admin)
 
-    def test_get_returns_defaults_when_no_rows(self):
+    def test_new_project_gets_default_rows(self):
         response = self.client.get(self.url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         task_types = response.data['task_types']
         self.assertEqual([t['key'] for t in task_types], [c[0] for c in Task._meta.get_field('type').choices])
-        self.assertTrue(all(t['enabled'] and t['label'] is None for t in task_types))
+        self.assertTrue(all(t['enabled'] and t['label'] == t['default_label'] for t in task_types))
         self.assertEqual([s['key'] for s in response.data['task_statuses']], list(Task.Status.values))
-        self.assertEqual(response.data['task_statuses'][0]['default_category'], 'TO_DO')
+        self.assertTrue(all(s['label'] == s['default_label'] for s in response.data['task_statuses']))
+        self.assertEqual(response.data['task_statuses'][0]['category'], 'TO_DO')
+        self.assertTrue(all(p['label'] == p['default_label'] for p in response.data['task_priorities']))
         self.assertEqual([p['key'] for p in response.data['task_priorities']], list(Task.Priority.values))
         self.assertEqual(response.data['task_field_options'], [])
         self.assertIn({'key': 'DONE', 'label': 'Done'}, response.data['status_categories'])
@@ -88,7 +97,7 @@ class TaskConfigViewTest(TestCase):
         self.assertEqual(response.data['task_field_options'][0]['label'], 'Minor')
 
     def test_put_updates_existing_row(self):
-        TaskTypeConfig.objects.create(organization=self.org, project=self.project, key='asset', label='Old', order=1)
+        set_config(TaskTypeConfig, self.project, 'asset', label='Old', order=1)
 
         self.client.put(self.url, {
             'task_types': [{'key': 'asset', 'label': '', 'enabled': True, 'order': 0}],
@@ -105,7 +114,7 @@ class TaskConfigViewTest(TestCase):
         }, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertFalse(TaskTypeConfig.objects.exists())
+        self.assertIsNone(TaskTypeConfig.objects.get(project_id=self.project.id, key='asset').color)
 
     def test_member_can_read_but_not_save(self):
         self.client.force_authenticate(self.member)
@@ -115,7 +124,7 @@ class TaskConfigViewTest(TestCase):
         self.assertFalse(response.data['can_edit'])
         response = self.client.put(self.url, {'task_types': [{'key': 'budget', 'enabled': False}]}, format='json')
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertFalse(TaskTypeConfig.objects.exists())
+        self.assertTrue(TaskTypeConfig.objects.get(project_id=self.project.id, key='budget').enabled)
 
     def test_project_owner_can_save(self):
         self.client.force_authenticate(self.owner)
@@ -123,7 +132,7 @@ class TaskConfigViewTest(TestCase):
         response = self.client.put(self.url, {'task_types': [{'key': 'budget', 'enabled': False}]}, format='json')
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertTrue(TaskTypeConfig.objects.filter(project_id=self.project.id, key='budget').exists())
+        self.assertFalse(TaskTypeConfig.objects.get(project_id=self.project.id, key='budget').enabled)
 
     def test_non_member_is_forbidden(self):
         self.client.force_authenticate(make_user('outsider@example.com', self.org))
@@ -139,7 +148,7 @@ class TaskConfigViewTest(TestCase):
         self.client.put(self.url, {'task_types': [{'key': 'budget', 'label': 'Spend Request'}]}, format='json')
 
         other = self.client.get(config_url(other_project)).data['task_types']
-        self.assertIsNone(next(t for t in other if t['key'] == 'budget')['label'])
+        self.assertEqual(next(t for t in other if t['key'] == 'budget')['label'], 'Budget')
         mine = self.client.get(self.url).data['task_types']
         self.assertEqual(next(t for t in mine if t['key'] == 'budget')['label'], 'Spend Request')
 
@@ -164,11 +173,9 @@ class TaskTypesEndpointTest(TestCase):
         )
 
     def test_applies_org_config(self):
-        TaskTypeConfig.objects.create(organization=self.org, project=self.project, key='budget', enabled=False)
-        TaskTypeConfig.objects.create(
-            organization=self.org, project=self.project, key='report', label='Weekly Report', order=0
-        )
-        TaskTypeConfig.objects.create(organization=self.org, project=self.project, key='asset', order=50)
+        set_config(TaskTypeConfig, self.project, 'budget', enabled=False)
+        set_config(TaskTypeConfig, self.project, 'report', label='Weekly Report', order=0)
+        set_config(TaskTypeConfig, self.project, 'asset', order=50)
 
         task_types = self.client.get(TASK_TYPES_URL).data['task_types']
         values = [t['value'] for t in task_types]
@@ -179,7 +186,7 @@ class TaskTypesEndpointTest(TestCase):
 
     def test_other_project_config_is_ignored(self):
         other_project = make_project('Other Types Project', self.org, self.user)
-        TaskTypeConfig.objects.create(organization=self.org, project=other_project, key='budget', enabled=False)
+        set_config(TaskTypeConfig, other_project, 'budget', enabled=False)
 
         values = [t['value'] for t in self.client.get(TASK_TYPES_URL).data['task_types']]
 
@@ -193,7 +200,7 @@ class DisabledTaskTypeTest(TestCase):
         self.project = make_project('Enforce Project', self.org, self.user)
         self.user.active_project = self.project
         self.user.save(update_fields=['active_project'])
-        TaskTypeConfig.objects.create(organization=self.org, project=self.project, key='budget', enabled=False)
+        set_config(TaskTypeConfig, self.project, 'budget', enabled=False)
         self.client = APIClient()
         self.client.force_authenticate(self.user)
 
@@ -258,8 +265,33 @@ class DashboardStatusCategoryTest(TestCase):
         self.assertEqual(self._breakdown(), {'RESEARCH': 1})
 
     def test_uses_configured_category(self):
-        TaskStatusConfig.objects.create(
-            organization=self.org, project=self.project, key=Task.Status.REJECTED, category='DONE'
-        )
+        set_config(TaskStatusConfig, self.project, Task.Status.REJECTED, category='DONE')
 
         self.assertEqual(self._breakdown(), {'DONE': 1})
+
+
+class SeedTaskConfigTest(TestCase):
+    def setUp(self):
+        self.org = Organization.objects.create(name='Seed Org')
+        self.owner = make_user('seed@example.com', self.org)
+        self.project = make_project('Seed Project', self.org, self.owner)
+
+    def test_project_without_organization_gets_no_rows(self):
+        project = Project.objects.create(name='Orphan Project', owner=self.owner)
+
+        self.assertFalse(TaskTypeConfig.objects.filter(project_id=project.id).exists())
+
+    def test_backfill_creates_missing_rows_and_keeps_existing(self):
+        TaskTypeConfig.objects.filter(project_id=self.project.id).exclude(key='budget').delete()
+        TaskStatusConfig.objects.filter(project_id=self.project.id).delete()
+        set_config(TaskTypeConfig, self.project, 'budget', label='Spend', enabled=False)
+
+        call_command('backfill_task_config', stdout=StringIO())
+
+        rows = TaskTypeConfig.objects.filter(project_id=self.project.id)
+        self.assertEqual(rows.count(), len(Task._meta.get_field('type').choices))
+        self.assertEqual((rows.get(key='budget').label, rows.get(key='budget').enabled), ('Spend', False))
+        self.assertEqual(rows.get(key='asset').label, 'Asset')
+        self.assertEqual(
+            TaskStatusConfig.objects.filter(project_id=self.project.id).count(), len(Task.Status.choices)
+        )

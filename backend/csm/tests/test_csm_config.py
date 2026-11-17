@@ -103,7 +103,7 @@ def test_system_config_rejects_invalid_options_without_saving_task(api_client, u
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert response.data['non_field_errors']
     assert not OptionConfig.objects.exists()
-    assert not TaskTypeConfig.objects.exists()
+    assert TaskTypeConfig.objects.get(project_id=project.id, key='budget').label == 'Budget'
 
 
 def test_member_cannot_put(api_client, user2, project):

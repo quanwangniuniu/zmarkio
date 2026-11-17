@@ -113,6 +113,23 @@ def get_task_config(project):
     }
 
 
+def seed_task_config(project):
+    if project.organization_id is None:
+        return
+    scope = {'organization_id': project.organization_id, 'project_id': project.id}
+    TaskTypeConfig.objects.bulk_create([
+        TaskTypeConfig(**scope, key=key, label=label, order=index)
+        for index, (key, label) in enumerate(Task._meta.get_field('type').choices)
+    ], ignore_conflicts=True)
+    TaskStatusConfig.objects.bulk_create([
+        TaskStatusConfig(**scope, key=key, label=label, category=DEFAULT_STATUS_CATEGORIES[key])
+        for key, label in Task.Status.choices
+    ], ignore_conflicts=True)
+    TaskPriorityConfig.objects.bulk_create([
+        TaskPriorityConfig(**scope, key=key, label=label) for key, label in Task.Priority.choices
+    ], ignore_conflicts=True)
+
+
 def get_task_status_categories(project):
     rows = _rows_by_key(TaskStatusConfig, project)
     return {
