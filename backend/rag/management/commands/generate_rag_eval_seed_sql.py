@@ -1,8 +1,8 @@
 """
-Management command: generate_med264_seed_sql (MED-264 Phase 2b seed generator).
+Management command: generate_rag_eval_seed_sql.
 
-Generates the committed MED-264 eval-fixture seed SQL
-(rag/eval_seed/med264_seed.sql) directly from the JSON fixture
+Generates the committed eval-fixture seed SQL
+(rag/eval_seed/rag_eval_seed.sql) directly from the JSON fixture
 (rag/tests/fixtures/project_rag_eval_dataset.json), so the fixture stays the
 single source of truth and the SQL is a derived, regeneratable artifact.
 
@@ -82,7 +82,7 @@ from retrospective.models import RetrospectiveTask
 
 _COMMAND_DIR = Path(__file__).resolve().parent
 _RAG_APP_DIR = _COMMAND_DIR.parents[1]  # backend/rag
-DEFAULT_OUTPUT = _RAG_APP_DIR / 'eval_seed' / 'med264_seed.sql'
+DEFAULT_OUTPUT = _RAG_APP_DIR / 'eval_seed' / 'rag_eval_seed.sql'
 
 # Fixed: re-running the generator against an *unchanged* fixture must always
 # derive the same ids, so this must never change.
@@ -94,7 +94,7 @@ _UUID_NAMESPACE = uuid.UUID('7c9c2b0e-5f1a-4b1a-9b0e-6b5b7a4d2c1a')
 # `bigint` PKs with no positivity CHECK constraint. Real autoincrement
 # sequences only ever assign positive values, so any id in this range can
 # never collide with genuinely-inserted data -- collision is only possible
-# against another MED-264 seed row (handled by the DO-block check below).
+# against another seed row (handled by the DO-block check below).
 _INT_ID_BASE = -2_000_000_000
 _INT_ID_SPAN = 900_000_000
 
@@ -213,7 +213,7 @@ def _parse_captured_insert(sql: str) -> tuple[str, list[str], list[str]]:
 
 class Command(BaseCommand):
     help = (
-        "Generate the committed MED-264 eval-fixture seed SQL from the JSON fixture. "
+        "Generate the committed eval-fixture seed SQL from the JSON fixture. "
         "Discovers each table's real column shape via a rolled-back ORM dry-run, then "
         "renders a portable, collision-safe, idempotent SQL script. Use --check to "
         "verify the committed file is still in sync with the fixture without writing."
@@ -430,12 +430,12 @@ class Command(BaseCommand):
         header = (
             "-- MED-264 eval-fixture seed SQL -- GENERATED FILE, DO NOT HAND-EDIT.\n"
             f"-- Source of truth: {fixture_path.as_posix()} (dataset_version={data.get('dataset_version')!r}).\n"
-            "-- Regenerate with: python manage.py generate_med264_seed_sql\n"
-            "-- Verify in sync with: python manage.py generate_med264_seed_sql --check\n"
+            "-- Regenerate with: python manage.py generate_rag_eval_seed_sql\n"
+            "-- Verify in sync with: python manage.py generate_rag_eval_seed_sql --check\n"
             "--\n"
             "-- Usage (target_schema is REQUIRED, no default -- never relies on the\n"
             "-- caller's existing search_path, to avoid silently seeding the wrong tenant):\n"
-            "--   psql <connection args> -v target_schema=org_rag_eval_harness -f med264_seed.sql\n"
+            "--   psql <connection args> -v target_schema=org_rag_eval_harness -f rag_eval_seed.sql\n"
             "--\n"
             "-- Portable: project/user rows are resolved at execution time by stable natural\n"
             f"-- keys (organization name '{EVAL_ORG_NAME}' + project name '{EVAL_PROJECT_NAME}'; user\n"

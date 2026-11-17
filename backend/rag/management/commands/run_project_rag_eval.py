@@ -1,9 +1,9 @@
 """
-Management command: run_project_rag_eval (MED-264 Phase 2 eval harness).
+Management command: run_project_rag_eval.
 
 Seeds the Phase 1 synthetic fixture (rag/tests/fixtures/project_rag_eval_dataset.json)
 into real Meeting/Draft/RetrospectiveTask rows inside a dedicated eval tenant,
-runs the real indexing pipeline (real chunking + real Gemini embeddings) and
+runs the real indexing pipeline (real chunking + the configured embeddings) and
 the real rag.retrieval.retrieve_chunks() pgvector path, then scores
 evidence-aware retrieval quality separately per question type.
 
@@ -33,7 +33,7 @@ rag/tasks.py.
 RAG-enqueue suppression during seeding
 ----------------------------------------
 Creating/updating Meeting/MeetingDocument/Draft/ContentBlock/DraftProjectLink/
-RetrospectiveTask rows fires the MED-264 post_save signals (meetings/signals.py,
+RetrospectiveTask rows fires the post_save signals (meetings/signals.py,
 notion_editor/signals.py, retrospective/signals.py), which all funnel into
 `rag.tasks.index_document_task.delay(...)` via a transaction.on_commit closure.
 Left alone, seeding would race real synchronous `index_source_document()` calls
@@ -110,7 +110,7 @@ def _load_fixture(path: Path) -> dict:
 def _validate_fixture_shape(data: dict, path: Path) -> None:
     """Validate source/question counts against this fixture's own declared
     shape (`expected_source_counts` / `expected_question_counts`) if it
-    declares one, else against the canonical MED-264 Phase-1 dataset shape
+    declares one, else against the canonical Phase-1 dataset shape
     (EXPECTED_SOURCE_COUNTS / EXPECTED_QUESTION_COUNTS). This is purely
     additive: the canonical fixture has never declared those keys, so its
     validation behavior is byte-for-byte unchanged. A variant fixture (e.g.
@@ -624,7 +624,7 @@ def _get_or_create_eval_project(org: Organization, user) -> Project:
 class Command(BaseCommand):
     help = (
         "Seed the MED-264 RAG eval fixture into a dedicated eval tenant, run the "
-        "real indexing + retrieval pipeline (real Gemini embeddings, real pgvector), "
+        "real indexing + retrieval pipeline (the configured embedding provider, real pgvector), "
         "and report evidence-aware retrieval metrics by question type."
     )
 
@@ -635,21 +635,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         provider = settings.RAG_EMBEDDING_PROVIDER
-        if provider == 'gemini':
-            embedding_model = settings.RAG_EMBEDDING_MODEL
-        elif provider == 'local':
-            embedding_model = settings.RAG_LOCAL_EMBEDDING_MODEL
+        if provider == 'ollama':
+            embedding_model = settings.RAG_OLLAMA_EMBEDDING_MODEL
         else:
             raise CommandError(
-                f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'gemini' or 'local'."
-            )
-
-        if provider == 'gemini' and not settings.GEMINI_API_KEY:
-            raise CommandError(
-                "GEMINI_API_KEY is not configured. This command makes real Gemini "
-                "embedding calls (document + query) and cannot run without it. "
-                "Set RAG_EMBEDDING_PROVIDER=local to use the temporary local "
-                "embedding provider instead (eval/local-dev only)."
+                f"Unknown RAG_EMBEDDING_PROVIDER {provider!r}; expected 'ollama'."
             )
 
         fixture_path: Path = options['fixture']

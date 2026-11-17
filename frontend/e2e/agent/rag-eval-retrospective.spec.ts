@@ -2,13 +2,13 @@ import { test, expect } from '@playwright/test';
 import { waitForLayoutMain } from '../navigation/navigation-helpers';
 
 /**
- * MED-264 acceptance test: "ask about my retrospective".
+ * Acceptance test: "ask about my retrospective".
  *
  * Exercises the real Agent UI -> real HTTP/SSE chat endpoint -> real tenant
  * context -> real RAG retrieval -> real persisted citations, against the
- * MED-264 RAG Eval Fixture project seeded by generate_med264_seed_sql.py /
+ * RAG Eval Fixture project seeded by generate_rag_eval_seed_sql.py /
  * run_project_rag_eval.py. Auth is the dedicated E2E user provisioned by
- * `python manage.py ensure_med264_e2e_user` (see that command's docstring),
+ * `python manage.py ensure_rag_eval_e2e_user` (see that command's docstring),
  * never a real developer's account -- reused via the existing real-login
  * `chromium` Playwright project (storageState: e2e/.auth/user.json, produced
  * by the existing e2e/auth.setup.ts, unmodified here).
@@ -24,7 +24,7 @@ import { waitForLayoutMain } from '../navigation/navigation-helpers';
  * latency in exchange for exercising the real path end to end.
  *
  * Reruns against the same persisted E2E session may already contain earlier
- * MED-264 citation messages from a prior run, so `.last()` (not `.first()`)
+ * citation messages from a prior run, so `.last()` (not `.first()`)
  * on the citations-block locator is used throughout, gated by a count
  * increase after sending -- never assert against a stale block from an
  * earlier run.
@@ -190,7 +190,7 @@ test('ask about my retrospective — grounded answer with persisted Retrospectiv
   await expect(retrospectiveBadgeAfterReload).toBeVisible();
   await expect(citationsBlockAfterReload).toContainText(NOV_20_EVIDENCE_RE);
 
-  // Weak, secondary signal only (per MED-264 decision: exact LLM wording is
+  // Weak, secondary signal only (exact LLM wording is
   // not the acceptance criterion) -- not asserted as a hard failure if the
   // model phrases the date differently, but recorded here for visibility.
   const answerMentionsNov20 = NOV_20_EVIDENCE_RE.test(textAfterCitations);

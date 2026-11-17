@@ -83,6 +83,46 @@ export const SpreadsheetAPI = {
     return response.data as Blob;
   },
 
+  saveExcelImportSource: async (
+    spreadsheetId: number | string,
+    sheetId: number | string,
+    file: File,
+    worksheetName: string,
+  ): Promise<{ id: number; origin: 'EXCEL'; worksheet_name: string }> => {
+    const body = new FormData();
+    body.append('origin', 'EXCEL');
+    body.append('worksheet_name', worksheetName);
+    body.append('file', file);
+    const response = await api.post(
+      `/api/spreadsheet/spreadsheets/${spreadsheetId}/sheets/${sheetId}/import-source/`,
+      body,
+    );
+    return response.data;
+  },
+  
+  saveGoogleImportSource: async (
+    spreadsheetId: number | string,
+    sheetId: number | string,
+    source: {
+      google_spreadsheet_id: string;
+      google_sheet_id: number;
+      worksheet_name: string;
+      source_url?: string;
+    },
+  ): Promise<{ id: number; origin: 'GOOGLE'; worksheet_name: string }> => {
+    const response = await api.post(
+      `/api/spreadsheet/spreadsheets/${spreadsheetId}/sheets/${sheetId}/import-source/`,
+      {
+        origin: 'GOOGLE',
+        google_spreadsheet_id: source.google_spreadsheet_id,
+        google_sheet_id: source.google_sheet_id,
+        worksheet_name: source.worksheet_name,
+        source_url: source.source_url ?? '',
+      },
+    );
+    return response.data;
+  },
+  
   createWebSocketTicket: async (
     sheetId: number | string,
     clientId: string

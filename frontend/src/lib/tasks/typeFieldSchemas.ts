@@ -17,6 +17,7 @@
  */
 
 import { getTaskTypeLabel } from '@/lib/tasks/taskTypes';
+import type { TaskFieldOptionConfig } from '@/types/orgCustomization';
 
 export type FieldKind =
   | 'text'
@@ -1184,6 +1185,57 @@ export const TYPE_SCHEMAS: Record<string, TypeSchema> = {
   [COMMUNICATION.type]: COMMUNICATION,
   [PLATFORM_POLICY_UPDATE.type]: PLATFORM_POLICY_UPDATE,
 };
+
+const schemaSelectFields = (schema: TypeSchema): FieldDef[] =>
+  [...schema.fields, ...(schema.editFields ?? [])].filter((field) => field.options);
+
+const DEFAULT_FIELD_OPTIONS = new Map<FieldDef, FieldOption[]>(
+  Object.values(TYPE_SCHEMAS).flatMap((schema) =>
+    schemaSelectFields(schema).map((field) => [field, field.options ?? []] as [FieldDef, FieldOption[]]),
+  ),
+);
+
+export interface DefaultFieldOptions {
+  taskType: string;
+  field: string;
+  fieldLabel: string;
+  options: FieldOption[];
+}
+
+export function getDefaultFieldOptions(): DefaultFieldOptions[] {
+  const seen = new Set<string>();
+  return Object.values(TYPE_SCHEMAS).flatMap((schema) =>
+    schemaSelectFields(schema).flatMap((field) => {
+      const id = `${schema.type}.${field.key}`;
+      if (seen.has(id)) return [];
+      seen.add(id);
+      return [{
+        taskType: schema.type,
+        field: field.key,
+        fieldLabel: field.label,
+        options: DEFAULT_FIELD_OPTIONS.get(field) ?? [],
+      }];
+    }),
+  );
+}
+
+export function applyTaskFieldOptionConfig(rows: TaskFieldOptionConfig[]): void {
+  Object.values(TYPE_SCHEMAS).forEach((schema) => {
+    schemaSelectFields(schema).forEach((field) => {
+      const defaults = DEFAULT_FIELD_OPTIONS.get(field) ?? [];
+      const byValue = new Map(
+        rows
+          .filter((row) => row.task_type === schema.type && row.field === field.key)
+          .map((row) => [row.value, row]),
+      );
+      const orderOf = (option: FieldOption) => byValue.get(option.value)?.order ?? defaults.indexOf(option);
+      field.options = defaults
+        .filter((option) => byValue.get(option.value)?.enabled !== false)
+        .sort((a, b) => orderOf(a) - orderOf(b))
+        .map((option) => ({ ...option, label: byValue.get(option.value)?.label || option.label }));
+    });
+  });
+}
 
 export function getTypeSchema(type: string | null | undefined): TypeSchema | null {
   if (!type) return null;

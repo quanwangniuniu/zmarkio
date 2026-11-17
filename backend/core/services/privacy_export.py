@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import logging
 import os
 import secrets
 import tempfile
@@ -14,11 +15,16 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
 from django.core.files import File
-from django.db import models
+from django.db import connection, models, transaction
 from django.urls import reverse
 from django.utils import timezone
+from psycopg2 import sql
 
-from core.models import DataExportRequest
+from core.models import DataExportRequest, Organization, Project
+from core.services.tenant import slug_to_schema_name
+from meta_ads.models import MetaAdCreative
+
+logger = logging.getLogger(__name__)
 
 EXPORT_DOWNLOAD_TTL = timedelta(hours=24)
 EXPORT_SIGNING_SALT = "core.privacy-export-download"
@@ -26,7 +32,6 @@ EXPORT_ROW_LIMIT = 10000
 PERSONAL_DATA_EXPORT_MODEL_ALLOWLIST = {
     "access_control.moduleapprover",
     "access_control.userrole",
-    "ad_copy_variation.adcopyvariation",
     "agent.agentworkflowdefinition",
     "agent.agentworkflowtemplate",
     "agent.dataschematemplate",
@@ -185,6 +190,10 @@ def _csv_value(value):
 
 
 def _field_value(instance, field, subject_user=None):
+    if field.related_model is Project and not field.db_constraint:
+        # A project ID alone cannot identify its tenant schema.
+        return {"id": getattr(instance, field.attname), "display": None}
+
     value = getattr(instance, field.name)
     if isinstance(field, models.FileField):
         if not value:
@@ -289,8 +298,102 @@ def _query_user_related_rows(user):
     return sections
 
 
+def _query_variation_rows(user):
+    table_name = "ad_copy_variation_adcopyvariation"
+    # Fully qualified tables select sources without changing the worker's search_path.
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute(
+            sql.SQL("SELECT slug FROM {}").format(
+                sql.Identifier("public", Organization._meta.db_table)
+            )
+        )
+        # Match PostgreSQL's 63-byte truncation and the Studio runner; names are ASCII.
+        candidates = ["public", *(slug_to_schema_name(slug)[:63] for (slug,) in cursor.fetchall())]
+        # information_schema filters by privileges and could hide real permission faults.
+        cursor.execute(
+            """
+            SELECT n.nspname
+            FROM pg_catalog.pg_namespace AS n
+            JOIN pg_catalog.pg_class AS c ON c.relnamespace = n.oid
+            WHERE n.nspname = ANY(%s::text[]) AND c.relname = %s
+            """,
+            [candidates, table_name],
+        )
+        schemas = [row[0] for row in cursor.fetchall()]
+        if not schemas:
+            return None
+
+        source_query = sql.SQL("""
+            SELECT v.id, v.slug, v.created_at, v.updated_at, v.is_deleted,
+                   v.project_id, v.creative_id, v.source_mode, v.source_ref,
+                   v.hook, v.headline, v.description, v.cta, v.instruction,
+                   v.model_name, v.prompt_version, v.batch_id, v.batch_position,
+                   v.status, v.created_by_id, p.name AS project_display,
+                   c.meta_creative_id AS creative_ref, c.name AS creative_name,
+                   %s::text AS source_schema
+            FROM {} AS v
+            LEFT JOIN {} AS p ON p.id = v.project_id
+            LEFT JOIN {} AS c ON c.id = v.creative_id
+            WHERE v.created_by_id = %s
+        """)
+        queries = []
+        parameters = []
+        for schema in schemas:
+            queries.append(source_query.format(
+                sql.Identifier(schema, table_name),
+                sql.Identifier(schema, Project._meta.db_table),
+                sql.Identifier("public", MetaAdCreative._meta.db_table),
+            ))
+            parameters.extend([schema, user.id])
+        # Count all matching rows before the global limit.
+        # COLLATE "C" sorts schema names byte-wise, independent of the database locale.
+        cursor.execute(
+            sql.SQL("""
+                SELECT *, COUNT(*) OVER () AS total_count
+                FROM ({}) AS variations
+                ORDER BY created_at DESC, source_schema COLLATE "C", id
+                LIMIT %s
+            """).format(sql.SQL(" UNION ALL ").join(queries)),
+            [*parameters, EXPORT_ROW_LIMIT],
+        )
+        columns = [column[0] for column in cursor.description]
+        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    if not rows:
+        return None
+    total_count = rows[0]["total_count"]
+    for row in rows:
+        row.pop("total_count")
+        row["project"] = {"id": row.pop("project_id"), "display": row.pop("project_display")}
+        creative_id = row.pop("creative_id")
+        creative_ref = row.pop("creative_ref")
+        creative_name = row.pop("creative_name")
+        creative_display = None
+        if creative_id is not None:
+            # Only populate the two fields __str__ reads; no save or extra query.
+            creative_display = str(MetaAdCreative(meta_creative_id=creative_ref, name=creative_name))
+        row["creative"] = {"id": creative_id, "display": creative_display}
+        row["created_by"] = {"id": row.pop("created_by_id"), "email": user.email, "is_subject": True}
+    return {
+        "rows": rows,
+        "count": len(rows),
+        "total_count": total_count,
+        "truncated": total_count > EXPORT_ROW_LIMIT,
+        "row_limit": EXPORT_ROW_LIMIT,
+    }
+
+
 def build_personal_data_payload(user):
     sections = _query_user_related_rows(user)
+    try:
+        variation_section = _query_variation_rows(user)
+    except Exception:
+        # Catch after the collector's atomic block has restored a usable connection.
+        # Sources span every organization; keep schema details out of this user's export.
+        logger.exception("Variation export failed for user %s", user.id)
+        variation_section = {"error": "Variation export failed", "rows": []}
+    if variation_section is not None:
+        sections["ad_copy_variation.adcopyvariation"] = variation_section
     generated_at = timezone.now()
 
     return {

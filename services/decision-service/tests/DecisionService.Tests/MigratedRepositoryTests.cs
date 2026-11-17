@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using DecisionService.Decisions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
@@ -100,10 +101,10 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     }
 
     [Fact]
-    public void Create_saves_options_signals_parent_edge_and_origin_meeting()
+    public async Task Create_saves_options_signals_parent_edge_and_origin_meeting()
     {
-        var parent = repository.Create(ProjectId, UserId, Draft("Parent"));
-        var created = repository.Create(ProjectId, UserId, Draft("Child", [parent.Id], MeetingId));
+        var parent = await repository.CreateAsync(ProjectId, UserId, Draft("Parent"), CancellationToken.None);
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [parent.Id], MeetingId), CancellationToken.None);
 
         Assert.Equal("Child", created.Title);
         Assert.Equal(DecisionStatus.DRAFT, created.Status);
@@ -113,33 +114,33 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     }
 
     [Fact]
-    public void Get_finds_by_id_and_slug()
+    public async Task Get_finds_by_id_and_slug()
     {
-        var created = repository.Create(ProjectId, UserId, Draft("Lookup"));
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Lookup"), CancellationToken.None);
 
-        Assert.Equal(created.Id, repository.Get(created.Id.ToString())?.Id);
-        Assert.Equal(created.Id, repository.Get(created.Slug)?.Id);
-        Assert.Null(repository.Get("missing-slug"));
+        Assert.Equal(created.Id, (await repository.GetAsync(created.Id.ToString(), CancellationToken.None))?.Id);
+        Assert.Equal(created.Id, (await repository.GetAsync(created.Slug, CancellationToken.None))?.Id);
+        Assert.Null(await repository.GetAsync("missing-slug", CancellationToken.None));
     }
 
     [Fact]
-    public void List_filters_by_project_and_status()
+    public async Task List_filters_by_project_and_status()
     {
-        var created = repository.Create(OtherProjectId, UserId, Draft("Listed"));
+        var created = await repository.CreateAsync(OtherProjectId, UserId, Draft("Listed"), CancellationToken.None);
 
-        Assert.Contains(repository.List(OtherProjectId, DecisionStatus.DRAFT, 100, 0).Items, item => item.Id == created.Id);
-        Assert.DoesNotContain(repository.List(OtherProjectId, DecisionStatus.COMMITTED, 100, 0).Items, item => item.Id == created.Id);
-        Assert.DoesNotContain(repository.List(ProjectId, null, 100, 0).Items, item => item.Id == created.Id);
+        Assert.Contains((await repository.ListAsync(OtherProjectId, DecisionStatus.DRAFT, 100, 0, CancellationToken.None)).Items, item => item.Id == created.Id);
+        Assert.DoesNotContain((await repository.ListAsync(OtherProjectId, DecisionStatus.COMMITTED, 100, 0, CancellationToken.None)).Items, item => item.Id == created.Id);
+        Assert.DoesNotContain((await repository.ListAsync(ProjectId, null, 100, 0, CancellationToken.None)).Items, item => item.Id == created.Id);
     }
 
     [Fact]
-    public void UpdateDraft_changes_fields_and_replaces_options()
+    public async Task UpdateDraft_changes_fields_and_replaces_options()
     {
-        var created = repository.Create(ProjectId, UserId, Draft("Before"));
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Before"), CancellationToken.None);
 
-        var updated = repository.UpdateDraft(created.Slug, UserId, new UpdateDecisionDraftRequest(
+        var updated = await repository.UpdateDraftAsync(created.Slug, UserId, new UpdateDecisionDraftRequest(
             "After", null, DecisionRiskLevel.HIGH, null, null, null, true, null,
-            null, [new DecisionOptionInput("Hold", false, 0)], null));
+            null, [new DecisionOptionInput("Hold", false, 0)], null), CancellationToken.None);
 
         Assert.NotNull(updated);
         Assert.Equal("After", updated.Title);
@@ -151,10 +152,10 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     [Fact]
     public async Task Transition_commits_and_records_history()
     {
-        var created = repository.Create(ProjectId, UserId, Draft("Commit me"));
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Commit me"), CancellationToken.None);
 
-        Assert.Null(repository.Transition(created.Slug, UserId, DecisionStatus.REVIEWED));
-        var committed = repository.Transition(created.Slug, UserId, DecisionStatus.COMMITTED);
+        Assert.Null(await repository.TransitionAsync(created.Slug, UserId, DecisionStatus.REVIEWED, CancellationToken.None));
+        var committed = await repository.TransitionAsync(created.Slug, UserId, DecisionStatus.COMMITTED, CancellationToken.None);
 
         Assert.Equal(DecisionStatus.COMMITTED, committed?.Status);
         Assert.NotNull(committed?.CommittedAt);
@@ -162,30 +163,30 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     }
 
     [Fact]
-    public void Delete_soft_deletes_once()
+    public async Task Delete_soft_deletes_once()
     {
-        var created = repository.Create(ProjectId, UserId, Draft("Delete me"));
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Delete me"), CancellationToken.None);
 
-        Assert.True(repository.Delete(created.Slug, UserId));
-        Assert.Null(repository.Get(created.Slug));
-        Assert.False(repository.Delete(created.Slug, UserId));
+        Assert.True(await repository.DeleteAsync(created.Slug, UserId, CancellationToken.None));
+        Assert.Null(await repository.GetAsync(created.Slug, CancellationToken.None));
+        Assert.False(await repository.DeleteAsync(created.Slug, UserId, CancellationToken.None));
     }
 
     [Fact]
-    public void ListSignals_returns_saved_signals()
+    public async Task ListSignals_returns_saved_signals()
     {
-        var created = repository.Create(ProjectId, UserId, Draft("Signals"));
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Signals"), CancellationToken.None);
 
-        Assert.Equal("CTR DOWN LAST_7_DAYS", Assert.Single(repository.ListSignals(created.Slug).Items).DisplayText);
-        Assert.Empty(repository.ListSignals("missing-slug").Items);
+        Assert.Equal("CTR DOWN LAST_7_DAYS", Assert.Single((await repository.ListSignalsAsync(created.Slug, CancellationToken.None)).Items).DisplayText);
+        Assert.Empty((await repository.ListSignalsAsync("missing-slug", CancellationToken.None)).Items);
     }
 
     [Fact]
-    public void CreateSignal_writes_author_and_display_text()
+    public async Task CreateSignal_writes_author_and_display_text()
     {
-        var created = repository.Create(ProjectId, UserId, Draft("New signal"));
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("New signal"), CancellationToken.None);
 
-        var signal = repository.CreateSignal(created.Slug, UserId, Signal("ROAS"));
+        var signal = await repository.CreateSignalAsync(created.Slug, UserId, Signal("ROAS"), CancellationToken.None);
 
         Assert.NotNull(signal);
         Assert.Equal(UserId, signal.CreatedBy);
@@ -193,63 +194,63 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     }
 
     [Fact]
-    public void UpdateSignal_changes_existing_signal_only()
+    public async Task UpdateSignal_changes_existing_signal_only()
     {
-        var created = repository.Create(ProjectId, UserId, Draft("Edit signal"));
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Edit signal"), CancellationToken.None);
         var signalId = created.Signals[0].Id;
 
-        var updated = repository.UpdateSignal(created.Slug, signalId, Signal("CPA"));
+        var updated = await repository.UpdateSignalAsync(created.Slug, signalId, Signal("CPA"), CancellationToken.None);
 
         Assert.Equal("CPA DOWN LAST_7_DAYS", updated?.DisplayText);
-        Assert.Null(repository.UpdateSignal(created.Slug, int.MaxValue, Signal("CPA")));
+        Assert.Null(await repository.UpdateSignalAsync(created.Slug, int.MaxValue, Signal("CPA"), CancellationToken.None));
     }
 
     [Fact]
-    public void DeleteSignal_removes_signal_once()
+    public async Task DeleteSignal_removes_signal_once()
     {
-        var created = repository.Create(ProjectId, UserId, Draft("Drop signal"));
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Drop signal"), CancellationToken.None);
         var signalId = created.Signals[0].Id;
 
-        Assert.True(repository.DeleteSignal(created.Slug, signalId));
-        Assert.Empty(repository.ListSignals(created.Slug).Items);
-        Assert.False(repository.DeleteSignal(created.Slug, signalId));
+        Assert.True(await repository.DeleteSignalAsync(created.Slug, signalId, CancellationToken.None));
+        Assert.Empty((await repository.ListSignalsAsync(created.Slug, CancellationToken.None)).Items);
+        Assert.False(await repository.DeleteSignalAsync(created.Slug, signalId, CancellationToken.None));
     }
 
     [Fact]
-    public void GetConnections_includes_parent_edge()
+    public async Task GetConnections_includes_parent_edge()
     {
-        var parent = repository.Create(ProjectId, UserId, Draft("Parent"));
-        var child = repository.Create(ProjectId, UserId, Draft("Child", [parent.Id]));
+        var parent = await repository.CreateAsync(ProjectId, UserId, Draft("Parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [parent.Id]), CancellationToken.None);
 
-        var connections = repository.GetConnections(child.Slug);
+        var connections = await repository.GetConnectionsAsync(child.Slug, CancellationToken.None);
 
         Assert.NotNull(connections);
         Assert.Equal(parent.Id, Assert.Single(connections.Connected).Id);
     }
 
     [Fact]
-    public void UpdateConnections_upserts_on_existing_edge_and_replaces_related()
+    public async Task UpdateConnections_upserts_on_existing_edge_and_replaces_related()
     {
-        var parent = repository.Create(ProjectId, UserId, Draft("Parent"));
-        var child = repository.Create(ProjectId, UserId, Draft("Child", [parent.Id]));
-        var other = repository.Create(ProjectId, UserId, Draft("Other"));
+        var parent = await repository.CreateAsync(ProjectId, UserId, Draft("Parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [parent.Id]), CancellationToken.None);
+        var other = await repository.CreateAsync(ProjectId, UserId, Draft("Other"), CancellationToken.None);
 
-        var linked = repository.UpdateConnections(child.Slug, UserId, new DecisionConnectionsUpdateRequest([parent.Id], null));
-        var relinked = repository.UpdateConnections(child.Slug, UserId, new DecisionConnectionsUpdateRequest([other.Id], null));
+        var linked = await repository.UpdateConnectionsAsync(child.Slug, UserId, new DecisionConnectionsUpdateRequest([parent.Id], null), CancellationToken.None);
+        var relinked = await repository.UpdateConnectionsAsync(child.Slug, UserId, new DecisionConnectionsUpdateRequest([other.Id], null), CancellationToken.None);
 
         Assert.Equal(parent.Id, Assert.Single(linked!.Connected).Id);
         Assert.Equal(other.Id, Assert.Single(relinked!.Connected).Id);
     }
 
     [Fact]
-    public void GetGraph_returns_nodes_edges_and_topics_across_member_projects()
+    public async Task GetGraph_returns_nodes_edges_and_topics_across_member_projects()
     {
-        var parent = repository.Create(ProjectId, UserId, Draft("Parent"));
-        var child = repository.Create(ProjectId, UserId, Draft("Child", [parent.Id]));
-        var elsewhere = repository.Create(OtherProjectId, UserId, Draft("Elsewhere"));
+        var parent = await repository.CreateAsync(ProjectId, UserId, Draft("Parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [parent.Id]), CancellationToken.None);
+        var elsewhere = await repository.CreateAsync(OtherProjectId, UserId, Draft("Elsewhere"), CancellationToken.None);
 
-        var project = repository.GetGraph(ProjectId, false, UserId, false);
-        var all = repository.GetGraph(ProjectId, true, UserId, false);
+        var project = await repository.GetGraphAsync(ProjectId, false, UserId, false, CancellationToken.None);
+        var all = await repository.GetGraphAsync(ProjectId, true, UserId, false, CancellationToken.None);
 
         Assert.Contains(project.Edges, edge => edge.From == parent.Id && edge.To == child.Id);
         Assert.DoesNotContain(project.Nodes, node => node.Id == elsewhere.Id);
@@ -258,47 +259,67 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     }
 
     [Fact]
-    public void UpsertTopicLabel_inserts_then_updates()
+    public async Task UpsertTopicLabel_inserts_then_updates()
     {
-        repository.UpsertTopicLabel(ProjectId, "Brand", "Brand");
+        await repository.UpsertTopicLabelAsync(ProjectId, "Brand", "Brand", CancellationToken.None);
 
-        var label = repository.UpsertTopicLabel(ProjectId, "brand", "Brand health");
+        var label = await repository.UpsertTopicLabelAsync(ProjectId, "brand", "Brand health", CancellationToken.None);
 
         Assert.Equal("brand", label?.Topic);
         Assert.Equal("Brand health", label?.Title);
     }
 
     [Fact]
-    public void DeleteTopicLabel_refuses_used_topics()
+    public async Task DeleteTopicLabel_refuses_used_topics()
     {
-        repository.Create(ProjectId, UserId, Draft("Uses pricing"));
-        repository.UpsertTopicLabel(ProjectId, "unused", "Unused");
+        await repository.CreateAsync(ProjectId, UserId, Draft("Uses pricing"), CancellationToken.None);
+        await repository.UpsertTopicLabelAsync(ProjectId, "unused", "Unused", CancellationToken.None);
 
-        Assert.Equal(TopicLabelDeleteResult.NotEmpty, repository.DeleteTopicLabel(ProjectId, "pricing"));
-        Assert.Equal(TopicLabelDeleteResult.Deleted, repository.DeleteTopicLabel(ProjectId, "unused"));
-        Assert.Equal(TopicLabelDeleteResult.NotFound, repository.DeleteTopicLabel(ProjectId, "unused"));
+        Assert.Equal(TopicLabelDeleteResult.NotEmpty, await repository.DeleteTopicLabelAsync(ProjectId, "pricing", CancellationToken.None));
+        Assert.Equal(TopicLabelDeleteResult.Deleted, await repository.DeleteTopicLabelAsync(ProjectId, "unused", CancellationToken.None));
+        Assert.Equal(TopicLabelDeleteResult.NotFound, await repository.DeleteTopicLabelAsync(ProjectId, "unused", CancellationToken.None));
     }
 
     [Fact]
-    public void ListReviews_returns_empty_for_new_decision_and_null_when_missing()
+    public async Task ListReviews_returns_empty_for_new_decision_and_null_when_missing()
     {
-        var created = repository.Create(ProjectId, UserId, Draft("No reviews"));
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("No reviews"), CancellationToken.None);
 
-        Assert.Empty(repository.ListReviews(created.Slug)!);
-        Assert.Null(repository.ListReviews("missing-slug"));
+        Assert.Empty((await repository.ListReviewsAsync(created.Slug, CancellationToken.None))!);
+        Assert.Null(await repository.ListReviewsAsync("missing-slug", CancellationToken.None));
     }
 
     [Fact]
-    public void CreateReview_marks_committed_decision_reviewed()
+    public async Task CreateReview_marks_committed_decision_reviewed()
     {
-        var created = repository.Create(ProjectId, UserId, Draft("Review me"));
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Review me"), CancellationToken.None);
 
-        Assert.Null(repository.CreateReview(created.Slug, UserId, Review()));
-        repository.Transition(created.Slug, UserId, DecisionStatus.COMMITTED);
-        var reviewed = repository.CreateReview(created.Slug, UserId, Review());
+        Assert.Null(await repository.CreateReviewAsync(created.Slug, UserId, Review(), CancellationToken.None));
+        await repository.TransitionAsync(created.Slug, UserId, DecisionStatus.COMMITTED, CancellationToken.None);
+        var reviewed = await repository.CreateReviewAsync(created.Slug, UserId, Review(), CancellationToken.None);
 
         Assert.Equal(DecisionStatus.REVIEWED, reviewed?.Status);
-        Assert.Equal("GOOD", Assert.Single(repository.ListReviews(created.Slug)!).DecisionQuality);
+        Assert.Equal("GOOD", Assert.Single((await repository.ListReviewsAsync(created.Slug, CancellationToken.None))!).DecisionQuality);
+    }
+
+    [Fact]
+    public async Task Cancelled_token_cancels_the_running_query()
+    {
+        await using var blocker = await database.DataSource.OpenConnectionAsync();
+        await using var lockTransaction = await blocker.BeginTransactionAsync();
+        await using (var lockTable = new NpgsqlCommand("LOCK TABLE decisions IN ACCESS EXCLUSIVE MODE", blocker, lockTransaction))
+        {
+            await lockTable.ExecuteNonQueryAsync();
+        }
+
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var stopwatch = Stopwatch.StartNew();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => repository.ListAsync(ProjectId, null, 10, 0, cancellation.Token));
+
+        Assert.InRange(stopwatch.Elapsed, TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(5));
+        Assert.Equal(0, await database.Count("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'"));
     }
 
     private static CreateDecisionDraftRequest Draft(string title, IReadOnlyList<int>? parents = null, int? meetingId = null) =>

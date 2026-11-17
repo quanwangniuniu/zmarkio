@@ -1,5 +1,5 @@
 """Tests for rag.extraction — source-document extraction correctness,
-exclusions, and deterministic ordering (MED-264).
+exclusions, and deterministic ordering.
 """
 import pytest
 from django.utils import timezone

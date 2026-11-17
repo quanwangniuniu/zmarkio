@@ -1,16 +1,15 @@
 """
-Focused tests for rag/management/commands/run_project_rag_eval.py additions
-(MED-264 Phase 2 local-provider unblock):
+Focused tests for rag/management/commands/run_project_rag_eval.py additions:
 
 - fixture-declared expected source/question counts (partial fixture support)
 - canonical fixture validation behavior is unchanged (no declared counts ->
   falls back to the hardcoded EXPECTED_SOURCE_COUNTS/EXPECTED_QUESTION_COUNTS)
-- GEMINI_API_KEY is required only when RAG_EMBEDDING_PROVIDER == 'gemini'
-- an unsupported provider value fails fast, before any DB/tenant work
+- the Ollama provider does not require GEMINI_API_KEY
+- 'gemini', 'local', and any other unsupported provider fail fast, before any DB/tenant work
 - partial_baseline metadata flows from the loaded fixture into the JSON
   report's run_metadata untouched
 
-None of these hit a real database, real Gemini, or real fastembed/ONNX:
+None of these hit a real database or real Ollama:
 the credential/provider-gate tests raise before any DB access is attempted
 (proven by asserting *which* CommandError fires), and the partial_baseline
 test mocks every seeding/tenant/retrieval call so only the command's own
@@ -103,34 +102,27 @@ def test_validate_fixture_shape_rejects_mismatch_against_canonical_fallback():
 
 
 # ---------------------------------------------------------------------------
-# GEMINI_API_KEY required only for provider == 'gemini'; unknown provider
-# fails fast. All of these raise before any DB/tenant access, so we prove
-# "which gate fired" by asserting on the CommandError's own message: a
-# fixture-not-found error can only happen after the credential gate passed.
+# Embedding provider gate. Ollama is the default and does not need a Gemini
+# key. An unknown provider, including the removed 'gemini' value, fails
+# before any DB/tenant access. A fixture-not-found error can only happen
+# after that gate has passed.
 # ---------------------------------------------------------------------------
 
-@override_settings(RAG_EMBEDDING_PROVIDER='gemini', GEMINI_API_KEY='')
-def test_gemini_provider_requires_api_key():
-    with pytest.raises(CommandError, match='GEMINI_API_KEY is not configured'):
+@override_settings(RAG_EMBEDDING_PROVIDER='ollama', GEMINI_API_KEY='')
+def test_ollama_provider_does_not_require_gemini_api_key():
+    with pytest.raises(CommandError, match='Fixture not found'):
         Command().handle(fixture=_NONEXISTENT_FIXTURE, output=None, top_k=10)
 
 
 @override_settings(RAG_EMBEDDING_PROVIDER='gemini', GEMINI_API_KEY='fake-key-for-test')
-def test_gemini_provider_with_api_key_passes_credential_gate():
-    """Proven by reaching _load_fixture's own "not found" error instead of
-    the GEMINI_API_KEY error -- i.e. the credential gate did not block it.
-    """
-    with pytest.raises(CommandError, match='Fixture not found'):
+def test_gemini_provider_is_rejected():
+    with pytest.raises(CommandError, match="Unknown RAG_EMBEDDING_PROVIDER 'gemini'"):
         Command().handle(fixture=_NONEXISTENT_FIXTURE, output=None, top_k=10)
 
 
 @override_settings(RAG_EMBEDDING_PROVIDER='local', GEMINI_API_KEY='')
-def test_local_provider_does_not_require_api_key():
-    """No GEMINI_API_KEY configured at all, provider is 'local' -- must not
-    raise the GEMINI_API_KEY error. Proven the same way: it gets past the
-    credential gate and fails on the (expected, harmless) missing fixture.
-    """
-    with pytest.raises(CommandError, match='Fixture not found'):
+def test_local_provider_is_rejected():
+    with pytest.raises(CommandError, match="Unknown RAG_EMBEDDING_PROVIDER 'local'"):
         Command().handle(fixture=_NONEXISTENT_FIXTURE, output=None, top_k=10)
 
 
@@ -213,7 +205,7 @@ def _stub_out_heavy_dependencies(monkeypatch, *, fixture_data: dict):
     return captured
 
 
-@override_settings(RAG_EMBEDDING_PROVIDER='local')
+@override_settings(RAG_EMBEDDING_PROVIDER='ollama', RAG_OLLAMA_EMBEDDING_MODEL='nomic-embed-text')
 def test_partial_baseline_metadata_is_retained_in_report(monkeypatch):
     fixture_data = {
         'dataset_version': '1.0.0-no-retro',
@@ -235,11 +227,14 @@ def test_partial_baseline_metadata_is_retained_in_report(monkeypatch):
 
     run_metadata = captured['report']['run_metadata']
     assert run_metadata['partial_baseline'] == fixture_data['partial_baseline']
-    assert run_metadata['embedding_provider'] == 'local'
-    assert run_metadata['embedding_model'] == 'BAAI/bge-base-en-v1.5'
+    assert run_metadata['embedding_provider'] == 'ollama'
+    assert run_metadata['embedding_model'] == 'nomic-embed-text'
 
 
-@override_settings(RAG_EMBEDDING_PROVIDER='gemini', GEMINI_API_KEY='fake-key-for-test')
+@override_settings(
+    RAG_EMBEDDING_PROVIDER='ollama',
+    RAG_OLLAMA_EMBEDDING_MODEL='nomic-embed-text',
+)
 def test_canonical_fixture_without_partial_baseline_omits_the_key(monkeypatch):
     fixture_data = {
         'dataset_version': '1.0.0',
@@ -257,5 +252,5 @@ def test_canonical_fixture_without_partial_baseline_omits_the_key(monkeypatch):
 
     run_metadata = captured['report']['run_metadata']
     assert 'partial_baseline' not in run_metadata
-    assert run_metadata['embedding_provider'] == 'gemini'
-    assert run_metadata['embedding_model'] == 'gemini-embedding-2'
+    assert run_metadata['embedding_provider'] == 'ollama'
+    assert run_metadata['embedding_model'] == 'nomic-embed-text'
