@@ -7,6 +7,7 @@ type EmptyStateProps = {
   description?: string;
   actionLabel?: string;
   onAction?: () => void;
+  actionIcon?: ReactNode;
   className?: string;
 };
 
@@ -17,6 +18,7 @@ export default function EmptyState({
   description,
   actionLabel,
   onAction,
+  actionIcon,
   className = '', }: EmptyStateProps) {
   return (
     <div className={`flex flex-col items-center justify-center px-4 py-12 text-center ${className}`}>
@@ -24,15 +26,17 @@ export default function EmptyState({
       <h3 className="text-base font-semibold text-gray-900">{title}</h3>
       {description ? <p className="mt-1 max-w-md text-sm text-gray-500">{description}</p> : null}
       {actionLabel && onAction ? (
-        <button 
-          type="button" 
-          onClick={onAction} 
+        <button
+          type="button"
+          onClick={onAction}
+
           className="mt-5 inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-[#3CCED7] to-[#A6E661] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3CCED7] focus-visible:ring-offset-2"
 
-          >
-            {actionLabel}
+        >
+          {actionIcon}
+          {actionLabel}
         </button>
-        ) : null}
+      ) : null}
     </div>
   )
 };

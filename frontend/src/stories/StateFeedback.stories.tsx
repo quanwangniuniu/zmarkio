@@ -4,7 +4,7 @@ import ErrorState from '@/components/state-feedback/ErrorState';
 import DisabledOverlay from '@/components/state-feedback/DisabledOverlay';
 import FieldSkeleton from '@/components/state-feedback/FieldSkeleton';
 import EmptyState from '@/components/state-feedback/EmptyState';
-import { ListTodo } from 'lucide-react';
+import { ListTodo, Plus } from 'lucide-react';
 
 const meta: Meta<typeof LoadingSkeleton> = {
   title: 'State/Feedback',
@@ -106,6 +106,7 @@ export const EmptyStateExample: Story = {
       description="Create your first task to start tracking work."
       actionLabel="Add the first task"
       onAction={() => {}}
+      actionIcon={<Plus className="h-3.5 w-3.5" />}
     />
   ),
 };
