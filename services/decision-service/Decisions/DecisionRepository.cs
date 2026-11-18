@@ -224,9 +224,61 @@ public Task<DecisionDetailDto?> TransitionAsync(
             Status = targetStatus,
             LastEditedAt = now,
             LastEditedBy = actorId,
-            CommittedAt = action == DecisionTransitionAction.Commit ? now : existing.CommittedAt,
+            CommittedAt = action == DecisionTransitionAction.Commit
+            ? now
+            : existing.CommittedAt,
+            CommittedBy = action == DecisionTransitionAction.Commit
+            ? actorId
+            : existing.CommittedBy,
+            RequiresApproval = action == DecisionTransitionAction.Commit
+            ? existing.RiskLevel == DecisionRiskLevel.HIGH
+            : existing.RequiresApproval,
+            ApprovedAt = action == DecisionTransitionAction.Approve
+            ? now
+            : existing.ApprovedAt,
+            ApprovedBy = action == DecisionTransitionAction.Approve
+            ? actorId
+            : existing.ApprovedBy,
+            StateTransitions = existing.StateTransitions
+        .Append(new DecisionStateTransitionRecord(
+            existing.Id,
+            existing.Status,
+            targetStatus,
+            actorId,
+            now
+        ))
+        .ToArray(),
+
         };
-        _decisions[existing.Id] = updated;
+        if (action == DecisionTransitionAction.Commit)
+        {
+            var snapshot = DecisionValidationSnapshot.Build(
+            ToDetail(updated),
+            now
+        );
+
+        updated = updated with
+        {
+            CommitRecords = existing.CommitRecords
+                .Append(new DecisionCommitRecord(
+                existing.Id,
+                actorId,
+                now,
+                snapshot
+            ))
+            .ToArray(),
+        };
+        }
+
+
+        if (!_decisions.TryUpdate(existing.Id, updated, existing))
+            {
+            throw new DecisionValidationException(
+            "status",
+            "Decision could not be updated because it may have changed."
+            );
+            }
+
         return Task.FromResult<DecisionDetailDto?>(ToDetail(updated));
     }
 
@@ -544,7 +596,19 @@ public Task<DecisionDetailDto?> TransitionAsync(
             decision.OriginMeeting
         );
     }
-
+    private sealed record DecisionCommitRecord(
+    int DecisionId,
+    int? CommittedBy,
+    DateTimeOffset CommittedAt,
+    object ValidationSnapshot
+    );
+    private sealed record DecisionStateTransitionRecord(
+    int DecisionId,
+    DecisionStatus FromStatus,
+    DecisionStatus ToStatus,
+    int? TriggeredBy,
+    DateTimeOffset Timestamp
+    );
     private sealed record DecisionRecord
     {
         public required int Id { get; init; }
@@ -562,6 +626,14 @@ public Task<DecisionDetailDto?> TransitionAsync(
         public required DateTimeOffset LastEditedAt { get; init; }
         public int? LastEditedBy { get; init; }
         public DateTimeOffset? CommittedAt { get; init; }
+        public int? CommittedBy { get; init; }
+        public bool RequiresApproval { get; init; }
+        public DateTimeOffset? ApprovedAt { get; init; }
+        public int? ApprovedBy { get; init; }
+        public IReadOnlyList<DecisionStateTransitionRecord> StateTransitions { get; init; }
+        = Array.Empty<DecisionStateTransitionRecord>();
+        public IReadOnlyList<DecisionCommitRecord> CommitRecords { get; init; }
+        = Array.Empty<DecisionCommitRecord>();
         public int? ProjectId { get; init; }
         public string? ProjectName { get; init; }
         public bool IsReferenceCase { get; init; }

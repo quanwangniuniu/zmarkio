@@ -944,6 +944,147 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
 
         Assert.True(commitRecordCorrect);
     }
+    [Theory]
+[InlineData(DecisionTransitionAction.Commit)]
+[InlineData(DecisionTransitionAction.Approve)]
+public async Task Concurrent_transitions_only_succeed_once(
+    DecisionTransitionAction action)
+{
+    using var timeout = new CancellationTokenSource(
+        TimeSpan.FromSeconds(30));
+    var ct = timeout.Token;
+
+    var decision = await Repository(TestUser).CreateAsync(
+        TestProject,
+        TestUser,
+        Draft("Concurrent transition test") with
+        {
+            RiskLevel = DecisionRiskLevel.HIGH
+        },
+        ct);
+
+    if (action == DecisionTransitionAction.Approve)
+    {
+        var submitted = await Repository(TestUser).TransitionAsync(
+            decision.Slug,
+            TestUser,
+            DecisionTransitionAction.Commit,
+            ct);
+
+        Assert.NotNull(submitted);
+        Assert.Equal(
+            DecisionStatus.AWAITING_APPROVAL,
+            submitted.Status);
+    }
+    await using var blocker = await dataSource.OpenConnectionAsync(ct);
+    await using var transaction = await blocker.BeginTransactionAsync(ct);
+
+    await using (var command = blocker.CreateCommand())
+    {
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT id
+            FROM org_acme.decisions
+            WHERE id = @id
+            FOR UPDATE
+            """;
+        command.Parameters.AddWithValue("id", decision.Id);
+        await command.ExecuteScalarAsync(ct);
+    }
+
+    async Task<(DecisionDetailDto? Result, Exception? Error)> Attempt()
+    {
+        try
+        {
+            var result = await Repository(TestUser).TransitionAsync(
+                decision.Slug,
+                TestUser,
+                action,
+                ct);
+
+            return (result, null);
+        }
+        catch (Exception ex)
+        {
+            return (null, ex);
+        }
+    }
+
+    var first = Attempt();
+    var second = Attempt();
+    var bothBlocked = false;
+
+    try
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+
+        while (DateTime.UtcNow < deadline)
+        {
+            var blockedCount = await Scalar<long>("""
+                SELECT COUNT(*)
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND state = 'active'
+                  AND cardinality(pg_blocking_pids(pid)) > 0
+                  AND query LIKE '%UPDATE decisions%'
+                """);
+
+            if (blockedCount >= 2)
+            {
+                bothBlocked = true;
+                break;
+            }
+
+            await Task.Delay(50, ct);
+        }
+    }
+    finally
+    {
+        // Release both requests after observing the overlap.
+        await transaction.RollbackAsync(CancellationToken.None);
+    }
+
+    var outcomes = await Task.WhenAll(first, second);
+
+    Assert.True(
+        bothBlocked,
+        "Both requests must reach the UPDATE before releasing the lock.");
+
+    var winner = Assert.Single(
+        outcomes, outcome => outcome.Result is not null);
+    Assert.Null(winner.Error);
+
+    var loser = Assert.Single(
+        outcomes, outcome => outcome.Error is not null);
+    var error = Assert.IsType<DecisionValidationException>(loser.Error);
+    Assert.Equal("status", error.Field);
+
+    var final = await Repository(TestUser).GetAsync(decision.Slug, ct);
+    Assert.NotNull(final);
+    Assert.Equal(
+        action == DecisionTransitionAction.Commit
+            ? DecisionStatus.AWAITING_APPROVAL
+            : DecisionStatus.COMMITTED,
+        final.Status);
+
+    var historyCount = await Scalar<long>($"""
+        SELECT COUNT(*)
+        FROM org_acme.decision_state_transitions
+        WHERE decision_id = {decision.Id}
+        """);
+
+    Assert.Equal(
+        action == DecisionTransitionAction.Commit ? 1L : 2L,
+        historyCount);
+
+    var snapshotCount = await Scalar<long>($"""
+        SELECT COUNT(*)
+        FROM org_acme.decision_commit_records
+        WHERE decision_id = {decision.Id}
+        """);
+
+    Assert.Equal(1L, snapshotCount);
+}
     private PostgresDecisionRepository Repository(int userId) => new(Connections(userId));
     private TenantConnectionFactory Connections(int userId) =>
         new(dataSource, Validator(), new HttpContextAccessor { HttpContext = Request(userId).HttpContext });

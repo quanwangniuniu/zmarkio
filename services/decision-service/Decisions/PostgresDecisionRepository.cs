@@ -412,14 +412,23 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 WHEN @action = 'Approve' THEN @actor_id
                 ELSE approved_by_id END
             WHERE id = @id AND is_deleted = false
+            AND status = @from_status
             """;
         command.Parameters.AddWithValue("action", action.ToString());
         command.Parameters.AddWithValue("requires_approval", existing.RiskLevel == DecisionRiskLevel.HIGH);
         command.Parameters.AddWithValue("id", existing.Id);
         command.Parameters.AddWithValue("status", targetStatus.ToString());
+        command.Parameters.AddWithValue("from_status", existing.Status.ToString());
         command.Parameters.AddWithValue("now", now);
         AddNullableInteger(command, "actor_id", actorId);
-        await command.ExecuteNonQueryAsync(ct);
+        var affectedRows = await command.ExecuteNonQueryAsync(ct);
+        if (affectedRows != 1)
+        {
+            throw new DecisionValidationException(
+            "status",
+            "Decision could not be updated because its status may have changed."
+            );
+        }
 
         await RecordTransitionAsync(connection, transaction, existing.Id, existing.Status, targetStatus, actorId, now, ct);
         var updated = await GetAsync(connection, existing.Id.ToString(), ct);
@@ -432,7 +441,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
 
         if (action == DecisionTransitionAction.Commit)
         {
-            var snapshot = BuildValidationSnapshot(updated, now);
+            var snapshot = DecisionValidationSnapshot.Build(updated, now);
             await CreateCommitRecordAsync(connection, transaction, existing.Id, actorId, now, snapshot, ct);
         }
 
@@ -1888,44 +1897,6 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
     {
         return $"decision-{id}";
     }
-
-    private static object BuildValidationSnapshot(DecisionDetailDto decision, DateTimeOffset now)
-    {
-        var selectedOptions = decision.Options.Where(option => option.IsSelected).ToList();
-        var selectedOption = selectedOptions.FirstOrDefault();
-
-        var contextSummaryPresent = !string.IsNullOrEmpty(decision.ContextSummary);
-        var reasoningPresent = !string.IsNullOrEmpty(decision.Reasoning);
-        var riskLevelPresent = decision.RiskLevel is not null;
-        var confidencePresent = decision.ConfidenceScore is not null;
-
-        var signalsCount = decision.Signals.Count;
-        var optionsCount = decision.Options.Count;
-        var selectedOptionCount = selectedOptions.Count;
-
-        var requiredFieldPresent = contextSummaryPresent &&
-            reasoningPresent &&
-            riskLevelPresent &&
-            confidencePresent &&
-            signalsCount >= 1 &&
-            optionsCount >= 2 &&
-            selectedOptionCount == 1;
-
-        return new
-        {
-            required_fields_present = requiredFieldPresent,
-            selected_option_id = selectedOption?.Id,
-            risk_level = decision.RiskLevel?.ToString(),
-            confidence = decision.ConfidenceScore,
-            context_summary_present = contextSummaryPresent,
-            signals_count = signalsCount,
-            options_count = optionsCount,
-            selected_options_count = selectedOptionCount,
-            reasoning_present = reasoningPresent,
-            timestamp = now.ToString("o")
-        };
-    }
-
     private static async Task CreateCommitRecordAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
