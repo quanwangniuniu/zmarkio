@@ -31,3 +31,15 @@ export const applyOptionConfig = (configs: OptionConfig[], targets: Record<strin
 
 export const visibleOptions = (target: OptionTarget, current?: string | null): string[] =>
   current && !target.values.includes(current) ? [...target.values, current] : target.values;
+
+export const optionColorStyle = (color?: string) =>
+  color ? { backgroundColor: `${color}1A`, color } : undefined;
+
+export const optionChoices = (target: OptionTarget, current?: string | null) =>
+  visibleOptions(target, current).map((value) => ({ value, label: target.labels[value] }));
+
+export const preferredOption = (target: OptionTarget, preferred: string): string =>
+  target.values.includes(preferred) ? preferred : target.values[0] ?? preferred;
+
+export const optionLabel = (target: OptionTarget, value?: string | null): string =>
+  value ? target.labels[value] ?? value : '';

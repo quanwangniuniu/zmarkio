@@ -2,15 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import InlineSelect from '@/components/tasks/detail/InlineSelect';
+import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionChoices, optionLabel } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionRiskLevel, DecisionStatus } from '@/types/decision';
 import type { ProjectMember } from './hooks/useProjectRole';
-
-const RISK_OPTIONS = [
-  { value: '__unassigned__', label: 'Unassigned' },
-  { value: 'LOW', label: 'Low' },
-  { value: 'MEDIUM', label: 'Medium' },
-  { value: 'HIGH', label: 'High' },
-];
 
 interface Props {
   status: DecisionStatus | null;
@@ -86,6 +82,7 @@ export default function DecisionPropertiesAside({
   onConfidenceChange,
   onPlannedDateChange,
 }: Props) {
+  useOptionConfigVersion();
   const [confLocal, setConfLocal] = useState<string>(
     confidenceScore != null ? String(confidenceScore) : ''
   );
@@ -128,7 +125,7 @@ export default function DecisionPropertiesAside({
                 ariaLabel="Risk level"
                 value={riskLevel ?? '__unassigned__'}
                 onValueChange={handleRiskChange}
-                options={RISK_OPTIONS}
+                options={[{ value: '__unassigned__', label: 'Unassigned' }, ...optionChoices(DECISION_RISK)]}
               />
             </div>
             {errors?.risk && (
@@ -136,7 +133,7 @@ export default function DecisionPropertiesAside({
             )}
           </div>
         ) : (
-          <span>{riskLevel ?? <span className="text-gray-400">—</span>}</span>
+          <span>{riskLevel ? optionLabel(DECISION_RISK, riskLevel) : <span className="text-gray-400">—</span>}</span>
         )}
       </Row>
 

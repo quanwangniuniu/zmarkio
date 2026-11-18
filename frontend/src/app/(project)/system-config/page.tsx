@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { getApiErrorDetail } from '@/lib/api/errorMessage';
 import { fetchSystemConfig, saveSystemConfig } from '@/lib/api/orgCustomizationApi';
 import { storeCsmConfig } from '@/lib/csm/csmConfig';
+import { storeDecisionConfig } from '@/lib/decisions/decisionConfig';
 import { useProjectStore } from '@/lib/projectStore';
 import { storeTaskConfig } from '@/lib/tasks/taskConfig';
 import { getTaskTypeDefinition } from '@/lib/tasks/taskTypes';
@@ -25,9 +26,23 @@ const sectionTitle = 'text-lg font-semibold text-gray-900 dark:text-gray-100';
 
 type ConfigListKey = 'task_types' | 'task_statuses' | 'task_priorities';
 
-const CSM_FIELD_TITLES: Record<string, string> = {
-  ticket_priority: 'Ticket Priorities',
+type ModuleKey = 'csm' | 'decisions';
+
+const MODULE_SECTIONS: Record<ModuleKey, { title: string; fields: Record<string, string> }> = {
+  csm: { title: 'CSM', fields: { ticket_priority: 'Ticket Priorities' } },
+  decisions: {
+    title: 'Decisions',
+    fields: {
+      signal_metric: 'Signal Metrics',
+      signal_movement: 'Signal Movements',
+      signal_period: 'Signal Periods',
+      review_quality: 'Review Quality',
+      risk_level: 'Risk Levels',
+    },
+  },
 };
+
+const MODULE_KEYS = Object.keys(MODULE_SECTIONS) as ModuleKey[];
 
 interface OptionRow extends TaskFieldOptionConfig {
   fieldLabel: string;
@@ -172,13 +187,13 @@ export default function SystemConfigPage() {
   const [config, setConfig] = useState<TaskConfig | null>(null);
   const [optionRows, setOptionRows] = useState<OptionRow[]>([]);
   const [optionType, setOptionType] = useState('');
-  const [csmOptions, setCsmOptions] = useState<OptionConfig[]>([]);
+  const [moduleOptions, setModuleOptions] = useState<Record<ModuleKey, OptionConfig[]>>({ csm: [], decisions: [] });
   const [saving, setSaving] = useState(false);
 
   const loadConfig = (next: SystemConfig) => {
     setConfig({ ...next.task, can_edit: next.can_edit });
     setOptionRows(buildOptionRows(next.task.task_field_options));
-    setCsmOptions(next.csm.options);
+    setModuleOptions({ csm: next.csm.options, decisions: next.decisions.options });
   };
 
   useEffect(() => {
@@ -211,12 +226,15 @@ export default function SystemConfigPage() {
   const updateOption = (target: OptionRow, patch: Partial<OptionRow>) =>
     setOptionRows((prev) => prev.map((row) => (row === target ? { ...row, ...patch } : row)));
 
-  const updateCsmOption = (target: OptionConfig, patch: Partial<OptionConfig>) =>
-    setCsmOptions((prev) => prev.map((row) => (row === target ? { ...row, ...patch } : row)));
+  const updateModuleOption = (module: ModuleKey) => (target: OptionConfig, patch: Partial<OptionConfig>) =>
+    setModuleOptions((prev) => ({
+      ...prev,
+      [module]: prev[module].map((row) => (row === target ? { ...row, ...patch } : row)),
+    }));
 
   const handleSave = async () => {
     if (!config || !projectId) return;
-    const invalid = findInvalidOption(csmOptions);
+    const invalid = findInvalidOption(MODULE_KEYS.flatMap((module) => moduleOptions[module]));
     if (invalid) {
       toast.error(invalid);
       return;
@@ -230,11 +248,13 @@ export default function SystemConfigPage() {
           task_priorities: config.task_priorities,
           task_field_options: optionRowsToSave(optionRows),
         },
-        csm: { options: csmOptions },
+        csm: { options: moduleOptions.csm },
+        decisions: { options: moduleOptions.decisions },
       });
       loadConfig(saved);
       storeTaskConfig(projectId, { ...saved.task, can_edit: saved.can_edit });
       storeCsmConfig(projectId, { ...saved.csm, can_edit: saved.can_edit });
+      storeDecisionConfig(projectId, { ...saved.decisions, can_edit: saved.can_edit });
       toast.success('System configuration saved');
     } catch (error) {
       toast.error(getApiErrorDetail(error, 'Failed to save system configuration'));
@@ -251,7 +271,7 @@ export default function SystemConfigPage() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">System Configuration</h1>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Choose which task types and CSM options {activeProject?.name ?? 'this project'} uses, and rename,
+                Choose which task types, CSM and Decisions options {activeProject?.name ?? 'this project'} uses, and rename,
                 recolor or reorder them.
               </p>
             </div>
@@ -448,10 +468,16 @@ export default function SystemConfigPage() {
                 ))}
               </section>
 
-              <section className="space-y-3">
-                <h2 className={sectionTitle}>CSM</h2>
-                <OptionConfigTables options={csmOptions} fieldTitles={CSM_FIELD_TITLES} onChange={updateCsmOption} />
-              </section>
+              {MODULE_KEYS.map((module) => (
+                <section key={module} className="space-y-3">
+                  <h2 className={sectionTitle}>{MODULE_SECTIONS[module].title}</h2>
+                  <OptionConfigTables
+                    options={moduleOptions[module]}
+                    fieldTitles={MODULE_SECTIONS[module].fields}
+                    onChange={updateModuleOption(module)}
+                  />
+                </section>
+              ))}
             </>
           )}
         </div>
