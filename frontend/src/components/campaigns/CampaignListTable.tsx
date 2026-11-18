@@ -6,7 +6,7 @@ import type { CampaignData, CampaignStatus } from '@/types/campaign';
 import { useProjectStore } from '@/lib/projectStore';
 import { nestedProjectPathFromProject } from '@/lib/projectNestedRoutes';
 import CampaignStatusPill from './pills/CampaignStatusPill';
-import EmptyState from '../state-feedback/EmptyState';
+import EmptyState from '@/components/state-feedback/EmptyState';
 
 
 interface Props {
@@ -82,11 +82,11 @@ export default function CampaignListTable({
         <div className="px-6 py-12 text-center text-sm text-rose-600">{errorMessage}</div>
       ) : campaigns.length === 0 ? (
         <EmptyState
-              icon={<Megaphone className="h-6 w-6" />}
+              icon={<Megaphone className="h-5 w-5" />}
               title='No campaigns yet'
               description="Create your first campaign to start planning and tracking performance."
               actionLabel="Create campaign"
-              onAction=  {onCreate} 
+              onAction={onCreate}
               actionIcon={<Plus className="h-3.5 w-3.5" /> }
         />
       ) : (
