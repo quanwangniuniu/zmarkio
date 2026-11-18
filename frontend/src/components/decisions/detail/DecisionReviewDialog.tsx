@@ -3,13 +3,15 @@
 import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import BrandDialog from '@/components/tasks/detail/BrandDialog';
+import { REVIEW_QUALITY } from '@/lib/decisions/decisionConfig';
+import { optionColorStyle } from '@/lib/orgCustomization/optionConfig';
 
 type Quality = 'GOOD' | 'ACCEPTABLE' | 'POOR';
 
-const QUALITY_OPTIONS: { value: Quality; label: string; bg: string; text: string }[] = [
-  { value: 'GOOD', label: 'Good', bg: 'bg-emerald-50', text: 'text-emerald-700' },
-  { value: 'ACCEPTABLE', label: 'Acceptable', bg: 'bg-sky-50', text: 'text-sky-700' },
-  { value: 'POOR', label: 'Poor', bg: 'bg-rose-50', text: 'text-rose-700' },
+const QUALITY_OPTIONS: { value: Quality; bg: string; text: string }[] = [
+  { value: 'GOOD', bg: 'bg-emerald-50', text: 'text-emerald-700' },
+  { value: 'ACCEPTABLE', bg: 'bg-sky-50', text: 'text-sky-700' },
+  { value: 'POOR', bg: 'bg-rose-50', text: 'text-rose-700' },
 ];
 
 interface Props {
@@ -102,8 +104,9 @@ export default function DecisionReviewDialog({ open, onOpenChange, onConfirm }: 
                       ? `${opt.bg} ${opt.text} ring-1 ring-current/30`
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                   }`}
+                  style={active ? optionColorStyle(REVIEW_QUALITY.colors[opt.value]) : undefined}
                 >
-                  {opt.label}
+                  {REVIEW_QUALITY.labels[opt.value]}
                 </button>
               );
             })}

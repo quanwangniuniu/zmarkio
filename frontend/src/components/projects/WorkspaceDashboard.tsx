@@ -17,6 +17,7 @@ import {
   type WorkspaceSpreadsheet,
 } from '@/lib/api/workspaceApi';
 import { nestedProjectPath } from '@/lib/projectNestedRoutes';
+import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -1017,14 +1018,14 @@ export default function WorkspaceDashboard({ projectId }: Props) {
           <Divider />
           <p style={{ fontSize: 10, color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 5 }}>Risk distribution</p>
           <SegBar segments={[
-            { flex: dec.highRiskCount, color: RISK_COLOR.HIGH, title: `High ${pct(dec.highRiskCount, dec.activeCount)}%` },
-            { flex: dec.medRiskCount, color: RISK_COLOR.MEDIUM, title: `Medium ${pct(dec.medRiskCount, dec.activeCount)}%` },
-            { flex: dec.lowRiskCount, color: RISK_COLOR.LOW, title: `Low ${pct(dec.lowRiskCount, dec.activeCount)}%` },
+            { flex: dec.highRiskCount, color: DECISION_RISK.colors.HIGH ?? RISK_COLOR.HIGH, title: `${DECISION_RISK.labels.HIGH} ${pct(dec.highRiskCount, dec.activeCount)}%` },
+            { flex: dec.medRiskCount, color: DECISION_RISK.colors.MEDIUM ?? RISK_COLOR.MEDIUM, title: `${DECISION_RISK.labels.MEDIUM} ${pct(dec.medRiskCount, dec.activeCount)}%` },
+            { flex: dec.lowRiskCount, color: DECISION_RISK.colors.LOW ?? RISK_COLOR.LOW, title: `${DECISION_RISK.labels.LOW} ${pct(dec.lowRiskCount, dec.activeCount)}%` },
           ]} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 6 }}>
-            {dec.highRiskCount > 0 && <span style={{ fontSize: 10, color: '#888' }}>High {pct(dec.highRiskCount, dec.activeCount)}%</span>}
-            {dec.medRiskCount > 0 && <span style={{ fontSize: 10, color: '#888' }}>Medium {pct(dec.medRiskCount, dec.activeCount)}%</span>}
-            {dec.lowRiskCount > 0 && <span style={{ fontSize: 10, color: '#888' }}>Low {pct(dec.lowRiskCount, dec.activeCount)}%</span>}
+            {dec.highRiskCount > 0 && <span style={{ fontSize: 10, color: '#888' }}>{DECISION_RISK.labels.HIGH} {pct(dec.highRiskCount, dec.activeCount)}%</span>}
+            {dec.medRiskCount > 0 && <span style={{ fontSize: 10, color: '#888' }}>{DECISION_RISK.labels.MEDIUM} {pct(dec.medRiskCount, dec.activeCount)}%</span>}
+            {dec.lowRiskCount > 0 && <span style={{ fontSize: 10, color: '#888' }}>{DECISION_RISK.labels.LOW} {pct(dec.lowRiskCount, dec.activeCount)}%</span>}
           </div>
         </ZonePanel>
 

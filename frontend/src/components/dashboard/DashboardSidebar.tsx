@@ -32,6 +32,7 @@ import {
 } from '@/lib/projectNestedRoutes';
 import { useBuildUrl } from '@/lib/buildUrl';
 import { loadCsmConfig } from '@/lib/csm/csmConfig';
+import { loadDecisionConfig } from '@/lib/decisions/decisionConfig';
 import { loadTaskConfig } from '@/lib/tasks/taskConfig';
 
 const getInitials = (name?: string | null): string => {
@@ -220,6 +221,7 @@ export default function DashboardSidebar() {
     if (!activeProject?.id) return;
     let cancelled = false;
     loadCsmConfig(activeProject.id);
+    loadDecisionConfig(activeProject.id);
     loadTaskConfig(activeProject.id).then((config) => {
       if (!cancelled) setCanEditConfig(Boolean(config?.can_edit));
     });

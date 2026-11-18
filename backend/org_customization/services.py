@@ -5,11 +5,14 @@ from django.db import transaction
 from rest_framework import serializers
 
 from csm.models import Ticket
+from decision.models import Decision, Review, Signal
 from task.models import Task
 
 from .models import OptionConfig, TaskFieldOptionConfig, TaskPriorityConfig, TaskStatusConfig, TaskTypeConfig
 
 OPTION_ATTRIBUTES = ('label', 'color', 'enabled', 'order')
+LIST_ATTRIBUTES = ('label', 'enabled', 'order')
+LOOKUP_ATTRIBUTES = ('label', 'color')
 
 
 @dataclass(frozen=True)
@@ -27,6 +30,13 @@ class OptionField:
 MODULE_OPTION_FIELDS = {
     'csm': {
         'ticket_priority': OptionField(Ticket, 'priority', 'queue.project'),
+    },
+    'decisions': {
+        'signal_metric': OptionField(Signal, 'metric', 'decision.project', LIST_ATTRIBUTES),
+        'signal_movement': OptionField(Signal, 'movement', 'decision.project', LIST_ATTRIBUTES),
+        'signal_period': OptionField(Signal, 'period', 'decision.project', LIST_ATTRIBUTES),
+        'review_quality': OptionField(Review, 'quality', 'decision.project', LOOKUP_ATTRIBUTES),
+        'risk_level': OptionField(Decision, 'risk_level', 'project', LOOKUP_ATTRIBUTES),
     },
 }
 

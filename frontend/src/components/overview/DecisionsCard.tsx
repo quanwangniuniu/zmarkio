@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { GitBranch, FileEdit, Bot } from 'lucide-react';
 import type { PendingDecisionDisplay } from '@/types/overview';
+import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
 import type { DecisionRiskLevel } from '@/types/decision';
 
 interface DecisionsCardProps {
@@ -10,10 +11,10 @@ interface DecisionsCardProps {
   drafts: PendingDecisionDisplay[];
 }
 
-const riskStyles: Record<DecisionRiskLevel, { bg: string; text: string; label: string }> = {
-  HIGH: { bg: 'bg-red-50', text: 'text-red-700', label: 'High risk' },
-  MEDIUM: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'Medium risk' },
-  LOW: { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Low risk' },
+const riskStyles: Record<DecisionRiskLevel, { bg: string; text: string }> = {
+  HIGH: { bg: 'bg-red-50', text: 'text-red-700' },
+  MEDIUM: { bg: 'bg-amber-50', text: 'text-amber-700' },
+  LOW: { bg: 'bg-emerald-50', text: 'text-emerald-700' },
 };
 
 function formatRelative(iso?: string | null): string {
@@ -63,7 +64,7 @@ export default function DecisionsCard({ pending, drafts }: DecisionsCardProps) {
                       <span
                         className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${risk.bg} ${risk.text}`}
                       >
-                        {risk.label}
+                        {DECISION_RISK.labels[d.riskLevel!]} risk
                       </span>
                     )}
                     {d.createdByAgent && (

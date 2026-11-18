@@ -1,5 +1,7 @@
 'use client';
 
+import { SIGNAL_METRIC, SIGNAL_MOVEMENT, SIGNAL_PERIOD } from '@/lib/decisions/decisionConfig';
+import { optionLabel } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionSignal } from '@/types/decision';
 
 interface Props {
@@ -30,7 +32,7 @@ export default function DecisionExecutionSummarySection({ signals }: Props) {
                 {signal.displayTextOverride || signal.displayText || '—'}
               </div>
               <div className="mt-0.5 break-words text-[11px] text-gray-500">
-                {signal.metric} · {signal.movement} · {signal.period}
+                {optionLabel(SIGNAL_METRIC, signal.metric)} · {optionLabel(SIGNAL_MOVEMENT, signal.movement)} · {optionLabel(SIGNAL_PERIOD, signal.period)}
               </div>
             </li>
           ))}

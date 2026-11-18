@@ -1,11 +1,13 @@
 'use client';
 
+import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
+import { optionColorStyle } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionRiskLevel } from '@/types/decision';
 
-const RISK_TOKEN: Record<DecisionRiskLevel, { bg: string; text: string; label: string }> = {
-  LOW: { bg: 'bg-sky-50', text: 'text-sky-700', label: 'Low' },
-  MEDIUM: { bg: 'bg-amber-50', text: 'text-amber-700', label: 'Medium' },
-  HIGH: { bg: 'bg-rose-50', text: 'text-rose-700', label: 'High' },
+const RISK_TOKEN: Record<DecisionRiskLevel, { bg: string; text: string }> = {
+  LOW: { bg: 'bg-sky-50', text: 'text-sky-700' },
+  MEDIUM: { bg: 'bg-amber-50', text: 'text-amber-700' },
+  HIGH: { bg: 'bg-rose-50', text: 'text-rose-700' },
 };
 
 export default function DecisionRiskPill({ risk }: { risk?: DecisionRiskLevel | null }) {
@@ -19,8 +21,9 @@ export default function DecisionRiskPill({ risk }: { risk?: DecisionRiskLevel | 
   return (
     <span
       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${token.bg} ${token.text}`}
+      style={optionColorStyle(DECISION_RISK.colors[risk])}
     >
-      {token.label}
+      {DECISION_RISK.labels[risk]}
     </span>
   );
 }

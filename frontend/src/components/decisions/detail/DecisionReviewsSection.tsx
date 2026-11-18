@@ -1,6 +1,8 @@
 'use client';
 
 import { Plus } from 'lucide-react';
+import { REVIEW_QUALITY } from '@/lib/decisions/decisionConfig';
+import { optionColorStyle } from '@/lib/orgCustomization/optionConfig';
 
 type Quality = 'GOOD' | 'ACCEPTABLE' | 'POOR';
 
@@ -19,10 +21,10 @@ interface Props {
   onAddReview: () => void;
 }
 
-const QUALITY_STYLES: Record<Quality, { bg: string; text: string; label: string }> = {
-  GOOD: { bg: 'bg-emerald-50', text: 'text-emerald-700', label: 'Good' },
-  ACCEPTABLE: { bg: 'bg-sky-50', text: 'text-sky-700', label: 'Acceptable' },
-  POOR: { bg: 'bg-rose-50', text: 'text-rose-700', label: 'Poor' },
+const QUALITY_STYLES: Record<Quality, { bg: string; text: string }> = {
+  GOOD: { bg: 'bg-emerald-50', text: 'text-emerald-700' },
+  ACCEPTABLE: { bg: 'bg-sky-50', text: 'text-sky-700' },
+  POOR: { bg: 'bg-rose-50', text: 'text-rose-700' },
 };
 
 function formatDate(value?: string): string {
@@ -71,8 +73,9 @@ export default function DecisionReviewsSection({ reviews, canAddReview, onAddRev
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <span
                     className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${style.bg} ${style.text}`}
+                    style={optionColorStyle(REVIEW_QUALITY.colors[quality])}
                   >
-                    {style.label}
+                    {REVIEW_QUALITY.labels[quality]}
                   </span>
                   <span className="text-[11px] text-gray-400">
                     {formatDate(review.reviewedAt)}
