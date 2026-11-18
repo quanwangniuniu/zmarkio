@@ -107,12 +107,13 @@ describe('batch detail', () => {
     const body = (await readJson(response)) as BatchDetailResponse;
 
     expect(body.batch_id).toBe(batchId);
-    expect(body.count).toBe(3);
-    expect(body.results.map((row) => row.batch_position)).toEqual([0, 1, 2]);
+    expect(body.count).toBe(4);
+    expect(body.results.map((row) => row.batch_position)).toEqual([0, 1, 2, 3]);
     expect(body.results.map((row) => row.id)).toEqual([
       Number(positionZero.id),
       Number(positionOne.id),
       Number(positionTwo.id),
+      Number(deletedVariation.id),
     ]);
     expect(body.results.every((row) => row.batch_id === batchId)).toBe(true);
   });
