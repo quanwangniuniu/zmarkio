@@ -2,6 +2,7 @@
 
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { SIGNAL_METRIC, SIGNAL_MOVEMENT, SIGNAL_PERIOD } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionLabel } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionSignal } from '@/types/decision';
 
@@ -22,6 +23,7 @@ export default function DecisionSignalsSection({
   onEdit,
   onDelete,
 }: Props) {
+  useOptionConfigVersion();
   return (
     <section
       id="decision-section-signals"

@@ -1,4 +1,6 @@
+import { act, render, screen } from '@testing-library/react';
 import { fetchOptionConfig } from '@/lib/api/orgCustomizationApi';
+import DecisionRiskPill from '@/components/decisions/DecisionRiskPill';
 import {
   DECISION_RISK,
   REVIEW_QUALITY,
@@ -25,7 +27,7 @@ const customConfig = moduleConfig([
 ]);
 
 describe('decision config', () => {
-  afterEach(() => storeDecisionConfig(1, moduleConfig([])));
+  afterEach(() => act(() => storeDecisionConfig(1, moduleConfig([]))));
 
   it('applies project labels, colors and hidden signal options', async () => {
     (fetchOptionConfig as jest.Mock).mockResolvedValueOnce(customConfig);
@@ -40,6 +42,15 @@ describe('decision config', () => {
     expect(DECISION_RISK.labels.HIGH).toBe('Critical');
     expect(DECISION_RISK.colors.HIGH).toBe('#DC2626');
     expect(REVIEW_QUALITY.labels.POOR).toBe('Missed');
+  });
+
+  it('rerenders mounted components when the project config changes', () => {
+    render(<DecisionRiskPill risk="HIGH" />);
+    expect(screen.getByText('High')).toBeInTheDocument();
+
+    act(() => storeDecisionConfig(1, customConfig));
+
+    expect(screen.getByText('Critical')).toHaveStyle({ color: '#DC2626' });
   });
 
   it('falls back to the built-in names when nothing is configured', () => {

@@ -2,6 +2,7 @@
 
 import { Plus } from 'lucide-react';
 import { REVIEW_QUALITY } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionColorStyle } from '@/lib/orgCustomization/optionConfig';
 
 type Quality = 'GOOD' | 'ACCEPTABLE' | 'POOR';
@@ -35,6 +36,7 @@ function formatDate(value?: string): string {
 }
 
 export default function DecisionReviewsSection({ reviews, canAddReview, onAddReview }: Props) {
+  useOptionConfigVersion();
   return (
     <section
       id="decision-section-reviews"

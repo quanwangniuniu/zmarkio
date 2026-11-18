@@ -5,6 +5,7 @@ import { Loader2 } from 'lucide-react';
 import BrandDialog from '@/components/tasks/detail/BrandDialog';
 import InlineSelect from '@/components/tasks/detail/InlineSelect';
 import { SIGNAL_METRIC, SIGNAL_MOVEMENT, SIGNAL_PERIOD } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionChoices, preferredOption } from '@/lib/orgCustomization/optionConfig';
 import type {
   DecisionSignal,
@@ -67,6 +68,7 @@ export default function DecisionSignalDialog({
   onOpenChange,
   onSubmit,
 }: Props) {
+  useOptionConfigVersion();
   const [metric, setMetric] = useState<SignalMetric>('ROAS');
   const [movement, setMovement] = useState<SignalMovement>('NO_SIGNIFICANT_CHANGE');
   const [period, setPeriod] = useState<SignalPeriod>('LAST_7_DAYS');

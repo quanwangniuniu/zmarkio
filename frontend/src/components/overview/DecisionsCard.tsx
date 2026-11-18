@@ -4,6 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { GitBranch, FileEdit, Bot } from 'lucide-react';
 import type { PendingDecisionDisplay } from '@/types/overview';
 import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionColorStyle } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionRiskLevel } from '@/types/decision';
 
 interface DecisionsCardProps {
@@ -29,6 +31,7 @@ function formatRelative(iso?: string | null): string {
 }
 
 export default function DecisionsCard({ pending, drafts }: DecisionsCardProps) {
+  useOptionConfigVersion();
   const top3 = pending.slice(0, 3);
 
   return (
@@ -63,6 +66,7 @@ export default function DecisionsCard({ pending, drafts }: DecisionsCardProps) {
                     {risk && (
                       <span
                         className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${risk.bg} ${risk.text}`}
+                        style={optionColorStyle(DECISION_RISK.colors[d.riskLevel!])}
                       >
                         {DECISION_RISK.labels[d.riskLevel!]} risk
                       </span>

@@ -1,6 +1,7 @@
 'use client';
 
 import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionColorStyle } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionRiskLevel } from '@/types/decision';
 
@@ -11,6 +12,7 @@ const RISK_TOKEN: Record<DecisionRiskLevel, { bg: string; text: string }> = {
 };
 
 export default function DecisionRiskPill({ risk }: { risk?: DecisionRiskLevel | null }) {
+  useOptionConfigVersion();
   if (!risk) {
     return <span className="text-gray-400">—</span>;
   }

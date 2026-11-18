@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import BrandDialog from '@/components/tasks/detail/BrandDialog';
 import { REVIEW_QUALITY } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionColorStyle } from '@/lib/orgCustomization/optionConfig';
 
 type Quality = 'GOOD' | 'ACCEPTABLE' | 'POOR';
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export default function DecisionReviewDialog({ open, onOpenChange, onConfirm }: Props) {
+  useOptionConfigVersion();
   const [outcomeText, setOutcomeText] = useState('');
   const [reflectionText, setReflectionText] = useState('');
   const [quality, setQuality] = useState<Quality>('ACCEPTABLE');

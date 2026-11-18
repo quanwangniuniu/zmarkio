@@ -18,6 +18,7 @@ import {
 } from '@/lib/api/workspaceApi';
 import { nestedProjectPath } from '@/lib/projectNestedRoutes';
 import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -835,6 +836,7 @@ function deriveOpsMetrics(
 interface Props { projectId: Id; }
 
 export default function WorkspaceDashboard({ projectId }: Props) {
+  useOptionConfigVersion();
   const [workspace, setWorkspace] = useState<WorkspaceDashboardData | null>(null);
   const [summary, setSummary] = useState<DashboardSummaryData | null>(null);
   const [loading, setLoading] = useState(true);

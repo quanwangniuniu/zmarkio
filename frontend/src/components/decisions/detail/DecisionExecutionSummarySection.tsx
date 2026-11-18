@@ -1,6 +1,7 @@
 'use client';
 
 import { SIGNAL_METRIC, SIGNAL_MOVEMENT, SIGNAL_PERIOD } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionLabel } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionSignal } from '@/types/decision';
 
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export default function DecisionExecutionSummarySection({ signals }: Props) {
+  useOptionConfigVersion();
   return (
     <section
       id="decision-section-execution"

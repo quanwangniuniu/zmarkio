@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import InlineSelect from '@/components/tasks/detail/InlineSelect';
 import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionChoices, optionLabel } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionRiskLevel, DecisionStatus } from '@/types/decision';
 import type { ProjectMember } from './hooks/useProjectRole';
@@ -81,6 +82,7 @@ export default function DecisionPropertiesAside({
   onConfidenceChange,
   onPlannedDateChange,
 }: Props) {
+  useOptionConfigVersion();
   const [confLocal, setConfLocal] = useState<string>(
     confidenceScore != null ? String(confidenceScore) : ''
   );

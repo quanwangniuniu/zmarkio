@@ -17,6 +17,7 @@ import dagre from '@dagrejs/dagre';
 import { CheckCircle2, FileText, Link2, PencilLine, Plus, Trash2, X } from 'lucide-react';
 import DecisionStatusPill from '@/components/decisions/DecisionStatusPill';
 import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionColorStyle, optionLabel } from '@/lib/orgCustomization/optionConfig';
 import {
   bucketDateKey,
@@ -412,6 +413,7 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
   },
   ref,
 ) {
+  useOptionConfigVersion();
   const buildUrl = useBuildUrl();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);

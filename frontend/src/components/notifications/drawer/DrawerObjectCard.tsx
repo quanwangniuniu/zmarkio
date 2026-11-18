@@ -17,6 +17,8 @@ import { MeetingsAPI } from "@/lib/api/meetingsApi";
 import { ProjectAPI } from "@/lib/api/projectApi";
 import { DecisionAPI } from "@/lib/api/decisionApi";
 import { DECISION_RISK } from "@/lib/decisions/decisionConfig";
+import { useOptionConfigVersion } from "@/lib/orgCustomization/configLoader";
+import { optionColorStyle } from "@/lib/orgCustomization/optionConfig";
 import { BudgetAPI } from "@/lib/api/budgetApi";
 import api from "@/lib/api";
 import { budgetLabelFromNotification } from "@/lib/budgetNotificationCopy";
@@ -385,6 +387,7 @@ function DecisionCard({
   decision: DecisionCardData;
   notification: NotificationItem;
 }) {
+  useOptionConfigVersion();
   const seq = decision.projectSeq ?? decision.id;
   const riskLevel = decision.riskLevel?.toUpperCase();
   const riskStyle = riskLevel ? (RISK_COLORS[riskLevel] || RISK_COLORS.MEDIUM) : null;
@@ -404,7 +407,10 @@ function DecisionCard({
       </h4>
       {riskStyle && riskLevel && (
         <div className="flex flex-wrap gap-2 mb-3">
-          <span className={`px-2 py-0.5 rounded text-xs font-medium ${riskStyle.bg} ${riskStyle.text}`}>
+          <span
+            className={`px-2 py-0.5 rounded text-xs font-medium ${riskStyle.bg} ${riskStyle.text}`}
+            style={optionColorStyle(DECISION_RISK.colors[riskLevel])}
+          >
             {(DECISION_RISK.labels[riskLevel] ?? riskLevel).toLowerCase()} risk
           </span>
         </div>
