@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowDownToLine, ArrowUpToLine, Bookmark, ChevronDown, ChevronLeft, ChevronRight, Loader2, Pin, Plus, Save, Search, Trash2, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpToLine, Bookmark, ChevronDown, ChevronLeft, ChevronRight, Loader2, Pin, Plus, Save, Search, Trash2, X, ListTodo} from 'lucide-react';
+import EmptyState from '@/components/state-feedback/EmptyState';
 import toast from 'react-hot-toast';
 import type { TaskBulkFailureItem, TaskData, TaskListFilters } from '@/types/task';
 import { Id } from '@/types/common';
@@ -1558,22 +1559,16 @@ export default function ListView({
         {error ? (
           <div className="px-6 py-12 text-center text-sm text-rose-600">{error}</div>
         ) : !loading && sorted.length === 0 ? (
-          <div className="px-6 py-16 text-center">
-            <p className="text-sm font-medium text-gray-900">No tasks yet</p>
-            <p className="mt-1 text-xs text-gray-500">
-              {projectId ? (
-                <button
-                  type="button"
-                  onClick={() => setQuickCreateOpen(true)}
-                  className="font-medium text-[#2ab5be] underline-offset-2 hover:underline"
-                >
-                  Add the first task
-                </button>
-              ) : (
-                <>Click <span className="font-medium text-gray-700">Create task</span> to add the first one.</>
-              )}
-            </p>
-          </div>
+
+          <EmptyState
+            icon={<ListTodo className="h-5 w-5" />}
+            title="No tasks yet"
+            description="Create your first task to start tracking work in this project."
+            actionLabel="Add the first task"
+            onAction={() => setQuickCreateOpen(true)}
+            actionIcon={<Plus className="h-3.5 w-3.5" />}
+          />
+
         ) : (
           <div className="overflow-x-auto">
           <table data-testid="task-list" className="w-full min-w-[980px] table-fixed text-xs">

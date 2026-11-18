@@ -11,7 +11,6 @@ interface Props {
 export default function MeetingEmptyColumn({ variant, onCreate }: Props) {
   if (variant === 'incoming') {
     return (
-
       <EmptyState
         className="flex-1 rounded-xl border-2 border-dashed border-gray-200 bg-white/50"
         icon={<CalendarPlus className="h-5 w-5" />}
