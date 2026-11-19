@@ -3,18 +3,23 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import Layout from "@/components/layout/Layout";
 import { RemovablePicker } from "@/components/ui/RemovablePicker";
 import { Table, TableBody, TableCaption, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { approverApi } from "@/lib/api/approverApi";
 import { PermissionAPI } from "@/lib/api/permissionApi";
 import { TEAM_ROLES } from "@/lib/constants/teamRoles";
 import DropdownMenu from "@/components/ui/DropdownMenu";
-import { ChevronDown, Users, AlertCircle } from 'lucide-react';
+import { ChevronDown, Users, AlertCircle, Trash2 } from 'lucide-react';
 import TeamAPI from "@/lib/api/teamApi";
 import { UserRoleAPI } from "@/lib/api/userRoleApi";
 import { CreateUserRole } from "@/types/permission";
 import { TeamDetailResponse } from "@/types/team";
 import { useAuthStore } from "@/lib/authStore";
 import Modal from "@/components/ui/Modal";
+import { Button } from "@/components/ui/button";
+import TeamAdminToolbar from "@/components/teams/TeamAdminToolbar";
+import CreateTeamDialog from "@/components/teams/CreateTeamDialog";
+import DeleteTeamDialog from "@/components/teams/DeleteTeamDialog";
+import { Team } from "@/types/team";
 
 
 
@@ -50,6 +55,16 @@ function TeamsPageContent() {
   const [selectedTeamForEdit, setSelectedTeamForEdit] = useState<number | null>(null);
   const [teamDetails, setTeamDetails] = useState<Record<number, any>>({});
 
+  // Organization admins and superusers manage every team of their organization.
+  // Uses the backend's strict signal, not the broader is_org_admin flag.
+  const canManageAllTeams = !!user?.can_manage_all_teams;
+  const [teamSearch, setTeamSearch] = useState('');
+  const [isCreateTeamOpen, setIsCreateTeamOpen] = useState(false);
+  const [isDeleteTeamOpen, setIsDeleteTeamOpen] = useState(false);
+  const [deletingTeam, setDeletingTeam] = useState(false);
+  const [teamActionError, setTeamActionError] = useState<string | null>(null);
+  const orgTeamsRequest = useRef(0);
+
   // Handle member selection
   const handleMemberSelect = (memberId: number) => {
     const newSelected = new Set(selectedMembers);
@@ -67,6 +82,64 @@ function TeamsPageContent() {
     setSelectedTeamForEdit(teamId);
     setSelectedMembers(new Set());
     setEditingMember(false);
+
+    // The organization-wide list has no member data; load it on selection
+    if (canManageAllTeams) {
+      TeamAPI.getTeamDetail(teamId)
+        .then((detail) => setTeamDetails(prev => ({ ...prev, [teamId]: { id: teamId, ...detail } })))
+        .catch((error) => console.error(`Failed to fetch details for team ${teamId}:`, error));
+    }
+  };
+
+  // Organization admins: load (and search) all teams of the organization
+  const loadOrgTeams = async (search: string) => {
+    const requestId = ++orgTeamsRequest.current;
+    try {
+      const teams: Team[] = await TeamAPI.listTeams(search);
+      if (requestId !== orgTeamsRequest.current) return;
+      setTeamList(teams.map(t => ({ id: t.id, team: t, member_count: t.member_count })));
+      setTeamsError(null);
+    } catch (error) {
+      console.error('Error fetching organization teams:', error);
+      if (requestId === orgTeamsRequest.current) setTeamsError('Failed to fetch teams');
+    } finally {
+      if (requestId === orgTeamsRequest.current) setLoadingTeams(false);
+    }
+  };
+
+  const handleTeamCreated = async (team: Team) => {
+    setIsCreateTeamOpen(false);
+    setTeamActionError(null);
+    setTeamSearch('');
+    await loadOrgTeams('');
+    handleTeamSelect(team.id);
+  };
+
+  const handleDeleteTeam = async () => {
+    if (!selectedTeamForEdit) return;
+    const teamId = selectedTeamForEdit;
+    try {
+      setDeletingTeam(true);
+      setTeamActionError(null);
+      await TeamAPI.deleteTeam(teamId);
+      setSelectedTeamForEdit(null);
+      setTeamDetails(prev => {
+        const next = { ...prev };
+        delete next[teamId];
+        return next;
+      });
+      await loadOrgTeams(teamSearch);
+    } catch (error) {
+      console.error('Failed to delete team:', error);
+      const status = (error as { response?: { status?: number } })?.response?.status;
+      setTeamActionError(
+        status === 409
+          ? 'This team still has members or child teams. Remove them before deleting the team.'
+          : 'Failed to delete the team. Please try again.'
+      );
+    } finally {
+      setDeletingTeam(false);
+    }
   };
 
   // Check if current user is leader of the selected team
@@ -79,6 +152,10 @@ function TeamsPageContent() {
     
     return currentUserMember?.role_id === TEAM_ROLES.LEADER;
   };
+
+  // Team Leaders manage their own team; organization admins manage every team
+  const canManageTeam = (teamId: number): boolean =>
+    canManageAllTeams || isCurrentUserLeader(teamId);
 
   // Handle add member to team
   const handleAddMemberToTeam = async (teamId: number, userId: number, roleId: number) => {
@@ -342,6 +419,7 @@ function TeamsPageContent() {
     loadAllRoles();
   }, []);
   useEffect(() => {
+    if (canManageAllTeams) return; // org admins load the organization-wide list below
     const fetchUserTeams = async () => {
       try {
         setLoadingTeams(true);
@@ -381,10 +459,18 @@ function TeamsPageContent() {
     };
 
     fetchUserTeams();
-  }, []); // Empty dependency array - only run on mount
+  }, [canManageAllTeams]); // Runs on mount (and if the admin status resolves later)
+
+  // Organization admins: debounced search over all teams of the organization
+  useEffect(() => {
+    if (!canManageAllTeams) return;
+    const handle = setTimeout(() => { loadOrgTeams(teamSearch); }, teamSearch ? 300 : 0);
+    return () => clearTimeout(handle);
+  }, [canManageAllTeams, teamSearch]);
 
   // Update team list when userTeams changes
   useEffect(() => {
+    if (canManageAllTeams) return;
     if (userTeams.length > 0) {
       const fetchTeamDetails = async () => {
         try {
@@ -417,7 +503,7 @@ function TeamsPageContent() {
       setTeamList([]);
       setTeamDetails({});
     }
-  }, [userTeams]);
+  }, [userTeams, canManageAllTeams]);
 
   // Fetch existing users for adding members
   useEffect(() => {
@@ -451,8 +537,20 @@ function TeamsPageContent() {
             <div className="flex flex-col gap-4">
               <h1 className="text-3xl font-bold text-gray-900">Team Management</h1>
               <p className="text-gray-600 text-sm">
-                Manage your team members and their roles.
+                {canManageAllTeams
+                  ? 'Manage all teams in your organization, including their members and roles.'
+                  : 'Manage your team members and their roles.'}
               </p>
+              {canManageAllTeams && (
+                <TeamAdminToolbar
+                  search={teamSearch}
+                  onSearchChange={setTeamSearch}
+                  onCreateClick={() => setIsCreateTeamOpen(true)}
+                />
+              )}
+              {teamActionError && (
+                <p role="alert" className="text-sm text-red-600">{teamActionError}</p>
+              )}
             </div>
 
             {/* Loading State */}
@@ -482,7 +580,11 @@ function TeamsPageContent() {
                 <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No Teams Found</h3>
                 <p className="text-gray-600">
-                  You are not currently associated with any teams. Please contact your administrator to be added to a team.
+                  {canManageAllTeams
+                    ? (teamSearch.trim()
+                        ? `No teams match "${teamSearch.trim()}".`
+                        : 'Your organization has no teams yet. Use Create Team to add one.')
+                    : 'You are not currently associated with any teams. Please contact your administrator to be added to a team.'}
                 </p>
               </div>
             )}
@@ -507,7 +609,7 @@ function TeamsPageContent() {
                       >
                         <h3 className="font-medium text-gray-900">{team.team?.name || `Team ${team.id}`}</h3>
                         <p className="text-sm text-gray-600 mt-1">
-                          {team.members?.length || 0} members
+                          {team.members?.length ?? team.member_count ?? 0} members
                         </p>
                       </button>
                     ))}
@@ -518,14 +620,20 @@ function TeamsPageContent() {
                 {selectedTeamForEdit && teamDetails[selectedTeamForEdit] && (
                   <div className="p-6 space-y-1 bg-white rounded-lg shadow-sm border border-gray-200">
                     {/* Team Header */}
-                    <div className=" py-6">
+                    <div className="py-6 flex items-center justify-between gap-4">
                       <h2 className="text-xl font-semibold text-gray-900">
                         {teamDetails[selectedTeamForEdit].team?.name || `Team ${selectedTeamForEdit}`}
                       </h2>
+                      {canManageAllTeams && (
+                        <Button variant="destructive" size="sm" onClick={() => setIsDeleteTeamOpen(true)}>
+                          <Trash2 aria-hidden="true" />
+                          Delete Team
+                        </Button>
+                      )}
                     </div>
 
                     {/* Add New Member - Only visible to team leaders */}
-                    {selectedTeamForEdit && isCurrentUserLeader(selectedTeamForEdit) && (
+                    {selectedTeamForEdit && canManageTeam(selectedTeamForEdit) && (
                       <div className="py-6">
                       <h3 className="text-lg font-medium text-gray-900 mb-4">Add New Member</h3>
                       <div className="flex flex-row gap-4 items-center">
@@ -602,7 +710,7 @@ function TeamsPageContent() {
                       <Table>  
                         <TableHeader>
                           <TableRow>
-                            {selectedTeamForEdit && isCurrentUserLeader(selectedTeamForEdit) && (
+                            {selectedTeamForEdit && canManageTeam(selectedTeamForEdit) && (
                               <TableHead className="w-12">
                                 <input 
                                   type="checkbox" 
@@ -635,7 +743,7 @@ function TeamsPageContent() {
                             const isCurrentUser = member.user_id === user?.id;
                             return (
                               <TableRow key={member.user_id}>
-                                {selectedTeamForEdit && isCurrentUserLeader(selectedTeamForEdit) && (
+                                {selectedTeamForEdit && canManageTeam(selectedTeamForEdit) && (
                                   <TableCell>
                                     <input 
                                       type="checkbox" 
@@ -670,7 +778,7 @@ function TeamsPageContent() {
                     </div>
 
                     {/* Operations - Only visible to team leaders */}
-                    {editingMember && selectedTeamForEdit && isCurrentUserLeader(selectedTeamForEdit) && (
+                    {editingMember && selectedTeamForEdit && canManageTeam(selectedTeamForEdit) && (
                       <div className="py-6">
                         <h3 className="text-lg font-medium text-gray-900 mb-4">Selected Members ({selectedMembers.size})</h3>
                         <div className="flex flex-row justify-center gap-4">
@@ -701,6 +809,20 @@ function TeamsPageContent() {
           </div>
         </div>
       </div>
+
+      {/* Organization admin dialogs */}
+      <CreateTeamDialog
+        open={isCreateTeamOpen}
+        onClose={() => setIsCreateTeamOpen(false)}
+        onCreated={handleTeamCreated}
+      />
+      <DeleteTeamDialog
+        open={isDeleteTeamOpen}
+        teamName={(selectedTeamForEdit && teamDetails[selectedTeamForEdit]?.team?.name) || 'this team'}
+        loading={deletingTeam}
+        onClose={() => setIsDeleteTeamOpen(false)}
+        onConfirm={handleDeleteTeam}
+      />
 
       {/* Edit Role Modal */}
       <Modal isOpen={isEditRoleModalOpen} onClose={handleCancelRoleChanges}>

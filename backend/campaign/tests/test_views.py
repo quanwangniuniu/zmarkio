@@ -2,14 +2,18 @@
 Tests for Campaign ViewSets and API endpoints.
 """
 from django.test import TestCase
+from django.db import connection
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import status
 from decimal import Decimal
 from unittest.mock import patch
 
-from core.models import Organization, Project, ProjectMember
+from core.models import Organization, Project, ProjectMember, Role, Permission
+from core.services.tenant import slug_to_schema_name
+from access_control.models import RolePermission, UserRole
 from campaign.models import (
     Campaign,
     CampaignStatusHistory,
@@ -1345,4 +1349,91 @@ class CampaignCalendarLinkViewSetTestCase(CampaignViewSetBaseTestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = self._get_results(response)
         self.assertGreaterEqual(len(results), 1)
+
+
+class CampaignAuthorizationRealPermissionTest(TestCase):
+    """
+    Coverage gap: CampaignViewSetBaseTestCase
+    authenticates with force_authenticate(). That only authenticates DRF's
+    Request wrapper inside the view; the Django-level request.user that
+    AuthorizationMiddleware sees stays AnonymousUser, so process_view returns
+    None at its "not authenticated" check and never evaluates any role or
+    permission. Same gap, same fix, as AssetAuthorizationRealPermissionTest
+    in asset/tests/test_views/test_authentication.py.
+
+    These tests authenticate with a real JWT (Authorization: Bearer), which
+    TenantSchemaMiddleware._authenticate_jwt resolves to request.user before
+    AuthorizationMiddleware runs, and send X-Organization-Slug so the request
+    resolves to this organization's tenant schema, where a genuine
+    UserRole + RolePermission is seeded.
+    """
+
+    def setUp(self):
+        self.client = APIClient()
+        self.organization = Organization.objects.create(name="CampaignAuthzOrg")
+        self._schema = slug_to_schema_name(self.organization.slug)
+        with connection.cursor() as cursor:
+            cursor.execute(f'SET search_path TO {self._schema}, public')
+
+        self.perm_view_campaign, _ = Permission.objects.get_or_create(module="CAMPAIGN", action="VIEW")
+
+        self.role_campaign_viewer = Role.objects.create(
+            organization=self.organization, name="CampaignViewer", level=1
+        )
+        RolePermission.objects.create(role=self.role_campaign_viewer, permission=self.perm_view_campaign)
+
+        # A second, real, currently-valid role that does NOT grant
+        # CAMPAIGN/VIEW -- used below to prove the middleware is evaluating a
+        # genuine permission match in this schema, not merely letting every
+        # request in the organization through.
+        self.role_no_campaign_view = Role.objects.create(
+            organization=self.organization, name="NotACampaignViewer", level=1
+        )
+
+        self.user_with_permission = User.objects.create_user(
+            username="campaignviewer", email="campaignviewer@test.com", password="pw"
+        )
+        UserRole.objects.create(
+            user=self.user_with_permission, role=self.role_campaign_viewer, valid_from=timezone.now()
+        )
+
+        self.user_without_permission = User.objects.create_user(
+            username="notcampaignviewer", email="notcampaignviewer@test.com", password="pw"
+        )
+        UserRole.objects.create(
+            user=self.user_without_permission, role=self.role_no_campaign_view, valid_from=timezone.now()
+        )
+
+        with connection.cursor() as cursor:
+            cursor.execute('SET search_path TO public')
+
+    def tearDown(self):
+        with connection.cursor() as cursor:
+            cursor.execute('SET search_path TO public')
+
+    def _get_campaign_list(self, user):
+        # See class docstring: a real JWT (not force_authenticate) is what
+        # makes request.user authenticated for AuthorizationMiddleware, and
+        # the header selects this organization's tenant schema.
+        token = RefreshToken.for_user(user).access_token
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return self.client.get('/api/campaigns/', HTTP_X_ORGANIZATION_SLUG=self.organization.slug)
+
+    def test_campaign_list_allowed_for_user_with_matching_role_permission(self):
+        """A real GET /api/campaigns/ request reaches and passes through
+        AuthorizationMiddleware via a genuine matching UserRole +
+        RolePermission(CAMPAIGN, VIEW) in the request's real tenant schema --
+        not the zero-role grace path (this user is not role-less)."""
+        response = self._get_campaign_list(self.user_with_permission)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_campaign_list_denied_for_user_with_non_matching_role(self):
+        """Same organization/tenant schema and middleware as above, but this
+        user's real, currently-valid role does not grant CAMPAIGN/VIEW --
+        proving the previous 200 was a genuine permission match, not the
+        middleware passing every request through for this schema."""
+        response = self._get_campaign_list(self.user_without_permission)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        # AuthorizationMiddleware's own payload, not a DRF permission error.
+        self.assertEqual(response.json(), {'detail': 'Permission denied'})
 

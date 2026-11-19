@@ -234,9 +234,57 @@ security:
 
 paths:
   /teams:
+    get:
+      summary: List and search teams
+      description: >-
+        List all non-deleted teams of the authenticated user's organization.
+        Requires a Level-2 Organization Admin of that organization (or a superuser).
+      tags:
+        - Teams
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Case-insensitive substring of the team name
+      responses:
+        '200':
+          description: Teams of the organization
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Team'
+                        - type: object
+                          properties:
+                            member_count:
+                              type: integer
+                  team_count:
+                    type: integer
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Not an organization admin
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
     post:
       summary: Create a new team
-      description: Create a new team within the authenticated user's organization
+      description: >-
+        Create a new team within the authenticated user's organization (taken from
+        the caller, never from the request body). Requires a Level-2 Organization
+        Admin or superuser.
       tags:
         - Teams
       requestBody:
@@ -259,13 +307,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
         '403':
-          description: Insufficient permissions (requires Org Admin or Team Leader role)
+          description: Insufficient permissions (requires Level-2 Organization Admin)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
         '409':
-          description: Team name already exists in organization
+          description: Team name already exists in the organization (names of deleted teams cannot be reused)
           content:
             application/json:
               schema:
@@ -370,7 +418,9 @@ paths:
 
     delete:
       summary: Delete team
-      description: Delete a team (requires Org Admin role)
+      description: >-
+        Soft-delete a team (requires Level-2 Organization Admin or superuser).
+        A team that still has members or child teams cannot be deleted (409).
       tags:
         - Teams
       parameters:
@@ -384,7 +434,7 @@ paths:
         '204':
           description: Team deleted successfully
         '403':
-          description: Insufficient permissions (requires Org Admin role)
+          description: Insufficient permissions (requires Level-2 Organization Admin)
           content:
             application/json:
               schema:

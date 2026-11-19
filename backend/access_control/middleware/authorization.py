@@ -6,6 +6,7 @@ from datetime import timedelta
 from core.models import Organization
 from core.services.tenant import slug_to_schema_name
 from access_control.models import RolePermission, UserRole, AdminOverrideAudit
+from access_control import services as access_control_services
 from access_control.services import get_user_permission_bundle
 from typing import Optional, Callable, Any
 from functools import wraps
@@ -16,27 +17,12 @@ class AuthorizationMiddleware:
     A simple middleware example for enforcing permissions based on URL path and HTTP method.
     Assumes the URL prefix contains the module (e.g., 'assets' maps to ASSET),
     and HTTP methods map to actions (GET→VIEW, POST→EDIT, etc.).
-    """
-    METHOD_ACTION_MAP = {
-        'GET': 'VIEW',
-        'POST': 'EDIT',
-        'PUT': 'EDIT',
-        'PATCH': 'APPROVE',
-        'DELETE': 'DELETE',
-    }
 
-    # Explicit URL-segment → module mapping, replacing the old raw.rstrip('s')
-    # guess (which mangled anything not a simple plural, e.g. 'canvas' ->
-    # 'CANVA', 'sms' -> 'SM'). Only covers segments that map directly to a
-    # Permission.MODULE_CHOICES value at the top-level /api/<segment>/ path —
-    # e.g. budgets/queues/tickets/invitations live one level deeper
-    # (/api/budgets/requests/, /api/csm/tickets/, /api/core/invitations/) and
-    # were never reachable through this top-level check even under the old
-    # logic, so they're intentionally not added here.
-    MODULE_PATH_MAP = {
-        'assets': 'ASSET',
-        'campaigns': 'CAMPAIGN',
-    }
+    The URL -> (module, action) resolution lives in the declarative policy
+    registry in access_control.services (resolve_policy). Only "active"
+    decisions create a permission gate; "planned" routes are resolved but not
+    enforced here.
+    """
 
     def __init__(self, get_response=None):
         self.get_response = get_response
@@ -56,22 +42,10 @@ class AuthorizationMiddleware:
         # know whether there's an actual permission gate to bypass: audit logging
         # only fires when a real gate would have applied here — e.g. not
         # for /api/auth/login/, which never reaches a module permission check.
-        parts = request.path.strip('/').split('/')
-        module_key = None
-        action_key = None
-        if len(parts) >= 2 and parts[0] == 'api':
-            raw = parts[1]
-            candidate_module = self.MODULE_PATH_MAP.get(raw)
-            if candidate_module is not None:
-                module_key = candidate_module
-                # Special-case URL segments for approve/export actions
-                if len(parts) >= 4 and parts[3] == 'approve':
-                    action_key = 'APPROVE'
-                elif len(parts) >= 4 and parts[3] == 'export':
-                    action_key = 'EXPORT'
-                else:
-                    action_key = self.METHOD_ACTION_MAP.get(request.method, None)
-        has_permission_gate = module_key is not None and action_key is not None
+        decision = access_control_services.resolve_policy(request.path, request.method)
+        module_key, action_key = decision.module, decision.action
+        # Only "active" decisions create a gate; "planned" routes are not enforced here.
+        has_permission_gate = decision.enforced
 
         # Superusers bypass module-level authorization. The @require_* decorators
         # in this module already short-circuit for superusers ("Org admin
@@ -242,6 +216,10 @@ class AuthorizationMiddleware:
         """
         Decorator to enforce team permission checks on view functions.
         Only users with the required role or org admins can proceed.
+        "MEMBER" accepts any member of the team; "LEADER" requires
+        TeamRole.LEADER. Superusers and level-2 org admins of the current
+        organization (see user_is_current_org_admin) bypass the membership
+        check; everyone else needs the real TeamMember row.
         """
         def decorator(view_func: Callable) -> Callable:
             @wraps(view_func)
@@ -252,31 +230,35 @@ class AuthorizationMiddleware:
                 # Org admin (superuser) can always proceed
                 if hasattr(user, 'is_superuser') and user.is_superuser:
                     return view_func(request, team_id=team_id, *args, **kwargs)
+                # Level-2 org admins of the current organization can also proceed
+                if access_control_services.user_is_current_org_admin(user):
+                    return view_func(request, team_id=team_id, *args, **kwargs)
                 # Check team membership and role
                 if not team_id:
                     return JsonResponse({'error': 'team_id required'}, status=400)
 
-                # CRITICAL: Team membership data may live in public schema,
-                # so temporarily switch back if needed
-                with connection.cursor() as cursor:
-                    cursor.execute('SHOW search_path')
-                    original_path = cursor.fetchone()[0]
-
-                with connection.cursor() as cursor:
-                    cursor.execute('SET search_path TO public')
-
-                try:
-                    membership = TeamMember.objects.filter(user=user, team_id=team_id).first()
-                    if not membership:
-                        return JsonResponse({'error': 'Permission denied: not a team member'}, status=403)
-                    # Only allow if user has required role
-                    if required_role == "LEADER" and membership.role_id != TeamRole.LEADER:
-                        return JsonResponse({'error': 'Permission denied: must be team leader'}, status=403)
-                finally:
-                    # CRITICAL: Use f-string instead of %s parameter to avoid quoting the path
-                    with connection.cursor() as cursor:
-                        cursor.execute(f'SET search_path TO {original_path}')
+                # Team/TeamMember are tenant-scoped; query under the search_path
+                # TenantSchemaMiddleware already selected.
+                membership = TeamMember.objects.filter(user=user, team_id=team_id).first()
+                if not membership:
+                    return JsonResponse({'error': 'Permission denied: not a team member'}, status=403)
+                # Only allow if user has required role
+                if required_role == "LEADER" and membership.role_id != TeamRole.LEADER:
+                    return JsonResponse({'error': 'Permission denied: must be team leader'}, status=403)
 
                 return view_func(request, team_id=team_id, *args, **kwargs)
             return _wrapped_view
         return decorator
+
+    def org_admin_required(view_func: Callable) -> Callable:
+        """Organization-wide Team endpoints (list/search, create, delete).
+        Superusers and current-org level-2 admins only."""
+        @wraps(view_func)
+        def _wrapped_view(request, *args, **kwargs):
+            user = request.user
+            if not user.is_authenticated:
+                return JsonResponse({'error': 'Authentication required'}, status=401)
+            if user.is_superuser or access_control_services.user_is_current_org_admin(user):
+                return view_func(request, *args, **kwargs)
+            return JsonResponse({'error': 'Permission denied: organization admin required'}, status=403)
+        return _wrapped_view

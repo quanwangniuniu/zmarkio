@@ -1111,7 +1111,8 @@ class UserTeamsView(APIView):
         
         user_teams = TeamMember.objects.filter(
             user=request.user,
-            is_deleted=False
+            is_deleted=False,
+            team__is_deleted=False,
         ).select_related('team')
         
         team_ids = [membership.team.id for membership in user_teams]
