@@ -80,8 +80,9 @@ type RetriableRequestConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 const AUTH_STORAGE_KEY = 'auth-storage-v1';
 /** Old key — read once for migration, never written. Removed by follow-up cleanup ticket. */
 export const LEGACY_AUTH_STORAGE_KEY = 'auth-storage';
+// Legacy auth cookie, no longer written or read. Still cleared on logout so
+// copies left in browsers (Max-Age was 4 days) don't linger.
 const AUTH_COOKIE_KEY = 'ms_auth';
-const AUTH_COOKIE_MAX_AGE_SECONDS = 4 * 24 * 60 * 60;
 
 type PersistedAuthState = {
   state?: {
@@ -94,20 +95,6 @@ type PersistedAuthState = {
   };
   version?: number;
 };
-
-function getCookieValue(name: string): string | null {
-  if (typeof document === 'undefined') return null;
-  const encodedName = `${encodeURIComponent(name)}=`;
-  const match = document.cookie
-    .split('; ')
-    .find((part) => part.startsWith(encodedName));
-  return match ? decodeURIComponent(match.slice(encodedName.length)) : null;
-}
-
-function writeCookieValue(name: string, value: string, maxAgeSeconds = AUTH_COOKIE_MAX_AGE_SECONDS) {
-  if (typeof document === 'undefined') return;
-  document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; Max-Age=${maxAgeSeconds}; Path=/; SameSite=Lax`;
-}
 
 function clearCookieValue(name: string) {
   if (typeof document === 'undefined') return;
@@ -171,36 +158,6 @@ function clearAuthSessionStorage() {
   }
 }
 
-function readAuthCookie(): PersistedAuthState | null {
-  const raw = getCookieValue(AUTH_COOKIE_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch (error) {
-    console.warn('Failed to parse auth cookie:', error);
-    return null;
-  }
-}
-
-function writeAuthCookie(authData: PersistedAuthState) {
-  const state = authData.state;
-  if (!state?.token && !state?.refreshToken) {
-    clearCookieValue(AUTH_COOKIE_KEY);
-    return;
-  }
-  writeCookieValue(
-    AUTH_COOKIE_KEY,
-    JSON.stringify({
-      state: {
-        token: state.token ?? null,
-        refreshToken: state.refreshToken ?? null,
-        organizationAccessToken: state.organizationAccessToken ?? null,
-      },
-      version: authData.version ?? 0,
-    }),
-  );
-}
-
 export function readPersistedAuthState() {
   if (typeof window === 'undefined') return null;
   if (canUseLocalStorage()) {
@@ -213,9 +170,7 @@ export function readPersistedAuthState() {
       console.warn('Failed to read auth storage:', error);
     }
   }
-  const sessionAuth = readAuthSessionStorage();
-  if (sessionAuth) return sessionAuth;
-  return readAuthCookie();
+  return readAuthSessionStorage();
 }
 
 export function persistAuthTokens(tokens: {
@@ -245,7 +200,6 @@ export function persistAuthTokens(tokens: {
     }
   }
   writeAuthSessionStorage(authData);
-  writeAuthCookie(authData);
 }
 
 export function clearPersistedAuthState() {
@@ -278,7 +232,7 @@ export const authPersistStorage = {
         console.warn('Failed to read persisted auth session item:', error);
       }
     }
-    return name === AUTH_STORAGE_KEY ? getCookieValue(AUTH_COOKIE_KEY) : null;
+    return null;
   },
   setItem: (name: string, value: string): void => {
     if (canUseLocalStorage()) {
@@ -294,14 +248,6 @@ export const authPersistStorage = {
       } catch (error) {
         console.warn('Failed to write persisted auth session item:', error);
       }
-    }
-    // Always write cookie (not just as localStorage fallback) so SSR requests
-    // have an up-to-date token without needing a separate persistAuthTokens call.
-    if (name !== AUTH_STORAGE_KEY) return;
-    try {
-      writeAuthCookie(JSON.parse(value));
-    } catch (error) {
-      console.warn('Failed to persist auth cookie:', error);
     }
   },
   removeItem: (name: string): void => {
@@ -340,14 +286,14 @@ export function updatePersistedAccessToken(accessToken: string, refreshToken?: s
     }
   }
   writeAuthSessionStorage(authData);
-  writeAuthCookie(authData);
 }
 
 // Throws on failure so callers can tell a rejected refresh token from an unreachable server.
-async function requestTokenRefresh(refreshToken: string): Promise<string | null> {
+// The refresh token itself travels in the HttpOnly refresh cookie, never in JS.
+async function requestTokenRefresh(): Promise<string | null> {
   const response = await axios.post(
     `${API_BASE_URL}/auth/token/refresh/`,
-    { refresh: refreshToken },
+    {},
     {
       headers: {
         'Content-Type': 'application/json',
@@ -357,13 +303,13 @@ async function requestTokenRefresh(refreshToken: string): Promise<string | null>
   );
   const accessToken = response.data?.access || response.data?.token;
   if (!accessToken) return null;
-  updatePersistedAccessToken(accessToken, response.data?.refresh);
+  updatePersistedAccessToken(accessToken);
   return accessToken;
 }
 
-export async function refreshAccessToken(refreshToken: string): Promise<string | null> {
+export async function refreshAccessToken(): Promise<string | null> {
   try {
-    return await requestTokenRefresh(refreshToken);
+    return await requestTokenRefresh();
   } catch (error) {
     console.warn('Failed to refresh auth token:', error);
     return null;
@@ -386,9 +332,10 @@ export function endSession() {
 
 // Shared across every caller (this file's interceptor, other axios instances
 // like preferencesApi.ts) so concurrent 401s trigger exactly one refresh call.
-export function getSharedRefreshedToken(refreshToken: string): Promise<string | null> {
+// The argument is ignored (the refresh token is in the HttpOnly cookie); 
+export function getSharedRefreshedToken(_refreshToken?: string | null): Promise<string | null> {
   if (!sharedRefreshPromise) {
-    sharedRefreshPromise = requestTokenRefresh(refreshToken).catch((error) => {
+    sharedRefreshPromise = requestTokenRefresh().catch((error) => {
       console.warn('Failed to refresh auth token:', error);
       // Network errors and 5xx may recover; a 4xx means the server rejected the refresh token.
       // Runs once per refresh, not once per waiting request.
@@ -487,9 +434,9 @@ api.interceptors.response.use(
 
     if (status === 401 && !isAuthEndpoint && !shouldBypassGlobalLogout) {
       if (typeof window !== 'undefined' && config && !config._retry) {
-        const authData = readPersistedAuthState();
-        const refreshToken = authData?.state?.refreshToken;
-        const accessToken = refreshToken ? await getSharedRefreshedToken(refreshToken) : null;
+        // Only a request that had a session is worth refreshing (via the HttpOnly
+        // cookie). A rejected refresh ends the session inside getSharedRefreshedToken.
+        const accessToken = config.headers.Authorization ? await getSharedRefreshedToken() : null;
 
         // Mark the request as retried so we don't end up in an infinite loop.
         config._retry = true;
@@ -497,9 +444,6 @@ api.interceptors.response.use(
           config.headers.Authorization = `Bearer ${accessToken}`;
           return api(config);
         }
-        // Sent a token but have nothing to refresh it with: the session is dead.
-        // (A rejected refresh already ended it inside getSharedRefreshedToken.)
-        if (!refreshToken && config.headers.Authorization) endSession();
       }
 
       // Session was explicitly revoked or exceeded concurrent limit.
@@ -585,8 +529,8 @@ export const authAPI = {
     return response.data;
   },
 
-  refreshToken: async (refreshToken: string): Promise<string | null> => {
-    return refreshAccessToken(refreshToken);
+  refreshToken: async (): Promise<string | null> => {
+    return refreshAccessToken();
   },
 
   // Profile update endpoint (handles both JSON and FormData for avatar uploads)
