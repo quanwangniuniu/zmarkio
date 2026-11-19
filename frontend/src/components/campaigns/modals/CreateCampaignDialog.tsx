@@ -16,6 +16,9 @@ import BrandDialog from '@/components/tasks/detail/BrandDialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import BrandButton from '../BrandButton';
+import { CAMPAIGN_OBJECTIVE, CAMPAIGN_PLATFORM } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionChoices } from '@/lib/orgCustomization/optionConfig';
 
 interface Props {
   open: boolean;
@@ -23,36 +26,13 @@ interface Props {
   onSuccess?: () => void;
 }
 
-const OBJECTIVES: Array<{ value: CampaignObjective; label: string }> = [
-  { value: 'AWARENESS', label: 'Awareness' },
-  { value: 'CONSIDERATION', label: 'Consideration' },
-  { value: 'CONVERSION', label: 'Conversion' },
-  { value: 'RETENTION', label: 'Retention' },
-  { value: 'ENGAGEMENT', label: 'Engagement' },
-  { value: 'TRAFFIC', label: 'Traffic' },
-  { value: 'LEAD_GENERATION', label: 'Lead Generation' },
-  { value: 'APP_PROMOTION', label: 'App Promotion' },
-];
-
-const PLATFORMS: Array<{ value: CampaignPlatform; label: string }> = [
-  { value: 'META', label: 'Meta' },
-  { value: 'GOOGLE_ADS', label: 'Google Ads' },
-  { value: 'TIKTOK', label: 'TikTok' },
-  { value: 'LINKEDIN', label: 'LinkedIn' },
-  { value: 'SNAPCHAT', label: 'Snapchat' },
-  { value: 'TWITTER', label: 'Twitter' },
-  { value: 'PINTEREST', label: 'Pinterest' },
-  { value: 'REDDIT', label: 'Reddit' },
-  { value: 'PROGRAMMATIC', label: 'Programmatic' },
-  { value: 'EMAIL', label: 'Email' },
-];
-
 const inputCls =
   'w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-[#3CCED7] focus:outline-none focus:ring-2 focus:ring-[#3CCED7]/30 disabled:opacity-50';
 
 const todayIso = () => new Date().toISOString().split('T')[0];
 
 export default function CreateCampaignDialog({ open, onOpenChange, onSuccess }: Props) {
+  useOptionConfigVersion();
   const activeProject = useProjectStore((s) => s.activeProject);
   const [form, setForm] = useState<Partial<CreateCampaignData>>({
     name: '',
@@ -223,7 +203,7 @@ export default function CreateCampaignDialog({ open, onOpenChange, onSuccess }: 
             className={inputCls}
           >
             <option value="">Select objective...</option>
-            {OBJECTIVES.map((o) => (
+            {optionChoices<CampaignObjective>(CAMPAIGN_OBJECTIVE).map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
             ))}
           </select>
@@ -234,7 +214,7 @@ export default function CreateCampaignDialog({ open, onOpenChange, onSuccess }: 
             Platforms <span className="text-rose-500">*</span>
           </label>
           <div className="flex flex-wrap gap-1.5">
-            {PLATFORMS.map((p) => {
+            {optionChoices<CampaignPlatform>(CAMPAIGN_PLATFORM).map((p) => {
               const active = form.platforms?.includes(p.value);
               return (
                 <button

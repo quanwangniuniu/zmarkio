@@ -16,6 +16,9 @@ import BrandButton from '@/components/campaigns/BrandButton';
 import BrandConfirmDialog from '@/components/campaigns/BrandConfirmDialog';
 import { useCampaignCheckIns } from '@/hooks/campaigns/useCampaignCheckIns';
 import type { CampaignCheckIn } from '@/types/campaign';
+import { CHECKIN_SENTIMENT } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionColorStyle, optionLabel } from '@/lib/orgCustomization/optionConfig';
 
 export interface CheckInsSectionProps {
   campaignId: string;
@@ -82,6 +85,7 @@ function formatTimestamp(timestamp: string): string {
 
 const CheckInsSection = forwardRef<CheckInsSectionHandle, CheckInsSectionProps>(
   function CheckInsSection({ campaignId, isArchived = false, onCreate, onEdit }, ref) {
+    useOptionConfigVersion();
     const { items, loading, error, refresh, remove } = useCampaignCheckIns(campaignId);
     const [hoveredRow, setHoveredRow] = useState<string | null>(null);
     const [confirmDeleteTarget, setConfirmDeleteTarget] = useState<CampaignCheckIn | null>(null);
@@ -211,9 +215,10 @@ const CheckInsSection = forwardRef<CheckInsSectionHandle, CheckInsSectionProps>(
                     <div className="flex-shrink-0">
                       <span
                         className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm font-medium ${palette.pillClass}`}
+                        style={optionColorStyle(CHECKIN_SENTIMENT.colors[checkIn.sentiment])}
                       >
                         <Icon className={`h-4 w-4 ${palette.iconClass}`} />
-                        {checkIn.sentiment_display}
+                        {optionLabel(CHECKIN_SENTIMENT, checkIn.sentiment)}
                       </span>
                     </div>
 

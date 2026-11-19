@@ -19,8 +19,9 @@ from .models import (
     SheetStructureOperation, WorkflowPattern, WorkflowPatternStep,
     SpreadsheetHighlight, SpreadsheetHighlightScope, UserDefinedFunction
 )
+from . import structure_decorations
 from .formula_engine import evaluate_formula, extract_references, reference_to_indexes, FormulaError
-from .formula_rewrite import rewrite_cells_for_operation
+from .formula_rewrite import formulas_for_revert, rewrite_cells_for_structure
 from .sparkline import compute_sparkline, is_sparkline
 from rest_framework.exceptions import ValidationError as DRFValidationError
 from .exceptions import SheetRevisionConflict
@@ -654,7 +655,12 @@ class SheetService:
             affected_positions={},
             created_by=created_by
         )
-        rewritten_cells = rewrite_cells_for_operation(sheet.id, 'ROW_INSERT', position, count)
+        structure_decorations.shift_row_metadata_for_insert(sheet, position, count)
+        rewritten_cells, formula_rewrites = rewrite_cells_for_structure(
+            sheet.id, 'ROW_INSERT', position, count,
+        )
+        operation.formula_rewrites = formula_rewrites
+        operation.save(update_fields=['formula_rewrites'])
         for cell in rewritten_cells:
             CellService._update_dependencies(cell)
         CellService._recalculate_formula_cells(rewritten_cells)
@@ -736,7 +742,12 @@ class SheetService:
             affected_positions={},
             created_by=created_by
         )
-        rewritten_cells = rewrite_cells_for_operation(sheet.id, 'COL_INSERT', position, count)
+        structure_decorations.shift_column_metadata_for_insert(sheet, position, count)
+        rewritten_cells, formula_rewrites = rewrite_cells_for_structure(
+            sheet.id, 'COL_INSERT', position, count,
+        )
+        operation.formula_rewrites = formula_rewrites
+        operation.save(update_fields=['formula_rewrites'])
         for cell in rewritten_cells:
             CellService._update_dependencies(cell)
         CellService._recalculate_formula_cells(rewritten_cells)
@@ -810,6 +821,9 @@ class SheetService:
                 position__gte=position + count + offset
             ).update(position=F('position') - offset - count)
 
+        removed_decorations = structure_decorations.snapshot_removed_decorations(
+            sheet, axis='row', position=position, count=count,
+        )
         operation = SheetStructureOperation.objects.create(
             sheet=sheet,
             op_type=SheetStructureOperation.OperationType.ROW_DELETE,
@@ -817,9 +831,16 @@ class SheetService:
             count=count,
             affected_ids=affected_ids,
             affected_positions=affected_positions,
+            removed_decorations=removed_decorations,
             created_by=created_by
         )
-        rewritten_cells = rewrite_cells_for_operation(sheet.id, 'ROW_DELETE', position, count)
+        structure_decorations.shift_row_metadata_for_delete(sheet, position, count)
+        rewritten_cells, formula_rewrites = rewrite_cells_for_structure(
+            sheet.id, 'ROW_DELETE', position, count,
+        )
+        operation.formula_rewrites = formula_rewrites
+        operation.save(update_fields=['formula_rewrites'])
+
         for cell in rewritten_cells:
             CellService._update_dependencies(cell)
         CellService._recalculate_formula_cells(rewritten_cells)
@@ -893,6 +914,9 @@ class SheetService:
                 position__gte=position + count + offset
             ).update(position=F('position') - offset - count)
 
+        removed_decorations = structure_decorations.snapshot_removed_decorations(
+            sheet, axis='column', position=position, count=count,
+        )
         operation = SheetStructureOperation.objects.create(
             sheet=sheet,
             op_type=SheetStructureOperation.OperationType.COL_DELETE,
@@ -900,9 +924,15 @@ class SheetService:
             count=count,
             affected_ids=affected_ids,
             affected_positions=affected_positions,
+            removed_decorations=removed_decorations,
             created_by=created_by
         )
-        rewritten_cells = rewrite_cells_for_operation(sheet.id, 'COL_DELETE', position, count)
+        structure_decorations.shift_column_metadata_for_delete(sheet, position, count)
+        rewritten_cells, formula_rewrites = rewrite_cells_for_structure(
+            sheet.id, 'COL_DELETE', position, count,
+        )
+        operation.formula_rewrites = formula_rewrites
+        operation.save(update_fields=['formula_rewrites'])
         for cell in rewritten_cells:
             CellService._update_dependencies(cell)
         CellService._recalculate_formula_cells(rewritten_cells)
@@ -1156,7 +1186,9 @@ class SheetService:
                     is_deleted=False,
                     position__gte=operation.anchor_position + operation.count + offset
                 ).update(position=F('position') - offset - operation.count)
-            rewritten_cells = rewrite_cells_for_operation(sheet.id, 'ROW_DELETE', operation.anchor_position, operation.count)
+            structure_decorations.shift_row_metadata_for_delete(sheet, operation.anchor_position, operation.count)
+            rewritten_cells = formulas_for_revert(sheet, operation, 'ROW_DELETE')
+
             for cell in rewritten_cells:
                 CellService._update_dependencies(cell)
             CellService._recalculate_formula_cells(rewritten_cells)
@@ -1175,7 +1207,9 @@ class SheetService:
                     is_deleted=False,
                     position__gte=operation.anchor_position + operation.count + offset
                 ).update(position=F('position') - offset - operation.count)
-            rewritten_cells = rewrite_cells_for_operation(sheet.id, 'COL_DELETE', operation.anchor_position, operation.count)
+            structure_decorations.shift_column_metadata_for_delete(sheet, operation.anchor_position, operation.count)
+            rewritten_cells = formulas_for_revert(sheet, operation, 'COL_DELETE')
+  
             for cell in rewritten_cells:
                 CellService._update_dependencies(cell)
             CellService._recalculate_formula_cells(rewritten_cells)
@@ -1200,7 +1234,10 @@ class SheetService:
                     is_deleted=False,
                     position=position
                 )
-            rewritten_cells = rewrite_cells_for_operation(sheet.id, 'ROW_INSERT', operation.anchor_position, operation.count)
+            structure_decorations.shift_row_metadata_for_insert(sheet, operation.anchor_position, operation.count)
+            structure_decorations.restore_removed_decorations(sheet, operation.removed_decorations)
+            rewritten_cells = formulas_for_revert(sheet, operation, 'ROW_INSERT')
+            
             for cell in rewritten_cells:
                 CellService._update_dependencies(cell)
             CellService._recalculate_formula_cells(rewritten_cells)
@@ -1224,7 +1261,10 @@ class SheetService:
                     is_deleted=False,
                     position=position
                 )
-            rewritten_cells = rewrite_cells_for_operation(sheet.id, 'COL_INSERT', operation.anchor_position, operation.count)
+            structure_decorations.shift_column_metadata_for_insert(sheet, operation.anchor_position, operation.count)
+            structure_decorations.restore_removed_decorations(sheet, operation.removed_decorations)
+            rewritten_cells = formulas_for_revert(sheet, operation, 'COL_INSERT')
+            
             for cell in rewritten_cells:
                 CellService._update_dependencies(cell)
             CellService._recalculate_formula_cells(rewritten_cells)

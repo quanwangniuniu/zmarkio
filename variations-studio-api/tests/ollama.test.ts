@@ -25,6 +25,7 @@ describe('Ollama provider', () => {
             ...originalEnv,
             OLLAMA_BASE_URL: 'http://ollama.test:11434/',
             OLLAMA_MODEL: 'test-model',
+            OLLAMA_NUM_CTX: '8192',
             OLLAMA_REQUEST_TIMEOUT_MS: '5000',
             OLLAMA_RETRY_DELAYS_MS: '0,0',
         };
@@ -40,6 +41,7 @@ describe('Ollama provider', () => {
         expect(getOllamaConfig()).toEqual({
             baseUrl: 'http://ollama.test:11434',
             model: 'test-model',
+            numCtx: 8192,
             timeoutMs: 5000,
             retryDelaysMs: [0, 0],
             keepAlive: '30m',
@@ -51,6 +53,14 @@ describe('Ollama provider', () => {
 
         expect(() => getOllamaConfig()).toThrow(
             'OLLAMA_MODEL is not configured.'
+        );
+    });
+
+    it('rejects an invalid context window', () => {
+        process.env.OLLAMA_NUM_CTX = '8192.5';
+
+        expect(() => getOllamaConfig()).toThrow(
+            'OLLAMA_NUM_CTX must be a positive integer.'
         );
     });
 
@@ -110,6 +120,7 @@ describe('Ollama provider', () => {
             keep_alive: '30m',
             options: {
                 temperature: 0.7,
+                num_ctx: 8192,
             },
         });
 

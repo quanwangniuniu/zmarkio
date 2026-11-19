@@ -1,4 +1,4 @@
-"""Tests for rag.tasks — Celery orchestration only (MED-264).
+"""Tests for rag.tasks — Celery orchestration only.
 
 `rag.indexing.index_source_document` is always mocked here via
 `rag.tasks.index_source_document` -- this file proves what

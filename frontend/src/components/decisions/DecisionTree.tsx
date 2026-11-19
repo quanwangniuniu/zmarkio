@@ -16,6 +16,9 @@ import { useBuildUrl } from '@/lib/buildUrl';
 import dagre from '@dagrejs/dagre';
 import { CheckCircle2, FileText, Link2, PencilLine, Plus, Trash2, X } from 'lucide-react';
 import DecisionStatusPill from '@/components/decisions/DecisionStatusPill';
+import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionColorStyle, optionLabel } from '@/lib/orgCustomization/optionConfig';
 import {
   bucketDateKey,
   bucketLabel,
@@ -410,6 +413,7 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
   },
   ref,
 ) {
+  useOptionConfigVersion();
   const buildUrl = useBuildUrl();
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -2448,8 +2452,9 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
                   {node.riskLevel ? (
                     <span
                       className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[12px] font-medium ${riskPillStyle(node.riskLevel)}`}
+                      style={optionColorStyle(DECISION_RISK.colors[node.riskLevel])}
                     >
-                      {node.riskLevel}
+                      {optionLabel(DECISION_RISK, node.riskLevel)}
                     </span>
                   ) : null}
                 </div>
@@ -2514,7 +2519,7 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
             </span>
             {popover.node.riskLevel ? (
               <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600">
-                {popover.node.riskLevel}
+                {optionLabel(DECISION_RISK, popover.node.riskLevel)}
               </span>
             ) : null}
           </div>

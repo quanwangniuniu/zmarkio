@@ -8,6 +8,7 @@ used.
 """
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 
@@ -17,7 +18,6 @@ from agent.models import AgentMessage
 
 logger = logging.getLogger(__name__)
 
-_REWRITE_MODEL = 'gemini-2.5-flash-lite'
 _REWRITE_TEMPERATURE = 0
 _REWRITE_MAX_OUTPUT_TOKENS = 256
 _REWRITE_SYSTEM_PROMPT = (
@@ -36,8 +36,18 @@ _REWRITE_SYSTEM_PROMPT = (
     "rewrite. "
     "If the question is already complete, or it changes topic away from the "
     "prior turns, return it unchanged — do not append nouns from earlier turns. "
-    "Return one line containing only the question. Do not explain."
+    "Return one line containing only the question. Do not explain. "
+    'Respond only with JSON: {"question": "<the rewritten question, or the original follow-up if the referent is unclear>"}'
 )
+
+_REWRITE_RESPONSE_FORMAT = {
+    "type": "object",
+    "properties": {
+        "question": {"type": "string"},
+    },
+    "required": ["question"],
+}
+_REJECTED_OUTPUT_MAX_CHARS = 200
 
 
 @dataclass(frozen=True)
@@ -53,6 +63,7 @@ class RewriteResult:
     question: str
     fell_back: bool
     reason: str
+    rejected_text: str = ''
 
 
 def recent_rewrite_turns(session) -> list[tuple[str, str]]:
@@ -123,9 +134,12 @@ def rewrite_project_question_result(session, project, question: str) -> RewriteR
     """Rewrite with explicit fallback metadata for eval and debugging.
 
     With no earlier completed turn, the original question is returned and
-    the model is not called. Otherwise the model must return exactly one
-    line. An empty reply, more than one line, a timeout, or any other
-    error returns the original question with fell_back=True.
+    the model is not called. Otherwise the model must return JSON with a
+    question field that is exactly one line. A timeout, a response that is
+    not that JSON, an empty question, or more than one line returns the
+    original question with fell_back=True. A usable question that matches
+    the original is not a fallback: the search string is unchanged because
+    the model left it unchanged.
     """
     original = (question or '').strip()
     turns = recent_rewrite_turns(session)
@@ -138,14 +152,15 @@ def rewrite_project_question_result(session, project, question: str) -> RewriteR
 
         result = call_llm(
             agent_session=session,
-            provider='gemini',
-            model=_REWRITE_MODEL,
+            provider='ollama',
+            model=settings.RAG_OLLAMA_CHAT_MODEL,
             system_prompt=_REWRITE_SYSTEM_PROMPT,
             user_prompt=_rewrite_user_prompt(turns, original),
             max_output_tokens=_REWRITE_MAX_OUTPUT_TOKENS,
             temperature=_REWRITE_TEMPERATURE,
             call_purpose='other',
             timeout=settings.RAG_QUERY_REWRITE_TIMEOUT_SECONDS,
+            response_format=_REWRITE_RESPONSE_FORMAT,
         )
     except Exception as exc:
         logger.warning(
@@ -155,13 +170,18 @@ def rewrite_project_question_result(session, project, question: str) -> RewriteR
         _log_rewrite(project, session, original, original, fell_back=True, reason='error')
         return RewriteResult(question=original, fell_back=True, reason='error')
 
-    accepted = _single_question(result.get('text') or '')
+    raw = result.get('text') or ''
+    accepted = _question_from_rewrite_response(raw)
     if accepted is None:
+        rejected = raw.strip()[:_REJECTED_OUTPUT_MAX_CHARS]
         _log_rewrite(project, session, original, original, fell_back=True, reason='unusable_output')
-        return RewriteResult(question=original, fell_back=True, reason='unusable_output')
+        return RewriteResult(
+            question=original, fell_back=True, reason='unusable_output', rejected_text=rejected,
+        )
 
-    _log_rewrite(project, session, original, accepted, fell_back=False, reason='rewritten')
-    return RewriteResult(question=accepted, fell_back=False, reason='rewritten')
+    reason = 'unchanged' if accepted == original else 'rewritten'
+    _log_rewrite(project, session, original, accepted, fell_back=False, reason=reason)
+    return RewriteResult(question=accepted, fell_back=False, reason=reason)
 
 
 # Synthetic few-shots only. Keep them out of the eval fixture so the model
@@ -247,6 +267,24 @@ def _rewrite_user_prompt(turns: list[tuple[str, str]], question: str) -> str:
         f"Follow-up question:\n{question}\n"
         f"Rewritten:"
     )
+
+
+def _question_from_rewrite_response(text: str) -> str | None:
+    """Read the one-line question from a rewrite JSON object.
+
+    Returns None when the body is not a JSON object, `question` is missing
+    or not a string, or that string is empty or more than one line.
+    """
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    question = data.get('question')
+    if not isinstance(question, str):
+        return None
+    return _single_question(question)
 
 
 def _single_question(text: str) -> str | None:

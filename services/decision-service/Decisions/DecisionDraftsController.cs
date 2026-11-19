@@ -23,7 +23,7 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
 
         try
         {
-            var decision = repository.Create(projectId, access.UserId, request);
+            var decision = await repository.CreateAsync(projectId, access.UserId, request, cancellationToken);
             return Created($"/api/decisions/drafts/{decision.Id}", decision);
         }
         catch (DecisionValidationException ex)
@@ -35,7 +35,7 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
     [HttpGet("{lookup}")]
     public async Task<ActionResult<DecisionDetailDto>> Retrieve([FromRoute] string lookup, CancellationToken cancellationToken)
     {
-        var decision = repository.Get(lookup);
+        var decision = await repository.GetAsync(lookup, cancellationToken);
         if (decision is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -47,7 +47,7 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
     [HttpPatch("{lookup}")]
     public async Task<ActionResult<DecisionDetailDto>> Patch([FromRoute] string lookup, [FromBody] UpdateDecisionDraftRequest request, CancellationToken cancellationToken)
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -65,8 +65,15 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
             });
         }
 
-        var decision = repository.UpdateDraft(lookup, access.UserId, request);
-        return decision is null ? BadRequest(new { detail = "Draft decision cannot be updated." }) : Ok(decision);
+        try
+        {
+            var decision = await repository.UpdateDraftAsync(lookup, access.UserId, request, cancellationToken);
+            return decision is null ? BadRequest(new { detail = "Draft decision cannot be updated." }) : Ok(decision);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
     }
 
     private int? ProjectId()

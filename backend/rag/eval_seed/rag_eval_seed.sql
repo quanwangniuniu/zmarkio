@@ -1,11 +1,11 @@
 -- MED-264 eval-fixture seed SQL -- GENERATED FILE, DO NOT HAND-EDIT.
 -- Source of truth: /app/rag/tests/fixtures/project_rag_eval_dataset.json (dataset_version='2.1.0').
--- Regenerate with: python manage.py generate_med264_seed_sql
--- Verify in sync with: python manage.py generate_med264_seed_sql --check
+-- Regenerate with: python manage.py generate_rag_eval_seed_sql
+-- Verify in sync with: python manage.py generate_rag_eval_seed_sql --check
 --
 -- Usage (target_schema is REQUIRED, no default -- never relies on the
 -- caller's existing search_path, to avoid silently seeding the wrong tenant):
---   psql <connection args> -v target_schema=org_rag_eval_harness -f med264_seed.sql
+--   psql <connection args> -v target_schema=org_rag_eval_harness -f rag_eval_seed.sql
 --
 -- Portable: project/user rows are resolved at execution time by stable natural
 -- keys (organization name 'RAG Eval Harness' + project name 'MED-264 RAG Eval Fixture'; user

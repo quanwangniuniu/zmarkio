@@ -21,6 +21,9 @@ import CampaignStatusPill from '@/components/campaigns/pills/CampaignStatusPill'
 import { Badge } from '@/components/ui/badge';
 import { useCampaignActivity } from '@/hooks/campaigns/useCampaignActivity';
 import type { CampaignActivityTimelineItem, CampaignStatus } from '@/types/campaign';
+import { CHECKIN_SENTIMENT, SNAPSHOT_METRIC, SNAPSHOT_MILESTONE } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionColorStyle, optionLabel } from '@/lib/orgCustomization/optionConfig';
 
 export interface TimelineSectionProps {
   campaignId: string;
@@ -141,8 +144,12 @@ function renderEventContent(item: CampaignActivityTimelineItem) {
           <span className="text-sm text-gray-900">
             <span className="font-medium">{userName}</span> checked in
           </span>
-          <Badge variant="outline" className={`text-xs ${sentimentColor}`}>
-            {item.details.sentiment_display || sentiment || 'Neutral'}
+          <Badge
+            variant="outline"
+            className={`text-xs ${sentimentColor}`}
+            style={sentiment ? optionColorStyle(CHECKIN_SENTIMENT.colors[sentiment]) : undefined}
+          >
+            {optionLabel(CHECKIN_SENTIMENT, sentiment) || 'Neutral'}
           </Badge>
         </div>
         {item.details.note && (
@@ -160,9 +167,9 @@ function renderEventContent(item: CampaignActivityTimelineItem) {
           <span className="text-sm text-gray-900">
             <span className="font-medium">{userName}</span> recorded performance snapshot
           </span>
-          {item.details.milestone_type_display && (
+          {item.details.milestone_type && (
             <Badge variant="outline" className="text-xs">
-              {item.details.milestone_type_display}
+              {optionLabel(SNAPSHOT_MILESTONE, item.details.milestone_type)}
             </Badge>
           )}
         </div>
@@ -172,9 +179,9 @@ function renderEventContent(item: CampaignActivityTimelineItem) {
               <span className="font-medium">Spend:</span> ${item.details.spend}
             </span>
           )}
-          {item.details.metric_type_display && item.details.metric_value && (
+          {item.details.metric_type && item.details.metric_value && (
             <span>
-              <span className="font-medium">{item.details.metric_type_display}:</span>{' '}
+              <span className="font-medium">{optionLabel(SNAPSHOT_METRIC, item.details.metric_type)}:</span>{' '}
               {item.details.metric_value}
             </span>
           )}
@@ -209,6 +216,7 @@ function renderEventContent(item: CampaignActivityTimelineItem) {
 
 const TimelineSection = forwardRef<TimelineSectionHandle, TimelineSectionProps>(
   function TimelineSection({ campaignId }, ref) {
+    useOptionConfigVersion();
     const {
       items,
       page,

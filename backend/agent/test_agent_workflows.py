@@ -1141,12 +1141,16 @@ class CalendarAgentTests(TestCase):
         self.assertIn('done', types)
         self.assertTrue(mock_call_gemini.called)
 
+    @patch('rag.retrieval.retrieve_chunks', return_value=[])
     @patch('agent.services.requests.post')
-    def test_handle_message_without_calendar_context_skips_calendar(self, mock_post):
+    def test_handle_message_without_calendar_context_skips_calendar(self, mock_post, _retrieve):
         """handle_message without calendar_context must NOT call the calendar Dify endpoint."""
         chunks = list(self.orchestrator.handle_message('Hello'))
-        # requests.post should not have been called for the calendar workflow
+        # A generic message now falls through to project RAG. Retrieval is
+        # stubbed so that path does not HTTP. requests.post is the calendar
+        # Dify call this test is guarding.
         self.assertFalse(mock_post.called)
+        self.assertTrue(chunks)
 
     # ------------------------------------------------------------------ #
     # _fetch_events_for_context                                           #

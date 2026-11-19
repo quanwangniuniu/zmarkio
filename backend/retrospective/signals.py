@@ -25,13 +25,13 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
-# --- RAG indexing (MED-264) ------------------------------------------------
+# --- RAG indexing ----------------------------------------------------------
 # Same broad-save principle as meetings/signals.py and notion_editor/signals.py:
 # these handlers just say "this retrospective's content may have changed" and
 # let index_source_document's content_hash + pipeline_hash check decide
 # cheaply whether anything actually needs re-embedding. See those modules'
 # docstrings for the transaction.on_commit + best-effort-delivery trade-offs,
-# and for the MED-264 Problem 7 mark_source_dirty / dirty_since /
+# and for the mark_source_dirty / dirty_since /
 # clear_source_index / reconcile_dirty_rag_states reliability handling --
 # both apply identically here and aren't repeated.
 #

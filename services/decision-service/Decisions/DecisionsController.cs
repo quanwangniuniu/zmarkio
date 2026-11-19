@@ -24,7 +24,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         projectId = access.ProjectId ?? projectId;
         var boundedPageSize = Math.Clamp(pageSize, 1, 100);
         var boundedPageToken = Math.Max(pageToken, 0);
-        return Ok(repository.List(projectId, status, boundedPageSize, boundedPageToken));
+        return Ok(await repository.ListAsync(projectId, status, boundedPageSize, boundedPageToken, cancellationToken));
     }
 
     [HttpGet("graph")]
@@ -47,13 +47,13 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         }
 
         var allProjects = string.Equals(scope, "all_projects", StringComparison.OrdinalIgnoreCase);
-        return Ok(repository.GetGraph(projectId.Value, allProjects, access.UserId, access.IsSuperuser));
+        return Ok(await repository.GetGraphAsync(projectId.Value, allProjects, access.UserId, access.IsSuperuser, cancellationToken));
     }
 
     [HttpGet("{lookup:regex(^(?!graph$).+)}")]
     public async Task<ActionResult<DecisionDetailDto>> Retrieve([FromRoute] string lookup, CancellationToken cancellationToken)
     {
-        var decision = repository.Get(lookup);
+        var decision = await repository.GetAsync(lookup, cancellationToken);
         if (decision is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -93,7 +93,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
 
-        var label = repository.UpsertTopicLabel(projectId.Value, topic, title);
+        var label = await repository.UpsertTopicLabelAsync(projectId.Value, topic, title, cancellationToken);
         return label is null ? BadRequest(new { detail = "Topic label could not be saved." }) : Ok(label);
     }
 
@@ -112,7 +112,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
 
-        return repository.DeleteTopicLabel(projectId.Value, topic) switch
+        return await repository.DeleteTopicLabelAsync(projectId.Value, topic, cancellationToken) switch
         {
             TopicLabelDeleteResult.Deleted or TopicLabelDeleteResult.NotFound => NoContent(),
             TopicLabelDeleteResult.NotEmpty => BadRequest(new { detail = "Only empty topics can be deleted." }),
@@ -127,7 +127,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         CancellationToken cancellationToken
     )
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -137,8 +137,17 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        var decision = repository.UpdateDraft(lookup, access.UserId, request);
-        return decision is null ? BadRequest(new { detail = "Decision cannot be updated in its current state." }) : Ok(decision);
+        
+        try
+        {
+            var decision = await repository.UpdateDraftAsync(lookup, access.UserId, request, cancellationToken);
+            return decision is null ? BadRequest(new { detail = "Decision cannot be updated in its current state." }) : Ok(decision);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
+        
     }
 
     [HttpPost("{lookup}/commit")]
@@ -168,7 +177,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     [HttpDelete("{lookup}")]
     public async Task<IActionResult> Delete([FromRoute] string lookup, CancellationToken cancellationToken)
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -178,27 +187,27 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        return repository.Delete(lookup, access.UserId) ? NoContent() : NotFound(new { detail = "Not found." });
+        return await repository.DeleteAsync(lookup, access.UserId, cancellationToken) ? NoContent() : NotFound(new { detail = "Not found." });
     }
 
     [HttpGet("{lookup}/signals")]
     public async Task<ActionResult<DecisionSignalListResponse>> ListSignals([FromRoute] string lookup, CancellationToken cancellationToken)
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
         }
         var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.View, cancellationToken);
         return access is { Allowed: true }
-            ? Ok(repository.ListSignals(lookup))
+            ? Ok(await repository.ListSignalsAsync(lookup, cancellationToken))
             : DecisionAccessResponses.UnauthorizedOrForbidden(access);
     }
 
     [HttpPost("{lookup}/signals")]
     public async Task<ActionResult<DecisionSignalDto>> CreateSignal([FromRoute] string lookup, [FromBody] DecisionSignalInput input, CancellationToken cancellationToken)
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -212,14 +221,21 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
-        var signal = repository.CreateSignal(lookup, access.UserId, input);
-        return signal is null ? BadRequest(new { detail = "Signal could not be created." }) : Created($"/api/decisions/{lookup}/signals/{signal.Id}", signal);
+        try
+        {
+            var signal = await repository.CreateSignalAsync(lookup, access.UserId, input, cancellationToken);
+            return signal is null ? BadRequest(new { detail = "Signal could not be created." }) : Created($"/api/decisions/{lookup}/signals/{signal.Id}", signal);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
     }
 
     [HttpPatch("{lookup}/signals/{signalId:int}")]
     public async Task<ActionResult<DecisionSignalDto>> UpdateSignal([FromRoute] string lookup, [FromRoute] int signalId, [FromBody] DecisionSignalInput input, CancellationToken cancellationToken)
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -233,14 +249,21 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
-        var signal = repository.UpdateSignal(lookup, signalId, input);
-        return signal is null ? NotFound(new { detail = "Not found." }) : Ok(signal);
+        try
+        {
+            var signal = await repository.UpdateSignalAsync(lookup, signalId, input, cancellationToken);
+            return signal is null ? NotFound(new { detail = "Not found." }) : Ok(signal);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
     }
 
     [HttpDelete("{lookup}/signals/{signalId:int}")]
     public async Task<IActionResult> DeleteSignal([FromRoute] string lookup, [FromRoute] int signalId, CancellationToken cancellationToken)
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -254,13 +277,13 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
-        return repository.DeleteSignal(lookup, signalId) ? NoContent() : NotFound(new { detail = "Not found." });
+        return await repository.DeleteSignalAsync(lookup, signalId, cancellationToken) ? NoContent() : NotFound(new { detail = "Not found." });
     }
 
     [HttpGet("{lookup}/connections")]
     public async Task<ActionResult<DecisionConnectionsResponse>> GetConnections([FromRoute] string lookup, CancellationToken cancellationToken)
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -270,14 +293,14 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        var connections = repository.GetConnections(lookup);
+        var connections = await repository.GetConnectionsAsync(lookup, cancellationToken);
         return connections is null ? NotFound(new { detail = "Not found." }) : Ok(connections);
     }
 
     [HttpPut("{lookup}/connections")]
     public async Task<ActionResult<DecisionConnectionsResponse>> UpdateConnections([FromRoute] string lookup, [FromBody] DecisionConnectionsUpdateRequest request, CancellationToken cancellationToken)
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -287,14 +310,14 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        var connections = repository.UpdateConnections(lookup, access.UserId, request);
+        var connections = await repository.UpdateConnectionsAsync(lookup, access.UserId, request, cancellationToken);
         return connections is null ? BadRequest(new { detail = "Connections could not be updated." }) : Ok(connections);
     }
 
     [HttpGet("{lookup}/reviews")]
     public async Task<ActionResult<IReadOnlyList<DecisionReviewDto>>> ListReviews([FromRoute] string lookup, CancellationToken cancellationToken)
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -304,14 +327,14 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        var reviews = repository.ListReviews(lookup);
+        var reviews = await repository.ListReviewsAsync(lookup, cancellationToken);
         return reviews is null ? NotFound(new { detail = "Not found." }) : Ok(reviews);
     }
 
     [HttpPost("{lookup}/reviews")]
     public async Task<ActionResult<DecisionActionResponse>> CreateReview([FromRoute] string lookup, [FromBody] DecisionReviewInput input, CancellationToken cancellationToken)
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -321,7 +344,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        var decision = repository.CreateReview(lookup, access.UserId, input);
+        var decision = await repository.CreateReviewAsync(lookup, access.UserId, input, cancellationToken);
         return decision is null
             ? BadRequest(new { detail = "Decision cannot be reviewed in its current state." })
             : Created($"/api/decisions/{lookup}/reviews", ActionResponse("Decision reviewed", decision));
@@ -335,7 +358,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         CancellationToken cancellationToken
     )
     {
-        var existing = repository.Get(lookup);
+        var existing = await repository.GetAsync(lookup, cancellationToken);
         if (existing is null)
         {
             return NotFound(new { detail = "Not found." });
@@ -345,7 +368,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        var decision = repository.Transition(lookup, access.UserId, status);
+        var decision = await repository.TransitionAsync(lookup, access.UserId, status, cancellationToken);
         return decision is null
             ? BadRequest(new { detail = $"Decision cannot transition to {status}." })
             : Ok(ActionResponse(detail, decision));

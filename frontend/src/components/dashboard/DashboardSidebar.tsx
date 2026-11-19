@@ -11,7 +11,7 @@ import {
   Target, Mail, Notebook, Facebook, Video, Presentation,
   User as UserIcon, CreditCard, Plug, LogOut, Headset,
   Shield, UserCog, UserCheck, BarChart3, Sparkles, PiggyBank,
-  History,
+  History, SlidersHorizontal,
 } from 'lucide-react';
 import { useProjects } from '@/hooks/useProjects';
 import { useAuthStore } from '@/lib/authStore';
@@ -31,6 +31,21 @@ import {
   isNestedProjectNavActive,
 } from '@/lib/projectNestedRoutes';
 import { useBuildUrl } from '@/lib/buildUrl';
+import { loadCampaignConfig } from '@/lib/campaigns/campaignConfig';
+import { loadCsmConfig } from '@/lib/csm/csmConfig';
+import { loadDecisionConfig } from '@/lib/decisions/decisionConfig';
+import {
+  NAV_COLLABORATE,
+  NAV_CONTENT,
+  NAV_MANAGE,
+  NAV_OVERVIEW,
+  NAV_TOOLS,
+  configureNavItems,
+  loadNavigationConfig,
+} from '@/lib/navigation/navigationConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import type { OptionTarget } from '@/lib/orgCustomization/optionConfig';
+import { loadTaskConfig } from '@/lib/tasks/taskConfig';
 
 const getInitials = (name?: string | null): string => {
   if (!name) return '?';
@@ -54,6 +69,7 @@ const formatBudgetShort = (value: number | string | null | undefined): string | 
 type LucideIcon = typeof LayoutDashboard;
 
 interface NavItem {
+  key?: string;
   label: string;
   href: string;
   icon: LucideIcon;
@@ -62,6 +78,7 @@ interface NavItem {
 
 interface NavGroup {
   title: string;
+  config?: OptionTarget;
   items: NavItem[];
 }
 
@@ -71,27 +88,31 @@ const AGENT_PANEL_NAV_HREF = '#agent-panel';
 const navGroups: NavGroup[] = [
   {
     title: 'OVERVIEW',
+    config: NAV_OVERVIEW,
     items: [
-      { label: 'Overview', href: '/overview', icon: LayoutDashboard },
+      { key: 'overview', label: 'Overview', href: '/overview', icon: LayoutDashboard },
       { label: 'AI Agent', href: AGENT_PANEL_NAV_HREF, icon: Bot },
     ],
   },
   {
     title: 'MANAGE',
+    config: NAV_MANAGE,
     items: [
-      { label: 'Campaigns', href: '/campaigns', icon: Megaphone },
-      { label: 'Meta Ads', href: '/meta-ads', icon: BarChart3 },
-      { label: 'Tasks', href: '/tasks', icon: CheckSquare },
-      { label: 'Decisions', href: '/decisions', icon: GitBranch },
-      { label: 'Budget Pools', href: '/budget-pools', icon: PiggyBank },
-      { label: 'Spreadsheets', href: '/spreadsheets', icon: Table2 },
+      { key: 'campaigns', label: 'Campaigns', href: '/campaigns', icon: Megaphone },
+      { key: 'meta_ads', label: 'Meta Ads', href: '/meta-ads', icon: BarChart3 },
+      { key: 'tasks', label: 'Tasks', href: '/tasks', icon: CheckSquare },
+      { key: 'decisions', label: 'Decisions', href: '/decisions', icon: GitBranch },
+      { key: 'budget_pools', label: 'Budget Pools', href: '/budget-pools', icon: PiggyBank },
+      { key: 'spreadsheets', label: 'Spreadsheets', href: '/spreadsheets', icon: Table2 },
     ],
   },
   {
     title: 'CONTENT',
+    config: NAV_CONTENT,
     items: [
       { label: 'Variations Studio', href: '/variations-studio', icon: Sparkles },
       {
+        key: 'ads_draft',
         label: 'Ads Draft',
         href: '#',
         icon: Megaphone,
@@ -102,6 +123,7 @@ const navGroups: NavGroup[] = [
         ],
       },
       {
+        key: 'email_draft',
         label: 'Email Draft',
         href: '#',
         icon: Mail,
@@ -110,23 +132,25 @@ const navGroups: NavGroup[] = [
           { label: 'Klaviyo', href: '/klaviyo', icon: Mail },
         ],
       },
-      { label: 'Notion', href: '/notion', icon: Notebook },
+      { key: 'notion', label: 'Notion', href: '/notion', icon: Notebook },
     ],
   },
   {
     title: 'COLLABORATE',
+    config: NAV_COLLABORATE,
     items: [
-      { label: 'Meetings', href: '/meetings', icon: Users },
-      { label: 'Calendar', href: '/calendar', icon: Calendar },
-      { label: 'Messages', href: '/messages', icon: MessageSquare },
-      { label: 'Miro', href: '/miro', icon: Presentation },
+      { key: 'meetings', label: 'Meetings', href: '/meetings', icon: Users },
+      { key: 'calendar', label: 'Calendar', href: '/calendar', icon: Calendar },
+      { key: 'messages', label: 'Messages', href: '/messages', icon: MessageSquare },
+      { key: 'miro', label: 'Miro', href: '/miro', icon: Presentation },
     ],
   },
   {
     title: 'TOOLS',
+    config: NAV_TOOLS,
     items: [
-      { label: 'Workflows', href: '/workflows', icon: Workflow },
-      { label: 'Timeline', href: '/timeline', icon: Clock },
+      { key: 'workflows', label: 'Workflows', href: '/workflows', icon: Workflow },
+      { key: 'timeline', label: 'Timeline', href: '/timeline', icon: Clock },
     ],
   },
 ];
@@ -157,6 +181,7 @@ export default function DashboardSidebar() {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState<string[]>([]);
   const [projectHeaderChecking, setProjectHeaderChecking] = useState(true);
+  const [canEditConfig, setCanEditConfig] = useState(false);
   const { projects, loading, fetchProjects } = useProjects();
   const activeProject = useProjectStore((state) => state.activeProject);
   const hasProjectStoreHydrated = useProjectStore((state) => state.hasHydrated);
@@ -186,10 +211,11 @@ export default function DashboardSidebar() {
     return role ? humanize(role) : null;
   }, [user]);
 
-  const visibleNavGroups = useMemo(
-    () => (isAdminRole(user?.roles) ? [...navGroups, adminGroup] : navGroups),
-    [user?.roles],
-  );
+  useOptionConfigVersion();
+  const visibleNavGroups = [
+    ...navGroups.map((group) => ({ ...group, items: configureNavItems(group.items, group.config) })),
+    ...(isAdminRole(user?.roles) ? [adminGroup] : []),
+  ].filter((group) => group.items.length > 0);
   const projectHeaderLoading =
     !hasProjectStoreHydrated || loading || (projectHeaderChecking && !activeProject);
   const userCardLoading = !authInitialized || authLoading;
@@ -211,6 +237,22 @@ export default function DashboardSidebar() {
       cancelled = true;
     };
   }, [activeProject, hasProjectStoreHydrated, projects.length, fetchProjects]);
+
+  useEffect(() => {
+    setCanEditConfig(false);
+    if (!activeProject?.id) return;
+    let cancelled = false;
+    loadCsmConfig(activeProject.id);
+    loadDecisionConfig(activeProject.id);
+    loadCampaignConfig(activeProject.id);
+    loadNavigationConfig(activeProject.id);
+    loadTaskConfig(activeProject.id).then((config) => {
+      if (!cancelled) setCanEditConfig(Boolean(config?.can_edit));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProject?.id]);
 
   const toggle = (label: string) => {
     setExpanded((prev) =>
@@ -243,53 +285,66 @@ export default function DashboardSidebar() {
       </div>
 
       {/* Project header — clickable to switch project */}
-      <button
-        onClick={() => router.push('/select-project')}
-        className="w-full border-b border-gray-100 px-2 py-3 text-left transition-colors hover:bg-gray-50 sm:px-4 group"
-        title="Switch project"
-        aria-label="Switch project"
-      >
-        <div className="flex items-center justify-center gap-3 sm:justify-start">
-          {projectHeaderLoading ? (
-            <Skeleton className="h-8 w-8 rounded-md shrink-0" />
-          ) : (
-            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-[#3CCED7] to-[#A6E661] flex items-center justify-center shrink-0">
-              <span className="text-white text-xs font-bold">
-                {activeProject ? getInitials(activeProject.name) : '—'}
-              </span>
-            </div>
-          )}
-          <div className="hidden min-w-0 flex-1 sm:block">
+      <div className="group/project relative">
+        <button
+          onClick={() => router.push('/select-project')}
+          className="w-full border-b border-gray-100 px-2 py-3 text-left transition-colors hover:bg-gray-50 sm:px-4 group"
+          title="Switch project"
+          aria-label="Switch project"
+        >
+          <div className="flex items-center justify-center gap-3 sm:justify-start">
             {projectHeaderLoading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-28" />
-                <Skeleton className="h-3 w-20" />
-              </div>
-            ) : activeProject ? (
-              <>
-                <div className="text-sm font-medium text-gray-900 truncate">
-                  {activeProject.name}
-                </div>
-                <div className="text-xs text-gray-400 truncate">
-                  {formatBudgetShort(activeProject.total_monthly_budget) ||
-                    activeProject.organization?.name ||
-                    'No budget set'}
-                </div>
-              </>
+              <Skeleton className="h-8 w-8 rounded-md shrink-0" />
             ) : (
-              <>
-                <div className="text-sm font-medium text-gray-900 truncate">
-                  {loading ? 'Loading…' : 'Select a project'}
-                </div>
-                <div className="text-xs text-gray-400 truncate">
-                  {loading ? '' : 'No active project'}
-                </div>
-              </>
+              <div className="w-8 h-8 rounded-md bg-gradient-to-br from-[#3CCED7] to-[#A6E661] flex items-center justify-center shrink-0">
+                <span className="text-white text-xs font-bold">
+                  {activeProject ? getInitials(activeProject.name) : '—'}
+                </span>
+              </div>
             )}
+            <div className="hidden min-w-0 flex-1 sm:block">
+              {projectHeaderLoading ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-3 w-20" />
+                </div>
+              ) : activeProject ? (
+                <>
+                  <div className="text-sm font-medium text-gray-900 truncate">
+                    {activeProject.name}
+                  </div>
+                  <div className="text-xs text-gray-400 truncate">
+                    {formatBudgetShort(activeProject.total_monthly_budget) ||
+                      activeProject.organization?.name ||
+                      'No budget set'}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-sm font-medium text-gray-900 truncate">
+                    {loading ? 'Loading…' : 'Select a project'}
+                  </div>
+                  <div className="text-xs text-gray-400 truncate">
+                    {loading ? '' : 'No active project'}
+                  </div>
+                </>
+              )}
+            </div>
+            <ChevronsUpDown className="hidden w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 sm:block" />
           </div>
-          <ChevronsUpDown className="hidden w-4 h-4 text-gray-400 group-hover:text-gray-600 shrink-0 sm:block" />
-        </div>
-      </button>
+        </button>
+        {canEditConfig && (
+          <div className="absolute left-2 top-full z-20 hidden w-52 rounded-md border border-gray-200 bg-white p-1 shadow-md group-focus-within/project:block group-hover/project:block">
+            <Link
+              href={buildUrl('/system-config')}
+              className="flex items-center gap-2 rounded-sm px-2 py-1.5 text-[13px] text-gray-700 hover:bg-gray-50"
+            >
+              <SlidersHorizontal className="size-3.5 text-gray-500" />
+              <span>System Configuration</span>
+            </Link>
+          </div>
+        )}
+      </div>
 
       {/* Navigation */}
       <nav className="dashboard-scrollbar flex-1 overflow-y-auto px-1 pb-2 pt-3 sm:px-2 sm:pt-4">

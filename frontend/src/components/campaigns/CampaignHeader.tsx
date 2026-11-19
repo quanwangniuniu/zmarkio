@@ -17,6 +17,9 @@ import toast from 'react-hot-toast';
 import { ProjectAPI } from '@/lib/api/projectApi';
 import { facebookApi } from '@/lib/api/facebookApi';
 import { DecorativeGlow } from '@/components/ui/decorative-glow';
+import { CAMPAIGN_OBJECTIVE, CAMPAIGN_PLATFORM } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionChoices, optionLabel } from '@/lib/orgCustomization/optionConfig';
 
 interface CampaignHeaderProps {
   campaign: CampaignData;
@@ -34,54 +37,6 @@ interface CampaignHeaderProps {
   onSaveAsTemplate?: () => void;
 }
 
-const objectiveLabels: Record<string, string> = {
-  AWARENESS: 'Awareness',
-  CONSIDERATION: 'Consideration',
-  CONVERSION: 'Conversion',
-  RETENTION: 'Retention',
-  ENGAGEMENT: 'Engagement',
-  TRAFFIC: 'Traffic',
-  LEAD_GENERATION: 'Lead Gen',
-  APP_PROMOTION: 'App Promotion',
-};
-
-const objectiveOptions: Array<{ value: CampaignObjective; label: string }> = [
-  { value: 'AWARENESS', label: 'Awareness' },
-  { value: 'CONSIDERATION', label: 'Consideration' },
-  { value: 'CONVERSION', label: 'Conversion' },
-  { value: 'RETENTION', label: 'Retention' },
-  { value: 'ENGAGEMENT', label: 'Engagement' },
-  { value: 'TRAFFIC', label: 'Traffic' },
-  { value: 'LEAD_GENERATION', label: 'Lead Gen' },
-  { value: 'APP_PROMOTION', label: 'App Promotion' },
-];
-
-const platformLabels: Record<string, string> = {
-  META: 'Meta',
-  GOOGLE_ADS: 'Google Ads',
-  TIKTOK: 'TikTok',
-  LINKEDIN: 'LinkedIn',
-  SNAPCHAT: 'Snapchat',
-  TWITTER: 'Twitter',
-  PINTEREST: 'Pinterest',
-  REDDIT: 'Reddit',
-  PROGRAMMATIC: 'Programmatic',
-  EMAIL: 'Email',
-};
-
-const platformOptions: Array<{ value: CampaignPlatform; label: string }> = [
-  { value: 'META', label: 'Meta' },
-  { value: 'GOOGLE_ADS', label: 'Google Ads' },
-  { value: 'TIKTOK', label: 'TikTok' },
-  { value: 'LINKEDIN', label: 'LinkedIn' },
-  { value: 'SNAPCHAT', label: 'Snapchat' },
-  { value: 'TWITTER', label: 'Twitter' },
-  { value: 'PINTEREST', label: 'Pinterest' },
-  { value: 'REDDIT', label: 'Reddit' },
-  { value: 'PROGRAMMATIC', label: 'Programmatic' },
-  { value: 'EMAIL', label: 'Email' },
-];
-
 const formatDate = (dateString: string) => {
   const date = new Date(dateString);
   return date.toLocaleDateString('en-US', { 
@@ -92,6 +47,7 @@ const formatDate = (dateString: string) => {
 };
 
 export default function CampaignHeader({ campaign, onUpdate, loading, onChangeStatus, onSaveAsTemplate }: CampaignHeaderProps) {
+  useOptionConfigVersion();
   const [users, setUsers] = useState<User[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
 
@@ -314,12 +270,12 @@ export default function CampaignHeader({ campaign, onUpdate, loading, onChangeSt
           <span className="text-sm font-medium text-gray-500">Objective:</span>
           {isArchived ? (
             <span className="text-sm text-gray-900">
-              {campaign.objective ? (objectiveLabels[campaign.objective] || campaign.objective) : 'Not set'}
+              {campaign.objective ? optionLabel(CAMPAIGN_OBJECTIVE, campaign.objective) : 'Not set'}
             </span>
           ) : (
             <InlineSelectController
               value={campaign.objective}
-              options={objectiveOptions}
+              options={optionChoices<CampaignObjective>(CAMPAIGN_OBJECTIVE, campaign.objective)}
               onSave={handleObjectiveSave}
               className="text-sm text-gray-900"
               placeholder="Select objective"
@@ -334,14 +290,14 @@ export default function CampaignHeader({ campaign, onUpdate, loading, onChangeSt
             <div className="flex flex-wrap gap-1">
               {campaign.platforms.map((platform) => (
                 <Badge key={platform} variant="outline" className="text-xs">
-                  {platformLabels[platform] || platform}
+                  {optionLabel(CAMPAIGN_PLATFORM, platform)}
                 </Badge>
               ))}
             </div>
           ) : (
             <InlineMultiSelectController
               value={campaign.platforms}
-              options={platformOptions}
+              options={optionChoices<CampaignPlatform>(CAMPAIGN_PLATFORM, campaign.platforms)}
               onSave={handlePlatformsSave}
               validate={validatePlatforms}
               className="text-sm"
