@@ -70,6 +70,7 @@ export interface SystemConfig {
   task: Omit<TaskConfig, 'can_edit'>;
   csm: Omit<OptionModuleConfig, 'can_edit'>;
   decisions: Omit<OptionModuleConfig, 'can_edit'>;
+  campaigns: Omit<OptionModuleConfig, 'can_edit'>;
   can_edit: boolean;
 }
 
@@ -77,4 +78,5 @@ export interface SystemConfigUpdate {
   task?: TaskConfigUpdate;
   csm?: { options: OptionConfig[] };
   decisions?: { options: OptionConfig[] };
+  campaigns?: { options: OptionConfig[] };
 }

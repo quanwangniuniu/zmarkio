@@ -1,23 +1,31 @@
 import { Badge } from "@/components/ui/badge";
 import { CampaignStatus } from "@/types/campaign";
+import { CAMPAIGN_STATUS } from "@/lib/campaigns/campaignConfig";
+import { useOptionConfigVersion } from "@/lib/orgCustomization/configLoader";
+import { optionColorStyle } from "@/lib/orgCustomization/optionConfig";
 
 interface CampaignStatusBadgeProps {
   status: CampaignStatus;
   className?: string;
 }
 
-const statusConfig: Record<CampaignStatus, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
-  PLANNING: { label: "Planning", variant: "secondary" },
-  TESTING: { label: "Testing", variant: "default" },
-  SCALING: { label: "Scaling", variant: "default" },
-  OPTIMIZING: { label: "Optimizing", variant: "default" },
-  PAUSED: { label: "Paused", variant: "outline" },
-  COMPLETED: { label: "Completed", variant: "secondary" },
-  ARCHIVED: { label: "Archived", variant: "outline" },
+const statusVariant: Record<CampaignStatus, "default" | "secondary" | "outline" | "destructive"> = {
+  PLANNING: "secondary",
+  TESTING: "default",
+  SCALING: "default",
+  OPTIMIZING: "default",
+  PAUSED: "outline",
+  COMPLETED: "secondary",
+  ARCHIVED: "outline",
 };
 
 export default function CampaignStatusBadge({ status, className }: CampaignStatusBadgeProps) {
-  const config = statusConfig[status] || statusConfig.PLANNING;
-  return <Badge variant={config.variant} className={className}>{config.label}</Badge>;
+  useOptionConfigVersion();
+  const key = statusVariant[status] ? status : 'PLANNING';
+  return (
+    <Badge variant={statusVariant[key]} className={className} style={optionColorStyle(CAMPAIGN_STATUS.colors[key])}>
+      {CAMPAIGN_STATUS.labels[key]}
+    </Badge>
+  );
 }
 

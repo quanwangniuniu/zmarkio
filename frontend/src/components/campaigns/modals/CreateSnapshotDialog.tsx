@@ -8,6 +8,9 @@ import { CampaignAPI } from '@/lib/api/campaignApi';
 import BrandDialog from '@/components/tasks/detail/BrandDialog';
 import { Button } from '@/components/ui/button';
 import BrandButton from '../BrandButton';
+import { SNAPSHOT_METRIC, SNAPSHOT_MILESTONE } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionChoices } from '@/lib/orgCustomization/optionConfig';
 
 interface Props {
   open: boolean;
@@ -16,35 +19,13 @@ interface Props {
   onSuccess: () => void;
 }
 
-const MILESTONES: Array<{ value: MilestoneType; label: string }> = [
-  { value: 'LAUNCH', label: 'Campaign Launch' },
-  { value: 'MID_TEST', label: 'Mid-Test Review' },
-  { value: 'TEST_COMPLETE', label: 'Test Completion' },
-  { value: 'OPTIMIZATION', label: 'Major Optimization' },
-  { value: 'WEEKLY_REVIEW', label: 'Weekly Review' },
-  { value: 'MONTHLY_REVIEW', label: 'Monthly Review' },
-  { value: 'CUSTOM', label: 'Custom Milestone' },
-];
-
-const METRICS: Array<{ value: MetricType; label: string }> = [
-  { value: 'CPA', label: 'Cost Per Acquisition' },
-  { value: 'ROAS', label: 'Return on Ad Spend' },
-  { value: 'CTR', label: 'Click-Through Rate' },
-  { value: 'CPM', label: 'Cost Per Mille' },
-  { value: 'CPC', label: 'Cost Per Click' },
-  { value: 'CONVERSIONS', label: 'Conversions' },
-  { value: 'REVENUE', label: 'Revenue' },
-  { value: 'IMPRESSIONS', label: 'Impressions' },
-  { value: 'CLICKS', label: 'Clicks' },
-  { value: 'ENGAGEMENT_RATE', label: 'Engagement Rate' },
-];
-
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 const inputCls =
   'w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-[#3CCED7] focus:outline-none focus:ring-2 focus:ring-[#3CCED7]/30 disabled:opacity-50';
 
 export default function CreateSnapshotDialog({ open, onOpenChange, campaignId, onSuccess }: Props) {
+  useOptionConfigVersion();
   const [milestone, setMilestone] = useState<MilestoneType | ''>('');
   const [spend, setSpend] = useState('');
   const [metric, setMetric] = useState<MetricType | ''>('');
@@ -157,7 +138,7 @@ export default function CreateSnapshotDialog({ open, onOpenChange, campaignId, o
             className={inputCls}
           >
             <option value="">Select milestone...</option>
-            {MILESTONES.map((m) => (
+            {optionChoices(SNAPSHOT_MILESTONE).map((m) => (
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
@@ -191,7 +172,7 @@ export default function CreateSnapshotDialog({ open, onOpenChange, campaignId, o
               className={inputCls}
             >
               <option value="">Select metric...</option>
-              {METRICS.map((m) => (
+              {optionChoices(SNAPSHOT_METRIC).map((m) => (
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>

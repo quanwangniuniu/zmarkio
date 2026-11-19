@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { getApiErrorDetail } from '@/lib/api/errorMessage';
 import { fetchSystemConfig, saveSystemConfig } from '@/lib/api/orgCustomizationApi';
 import { storeCsmConfig } from '@/lib/csm/csmConfig';
+import { storeCampaignConfig } from '@/lib/campaigns/campaignConfig';
 import { storeDecisionConfig } from '@/lib/decisions/decisionConfig';
 import { useProjectStore } from '@/lib/projectStore';
 import { storeTaskConfig } from '@/lib/tasks/taskConfig';
@@ -26,7 +27,7 @@ const sectionTitle = 'text-lg font-semibold text-gray-900 dark:text-gray-100';
 
 type ConfigListKey = 'task_types' | 'task_statuses' | 'task_priorities';
 
-type ModuleKey = 'csm' | 'decisions';
+type ModuleKey = 'csm' | 'decisions' | 'campaigns';
 
 const MODULE_SECTIONS: Record<ModuleKey, { title: string; fields: Record<string, string> }> = {
   csm: { title: 'CSM', fields: { ticket_priority: 'Ticket Priorities' } },
@@ -38,6 +39,17 @@ const MODULE_SECTIONS: Record<ModuleKey, { title: string; fields: Record<string,
       signal_period: 'Signal Periods',
       review_quality: 'Review Quality',
       risk_level: 'Risk Levels',
+    },
+  },
+  campaigns: {
+    title: 'Campaigns',
+    fields: {
+      objective: 'Objectives',
+      platform: 'Platforms',
+      snapshot_milestone: 'Snapshot Milestones',
+      snapshot_metric: 'Snapshot Metrics',
+      status: 'Campaign Statuses',
+      checkin_sentiment: 'Check-in Sentiments',
     },
   },
 };
@@ -187,13 +199,13 @@ export default function SystemConfigPage() {
   const [config, setConfig] = useState<TaskConfig | null>(null);
   const [optionRows, setOptionRows] = useState<OptionRow[]>([]);
   const [optionType, setOptionType] = useState('');
-  const [moduleOptions, setModuleOptions] = useState<Record<ModuleKey, OptionConfig[]>>({ csm: [], decisions: [] });
+  const [moduleOptions, setModuleOptions] = useState<Record<ModuleKey, OptionConfig[]>>({ csm: [], decisions: [], campaigns: [] });
   const [saving, setSaving] = useState(false);
 
   const loadConfig = (next: SystemConfig) => {
     setConfig({ ...next.task, can_edit: next.can_edit });
     setOptionRows(buildOptionRows(next.task.task_field_options));
-    setModuleOptions({ csm: next.csm.options, decisions: next.decisions.options });
+    setModuleOptions({ csm: next.csm.options, decisions: next.decisions.options, campaigns: next.campaigns.options });
   };
 
   useEffect(() => {
@@ -250,11 +262,13 @@ export default function SystemConfigPage() {
         },
         csm: { options: moduleOptions.csm },
         decisions: { options: moduleOptions.decisions },
+        campaigns: { options: moduleOptions.campaigns },
       });
       loadConfig(saved);
       storeTaskConfig(projectId, { ...saved.task, can_edit: saved.can_edit });
       storeCsmConfig(projectId, { ...saved.csm, can_edit: saved.can_edit });
       storeDecisionConfig(projectId, { ...saved.decisions, can_edit: saved.can_edit });
+      storeCampaignConfig(projectId, { ...saved.campaigns, can_edit: saved.can_edit });
       toast.success('System configuration saved');
     } catch (error) {
       toast.error(getApiErrorDetail(error, 'Failed to save system configuration'));
@@ -271,7 +285,7 @@ export default function SystemConfigPage() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">System Configuration</h1>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Choose which task types, CSM and Decisions options {activeProject?.name ?? 'this project'} uses, and rename,
+                Choose which task types, CSM, Decisions and Campaigns options {activeProject?.name ?? 'this project'} uses, and rename,
                 recolor or reorder them.
               </p>
             </div>

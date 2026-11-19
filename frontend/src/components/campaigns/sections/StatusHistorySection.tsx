@@ -9,6 +9,9 @@ import {
 import { ArrowRight } from 'lucide-react';
 
 import { useCampaignStatusHistory } from '@/hooks/campaigns/useCampaignStatusHistory';
+import { CAMPAIGN_STATUS } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionLabel } from '@/lib/orgCustomization/optionConfig';
 
 export interface StatusHistorySectionProps {
   campaignId: string;
@@ -51,6 +54,7 @@ function formatFullTimestamp(timestamp: string): string {
 
 const StatusHistorySection = forwardRef<StatusHistorySectionHandle, StatusHistorySectionProps>(
   function StatusHistorySection({ campaignId }, ref) {
+    useOptionConfigVersion();
     const { items, loading, error, refresh } = useCampaignStatusHistory(campaignId);
 
     useEffect(() => {
@@ -134,13 +138,13 @@ const StatusHistorySection = forwardRef<StatusHistorySectionHandle, StatusHistor
                     <div className="flex flex-1 items-center gap-2">
                       <div className="min-w-[100px]">
                         <span className="text-sm font-normal text-gray-600">
-                          {item.from_status_display}
+                          {optionLabel(CAMPAIGN_STATUS, item.from_status)}
                         </span>
                       </div>
                       <ArrowRight className="h-4 w-4 flex-shrink-0 text-gray-400" />
                       <div className="min-w-[100px]">
                         <span className="text-sm font-semibold text-gray-900">
-                          {item.to_status_display}
+                          {optionLabel(CAMPAIGN_STATUS, item.to_status)}
                         </span>
                       </div>
                     </div>
