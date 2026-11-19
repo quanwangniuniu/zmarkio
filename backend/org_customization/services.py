@@ -23,15 +23,35 @@ class OptionField:
     project: str
     editable: tuple = OPTION_ATTRIBUTES
     choices: tuple = None
+    default: str = None
 
     @property
     def model_field(self):
         return self.model._meta.get_field(self.field)
 
     @property
+    def default_value(self):
+        return self.model_field.default if self.model else self.default
+
+    @property
     def option_choices(self):
         return self.choices or self.model_field.choices
 
+
+NAVIGATION_GROUPS = {
+    'overview': (('overview', 'Overview'),),
+    'manage': (
+        ('campaigns', 'Campaigns'),
+        ('meta_ads', 'Meta Ads'),
+        ('tasks', 'Tasks'),
+        ('decisions', 'Decisions'),
+        ('budget_pools', 'Budget Pools'),
+        ('spreadsheets', 'Spreadsheets'),
+    ),
+    'content': (('ads_draft', 'Ads Draft'), ('email_draft', 'Email Draft'), ('notion', 'Notion')),
+    'collaborate': (('meetings', 'Meetings'), ('calendar', 'Calendar'), ('messages', 'Messages'), ('miro', 'Miro')),
+    'tools': (('workflows', 'Workflows'), ('timeline', 'Timeline')),
+}
 
 MODULE_OPTION_FIELDS = {
     'csm': {
@@ -51,6 +71,10 @@ MODULE_OPTION_FIELDS = {
         'snapshot_metric': OptionField(PerformanceSnapshot, 'metric_type', 'campaign.project', LIST_ATTRIBUTES),
         'status': OptionField(Campaign, 'status', 'project', LOOKUP_ATTRIBUTES),
         'checkin_sentiment': OptionField(PerformanceCheckIn, 'sentiment', 'campaign.project', LOOKUP_ATTRIBUTES),
+    },
+    'navigation': {
+        group: OptionField(None, group, None, LIST_ATTRIBUTES, items, 'overview' if group == 'overview' else None)
+        for group, items in NAVIGATION_GROUPS.items()
     },
 }
 
@@ -226,7 +250,7 @@ def get_option_config(project, module):
                 'color': row.color if row else None,
                 'enabled': row.enabled if row else True,
                 'order': row.order if row else index,
-                'is_default': value == option.model_field.default,
+                'is_default': value == option.default_value,
                 'editable': list(option.editable),
             })
         options.extend(sorted(items, key=lambda item: item['order']))
@@ -236,7 +260,7 @@ def get_option_config(project, module):
 def ensure_options_enabled(instance, update_fields=None):
     for module, fields in MODULE_OPTION_FIELDS.items():
         for key, option in fields.items():
-            if not isinstance(instance, option.model):
+            if option.model is None or not isinstance(instance, option.model):
                 continue
             if update_fields is not None and option.field not in update_fields:
                 continue
@@ -244,7 +268,7 @@ def ensure_options_enabled(instance, update_fields=None):
             previous = getattr(instance, '_loaded_values', {}).get(option.field)
             values = value if isinstance(value, list) else [value]
             previous = previous if isinstance(previous, list) else [previous]
-            added = [item for item in values if item not in (None, '', option.model_field.default, *previous)]
+            added = [item for item in values if item not in (None, '', option.default_value, *previous)]
             if not added:
                 continue
             if _project_rows(OptionConfig, attrgetter(option.project)(instance)).filter(
@@ -262,7 +286,7 @@ def clean_options(module, items):
         if item['value'] not in choices:
             raise serializers.ValidationError(f"Unknown option {item['field']}.{item['value']}.")
         row = {key: value for key, value in item.items() if key in ('field', 'value', *option.editable)}
-        if row.get('enabled') is False and item['value'] == option.model_field.default:
+        if row.get('enabled') is False and item['value'] == option.default_value:
             raise serializers.ValidationError(f"{choices[item['value']]} is the default and cannot be disabled.")
         cleaned.append(row)
     return cleaned
