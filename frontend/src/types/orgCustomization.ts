@@ -71,6 +71,7 @@ export interface SystemConfig {
   csm: Omit<OptionModuleConfig, 'can_edit'>;
   decisions: Omit<OptionModuleConfig, 'can_edit'>;
   campaigns: Omit<OptionModuleConfig, 'can_edit'>;
+  navigation: Omit<OptionModuleConfig, 'can_edit'>;
   can_edit: boolean;
 }
 
@@ -79,4 +80,5 @@ export interface SystemConfigUpdate {
   csm?: { options: OptionConfig[] };
   decisions?: { options: OptionConfig[] };
   campaigns?: { options: OptionConfig[] };
+  navigation?: { options: OptionConfig[] };
 }
