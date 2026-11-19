@@ -4,6 +4,7 @@ from operator import attrgetter
 from django.db import transaction
 from rest_framework import serializers
 
+from campaign.models import Campaign, PerformanceCheckIn, PerformanceSnapshot
 from csm.models import Ticket
 from decision.models import Decision, Review, Signal
 from task.models import Task
@@ -21,10 +22,15 @@ class OptionField:
     field: str
     project: str
     editable: tuple = OPTION_ATTRIBUTES
+    choices: tuple = None
 
     @property
     def model_field(self):
         return self.model._meta.get_field(self.field)
+
+    @property
+    def option_choices(self):
+        return self.choices or self.model_field.choices
 
 
 MODULE_OPTION_FIELDS = {
@@ -37,6 +43,14 @@ MODULE_OPTION_FIELDS = {
         'signal_period': OptionField(Signal, 'period', 'decision.project', LIST_ATTRIBUTES),
         'review_quality': OptionField(Review, 'quality', 'decision.project', LOOKUP_ATTRIBUTES),
         'risk_level': OptionField(Decision, 'risk_level', 'project', LOOKUP_ATTRIBUTES),
+    },
+    'campaigns': {
+        'objective': OptionField(Campaign, 'objective', 'project', LIST_ATTRIBUTES),
+        'platform': OptionField(Campaign, 'platforms', 'project', LIST_ATTRIBUTES, tuple(Campaign.Platform.choices)),
+        'snapshot_milestone': OptionField(PerformanceSnapshot, 'milestone_type', 'campaign.project', LIST_ATTRIBUTES),
+        'snapshot_metric': OptionField(PerformanceSnapshot, 'metric_type', 'campaign.project', LIST_ATTRIBUTES),
+        'status': OptionField(Campaign, 'status', 'project', LOOKUP_ATTRIBUTES),
+        'checkin_sentiment': OptionField(PerformanceCheckIn, 'sentiment', 'campaign.project', LOOKUP_ATTRIBUTES),
     },
 }
 
@@ -202,7 +216,7 @@ def get_option_config(project, module):
     options = []
     for field, option in MODULE_OPTION_FIELDS[module].items():
         items = []
-        for index, (value, default_label) in enumerate(option.model_field.choices):
+        for index, (value, default_label) in enumerate(option.option_choices):
             row = rows.get((field, value))
             items.append({
                 'field': field,
@@ -227,12 +241,14 @@ def ensure_options_enabled(instance, update_fields=None):
             if update_fields is not None and option.field not in update_fields:
                 continue
             value = getattr(instance, option.field)
-            if value in (None, '', option.model_field.default):
-                continue
-            if getattr(instance, '_loaded_values', {}).get(option.field) == value:
+            previous = getattr(instance, '_loaded_values', {}).get(option.field)
+            values = value if isinstance(value, list) else [value]
+            previous = previous if isinstance(previous, list) else [previous]
+            added = [item for item in values if item not in (None, '', option.model_field.default, *previous)]
+            if not added:
                 continue
             if _project_rows(OptionConfig, attrgetter(option.project)(instance)).filter(
-                module=module, field=key, value=value, enabled=False
+                module=module, field=key, value__in=added, enabled=False
             ).exists():
                 raise serializers.ValidationError({option.field: 'This option is disabled for this project.'})
 
@@ -242,7 +258,7 @@ def clean_options(module, items):
     cleaned = []
     for item in items:
         option = fields.get(item['field'])
-        choices = dict(option.model_field.choices) if option else {}
+        choices = dict(option.option_choices) if option else {}
         if item['value'] not in choices:
             raise serializers.ValidationError(f"Unknown option {item['field']}.{item['value']}.")
         row = {key: value for key, value in item.items() if key in ('field', 'value', *option.editable)}

@@ -13,6 +13,9 @@ import { CampaignAPI } from '@/lib/api/campaignApi';
 import BrandDialog from '@/components/tasks/detail/BrandDialog';
 import { Button } from '@/components/ui/button';
 import BrandButton from '../BrandButton';
+import { SNAPSHOT_METRIC, SNAPSHOT_MILESTONE } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionChoices } from '@/lib/orgCustomization/optionConfig';
 import BrandConfirmDialog from '../BrandConfirmDialog';
 
 interface Props {
@@ -23,29 +26,6 @@ interface Props {
   onSuccess: () => void;
   onDelete?: () => void;
 }
-
-const MILESTONES: Array<{ value: MilestoneType; label: string }> = [
-  { value: 'LAUNCH', label: 'Campaign Launch' },
-  { value: 'MID_TEST', label: 'Mid-Test Review' },
-  { value: 'TEST_COMPLETE', label: 'Test Completion' },
-  { value: 'OPTIMIZATION', label: 'Major Optimization' },
-  { value: 'WEEKLY_REVIEW', label: 'Weekly Review' },
-  { value: 'MONTHLY_REVIEW', label: 'Monthly Review' },
-  { value: 'CUSTOM', label: 'Custom Milestone' },
-];
-
-const METRICS: Array<{ value: MetricType; label: string }> = [
-  { value: 'CPA', label: 'Cost Per Acquisition' },
-  { value: 'ROAS', label: 'Return on Ad Spend' },
-  { value: 'CTR', label: 'Click-Through Rate' },
-  { value: 'CPM', label: 'Cost Per Mille' },
-  { value: 'CPC', label: 'Cost Per Click' },
-  { value: 'CONVERSIONS', label: 'Conversions' },
-  { value: 'REVENUE', label: 'Revenue' },
-  { value: 'IMPRESSIONS', label: 'Impressions' },
-  { value: 'CLICKS', label: 'Clicks' },
-  { value: 'ENGAGEMENT_RATE', label: 'Engagement Rate' },
-];
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
@@ -60,6 +40,7 @@ export default function EditSnapshotDialog({
   onSuccess,
   onDelete,
 }: Props) {
+  useOptionConfigVersion();
   const [milestone, setMilestone] = useState<MilestoneType>('CUSTOM');
   const [spend, setSpend] = useState('');
   const [metric, setMetric] = useState<MetricType>('CPA');
@@ -183,7 +164,7 @@ export default function EditSnapshotDialog({
               disabled={busy}
               className={inputCls}
             >
-              {MILESTONES.map((m) => (
+              {optionChoices(SNAPSHOT_MILESTONE, snapshot?.milestone_type).map((m) => (
                 <option key={m.value} value={m.value}>{m.label}</option>
               ))}
             </select>
@@ -211,7 +192,7 @@ export default function EditSnapshotDialog({
                 disabled={busy}
                 className={inputCls}
               >
-                {METRICS.map((m) => (
+                {optionChoices(SNAPSHOT_METRIC, snapshot?.metric_type).map((m) => (
                   <option key={m.value} value={m.value}>{m.label}</option>
                 ))}
               </select>

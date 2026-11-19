@@ -18,23 +18,15 @@ import UserPicker, { User } from '@/people/UserPicker';
 import BrandDialog from '@/components/tasks/detail/BrandDialog';
 import { Button } from '@/components/ui/button';
 import BrandButton from '../BrandButton';
+import { CAMPAIGN_OBJECTIVE, CAMPAIGN_PLATFORM } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionChoices } from '@/lib/orgCustomization/optionConfig';
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   template?: CampaignTemplate | null;
 }
-
-const PLATFORMS: CampaignPlatform[] = [
-  'META', 'GOOGLE_ADS', 'TIKTOK', 'LINKEDIN', 'SNAPCHAT',
-  'TWITTER', 'PINTEREST', 'REDDIT', 'PROGRAMMATIC', 'EMAIL',
-];
-
-const PLATFORM_LABELS: Record<CampaignPlatform, string> = {
-  META: 'Meta', GOOGLE_ADS: 'Google Ads', TIKTOK: 'TikTok', LINKEDIN: 'LinkedIn',
-  SNAPCHAT: 'Snapchat', TWITTER: 'Twitter', PINTEREST: 'Pinterest', REDDIT: 'Reddit',
-  PROGRAMMATIC: 'Programmatic', EMAIL: 'Email',
-};
 
 const inputCls =
   'w-full rounded-md border border-gray-200 px-3 py-2 text-sm text-gray-800 placeholder:text-gray-400 focus:border-[#3CCED7] focus:outline-none focus:ring-2 focus:ring-[#3CCED7]/30 disabled:opacity-50';
@@ -46,6 +38,7 @@ export default function CreateCampaignFromTemplateDialog({
   onOpenChange,
   template: providedTemplate,
 }: Props) {
+  useOptionConfigVersion();
   const router = useRouter();
   const buildUrl = useBuildUrl();
   const activeProject = useProjectStore((s) => s.activeProject);
@@ -251,11 +244,8 @@ export default function CreateCampaignFromTemplateDialog({
                 className={inputCls}
               >
                 <option value="">(inherit from template)</option>
-                {[
-                  'AWARENESS','CONSIDERATION','CONVERSION','RETENTION','ENGAGEMENT',
-                  'TRAFFIC','LEAD_GENERATION','APP_PROMOTION',
-                ].map((o) => (
-                  <option key={o} value={o}>{o}</option>
+                {optionChoices(CAMPAIGN_OBJECTIVE, objective).map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
             </div>
@@ -263,7 +253,7 @@ export default function CreateCampaignFromTemplateDialog({
             <div>
               <label className="mb-1.5 block text-xs font-medium text-gray-600">Platforms</label>
               <div className="flex flex-wrap gap-1.5">
-                {PLATFORMS.map((p) => {
+                {optionChoices<CampaignPlatform>(CAMPAIGN_PLATFORM, platforms).map(({ value: p, label }) => {
                   const active = platforms.includes(p);
                   return (
                     <button
@@ -277,7 +267,7 @@ export default function CreateCampaignFromTemplateDialog({
                           : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'
                       }`}
                     >
-                      {PLATFORM_LABELS[p]}
+                      {label}
                     </button>
                   );
                 })}
