@@ -348,6 +348,121 @@ public sealed class DecisionApiTests
             Assert.Single(errors!["topic"]));
     }
 
+    [Fact]
+    public async Task Draft_create_rejects_blank_option_text()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var response = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            options = new[] { new { text = "   ", isSelected = false, order = 1 } },
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal("Option text is required.", Assert.Single(errors!["options"]));
+    }
+
+    [Fact]
+    public async Task Draft_create_validates_option_text_length()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string url = "/api/decisions/drafts";
+
+        using var accepted = await client.PostAsJsonAsync(url, new
+        {
+            options = new[] { new { text = new string('A', 1000), isSelected = false, order = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+
+        using var rejected = await client.PostAsJsonAsync(url, new
+        {
+            options = new[] { new { text = new string('A', 1001), isSelected = false, order = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(
+            "Option text must be 1000 characters or fewer.",
+            Assert.Single(errors!["options"]));
+    }
+
+    [Fact]
+    public async Task Draft_create_rejects_duplicate_option_order()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var response = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            options = new[]
+            {
+                new { text = "Test Instagram Reels", isSelected = false, order = 1 },
+                new { text = "Test TikTok", isSelected = false, order = 1 },
+            },
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal("Option order must be unique.", Assert.Single(errors!["options"]));
+    }
+
+    [Fact]
+    public async Task Draft_patch_rejects_duplicate_option_order_and_preserves_existing_options()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string originalText = "Test Instagram Reels";
+
+        using var created = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            options = new[] { new { text = originalText, isSelected = false, order = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        var draft = await created.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        var url = $"/api/decisions/drafts/{draft!.Slug}";
+
+        using var rejected = await client.PatchAsJsonAsync(url, new
+        {
+            options = new[]
+            {
+                new { text = "Test TikTok", isSelected = false, order = 1 },
+                new { text = "Test YouTube Shorts", isSelected = false, order = 1 },
+            },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal("Option order must be unique.", Assert.Single(errors!["options"]));
+
+        var saved = await client.GetFromJsonAsync<DecisionDetailDto>(url, JsonOptions);
+        Assert.NotNull(saved);
+
+        var option = Assert.Single(saved!.Options);
+        Assert.Equal(originalText, option.Text);
+        Assert.Equal(1, option.Order);
+    }
+
     private sealed class DecisionApiFactory(bool authenticated) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
