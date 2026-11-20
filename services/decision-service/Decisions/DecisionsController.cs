@@ -137,7 +137,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        
+
         try
         {
             var decision = await repository.UpdateDraftAsync(lookup, access.UserId, request, cancellationToken);
@@ -147,31 +147,31 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
         }
-        
+
     }
 
     [HttpPost("{lookup}/commit")]
     public Task<ActionResult<DecisionActionResponse>> Commit([FromRoute] string lookup, [FromBody] DecisionActionRequest? _ = null, CancellationToken cancellationToken = default)
     {
-        return Transition(lookup, DecisionStatus.COMMITTED, "Decision committed", DecisionAccessAction.Edit, cancellationToken);
+        return Transition(lookup, DecisionTransitionAction.Commit, "Decision committed", DecisionAccessAction.Edit, cancellationToken);
     }
 
     [HttpPost("{lookup}/approve")]
     public Task<ActionResult<DecisionActionResponse>> Approve([FromRoute] string lookup, [FromBody] DecisionActionRequest? _ = null, CancellationToken cancellationToken = default)
     {
-        return Transition(lookup, DecisionStatus.COMMITTED, "Decision approved", DecisionAccessAction.Approve, cancellationToken);
+        return Transition(lookup, DecisionTransitionAction.Approve, "Decision approved", DecisionAccessAction.Approve, cancellationToken);
     }
 
     [HttpPost("{lookup}/mark_reviewed")]
     public Task<ActionResult<DecisionActionResponse>> MarkReviewed([FromRoute] string lookup, [FromBody] DecisionActionRequest? _ = null, CancellationToken cancellationToken = default)
     {
-        return Transition(lookup, DecisionStatus.REVIEWED, "Decision marked reviewed", DecisionAccessAction.Edit, cancellationToken);
+        return Transition(lookup, DecisionTransitionAction.MarkReviewed, "Decision marked reviewed", DecisionAccessAction.Edit, cancellationToken);
     }
 
     [HttpPost("{lookup}/archive")]
     public Task<ActionResult<DecisionActionResponse>> Archive([FromRoute] string lookup, [FromBody] DecisionActionRequest? _ = null, CancellationToken cancellationToken = default)
     {
-        return Transition(lookup, DecisionStatus.ARCHIVED, "Decision archived", DecisionAccessAction.Edit, cancellationToken);
+        return Transition(lookup, DecisionTransitionAction.Archive, "Decision archived", DecisionAccessAction.Edit, cancellationToken);
     }
 
     [HttpDelete("{lookup}")]
@@ -352,7 +352,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
 
     private async Task<ActionResult<DecisionActionResponse>> Transition(
         string lookup,
-        DecisionStatus status,
+        DecisionTransitionAction transitionAction,
         string detail,
         DecisionAccessAction action,
         CancellationToken cancellationToken
@@ -368,10 +368,31 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        var decision = await repository.TransitionAsync(lookup, access.UserId, status, cancellationToken);
-        return decision is null
-            ? BadRequest(new { detail = $"Decision cannot transition to {status}." })
-            : Ok(ActionResponse(detail, decision));
+        try
+        {
+            var decision = await repository.TransitionAsync(
+                lookup,
+                access.UserId,
+                transitionAction,
+                cancellationToken
+            );
+
+            return decision is null
+                ? BadRequest(new
+                {
+                    detail = $"Decision cannot perform {transitionAction} in its current state."
+                })
+                : Ok(ActionResponse(detail, decision));
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(
+                new Dictionary<string, string[]>
+                {
+                    [ex.Field] = new[] { ex.Message }
+                }
+            );
+        }
     }
 
     private int? ProjectId()

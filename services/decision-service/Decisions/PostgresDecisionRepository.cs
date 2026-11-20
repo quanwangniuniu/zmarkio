@@ -261,11 +261,11 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 topic = COALESCE(@topic, topic),
                 is_reference_case = COALESCE(@is_reference_case, is_reference_case),
                 last_edited_by_id = @actor_id
-            WHERE id = @id 
+            WHERE id = @id
                 AND is_deleted = false
                 AND status IN ('COMMITTED', 'REVIEWED', 'ARCHIVED')
             """;
-            
+
         }
         else
         {
@@ -282,7 +282,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 is_reference_case = COALESCE(@is_reference_case, is_reference_case),
                 planned_decision_date = COALESCE(@planned_decision_date, planned_decision_date),
                 last_edited_by_id = @actor_id
-            WHERE id = @id 
+            WHERE id = @id
                 AND is_deleted = false
                 AND status IN ('PREDRAFT', 'DRAFT', 'AWAITING_APPROVAL')
             """;
@@ -297,7 +297,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         var rowAffected = await command.ExecuteNonQueryAsync(ct);
         if (rowAffected != 1)
         {
-            throw new DecisionValidationException("status", 
+            throw new DecisionValidationException("status",
                 "Decision could not be updated because its status may have changed.");
         }
 
@@ -322,7 +322,11 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return updated;
     }
 
-    public async Task<DecisionDetailDto?> TransitionAsync(string lookup, int? actorId, DecisionStatus targetStatus, CancellationToken ct)
+    public async Task<DecisionDetailDto?> TransitionAsync(
+        string lookup,
+        int? actorId,
+        DecisionTransitionAction action,
+        CancellationToken ct)
     {
         await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
@@ -333,22 +337,55 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             return null;
         }
 
-        var allowed = (existing.Status, targetStatus) switch
+        var allowed = (existing.Status, action) switch
         {
-            (DecisionStatus.PREDRAFT, DecisionStatus.DRAFT) => true,
-            (DecisionStatus.PREDRAFT, DecisionStatus.COMMITTED) => true,
-            (DecisionStatus.DRAFT, DecisionStatus.COMMITTED) => true,
-            (DecisionStatus.AWAITING_APPROVAL, DecisionStatus.COMMITTED) => true,
-            (DecisionStatus.COMMITTED, DecisionStatus.REVIEWED) => true,
-            (DecisionStatus.COMMITTED, DecisionStatus.ARCHIVED) => true,
-            (DecisionStatus.REVIEWED, DecisionStatus.ARCHIVED) => true,
+            (DecisionStatus.PREDRAFT, DecisionTransitionAction.PromoteToDraft) => true,
+            (DecisionStatus.PREDRAFT, DecisionTransitionAction.Commit) => true,
+            (DecisionStatus.DRAFT, DecisionTransitionAction.Commit) => true,
+            (DecisionStatus.AWAITING_APPROVAL, DecisionTransitionAction.Approve) => true,
+            (DecisionStatus.COMMITTED, DecisionTransitionAction.MarkReviewed) => true,
+            (DecisionStatus.COMMITTED, DecisionTransitionAction.Archive) => true,
+            (DecisionStatus.REVIEWED, DecisionTransitionAction.Archive) => true,
             _ => false,
         };
         if (!allowed)
         {
             return null;
         }
-
+        DecisionStatus targetStatus;
+        switch (action)
+        {
+            case DecisionTransitionAction.Commit:
+                targetStatus = existing.RiskLevel == DecisionRiskLevel.HIGH
+                ? DecisionStatus.AWAITING_APPROVAL
+                : DecisionStatus.COMMITTED;
+                break;
+            case DecisionTransitionAction.Approve:
+                targetStatus = DecisionStatus.COMMITTED;
+                break;
+            case DecisionTransitionAction.PromoteToDraft:
+                targetStatus = DecisionStatus.DRAFT;
+                break;
+            case DecisionTransitionAction.MarkReviewed:
+                targetStatus = DecisionStatus.REVIEWED;
+                break;
+            case DecisionTransitionAction.Archive:
+                targetStatus = DecisionStatus.ARCHIVED;
+                break;
+            default:
+                return null;
+        }
+        if (action == DecisionTransitionAction.Commit ||
+    action == DecisionTransitionAction.Approve)
+        {
+            if (string.IsNullOrWhiteSpace(existing.Title))
+            {
+                throw new DecisionValidationException(
+                    "title",
+                    "Title is required before commit."
+                );
+            }
+        }
         var now = DateTimeOffset.UtcNow;
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
@@ -358,18 +395,53 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 status = @status,
                 updated_at = @now,
                 last_edited_by_id = @actor_id,
-                committed_at = CASE WHEN @status = 'COMMITTED' THEN COALESCE(committed_at, @now) ELSE committed_at END,
-                committed_by_id = CASE WHEN @status = 'COMMITTED' THEN COALESCE(committed_by_id, @actor_id) ELSE committed_by_id END,
-                approved_at = CASE WHEN @from_status = 'AWAITING_APPROVAL' AND @status = 'COMMITTED' THEN @now ELSE approved_at END,
-                approved_by_id = CASE WHEN @from_status = 'AWAITING_APPROVAL' AND @status = 'COMMITTED' THEN @actor_id ELSE approved_by_id END
-            WHERE id = @id AND is_deleted = false
+                requires_approval = CASE
+                    WHEN @action = 'Commit' THEN @requires_approval
+                    ELSE requires_approval
+                END,
+                committed_at = CASE
+                WHEN @action = 'Commit' THEN @now
+                ELSE committed_at
+                END,
+                committed_by_id = CASE
+                WHEN @action = 'Commit' THEN @actor_id
+                ELSE committed_by_id END,
+                approved_at = CASE WHEN @action = 'Approve' THEN @now
+                ELSE approved_at END,
+                approved_by_id = CASE
+                WHEN @action = 'Approve' THEN @actor_id
+                ELSE approved_by_id END
+                WHERE id = @id
+                    AND is_deleted = false
+                    AND status = @from_status
+                    AND title IS NOT DISTINCT FROM @from_title
+                    AND risk_level IS NOT DISTINCT FROM @from_risk_level
             """;
+        command.Parameters.AddWithValue("action", action.ToString());
+        command.Parameters.AddWithValue("requires_approval", existing.RiskLevel == DecisionRiskLevel.HIGH);
         command.Parameters.AddWithValue("id", existing.Id);
         command.Parameters.AddWithValue("status", targetStatus.ToString());
         command.Parameters.AddWithValue("from_status", existing.Status.ToString());
+        AddNullableText(command, "from_title", existing.Title);
+        AddNullableText(
+        command,
+        "from_risk_level",
+        existing.RiskLevel?.ToString()
+        );
         command.Parameters.AddWithValue("now", now);
         AddNullableInteger(command, "actor_id", actorId);
-        await command.ExecuteNonQueryAsync(ct);
+        var affectedRows = await command.ExecuteNonQueryAsync(ct);
+        if (affectedRows == 0)
+        {
+            return null;
+        }
+
+        if (affectedRows != 1)
+        {
+            throw new InvalidOperationException(
+                $"Expected one decision to be updated, but updated {affectedRows}."
+            );
+        }
 
         await RecordTransitionAsync(connection, transaction, existing.Id, existing.Status, targetStatus, actorId, now, ct);
         var updated = await GetAsync(connection, existing.Id.ToString(), ct);
@@ -380,9 +452,9 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 "Decision could not be retrieved after status update.");
         }
 
-        if (targetStatus == DecisionStatus.COMMITTED)
+        if (action == DecisionTransitionAction.Commit)
         {
-            var snapshot = BuildValidationSnapshot(updated, now);
+            var snapshot = DecisionValidationSnapshot.Build(updated, now);
             await CreateCommitRecordAsync(connection, transaction, existing.Id, actorId, now, snapshot, ct);
         }
 
@@ -865,8 +937,10 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
         var transaction = session.Transaction;
-        var decision = await GetAsync(connection, lookup, ct);
-        if (decision is null || decision.Status is not (DecisionStatus.COMMITTED or DecisionStatus.REVIEWED))
+        var decision = await GetAsync(connection, lookup, ct, lockForUpdate: true);
+
+        if (decision is null ||
+            decision.Status is not (DecisionStatus.COMMITTED or DecisionStatus.REVIEWED))
         {
             return null;
         }
@@ -919,7 +993,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return reviewed;
     }
 
-    private async Task<DecisionDetailDto?> GetAsync(NpgsqlConnection connection, string lookup, CancellationToken ct)
+    private async Task<DecisionDetailDto?> GetAsync(NpgsqlConnection connection, string lookup, CancellationToken ct, bool lockForUpdate = false)
     {
         var lookupIsId = int.TryParse(lookup, out var numericId);
         using var command = connection.CreateCommand();
@@ -951,8 +1025,14 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             WHERE d.is_deleted = false
               AND ((@lookup_is_id = true AND d.id = @id) OR d.slug = @slug)
             """;
+
+        if (lockForUpdate)
+        {
+            command.CommandText += "\nFOR UPDATE OF d";
+        }
+
         command.Parameters.AddWithValue("lookup_is_id", lookupIsId);
-        command.Parameters.AddWithValue("id", lookupIsId ? numericId : 0);
+        command.Parameters.AddWithValue("id", numericId);
         command.Parameters.AddWithValue("slug", lookup);
 
         await using var reader = await command.ExecuteReaderAsync(ct);
@@ -1900,44 +1980,6 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
     {
         return $"decision-{id}";
     }
-
-    private static object BuildValidationSnapshot(DecisionDetailDto decision, DateTimeOffset now)
-    {
-        var selectedOptions = decision.Options.Where(option => option.IsSelected).ToList();
-        var selectedOption = selectedOptions.FirstOrDefault();
-
-        var contextSummaryPresent = !string.IsNullOrEmpty(decision.ContextSummary);
-        var reasoningPresent = !string.IsNullOrEmpty(decision.Reasoning);
-        var riskLevelPresent = decision.RiskLevel is not null; 
-        var confidencePresent = decision.ConfidenceScore is not null;
-
-        var signalsCount = decision.Signals.Count;
-        var optionsCount = decision.Options.Count;
-        var selectedOptionCount = selectedOptions.Count;
-
-        var requiredFieldPresent = contextSummaryPresent &&
-            reasoningPresent &&
-            riskLevelPresent &&
-            confidencePresent &&
-            signalsCount >= 1 &&
-            optionsCount >= 2 &&
-            selectedOptionCount == 1;
-
-        return new
-        {
-            required_fields_present = requiredFieldPresent,
-            selected_option_id = selectedOption?.Id,
-            risk_level = decision.RiskLevel?.ToString(),
-            confidence = decision.ConfidenceScore,
-            context_summary_present = contextSummaryPresent,
-            signals_count = signalsCount,
-            options_count = optionsCount,
-            selected_options_count = selectedOptionCount,
-            reasoning_present = reasoningPresent,
-            timestamp = now.ToString("o")
-        };
-    }
-
     private static async Task CreateCommitRecordAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,

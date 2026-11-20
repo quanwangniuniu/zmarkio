@@ -167,8 +167,19 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     {
         var created = await repository.CreateAsync(ProjectId, UserId, Draft("Commit me"), CancellationToken.None);
 
-        Assert.Null(await repository.TransitionAsync(created.Slug, UserId, DecisionStatus.REVIEWED, CancellationToken.None));
-        var committed = await repository.TransitionAsync(created.Slug, UserId, DecisionStatus.COMMITTED, CancellationToken.None);
+        Assert.Null(await repository.TransitionAsync(
+            created.Slug,
+            UserId,
+            DecisionTransitionAction.MarkReviewed,
+            CancellationToken.None
+        ));
+
+        var committed = await repository.TransitionAsync(
+            created.Slug,
+            UserId,
+            DecisionTransitionAction.Commit,
+            CancellationToken.None
+        );
 
         Assert.Equal(DecisionStatus.COMMITTED, committed?.Status);
         Assert.NotNull(committed?.CommittedAt);
@@ -334,9 +345,26 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     {
         var created = await repository.CreateAsync(ProjectId, UserId, Draft("Review me"), CancellationToken.None);
 
-        Assert.Null(await repository.CreateReviewAsync(created.Slug, UserId, Review(), CancellationToken.None));
-        await repository.TransitionAsync(created.Slug, UserId, DecisionStatus.COMMITTED, CancellationToken.None);
-        var reviewed = await repository.CreateReviewAsync(created.Slug, UserId, Review(), CancellationToken.None);
+        Assert.Null(await repository.CreateReviewAsync(
+            created.Slug,
+            UserId,
+            Review(),
+            CancellationToken.None
+        ));
+
+        await repository.TransitionAsync(
+            created.Slug,
+            UserId,
+            DecisionTransitionAction.Commit,
+            CancellationToken.None
+        );
+
+        var reviewed = await repository.CreateReviewAsync(
+            created.Slug,
+            UserId,
+            Review(),
+            CancellationToken.None
+        );
 
         Assert.Equal(DecisionStatus.REVIEWED, reviewed?.Status);
         Assert.Equal("GOOD", Assert.Single((await repository.ListReviewsAsync(created.Slug, CancellationToken.None))!).DecisionQuality);
