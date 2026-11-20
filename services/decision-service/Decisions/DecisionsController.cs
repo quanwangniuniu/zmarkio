@@ -137,6 +137,10 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
+        if (DecisionAccessResponses.DraftOwnerRequired(existing, request, access) is { } forbidden)
+        {
+            return forbidden;
+        }
         
         try
         {
@@ -391,7 +395,6 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     private static bool CanEditDraftSignals(DecisionDetailDto decision, DecisionAccessContext access)
     {
         return decision.Status == DecisionStatus.DRAFT
-            && decision.CreatedBy.HasValue
-            && decision.CreatedBy.Value == access.UserId;
+            && DecisionPermissionPolicy.IsDraftOwnerOrApprover(decision, access);
     }
 }

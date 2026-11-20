@@ -55,7 +55,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function resolveUserName(members: ProjectMember[] | undefined, userId: number | null | undefined): string {
+export function resolveUserName(members: ProjectMember[] | undefined, userId: number | null | undefined): string {
   if (userId == null) return '—';
   const member = members?.find((m) => (m.user?.id ?? m.user_id) === userId);
   const user = member?.user;
