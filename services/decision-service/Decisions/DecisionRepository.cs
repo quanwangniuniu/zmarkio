@@ -74,6 +74,26 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
     {
         return Task.FromResult<DecisionDetailDto?>(Find(lookup) is { } decision ? ToDetail(decision) : null);
     }
+    internal DecisionAuditSnapshot? GetAudit(string lookup)
+    {
+        var decision = Find(lookup);
+        if (decision is null)
+        {
+            return null;
+        }
+
+        return new DecisionAuditSnapshot(
+            decision.Id,
+            decision.Status,
+            decision.CommittedAt,
+            decision.CommittedBy,
+            decision.RequiresApproval,
+            decision.ApprovedAt,
+            decision.ApprovedBy,
+            Array.AsReadOnly(decision.StateTransitions.ToArray()),
+            Array.AsReadOnly(decision.CommitRecords.ToArray())
+        );
+    }
 
     public Task<DecisionDetailDto> CreateAsync(int? projectId, int? actorId, CreateDecisionDraftRequest request, CancellationToken ct)
     {
@@ -147,15 +167,19 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
             Signals = request.Signals is null ? existing.Signals : BuildSignals(existing.Id, actorId, now, request.Signals),
             Options = request.Options is null ? existing.Options : BuildOptions(existing.Id, now, request.Options),
         };
-        _decisions[existing.Id] = updated;
+        if (!_decisions.TryUpdate(existing.Id, updated, existing))
+        {
+            return Task.FromResult<DecisionDetailDto?>(null);
+        }
+
         return Task.FromResult<DecisionDetailDto?>(ToDetail(updated));
     }
 
-public Task<DecisionDetailDto?> TransitionAsync(
-    string lookup,
-    int? actorId,
-    DecisionTransitionAction action,
-    CancellationToken ct)
+    public Task<DecisionDetailDto?> TransitionAsync(
+        string lookup,
+        int? actorId,
+        DecisionTransitionAction action,
+        CancellationToken ct)
     {
         if (Find(lookup) is not { } existing)
         {
@@ -179,43 +203,43 @@ public Task<DecisionDetailDto?> TransitionAsync(
         }
         DecisionStatus targetStatus;
         switch (action)
-    {
-        case DecisionTransitionAction.Commit:
-            targetStatus = existing.RiskLevel == DecisionRiskLevel.HIGH
-                ? DecisionStatus.AWAITING_APPROVAL
-                : DecisionStatus.COMMITTED;
-            break;
-
-        case DecisionTransitionAction.Approve:
-            targetStatus = DecisionStatus.COMMITTED;
-            break;
-
-        case DecisionTransitionAction.PromoteToDraft:
-            targetStatus = DecisionStatus.DRAFT;
-            break;
-
-        case DecisionTransitionAction.MarkReviewed:
-            targetStatus = DecisionStatus.REVIEWED;
-            break;
-
-        case DecisionTransitionAction.Archive:
-            targetStatus = DecisionStatus.ARCHIVED;
-            break;
-
-        default:
-            return Task.FromResult<DecisionDetailDto?>(null);
-    }
-            if (action == DecisionTransitionAction.Commit ||
-        action == DecisionTransitionAction.Approve)
-    {
-        if (string.IsNullOrWhiteSpace(existing.Title))
         {
-            throw new DecisionValidationException(
-                "title",
-                "Title is required before commit."
-            );
+            case DecisionTransitionAction.Commit:
+                targetStatus = existing.RiskLevel == DecisionRiskLevel.HIGH
+                    ? DecisionStatus.AWAITING_APPROVAL
+                    : DecisionStatus.COMMITTED;
+                break;
+
+            case DecisionTransitionAction.Approve:
+                targetStatus = DecisionStatus.COMMITTED;
+                break;
+
+            case DecisionTransitionAction.PromoteToDraft:
+                targetStatus = DecisionStatus.DRAFT;
+                break;
+
+            case DecisionTransitionAction.MarkReviewed:
+                targetStatus = DecisionStatus.REVIEWED;
+                break;
+
+            case DecisionTransitionAction.Archive:
+                targetStatus = DecisionStatus.ARCHIVED;
+                break;
+
+            default:
+                return Task.FromResult<DecisionDetailDto?>(null);
         }
-    }
+        if (action == DecisionTransitionAction.Commit ||
+    action == DecisionTransitionAction.Approve)
+        {
+            if (string.IsNullOrWhiteSpace(existing.Title))
+            {
+                throw new DecisionValidationException(
+                    "title",
+                    "Title is required before commit."
+                );
+            }
+        }
 
 
         var now = DateTimeOffset.UtcNow;
@@ -257,27 +281,24 @@ public Task<DecisionDetailDto?> TransitionAsync(
             now
         );
 
-        updated = updated with
-        {
-            CommitRecords = existing.CommitRecords
-                .Append(new DecisionCommitRecord(
-                existing.Id,
-                actorId,
-                now,
-                snapshot
-            ))
-            .ToArray(),
-        };
+            updated = updated with
+            {
+                CommitRecords = existing.CommitRecords
+                    .Append(new DecisionCommitRecord(
+                    existing.Id,
+                    actorId,
+                    now,
+                    snapshot
+                ))
+                .ToArray(),
+            };
         }
 
 
         if (!_decisions.TryUpdate(existing.Id, updated, existing))
-            {
-            throw new DecisionValidationException(
-            "status",
-            "Decision could not be updated because it may have changed."
-            );
-            }
+        {
+            return Task.FromResult<DecisionDetailDto?>(null);
+        }
 
         return Task.FromResult<DecisionDetailDto?>(ToDetail(updated));
     }
@@ -305,7 +326,16 @@ public Task<DecisionDetailDto?> TransitionAsync(
         }
         var now = DateTimeOffset.UtcNow;
         var signal = BuildSignals(existing.Id, actorId, now, new[] { input }).Single();
-        _decisions[existing.Id] = existing with { Signals = existing.Signals.Concat(new[] { signal }).ToList() };
+        var updatedDecision = existing with
+        {
+            Signals = existing.Signals.Concat(new[] { signal }).ToList(),
+        };
+
+        if (!_decisions.TryUpdate(existing.Id, updatedDecision, existing))
+        {
+            return Task.FromResult<DecisionSignalDto?>(null);
+        }
+
         return Task.FromResult<DecisionSignalDto?>(signal);
     }
 
@@ -337,10 +367,18 @@ public Task<DecisionDetailDto?> TransitionAsync(
             DisplayText = displayText,
             DisplayTextOverride = input.DisplayTextOverride,
         };
-        _decisions[existing.Id] = existing with
+        var updatedDecision = existing with
         {
-            Signals = existing.Signals.Select(item => item.Id == signalId ? updated : item).ToList(),
+            Signals = existing.Signals
+                .Select(item => item.Id == signalId ? updated : item)
+                .ToList(),
         };
+
+        if (!_decisions.TryUpdate(existing.Id, updatedDecision, existing))
+        {
+            return Task.FromResult<DecisionSignalDto?>(null);
+        }
+
         return Task.FromResult<DecisionSignalDto?>(updated);
     }
 
@@ -350,11 +388,15 @@ public Task<DecisionDetailDto?> TransitionAsync(
         {
             return Task.FromResult(false);
         }
-        _decisions[existing.Id] = existing with
+        var updatedDecision = existing with
         {
-            Signals = existing.Signals.Where(item => item.Id != signalId).ToList(),
+            Signals = existing.Signals
+                .Where(item => item.Id != signalId)
+                .ToList(),
         };
-        return Task.FromResult(true);
+
+        return Task.FromResult(
+            _decisions.TryUpdate(existing.Id, updatedDecision, existing));
     }
 
     public Task<DecisionConnectionsResponse?> GetConnectionsAsync(string lookup, CancellationToken ct)
@@ -441,12 +483,12 @@ public Task<DecisionDetailDto?> TransitionAsync(
 
     public async Task<DecisionDetailDto?> CreateReviewAsync(string lookup, int? actorId, DecisionReviewInput input, CancellationToken ct)
     {
-    return await TransitionAsync(
-    lookup,
-    actorId,
-    DecisionTransitionAction.MarkReviewed,
-    ct
-    ) ?? await GetAsync(lookup, ct);
+        return await TransitionAsync(
+        lookup,
+        actorId,
+        DecisionTransitionAction.MarkReviewed,
+        ct
+        ) ?? await GetAsync(lookup, ct);
     }
 
     private DecisionRecord? Find(string lookup)
@@ -596,19 +638,30 @@ public Task<DecisionDetailDto?> TransitionAsync(
             decision.OriginMeeting
         );
     }
-    private sealed record DecisionCommitRecord(
+    internal sealed record DecisionCommitRecord(
     int DecisionId,
     int? CommittedBy,
     DateTimeOffset CommittedAt,
     object ValidationSnapshot
     );
-    private sealed record DecisionStateTransitionRecord(
+    internal sealed record DecisionStateTransitionRecord(
     int DecisionId,
     DecisionStatus FromStatus,
     DecisionStatus ToStatus,
     int? TriggeredBy,
     DateTimeOffset Timestamp
     );
+    internal sealed record DecisionAuditSnapshot(
+    int DecisionId,
+    DecisionStatus Status,
+    DateTimeOffset? CommittedAt,
+    int? CommittedBy,
+    bool RequiresApproval,
+    DateTimeOffset? ApprovedAt,
+    int? ApprovedBy,
+    IReadOnlyList<DecisionStateTransitionRecord> StateTransitions,
+    IReadOnlyList<DecisionCommitRecord> CommitRecords
+);
     private sealed record DecisionRecord
     {
         public required int Id { get; init; }

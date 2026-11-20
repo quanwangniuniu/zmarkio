@@ -410,8 +410,8 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
             TestUser,
             new UpdateDecisionDraftRequest(
                 null, null, null, null, null,
-                "strategy", 
-                true, 
+                "strategy",
+                true,
                 null, null, null, null
             ),
             CancellationToken.None
@@ -680,7 +680,7 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
         Assert.Equal(1L, historyCount);
     }
 
-        [Fact]
+    [Fact]
     public async Task Approve_draft_returns_400()
     {
         var repository = Repository(TestUser);
@@ -722,7 +722,7 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
         Assert.Equal(DecisionStatus.DRAFT, unchanged.Status);
     }
 
-        [Theory]
+    [Theory]
     [InlineData(false, "")]
     [InlineData(false, "   ")]
     [InlineData(false, null)]
@@ -730,7 +730,7 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
     [InlineData(true, "   ")]
     [InlineData(true, null)]
     public async Task Commit_and_approve_require_title(
-        bool approve, string? title)
+    bool approve, string? title)
     {
         var repository = Repository(TestUser);
         var decision = await repository.CreateAsync(
@@ -771,12 +771,12 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
             Assert.Single(fields["title"]));
     }
 
-        [Theory]
+    [Theory]
     [InlineData(DecisionRiskLevel.LOW)]
     [InlineData(DecisionRiskLevel.MEDIUM)]
     [InlineData(DecisionRiskLevel.HIGH)]
     public async Task Transitions_follow_allowed_state_rules(
-        DecisionRiskLevel risk)
+    DecisionRiskLevel risk)
     {
         var repository = Repository(TestUser);
 
@@ -861,7 +861,7 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
         }
     }
 
-        [Fact]
+    [Fact]
     public async Task Approval_preserves_submitter_and_records_approver()
     {
         var repository = Repository(TestUser);
@@ -945,146 +945,543 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
         Assert.True(commitRecordCorrect);
     }
     [Theory]
-[InlineData(DecisionTransitionAction.Commit)]
-[InlineData(DecisionTransitionAction.Approve)]
-public async Task Concurrent_transitions_only_succeed_once(
-    DecisionTransitionAction action)
-{
-    using var timeout = new CancellationTokenSource(
-        TimeSpan.FromSeconds(30));
-    var ct = timeout.Token;
-
-    var decision = await Repository(TestUser).CreateAsync(
-        TestProject,
-        TestUser,
-        Draft("Concurrent transition test") with
-        {
-            RiskLevel = DecisionRiskLevel.HIGH
-        },
-        ct);
-
-    if (action == DecisionTransitionAction.Approve)
+    [InlineData(DecisionTransitionAction.Commit)]
+    [InlineData(DecisionTransitionAction.Approve)]
+    public async Task Concurrent_transitions_only_succeed_once(
+        DecisionTransitionAction action)
     {
-        var submitted = await Repository(TestUser).TransitionAsync(
-            decision.Slug,
+        using var timeout = new CancellationTokenSource(
+            TimeSpan.FromSeconds(30));
+        var ct = timeout.Token;
+
+        var decision = await Repository(TestUser).CreateAsync(
+            TestProject,
             TestUser,
-            DecisionTransitionAction.Commit,
+            Draft("Concurrent transition test") with
+            {
+                RiskLevel = DecisionRiskLevel.HIGH
+            },
             ct);
 
-        Assert.NotNull(submitted);
-        Assert.Equal(
-            DecisionStatus.AWAITING_APPROVAL,
-            submitted.Status);
-    }
-    await using var blocker = await dataSource.OpenConnectionAsync(ct);
-    await using var transaction = await blocker.BeginTransactionAsync(ct);
-
-    await using (var command = blocker.CreateCommand())
-    {
-        command.Transaction = transaction;
-        command.CommandText = """
-            SELECT id
-            FROM org_acme.decisions
-            WHERE id = @id
-            FOR UPDATE
-            """;
-        command.Parameters.AddWithValue("id", decision.Id);
-        await command.ExecuteScalarAsync(ct);
-    }
-
-    async Task<(DecisionDetailDto? Result, Exception? Error)> Attempt()
-    {
-        try
+        if (action == DecisionTransitionAction.Approve)
         {
-            var result = await Repository(TestUser).TransitionAsync(
+            var submitted = await Repository(TestUser).TransitionAsync(
                 decision.Slug,
                 TestUser,
-                action,
+                DecisionTransitionAction.Commit,
                 ct);
 
-            return (result, null);
+            Assert.NotNull(submitted);
+            Assert.Equal(
+                DecisionStatus.AWAITING_APPROVAL,
+                submitted.Status);
         }
-        catch (Exception ex)
+
+        await Execute("""
+        CREATE FUNCTION org_acme.wait_for_transition_gate()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            PERFORM pg_advisory_xact_lock_shared(524, 886);
+            RETURN NULL;
+        END;
+        $$;
+
+        CREATE TRIGGER wait_for_transition_gate
+        BEFORE UPDATE ON org_acme.decisions
+        FOR EACH STATEMENT
+        EXECUTE FUNCTION org_acme.wait_for_transition_gate();
+        """);
+
+
+        await using var gate = await dataSource.OpenConnectionAsync(ct);
+
+        await using (var command = gate.CreateCommand())
         {
-            return (null, ex);
+            command.CommandTimeout = 5;
+            command.CommandText = "SELECT pg_advisory_lock(524, 886)";
+            await command.ExecuteNonQueryAsync(ct);
         }
-    }
 
-    var first = Attempt();
-    var second = Attempt();
-    var bothBlocked = false;
+        Task<DecisionDetailDto?>? first = null;
+        Task<DecisionDetailDto?>? second = null;
+        var bothWaiting = false;
 
-    try
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-
-        while (DateTime.UtcNow < deadline)
+        try
         {
-            var blockedCount = await Scalar<long>("""
+            first = Repository(TestUser).TransitionAsync(
+                decision.Slug, TestUser, action, ct);
+
+            second = Repository(TestUser).TransitionAsync(
+                decision.Slug, TestUser, action, ct);
+
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+            while (elapsed.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                await using var command = dataSource.CreateCommand("""
                 SELECT COUNT(*)
-                FROM pg_stat_activity
-                WHERE datname = current_database()
-                  AND state = 'active'
-                  AND cardinality(pg_blocking_pids(pid)) > 0
-                  AND query LIKE '%UPDATE decisions%'
+                FROM pg_locks
+                WHERE locktype = 'advisory'
+                  AND database = (
+                      SELECT oid
+                      FROM pg_database
+                      WHERE datname = current_database()
+                  )
+                  AND classid = 524::oid
+                  AND objid = 886::oid
+                  AND objsubid = 2
+                  AND mode = 'ShareLock'
+                  AND granted = false
                 """);
 
-            if (blockedCount >= 2)
-            {
-                bothBlocked = true;
-                break;
+                command.CommandTimeout = 5;
+                var waitingCount = (long)(await command.ExecuteScalarAsync(ct))!;
+
+                if (waitingCount == 2)
+                {
+                    bothWaiting = true;
+                    break;
+                }
+
+                await Task.Delay(50, ct);
             }
-
-            await Task.Delay(50, ct);
         }
-    }
-    finally
-    {
-        // Release both requests after observing the overlap.
-        await transaction.RollbackAsync(CancellationToken.None);
-    }
+        finally
+        {
+            await using var command = gate.CreateCommand();
+            command.CommandTimeout = 5;
+            command.CommandText = "SELECT pg_advisory_unlock(524, 886)";
 
-    var outcomes = await Task.WhenAll(first, second);
+            var released = (bool)(await command.ExecuteScalarAsync(
+                CancellationToken.None))!;
 
-    Assert.True(
-        bothBlocked,
-        "Both requests must reach the UPDATE before releasing the lock.");
+            Assert.True(released, "The transition gate must be released.");
+        }
 
-    var winner = Assert.Single(
-        outcomes, outcome => outcome.Result is not null);
-    Assert.Null(winner.Error);
+        Assert.NotNull(first);
+        Assert.NotNull(second);
 
-    var loser = Assert.Single(
-        outcomes, outcome => outcome.Error is not null);
-    var error = Assert.IsType<DecisionValidationException>(loser.Error);
-    Assert.Equal("status", error.Field);
+        var outcomes = await Task.WhenAll(first, second);
 
-    var final = await Repository(TestUser).GetAsync(decision.Slug, ct);
-    Assert.NotNull(final);
-    Assert.Equal(
-        action == DecisionTransitionAction.Commit
+        Assert.True(
+            bothWaiting,
+            "Both requests must reach the database gate before release.");
+
+        var winner = Assert.Single(
+            outcomes, result => result is not null);
+
+        Assert.NotNull(winner);
+
+        Assert.Single(outcomes, result => result is null);
+
+        var expectedStatus = action == DecisionTransitionAction.Commit
             ? DecisionStatus.AWAITING_APPROVAL
-            : DecisionStatus.COMMITTED,
-        final.Status);
+            : DecisionStatus.COMMITTED;
 
-    var historyCount = await Scalar<long>($"""
+        Assert.Equal(expectedStatus, winner.Status);
+
+        var final = await Repository(TestUser).GetAsync(decision.Slug, ct);
+
+        Assert.NotNull(final);
+        Assert.Equal(expectedStatus, final.Status);
+
+        var historyCount = await Scalar<long>($"""
         SELECT COUNT(*)
         FROM org_acme.decision_state_transitions
         WHERE decision_id = {decision.Id}
         """);
 
-    Assert.Equal(
-        action == DecisionTransitionAction.Commit ? 1L : 2L,
-        historyCount);
+        Assert.Equal(
+            action == DecisionTransitionAction.Commit ? 1L : 2L,
+            historyCount);
 
-    var snapshotCount = await Scalar<long>($"""
+        var snapshotCount = await Scalar<long>($"""
         SELECT COUNT(*)
         FROM org_acme.decision_commit_records
         WHERE decision_id = {decision.Id}
         """);
 
-    Assert.Equal(1L, snapshotCount);
-}
+        Assert.Equal(1L, snapshotCount);
+    }
+
+    [Theory]
+    [InlineData(DecisionRiskLevel.HIGH)]
+    [InlineData(DecisionRiskLevel.LOW)]
+    public async Task Snapshot_failure_rolls_back_the_entire_commit(
+        DecisionRiskLevel risk)
+    {
+        var repository = Repository(TestUser);
+        var ct = CancellationToken.None;
+
+        var decision = await repository.CreateAsync(
+            TestProject,
+            TestUser,
+            Draft("Snapshot rollback test") with
+            {
+                RiskLevel = risk
+            },
+            ct);
+
+        await Execute("""
+        CREATE FUNCTION org_acme.reject_commit_snapshot()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            RAISE EXCEPTION 'Intentional snapshot failure'
+                USING ERRCODE = 'P0001';
+        END;
+        $$;
+
+        CREATE TRIGGER reject_commit_snapshot
+        BEFORE INSERT ON org_acme.decision_commit_records
+        FOR EACH ROW
+        EXECUTE FUNCTION org_acme.reject_commit_snapshot();
+        """);
+
+        var error = await Assert.ThrowsAsync<PostgresException>(() =>
+            repository.TransitionAsync(
+                decision.Slug,
+                TestUser,
+                DecisionTransitionAction.Commit,
+                ct));
+
+        Assert.Equal("P0001", error.SqlState);
+        Assert.Equal("Intentional snapshot failure", error.MessageText);
+
+        var unchanged = await repository.GetAsync(decision.Slug, ct);
+
+        Assert.NotNull(unchanged);
+        Assert.Equal(DecisionStatus.DRAFT, unchanged.Status);
+        Assert.Equal(decision.LastEditedAt, unchanged.LastEditedAt);
+        Assert.Equal(decision.LastEditedBy, unchanged.LastEditedBy);
+        Assert.Null(unchanged.CommittedAt);
+
+        var auditUnchanged = await Scalar<bool>($"""
+        SELECT status = 'DRAFT'
+            AND requires_approval = false
+            AND committed_at IS NULL
+            AND committed_by_id IS NULL
+            AND approved_at IS NULL
+            AND approved_by_id IS NULL
+        FROM org_acme.decisions
+        WHERE id = {decision.Id}
+        """);
+
+        Assert.True(auditUnchanged);
+
+        var historyCount = await Scalar<long>($"""
+        SELECT COUNT(*)
+        FROM org_acme.decision_state_transitions
+        WHERE decision_id = {decision.Id}
+        """);
+
+        var snapshotCount = await Scalar<long>($"""
+        SELECT COUNT(*)
+        FROM org_acme.decision_commit_records
+        WHERE decision_id = {decision.Id}
+        """);
+
+        Assert.Equal(0L, historyCount);
+        Assert.Equal(0L, snapshotCount);
+    }
+    [Theory]
+    [InlineData(DecisionTransitionAction.Commit, true)]
+    [InlineData(DecisionTransitionAction.Commit, false)]
+    [InlineData(DecisionTransitionAction.Approve, false)]
+    public async Task Concurrent_edit_rejects_transition_using_stale_validation(
+    DecisionTransitionAction action,
+    bool changeRisk)
+    {
+        using var timeout = new CancellationTokenSource(
+            TimeSpan.FromSeconds(30));
+        var ct = timeout.Token;
+        var repository = Repository(TestUser);
+
+        var decision = await repository.CreateAsync(
+            TestProject,
+            TestUser,
+            Draft("Concurrent edit test") with
+            {
+                RiskLevel = action == DecisionTransitionAction.Approve
+                    ? DecisionRiskLevel.HIGH
+                    : DecisionRiskLevel.LOW
+            },
+            ct);
+
+        if (action == DecisionTransitionAction.Approve)
+        {
+            var submitted = await repository.TransitionAsync(
+                decision.Slug,
+                TestUser,
+                DecisionTransitionAction.Commit,
+                ct);
+
+            Assert.NotNull(submitted);
+        }
+
+        await Execute("""
+        CREATE FUNCTION org_acme.wait_for_edit_gate()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            PERFORM pg_advisory_xact_lock_shared(524, 887);
+            RETURN NULL;
+        END;
+        $$;
+
+        CREATE TRIGGER wait_for_edit_gate
+        BEFORE UPDATE OF status ON org_acme.decisions
+        FOR EACH STATEMENT
+        EXECUTE FUNCTION org_acme.wait_for_edit_gate();
+        """);
+
+        await using var gate = await dataSource.OpenConnectionAsync(ct);
+
+        await using (var command = gate.CreateCommand())
+        {
+            command.CommandTimeout = 5;
+            command.CommandText = "SELECT pg_advisory_lock(524, 887)";
+            await command.ExecuteNonQueryAsync(ct);
+        }
+
+        Task<DecisionDetailDto?>? transition = null;
+        DecisionDetailDto? edited = null;
+        var reachedGate = false;
+
+        try
+        {
+            transition = Repository(TestUser).TransitionAsync(
+                decision.Slug, TestUser, action, ct);
+
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+            while (elapsed.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                await using var command = dataSource.CreateCommand("""
+                SELECT COUNT(*)
+                FROM pg_locks
+                WHERE locktype = 'advisory'
+                  AND database = (
+                      SELECT oid
+                      FROM pg_database
+                      WHERE datname = current_database()
+                  )
+                  AND classid = 524::oid
+                  AND objid = 887::oid
+                  AND objsubid = 2
+                  AND mode = 'ShareLock'
+                  AND granted = false
+                """);
+
+                command.CommandTimeout = 5;
+                var waitingCount = (long)(await command.ExecuteScalarAsync(ct))!;
+
+                if (waitingCount == 1)
+                {
+                    reachedGate = true;
+                    break;
+                }
+
+                await Task.Delay(50, ct);
+            }
+
+            if (reachedGate)
+            {
+                edited = await Repository(TestUser).UpdateDraftAsync(
+                    decision.Slug,
+                    TestUser,
+                    new UpdateDecisionDraftRequest(
+                        Title: changeRisk ? null : "",
+                        ContextSummary: null,
+                        RiskLevel: changeRisk ? DecisionRiskLevel.HIGH : null,
+                        ConfidenceScore: null,
+                        Reasoning: null,
+                        Topic: null,
+                        IsReferenceCase: null,
+                        PlannedDecisionDate: null,
+                        Signals: null,
+                        Options: null,
+                        ParentDecisionIds: null
+                    ),
+                    ct);
+            }
+        }
+        finally
+        {
+            await using var command = gate.CreateCommand();
+            command.CommandTimeout = 5;
+            command.CommandText = "SELECT pg_advisory_unlock(524, 887)";
+
+            var released = (bool)(await command.ExecuteScalarAsync(
+                CancellationToken.None))!;
+
+            Assert.True(released);
+        }
+
+        Assert.NotNull(transition);
+        var result = await transition;
+
+        Assert.True(
+            reachedGate,
+            "The transition must reach the gate before editing the decision.");
+        Assert.NotNull(edited);
+        Assert.Null(result);
+
+        var final = await repository.GetAsync(decision.Slug, ct);
+        Assert.NotNull(final);
+
+        Assert.Equal(
+            action == DecisionTransitionAction.Commit
+                ? DecisionStatus.DRAFT
+                : DecisionStatus.AWAITING_APPROVAL,
+            final.Status);
+
+        Assert.Equal(edited.Title, final.Title);
+        Assert.Equal(edited.RiskLevel, final.RiskLevel);
+
+        var historyCount = await Scalar<long>($"""
+        SELECT COUNT(*)
+        FROM org_acme.decision_state_transitions
+        WHERE decision_id = {decision.Id}
+        """);
+
+        var snapshotCount = await Scalar<long>($"""
+        SELECT COUNT(*)
+        FROM org_acme.decision_commit_records
+        WHERE decision_id = {decision.Id}
+        """);
+
+        var expectedCount = action == DecisionTransitionAction.Commit
+            ? 0L
+            : 1L;
+
+        Assert.Equal(expectedCount, historyCount);
+        Assert.Equal(expectedCount, snapshotCount);
+
+        var approvalNotWritten = await Scalar<bool>($"""
+        SELECT approved_at IS NULL AND approved_by_id IS NULL
+        FROM org_acme.decisions
+        WHERE id = {decision.Id}
+        """);
+
+        Assert.True(approvalNotWritten);
+
+        if (changeRisk)
+        {
+            var retried = await repository.TransitionAsync(
+                decision.Slug,
+                TestUser,
+                DecisionTransitionAction.Commit,
+                ct);
+
+            Assert.NotNull(retried);
+            Assert.Equal(
+                DecisionStatus.AWAITING_APPROVAL,
+                retried.Status);
+        }
+        else
+        {
+            var error = await Assert.ThrowsAsync<DecisionValidationException>(
+                () => repository.TransitionAsync(
+                    decision.Slug, TestUser, action, ct));
+
+            Assert.Equal("title", error.Field);
+        }
+    }
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Review_is_rejected_when_concurrent_archive_commits_first(
+    bool alreadyReviewed)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var ct = timeout.Token;
+        var repository = Repository(TestUser);
+        var review = new DecisionReviewInput("Outcome", "Reflection", "ACCEPTABLE");
+
+        var decision = await repository.CreateAsync(
+            TestProject,
+            TestUser,
+            Draft("Concurrent archive and review") with { RiskLevel = DecisionRiskLevel.LOW },
+            ct);
+
+        var committed = await repository.TransitionAsync(
+            decision.Slug, TestUser, DecisionTransitionAction.Commit, ct);
+        Assert.NotNull(committed);
+        Assert.Equal(DecisionStatus.COMMITTED, committed.Status);
+
+        if (alreadyReviewed)
+        {
+            var reviewed = await repository.CreateReviewAsync(
+                decision.Slug, TestUser, review, ct);
+            Assert.NotNull(reviewed);
+            Assert.Equal(DecisionStatus.REVIEWED, reviewed.Status);
+        }
+
+        await using var archiveConnection = await dataSource.OpenConnectionAsync(ct);
+        await using var archiveTransaction = await archiveConnection.BeginTransactionAsync(ct);
+
+        // Hold the archive write open until the review request reaches the row lock.
+        await using (var archiveCommand = archiveConnection.CreateCommand())
+        {
+            archiveCommand.Transaction = archiveTransaction;
+            archiveCommand.CommandText = """
+                UPDATE org_acme.decisions
+                SET status = 'ARCHIVED'
+                WHERE id = @id
+                """;
+            archiveCommand.Parameters.AddWithValue("id", decision.Id);
+            Assert.Equal(1, await archiveCommand.ExecuteNonQueryAsync(ct));
+        }
+
+        var pendingReview = Repository(TestUser).CreateReviewAsync(
+            decision.Slug, TestUser, review, ct);
+
+        var reviewWaitedForArchive = false;
+        await using (var waitCommand = dataSource.CreateCommand("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_stat_activity AS activity
+                WHERE @archive_pid = ANY(pg_blocking_pids(activity.pid))
+            )
+            """))
+        {
+            waitCommand.Parameters.AddWithValue("archive_pid", archiveConnection.ProcessID);
+            var elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+            while (!pendingReview.IsCompleted && elapsed.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                reviewWaitedForArchive = (bool)(await waitCommand.ExecuteScalarAsync(ct))!;
+                if (reviewWaitedForArchive)
+                {
+                    break;
+                }
+
+                await Task.Delay(50, ct);
+            }
+        }
+
+        await archiveTransaction.CommitAsync(ct);
+
+        Assert.Null(await pendingReview);
+        Assert.True(reviewWaitedForArchive, "The review must wait for the archive transaction.");
+
+        var final = await repository.GetAsync(decision.Slug, ct);
+        Assert.NotNull(final);
+        Assert.Equal(DecisionStatus.ARCHIVED, final.Status);
+
+        var reviewCount = await Scalar<long>($"""
+            SELECT COUNT(*)
+            FROM org_acme.decision_reviews
+            WHERE decision_id = {decision.Id}
+            """);
+        Assert.Equal(alreadyReviewed ? 1L : 0L, reviewCount);
+    }
+
     private PostgresDecisionRepository Repository(int userId) => new(Connections(userId));
     private TenantConnectionFactory Connections(int userId) =>
         new(dataSource, Validator(), new HttpContextAccessor { HttpContext = Request(userId).HttpContext });
@@ -1102,7 +1499,7 @@ public async Task Concurrent_transitions_only_succeed_once(
         {
             SigningKey = SigningKey
         }));
-    
+
     private JwtDecisionAccessService Access(int userId) => new(Connections(userId), Validator());
 
     private static CreateDecisionDraftRequest Draft(string title) =>
@@ -1151,8 +1548,17 @@ public async Task Concurrent_transitions_only_succeed_once(
             is_deleted boolean NOT NULL DEFAULT false, edge_type varchar NOT NULL, from_decision_id bigint NOT NULL,
             to_decision_id bigint NOT NULL, created_by_id bigint, UNIQUE (from_decision_id, to_decision_id));
         CREATE TABLE {s}.decision_reviews (
-            id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, decision_id bigint NOT NULL,
-            is_deleted boolean NOT NULL DEFAULT false);
+            id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            created_at timestamptz NOT NULL,
+            updated_at timestamptz NOT NULL,
+            is_deleted boolean NOT NULL DEFAULT false,
+            decision_id bigint NOT NULL,
+            reviewer_id bigint,
+            outcome_text text NOT NULL,
+            reflection_text text NOT NULL,
+            quality varchar(20) NOT NULL,
+            reviewed_at timestamptz NOT NULL
+        );
         CREATE TABLE {s}.meetings_meetingdecisionorigin (
             id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, meeting_id bigint NOT NULL, decision_id bigint NOT NULL);
         CREATE TABLE {s}.decision_state_transitions (
