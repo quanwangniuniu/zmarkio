@@ -48,4 +48,38 @@ internal static class DecisionDraftValidation
                 "Topic must be 64 characters or fewer.");
         }
     }
+
+    public static void ValidateOptions(IReadOnlyList<DecisionOptionInput>? options)
+    {
+        if (options is null)
+        {
+            return;
+        }
+
+        var seenOrders = new HashSet<int>();
+
+        foreach (var option in options)
+        {
+            if (option is null || string.IsNullOrWhiteSpace(option.Text))
+            {
+                throw new DecisionValidationException(
+                    "options",
+                    "Option text is required.");
+            }
+
+            if (option.Text.EnumerateRunes().Count() > 1000)
+            {
+                throw new DecisionValidationException(
+                    "options",
+                    "Option text must be 1000 characters or fewer.");
+            }
+
+            if (!seenOrders.Add(option.Order))
+            {
+                throw new DecisionValidationException(
+                    "options",
+                    "Option order must be unique.");
+            }
+        }
+    }
 }
