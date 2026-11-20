@@ -11,5 +11,5 @@ export function useDraftOwnerLock(
 ): boolean {
   const userId = useAuthStore((s) => s.user?.id);
   if (!status || !OWNER_ONLY_STATUSES.has(status)) return false;
-  return ownerId !== userId && !canApproveOrReview;
+  return Number(ownerId) !== Number(userId) && !canApproveOrReview;
 }

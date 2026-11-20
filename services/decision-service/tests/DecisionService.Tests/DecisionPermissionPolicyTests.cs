@@ -27,4 +27,22 @@ public sealed class DecisionPermissionPolicyTests
     {
         Assert.Equal(2, DecisionPermissionPolicy.RoleLevel(" Organization Admin "));
     }
+
+    [Theory]
+    [InlineData(DecisionStatus.PREDRAFT, "options")]
+    [InlineData(DecisionStatus.DRAFT, "options")]
+    [InlineData(DecisionStatus.AWAITING_APPROVAL, null)]
+    [InlineData(DecisionStatus.COMMITTED, null)]
+    public void DraftOwnerOnlyField_applies_to_predraft_and_draft(DecisionStatus status, string? expected)
+    {
+        var decision = new DecisionDetailDto(
+            1, "decision", 1, status, null, null, null, null, null, "general", "General",
+            default, 1, default, 1, null, 12, null, false, false, null, null,
+            Array.Empty<DecisionSignalDto>(), Array.Empty<DecisionOptionDto>());
+        var request = new UpdateDecisionDraftRequest(
+            null, null, null, null, null, null, null, null, null,
+            new[] { new DecisionOptionInput("Ship", true, 0) }, null);
+
+        Assert.Equal(expected, DecisionPermissionPolicy.DraftOwnerOnlyField(decision, request));
+    }
 }
