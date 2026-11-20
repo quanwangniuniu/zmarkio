@@ -164,6 +164,15 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
 
         try
         {
+            DecisionDraftValidation.ValidateTopic(request.Topic);
+            if (existing.Status is DecisionStatus.PREDRAFT
+                or DecisionStatus.DRAFT
+                or DecisionStatus.AWAITING_APPROVAL)
+            {
+                DecisionDraftValidation.ValidateConfidenceScore(request.ConfidenceScore);
+                DecisionDraftValidation.ValidateDecisionTitle(request.Title);
+                DecisionDraftValidation.ValidateOptions(request.Options);
+            }
             var decision = await repository.UpdateDraftAsync(lookup, access.UserId, request, cancellationToken);
             return decision is null ? BadRequest(new { detail = "Decision cannot be updated in its current state." }) : Ok(decision);
         }
