@@ -463,6 +463,46 @@ public sealed class DecisionApiTests
         Assert.Equal(1, option.Order);
     }
 
+    public static TheoryData<string, string> InvalidGeneralPatchTopics => new()
+    {
+        { "Paid Social", "Topic may only contain lowercase letters, digits, underscores, and hyphens." },
+        { new string('a', 65), "Topic must be 64 characters or fewer." },
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidGeneralPatchTopics))]
+    public async Task General_patch_rejects_invalid_topic_and_preserves_existing_topic(
+        string invalidTopic, string expectedError)
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string originalTopic = "paid_social-1";
+
+        using var created = await client.PostAsJsonAsync(
+            "/api/decisions/drafts", new { topic = originalTopic });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        var draft = await created.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        var slug = draft!.Slug;
+
+        using var rejected = await client.PatchAsJsonAsync(
+            $"/api/decisions/{slug}", new { topic = invalidTopic });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(expectedError, Assert.Single(errors!["topic"]));
+
+        var saved = await client.GetFromJsonAsync<DecisionDetailDto>(
+            $"/api/decisions/drafts/{slug}", JsonOptions);
+        Assert.NotNull(saved);
+        Assert.Equal(originalTopic, saved!.Topic);
+    }
+
     private sealed class DecisionApiFactory(bool authenticated) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
