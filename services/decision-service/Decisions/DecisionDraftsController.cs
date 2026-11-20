@@ -23,6 +23,7 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
         try
         {
             DecisionDraftValidation.ValidateConfidenceScore(request.ConfidenceScore);
+            DecisionDraftValidation.ValidateDecisionTitle(request.Title);
             var decision = await repository.CreateAsync(projectId, access.UserId, request, cancellationToken);
             return Created($"/api/decisions/drafts/{decision.Id}", decision);
         }
@@ -71,6 +72,7 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
         try
         {
             DecisionDraftValidation.ValidateConfidenceScore(request.ConfidenceScore);
+            DecisionDraftValidation.ValidateDecisionTitle(request.Title);
             var decision = await repository.UpdateDraftAsync(lookup, access.UserId, request, cancellationToken);
             return decision is null ? BadRequest(new { detail = "Draft decision cannot be updated." }) : Ok(decision);
         }

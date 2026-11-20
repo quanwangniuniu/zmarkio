@@ -11,4 +11,13 @@ internal static class DecisionDraftValidation
                 "Confidence score must be between 1 and 5.");
         }
     }
+    public static void ValidateDecisionTitle(string? title)
+    {
+        if (title is not null && title.EnumerateRunes().Count() > 255)
+        {
+            throw new DecisionValidationException(
+                "title",
+                "Title must be 255 characters or fewer.");
+        }
+    }
 }
