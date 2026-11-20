@@ -71,6 +71,7 @@ public sealed class DecisionApiTests
         Assert.Equal(item.Id, node.Id);
         Assert.Equal("Test decision", node.Title);
     }
+
     [Fact]
     public async Task Draft_create_rejects_out_of_range_confidence_score()
     {
@@ -93,6 +94,7 @@ public sealed class DecisionApiTests
             "Confidence score must be between 1 and 5.",
             Assert.Single(errors!["confidenceScore"]));
     }
+
     [Fact]
     public async Task Draft_create_returns_origin_meeting_when_origin_meeting_id_is_supplied()
     {
@@ -183,6 +185,44 @@ public sealed class DecisionApiTests
         var savedDraft = await client.GetFromJsonAsync<DecisionDetailDto>(draftUrl, JsonOptions);
         Assert.NotNull(savedDraft);
         Assert.Equal(5, savedDraft!.ConfidenceScore);
+    }
+
+    [Fact]
+    public async Task Draft_title_length_is_validated_on_create_and_patch()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string draftsUrl = "/api/decisions/drafts";
+        const string expectedError = "Title must be 255 characters or fewer.";
+        var validTitle = new string('A', 255);
+        var invalidTitle = new string('A', 256);
+
+        using var createResponse = await client.PostAsJsonAsync(draftsUrl, new { title = validTitle });
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var draft = await createResponse.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal(validTitle, draft!.Title);
+        var draftUrl = $"{draftsUrl}/{draft.Slug}";
+
+        using var rejectedCreate = await client.PostAsJsonAsync(draftsUrl, new { title = invalidTitle });
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedCreate.StatusCode);
+        var createErrors = await rejectedCreate.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(createErrors);
+        Assert.Equal(expectedError, Assert.Single(createErrors!["title"]));
+
+        using var rejectedPatch = await client.PatchAsJsonAsync(draftUrl, new { title = invalidTitle });
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedPatch.StatusCode);
+        var patchErrors = await rejectedPatch.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(patchErrors);
+        Assert.Equal(expectedError, Assert.Single(patchErrors!["title"]));
+
+        var savedDraft = await client.GetFromJsonAsync<DecisionDetailDto>(draftUrl, JsonOptions);
+        Assert.NotNull(savedDraft);
+        Assert.Equal(validTitle, savedDraft!.Title);
     }
 
     private sealed class DecisionApiFactory(bool authenticated) : WebApplicationFactory<Program>
