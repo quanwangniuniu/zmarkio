@@ -10,6 +10,7 @@ from django_fsm import FSMField, transition
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from core.models import TimeStampedModel, Project
+from org_customization.mixins import ConfigurableOptionsMixin
 import uuid
 
 User = get_user_model()
@@ -19,7 +20,7 @@ User = get_user_model()
 # Campaign Models
 # ============================================================================
 
-class Campaign(SluggedResourceModelMixin, TimeStampedModel):
+class Campaign(ConfigurableOptionsMixin, SluggedResourceModelMixin, TimeStampedModel):
     """
     Core Campaign Model - Represents advertising campaigns for strategic planning.
 
@@ -429,7 +430,7 @@ class CampaignStatusHistory(TimeStampedModel):
 # Performance Tracking Models
 # ============================================================================
 
-class PerformanceCheckIn(TimeStampedModel):
+class PerformanceCheckIn(ConfigurableOptionsMixin, TimeStampedModel):
     """
     Quick Check-In Model - One-click sentiment indicator for campaign health.
 
@@ -480,7 +481,7 @@ class PerformanceCheckIn(TimeStampedModel):
         return f"{self.campaign.name} - {self.get_sentiment_display()} ({self.created_at.date()})"
 
 
-class PerformanceSnapshot(TimeStampedModel):
+class PerformanceSnapshot(ConfigurableOptionsMixin, TimeStampedModel):
     """
     Performance Snapshot Model - Structured data capture at key milestones.
 

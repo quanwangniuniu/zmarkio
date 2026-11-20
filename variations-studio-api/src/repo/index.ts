@@ -1,16 +1,20 @@
 export type { VariationRow, VariationInsert, SqlClient } from './internals';
 export { VARIATION_TABLE } from './internals';
+export type { BatchSummaryRow } from './batch.repo';
 
 export {
   findVariationBySlug,
   findVariationById,
   findVariationsByIds,
+  findVariationsByIdsForUpdate,
+  findBatchVariationsByIdsForUpdate,
   findVariationsByIdsAnyProject,
   insertVariation,
   insertVariations,
   updateVariationFields,
   deleteVariationById,
   deleteVariationsByIds,
+  deleteVariationsByIdsForProject,
   deleteVariationsForProjects,
   setVariationStatus,
 } from './variation.repo';
@@ -18,6 +22,8 @@ export {
 export {
   findBatchVariations,
   findLatestBatchRow,
+  listBatchSummaries,
+  countBatchSummaries,
   markReviewed,
   markBatchReviewed,
   deleteUnselectedBatchDrafts,

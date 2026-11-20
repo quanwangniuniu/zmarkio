@@ -221,8 +221,15 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
-        var signal = await repository.CreateSignalAsync(lookup, access.UserId, input, cancellationToken);
-        return signal is null ? BadRequest(new { detail = "Signal could not be created." }) : Created($"/api/decisions/{lookup}/signals/{signal.Id}", signal);
+        try
+        {
+            var signal = await repository.CreateSignalAsync(lookup, access.UserId, input, cancellationToken);
+            return signal is null ? BadRequest(new { detail = "Signal could not be created." }) : Created($"/api/decisions/{lookup}/signals/{signal.Id}", signal);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
     }
 
     [HttpPatch("{lookup}/signals/{signalId:int}")]
@@ -242,8 +249,15 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
-        var signal = await repository.UpdateSignalAsync(lookup, signalId, input, cancellationToken);
-        return signal is null ? NotFound(new { detail = "Not found." }) : Ok(signal);
+        try
+        {
+            var signal = await repository.UpdateSignalAsync(lookup, signalId, input, cancellationToken);
+            return signal is null ? NotFound(new { detail = "Not found." }) : Ok(signal);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
     }
 
     [HttpDelete("{lookup}/signals/{signalId:int}")]

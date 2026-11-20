@@ -7,7 +7,9 @@ import { useProjectStore } from '@/lib/projectStore';
 import { nestedProjectPathFromProject } from '@/lib/projectNestedRoutes';
 import CampaignStatusPill from './pills/CampaignStatusPill';
 import EmptyState from '@/components/state-feedback/EmptyState';
-
+import { CAMPAIGN_OBJECTIVE, CAMPAIGN_PLATFORM, CAMPAIGN_STATUS } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionLabel } from '@/lib/orgCustomization/optionConfig';
 
 interface Props {
   campaigns: CampaignData[];
@@ -27,30 +29,6 @@ const STATUS_DOT: Record<CampaignStatus, string> = {
   ARCHIVED: 'bg-gray-200',
 };
 
-const OBJECTIVE_LABEL: Record<string, string> = {
-  AWARENESS: 'Awareness',
-  CONSIDERATION: 'Consideration',
-  CONVERSION: 'Conversion',
-  RETENTION: 'Retention',
-  ENGAGEMENT: 'Engagement',
-  TRAFFIC: 'Traffic',
-  LEAD_GENERATION: 'Lead Gen',
-  APP_PROMOTION: 'App Promo',
-};
-
-const PLATFORM_LABEL: Record<string, string> = {
-  META: 'Meta',
-  GOOGLE_ADS: 'Google',
-  TIKTOK: 'TikTok',
-  LINKEDIN: 'LinkedIn',
-  SNAPCHAT: 'Snapchat',
-  TWITTER: 'Twitter',
-  PINTEREST: 'Pinterest',
-  REDDIT: 'Reddit',
-  PROGRAMMATIC: 'Programmatic',
-  EMAIL: 'Email',
-};
-
 function formatDate(iso?: string | null) {
   if (!iso) return '—';
   try {
@@ -68,6 +46,7 @@ export default function CampaignListTable({
   onRowClick,
   onCreate,
 }: Props) {
+  useOptionConfigVersion();
   const router = useRouter();
   const activeProject = useProjectStore((s) => s.activeProject);
 
@@ -115,7 +94,11 @@ export default function CampaignListTable({
                     onClick={() => (onRowClick ? onRowClick(c) : router.push(nestedProjectPathFromProject(activeProject, `/campaigns/${c.slug}`)))}
                   >
                     <td className="px-4 py-3">
-                      <span className={`inline-block h-2 w-2 rounded-full ${dot}`} title={c.status} />
+                      <span
+                        className={`inline-block h-2 w-2 rounded-full ${dot}`}
+                        style={{ backgroundColor: CAMPAIGN_STATUS.colors[c.status] }}
+                        title={optionLabel(CAMPAIGN_STATUS, c.status)}
+                      />
                     </td>
                     <td className="px-4 py-3">
                       <div className="font-medium text-gray-900">{c.name || 'Untitled'}</div>
@@ -127,7 +110,7 @@ export default function CampaignListTable({
                       <CampaignStatusPill status={c.status} />
                     </td>
                     <td className="px-4 py-3 text-xs uppercase tracking-wide text-gray-500">
-                      {OBJECTIVE_LABEL[c.objective] || c.objective || '—'}
+                      {optionLabel(CAMPAIGN_OBJECTIVE, c.objective) || '—'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1">
@@ -136,7 +119,7 @@ export default function CampaignListTable({
                             key={p}
                             className="rounded-md border border-gray-200 bg-white px-1.5 py-0.5 text-[11px] text-gray-600"
                           >
-                            {PLATFORM_LABEL[p] || p}
+                            {optionLabel(CAMPAIGN_PLATFORM, p)}
                           </span>
                         ))}
                         {extra > 0 && (

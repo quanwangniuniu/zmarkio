@@ -4,12 +4,16 @@ from operator import attrgetter
 from django.db import transaction
 from rest_framework import serializers
 
+from campaign.models import Campaign, PerformanceCheckIn, PerformanceSnapshot
 from csm.models import Ticket
+from decision.models import Decision, Review, Signal
 from task.models import Task
 
 from .models import OptionConfig, TaskFieldOptionConfig, TaskPriorityConfig, TaskStatusConfig, TaskTypeConfig
 
 OPTION_ATTRIBUTES = ('label', 'color', 'enabled', 'order')
+LIST_ATTRIBUTES = ('label', 'enabled', 'order')
+LOOKUP_ATTRIBUTES = ('label', 'color')
 
 
 @dataclass(frozen=True)
@@ -18,15 +22,59 @@ class OptionField:
     field: str
     project: str
     editable: tuple = OPTION_ATTRIBUTES
+    choices: tuple = None
+    default: str = None
 
     @property
     def model_field(self):
         return self.model._meta.get_field(self.field)
 
+    @property
+    def default_value(self):
+        return self.model_field.default if self.model else self.default
+
+    @property
+    def option_choices(self):
+        return self.choices or self.model_field.choices
+
+
+NAVIGATION_GROUPS = {
+    'overview': (('overview', 'Overview'),),
+    'manage': (
+        ('campaigns', 'Campaigns'),
+        ('meta_ads', 'Meta Ads'),
+        ('tasks', 'Tasks'),
+        ('decisions', 'Decisions'),
+        ('budget_pools', 'Budget Pools'),
+        ('spreadsheets', 'Spreadsheets'),
+    ),
+    'content': (('ads_draft', 'Ads Draft'), ('email_draft', 'Email Draft'), ('notion', 'Notion')),
+    'collaborate': (('meetings', 'Meetings'), ('calendar', 'Calendar'), ('messages', 'Messages'), ('miro', 'Miro')),
+    'tools': (('workflows', 'Workflows'), ('timeline', 'Timeline')),
+}
 
 MODULE_OPTION_FIELDS = {
     'csm': {
         'ticket_priority': OptionField(Ticket, 'priority', 'queue.project'),
+    },
+    'decisions': {
+        'signal_metric': OptionField(Signal, 'metric', 'decision.project', LIST_ATTRIBUTES),
+        'signal_movement': OptionField(Signal, 'movement', 'decision.project', LIST_ATTRIBUTES),
+        'signal_period': OptionField(Signal, 'period', 'decision.project', LIST_ATTRIBUTES),
+        'review_quality': OptionField(Review, 'quality', 'decision.project', LOOKUP_ATTRIBUTES),
+        'risk_level': OptionField(Decision, 'risk_level', 'project', LOOKUP_ATTRIBUTES),
+    },
+    'campaigns': {
+        'objective': OptionField(Campaign, 'objective', 'project', LIST_ATTRIBUTES),
+        'platform': OptionField(Campaign, 'platforms', 'project', LIST_ATTRIBUTES, tuple(Campaign.Platform.choices)),
+        'snapshot_milestone': OptionField(PerformanceSnapshot, 'milestone_type', 'campaign.project', LIST_ATTRIBUTES),
+        'snapshot_metric': OptionField(PerformanceSnapshot, 'metric_type', 'campaign.project', LIST_ATTRIBUTES),
+        'status': OptionField(Campaign, 'status', 'project', LOOKUP_ATTRIBUTES),
+        'checkin_sentiment': OptionField(PerformanceCheckIn, 'sentiment', 'campaign.project', LOOKUP_ATTRIBUTES),
+    },
+    'navigation': {
+        group: OptionField(None, group, None, LIST_ATTRIBUTES, items, 'overview' if group == 'overview' else None)
+        for group, items in NAVIGATION_GROUPS.items()
     },
 }
 
@@ -192,7 +240,7 @@ def get_option_config(project, module):
     options = []
     for field, option in MODULE_OPTION_FIELDS[module].items():
         items = []
-        for index, (value, default_label) in enumerate(option.model_field.choices):
+        for index, (value, default_label) in enumerate(option.option_choices):
             row = rows.get((field, value))
             items.append({
                 'field': field,
@@ -202,7 +250,7 @@ def get_option_config(project, module):
                 'color': row.color if row else None,
                 'enabled': row.enabled if row else True,
                 'order': row.order if row else index,
-                'is_default': value == option.model_field.default,
+                'is_default': value == option.default_value,
                 'editable': list(option.editable),
             })
         options.extend(sorted(items, key=lambda item: item['order']))
@@ -212,17 +260,19 @@ def get_option_config(project, module):
 def ensure_options_enabled(instance, update_fields=None):
     for module, fields in MODULE_OPTION_FIELDS.items():
         for key, option in fields.items():
-            if not isinstance(instance, option.model):
+            if option.model is None or not isinstance(instance, option.model):
                 continue
             if update_fields is not None and option.field not in update_fields:
                 continue
             value = getattr(instance, option.field)
-            if value in (None, '', option.model_field.default):
-                continue
-            if getattr(instance, '_loaded_values', {}).get(option.field) == value:
+            previous = getattr(instance, '_loaded_values', {}).get(option.field)
+            values = value if isinstance(value, list) else [value]
+            previous = previous if isinstance(previous, list) else [previous]
+            added = [item for item in values if item not in (None, '', option.default_value, *previous)]
+            if not added:
                 continue
             if _project_rows(OptionConfig, attrgetter(option.project)(instance)).filter(
-                module=module, field=key, value=value, enabled=False
+                module=module, field=key, value__in=added, enabled=False
             ).exists():
                 raise serializers.ValidationError({option.field: 'This option is disabled for this project.'})
 
@@ -232,11 +282,11 @@ def clean_options(module, items):
     cleaned = []
     for item in items:
         option = fields.get(item['field'])
-        choices = dict(option.model_field.choices) if option else {}
+        choices = dict(option.option_choices) if option else {}
         if item['value'] not in choices:
             raise serializers.ValidationError(f"Unknown option {item['field']}.{item['value']}.")
         row = {key: value for key, value in item.items() if key in ('field', 'value', *option.editable)}
-        if row.get('enabled') is False and item['value'] == option.model_field.default:
+        if row.get('enabled') is False and item['value'] == option.default_value:
             raise serializers.ValidationError(f"{choices[item['value']]} is the default and cannot be disabled.")
         cleaned.append(row)
     return cleaned
