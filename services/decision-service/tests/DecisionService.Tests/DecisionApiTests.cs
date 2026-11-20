@@ -47,8 +47,6 @@ public sealed class DecisionApiTests
             "Keeps frontend behavior stable while moving ownership.",
             "general",
             false,
-            false,
-            null,
             null,
             new[] { new DecisionSignalInput("CTR", "increased", "last 7 days", "vs_previous_period", "campaign", "all", 12.5m, "%", null) },
             new[] { new DecisionOptionInput("Ship migration", true, 1) },
@@ -94,6 +92,28 @@ public sealed class DecisionApiTests
     }
 
     [Fact]
+    public async Task Draft_create_ignores_client_supplied_agent_provenance()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        var createResponse = await client.PostAsJsonAsync("/api/decisions/drafts", new Dictionary<string, object?>
+        {
+            ["title"] = "Forged provenance",
+            ["createdByAgent"] = true,
+            ["agentSessionId"] = Guid.NewGuid(),
+        });
+
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        var created = await createResponse.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(created);
+        Assert.False(created!.CreatedByAgent);
+        Assert.Null(created.AgentSessionId);
+    }
+
+    [Fact]
     public async Task Draft_patch_rejects_origin_meeting_id()
     {
         await using var factory = new DecisionApiFactory(authenticated: true);
@@ -109,8 +129,6 @@ public sealed class DecisionApiTests
             null,
             "general",
             false,
-            false,
-            null,
             null,
             null,
             null,

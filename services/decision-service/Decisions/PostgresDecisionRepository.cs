@@ -157,8 +157,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 NULL,
                 NULL,
                 @is_reference_case,
-                @created_by_agent,
-                @agent_session_id,
+                false,
+                NULL,
                 false,
                 @project_id,
                 @project_seq,
@@ -179,8 +179,6 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         AddNullableInteger(command, "confidence", request.ConfidenceScore);
         AddNullableTimestamp(command, "planned_decision_date", request.PlannedDecisionDate);
         command.Parameters.AddWithValue("is_reference_case", request.IsReferenceCase);
-        command.Parameters.AddWithValue("created_by_agent", request.CreatedByAgent);
-        AddNullableUuid(command, "agent_session_id", request.AgentSessionId);
         command.Parameters.AddWithValue("project_id", projectId.Value);
         command.Parameters.AddWithValue("project_seq", projectSeq);
         AddNullableInteger(command, "actor_id", actorId);
@@ -1726,11 +1724,6 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
     private static void AddNullableTimestamp(NpgsqlCommand command, string name, DateTimeOffset? value)
     {
         command.Parameters.AddWithValue(name, NpgsqlDbType.TimestampTz, value.HasValue ? value.Value : DBNull.Value);
-    }
-
-    private static void AddNullableUuid(NpgsqlCommand command, string name, Guid? value)
-    {
-        command.Parameters.AddWithValue(name, NpgsqlDbType.Uuid, value.HasValue ? value.Value : DBNull.Value);
     }
 
     private static string? GetNullableString(NpgsqlDataReader reader, string column)
