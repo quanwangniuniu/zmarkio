@@ -43,7 +43,7 @@ public sealed class DecisionApiTests
             "Test decision",
             "Move decision API to .NET",
             DecisionRiskLevel.MEDIUM,
-            80,
+            5,
             "Keeps frontend behavior stable while moving ownership.",
             "general",
             false,
@@ -71,7 +71,28 @@ public sealed class DecisionApiTests
         Assert.Equal(item.Id, node.Id);
         Assert.Equal("Test decision", node.Title);
     }
+    [Fact]
+    public async Task Draft_create_rejects_out_of_range_confidence_score()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
 
+        var response = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            title = "Invalid confidence test",
+            confidenceScore = 87,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(
+            "Confidence score must be between 1 and 5.",
+            Assert.Single(errors!["confidenceScore"]));
+    }
     [Fact]
     public async Task Draft_create_returns_origin_meeting_when_origin_meeting_id_is_supplied()
     {
@@ -125,6 +146,43 @@ public sealed class DecisionApiTests
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, patchResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Draft_patch_rejects_out_of_range_confidence_and_preserves_existing_score()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var createResponse = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            title = "Confidence update test",
+            confidenceScore = 5,
+        });
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var draft = await createResponse.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        var draftUrl = $"/api/decisions/drafts/{draft!.Slug}";
+
+        using var patchResponse = await client.PatchAsJsonAsync(draftUrl, new
+        {
+            confidenceScore = 87,
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, patchResponse.StatusCode);
+
+        var errors = await patchResponse.Content
+            .ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(
+            "Confidence score must be between 1 and 5.",
+            Assert.Single(errors!["confidenceScore"]));
+
+        var savedDraft = await client.GetFromJsonAsync<DecisionDetailDto>(draftUrl, JsonOptions);
+        Assert.NotNull(savedDraft);
+        Assert.Equal(5, savedDraft!.ConfidenceScore);
     }
 
     private sealed class DecisionApiFactory(bool authenticated) : WebApplicationFactory<Program>
