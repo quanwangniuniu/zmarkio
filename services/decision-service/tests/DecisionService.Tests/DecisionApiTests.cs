@@ -243,6 +243,129 @@ public sealed class DecisionApiTests
         Assert.Equal(validTitle, savedDraft!.Title);
     }
 
+    [Fact]
+    public async Task Draft_create_normalizes_valid_topic()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/decisions/drafts", new { topic = " Paid_Social-1 " });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var draft = await response.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal("paid_social-1", draft!.Topic);
+    }
+
+    [Fact]
+    public async Task Draft_create_validates_topic_length()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string url = "/api/decisions/drafts";
+
+        using var accepted = await client.PostAsJsonAsync(url, new
+        {
+            topic = new string('a', 64),
+        });
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+
+        using var rejected = await client.PostAsJsonAsync(url, new
+        {
+            topic = new string('a', 65),
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal("Topic must be 64 characters or fewer.", Assert.Single(errors!["topic"]));
+    }
+
+    [Fact]
+    public async Task Draft_create_rejects_invalid_topic_format()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/decisions/drafts", new { topic = "Paid Social" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(
+            "Topic may only contain lowercase letters, digits, underscores, and hyphens.",
+            Assert.Single(errors!["topic"]));
+    }
+
+    [Fact]
+    public async Task Draft_patch_rejects_invalid_topic_and_preserves_existing_topic()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string originalTopic = "paid_social-1";
+
+        using var created = await client.PostAsJsonAsync(
+            "/api/decisions/drafts", new { topic = originalTopic });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        var draft = await created.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        var url = $"/api/decisions/drafts/{draft!.Slug}";
+
+        using var rejected = await client.PatchAsJsonAsync(url, new { topic = "Paid Social" });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Contains("topic", errors!.Keys);
+
+        var saved = await client.GetFromJsonAsync<DecisionDetailDto>(url, JsonOptions);
+        Assert.NotNull(saved);
+        Assert.Equal(originalTopic, saved!.Topic);
+    }
+
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("PATCH")]
+    [InlineData("DELETE")]
+    public async Task Topic_label_routes_reject_invalid_topic(string method)
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var request = new HttpRequestMessage(
+            new HttpMethod(method), "/api/decisions/topic-labels/paid.social");
+        if (method != "DELETE")
+        {
+            request.Content = JsonContent.Create(new { title = "Paid Social" });
+        }
+
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(
+            "Topic may only contain lowercase letters, digits, underscores, and hyphens.",
+            Assert.Single(errors!["topic"]));
+    }
+
     private sealed class DecisionApiFactory(bool authenticated) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)

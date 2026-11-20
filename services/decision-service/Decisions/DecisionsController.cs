@@ -93,6 +93,16 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
 
+        try{
+            DecisionDraftValidation.ValidateTopic(topic);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]>
+            {
+                [ex.Field] = new[] { ex.Message },
+            });
+        }
         var label = await repository.UpsertTopicLabelAsync(projectId.Value, topic, title, cancellationToken);
         return label is null ? BadRequest(new { detail = "Topic label could not be saved." }) : Ok(label);
     }
@@ -112,6 +122,16 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
 
+        try{
+            DecisionDraftValidation.ValidateTopic(topic);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]>
+            {
+                [ex.Field] = new[] { ex.Message },
+            });
+        }
         return await repository.DeleteTopicLabelAsync(projectId.Value, topic, cancellationToken) switch
         {
             TopicLabelDeleteResult.Deleted or TopicLabelDeleteResult.NotFound => NoContent(),
