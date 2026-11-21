@@ -83,24 +83,12 @@ export default function DecisionPropertiesAside({
   onPlannedDateChange,
 }: Props) {
   useOptionConfigVersion();
-  const [confLocal, setConfLocal] = useState<string>(
-    confidenceScore != null ? String(confidenceScore) : ''
-  );
-  const [plannedLocal, setPlannedLocal] = useState(formatDateInput(plannedDecisionDate));
 
-  useEffect(() => {
-    setConfLocal(confidenceScore != null ? String(confidenceScore) : '');
-  }, [confidenceScore]);
+  const [plannedLocal, setPlannedLocal] = useState(formatDateInput(plannedDecisionDate));
 
   useEffect(() => {
     setPlannedLocal(formatDateInput(plannedDecisionDate));
   }, [plannedDecisionDate]);
-
-  const commitConfidence = async () => {
-    const n = confLocal === '' ? null : Number(confLocal);
-    if (n != null && (Number.isNaN(n) || n < 1 || n > 5)) return;
-    await onConfidenceChange?.(n);
-  };
 
   const commitPlanned = async () => {
     const next = plannedLocal ? `${plannedLocal}T00:00:00Z` : null;
