@@ -8,7 +8,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Id } from '@/types/common';
 import {
   WorkspaceAPI,
@@ -835,6 +836,31 @@ function deriveOpsMetrics(
 
 interface Props { projectId: Id; }
 
+export function WorkspaceDashboardSkeleton() {
+  return (
+    <div>
+      <Skeleton className="mb-2 h-[15px] w-28" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 210px), 1fr))', gap: 10, marginBottom: 20 }}>
+        {[0, 1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-[118px] rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="mb-2 h-[15px] w-28" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 10, marginBottom: 12 }}>
+        {[0, 1, 2].map((i) => (
+          <Skeleton key={i} className="h-[415px] rounded-xl" />
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: 12, marginBottom: 12 }}>
+        {[0, 1].map((i) => (
+          <Skeleton key={i} className="h-[407px] rounded-xl" />
+        ))}
+      </div>
+      <Skeleton className="h-[283px] rounded-xl" />
+    </div>
+  );
+}
+
 export default function WorkspaceDashboard({ projectId }: Props) {
   useOptionConfigVersion();
   const [workspace, setWorkspace] = useState<WorkspaceDashboardData | null>(null);
@@ -893,12 +919,7 @@ export default function WorkspaceDashboard({ projectId }: Props) {
   }, [trendDays]);
 
   if (loading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 16, border: '1px dashed #E5E7EB', background: '#fff', padding: 40 }}>
-        <Loader2 className="h-8 w-8 animate-spin text-[#3CCED7]" />
-        <p style={{ marginTop: 12, fontSize: 14, fontWeight: 500, color: TEXT_PRIMARY }}>Loading workspace…</p>
-      </div>
-    );
+    return <WorkspaceDashboardSkeleton />;
   }
   if (error) {
     return (
