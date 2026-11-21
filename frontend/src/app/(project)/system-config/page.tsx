@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { CheckSquare, GitBranch, Headset, LayoutList, Megaphone, PanelLeft, type LucideIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
@@ -60,6 +61,36 @@ const MODULE_SECTIONS: Record<ModuleKey, { title: string; fields: Record<string,
 };
 
 const MODULE_KEYS = Object.keys(MODULE_SECTIONS) as ModuleKey[];
+
+type ConfigPage = 'task' | ModuleKey;
+
+const PAGE_ICONS: Record<ConfigPage, LucideIcon> = {
+  task: CheckSquare,
+  csm: Headset,
+  decisions: GitBranch,
+  campaigns: Megaphone,
+  navigation: PanelLeft,
+};
+
+const CONFIG_PAGES: { key: ConfigPage; title: string; icon: LucideIcon; items: { id: string; title: string }[] }[] = [
+  {
+    key: 'task',
+    title: 'Tasks',
+    icon: PAGE_ICONS.task,
+    items: [
+      { id: 'task-types', title: 'Task Types' },
+      { id: 'task-statuses', title: 'Task Statuses' },
+      { id: 'task-priorities', title: 'Task Priorities' },
+      { id: 'task-dropdown-options', title: 'Dropdown Options' },
+    ],
+  },
+  ...MODULE_KEYS.map((module) => ({
+    key: module,
+    title: MODULE_SECTIONS[module].title,
+    icon: PAGE_ICONS[module],
+    items: Object.entries(MODULE_SECTIONS[module].fields).map(([field, title]) => ({ id: `${module}-${field}`, title })),
+  })),
+];
 
 interface OptionRow extends TaskFieldOptionConfig {
   fieldLabel: string;
@@ -129,7 +160,8 @@ function OrderInput({ value, onChange }: { value: number; onChange: (value: numb
   );
 }
 
-function OptionConfigTables({ options, fieldTitles, onChange }: {
+function OptionConfigTables({ module, options, fieldTitles, onChange }: {
+  module: ModuleKey;
   options: OptionConfig[];
   fieldTitles: Record<string, string>;
   onChange: (target: OptionConfig, patch: Partial<OptionConfig>) => void;
@@ -140,7 +172,7 @@ function OptionConfigTables({ options, fieldTitles, onChange }: {
         const rows = options.filter((row) => row.field === field);
         const editable = new Set(rows[0]?.editable ?? []);
         return (
-          <div key={field} className="space-y-1">
+          <div key={field} id={`${module}-${field}`} className="scroll-mt-32 space-y-1">
             <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">{title}</h3>
             <table className={tableClass}>
               <thead>
@@ -206,6 +238,39 @@ export default function SystemConfigPage() {
   const [optionType, setOptionType] = useState('');
   const [moduleOptions, setModuleOptions] = useState<Record<ModuleKey, OptionConfig[]>>({ csm: [], decisions: [], campaigns: [], navigation: [] });
   const [saving, setSaving] = useState(false);
+  const [activePage, setActivePage] = useState<ConfigPage | 'all'>('all');
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState('task-types');
+
+  useEffect(() => {
+    if (!scrollTarget) return;
+    document.getElementById(scrollTarget)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setScrollTarget(null);
+  }, [scrollTarget, activePage]);
+
+  useEffect(() => {
+    const ids = CONFIG_PAGES.filter((page) => activePage === 'all' || page.key === activePage).flatMap((page) =>
+      page.items.map((item) => item.id),
+    );
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.find((entry) => entry.isIntersecting);
+        if (visible) setActiveSection(visible.target.id);
+      },
+      { rootMargin: '-130px 0px -60% 0px' },
+    );
+    ids.forEach((id) => {
+      const element = document.getElementById(id);
+      if (element) observer.observe(element);
+    });
+    return () => observer.disconnect();
+  }, [activePage, config]);
+
+  const goTo = (page: ConfigPage | 'all', id: string, target = id) => {
+    setActivePage(page);
+    setActiveSection(id);
+    setScrollTarget(target);
+  };
 
   const loadConfig = (next: SystemConfig) => {
     setConfig({ ...next.task, can_edit: next.can_edit });
@@ -288,7 +353,7 @@ export default function SystemConfigPage() {
     <ProtectedRoute>
       <DashboardLayout hideRightPanel mainClassName="p-0">
         <div className="p-6 space-y-6">
-          <div className="flex items-start justify-between">
+          <div className="sticky -top-3 z-20 -mx-6 -mt-6 flex items-start justify-between gap-4 border-b border-gray-200 bg-[#F7F8FA] px-6 pb-4 pt-6 dark:border-gray-800 dark:bg-gray-950 sm:-top-5">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">System Configuration</h1>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -312,9 +377,81 @@ export default function SystemConfigPage() {
               Only the organization admin or the project owner can change the system configuration.
             </p>
           ) : (
-            <>
-              <section className="space-y-2">
-                <h2 className={sectionTitle}>Task Types</h2>
+            <div id="config-content" className="flex scroll-mt-32 flex-col gap-6 md:flex-row">
+              <nav
+                aria-label="Configuration sections"
+                className="shrink-0 rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-900 md:sticky md:top-32 md:max-h-[calc(100vh-12rem)] md:w-60 md:self-start md:overflow-y-auto"
+              >
+                <p className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400">Sections</p>
+                <button
+                  type="button"
+                  onClick={() => goTo('all', CONFIG_PAGES[0].items[0].id, 'config-content')}
+                  aria-current={activePage === 'all' ? 'page' : undefined}
+                  className={`mb-1 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors ${
+                    activePage === 'all'
+                      ? 'bg-[#3CCED7]/10 text-gray-900 dark:text-gray-100'
+                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  <LayoutList className={`size-4 shrink-0 ${activePage === 'all' ? 'text-[#3CCED7]' : 'text-gray-400'}`} />
+                  <span className="flex-1">All sections</span>
+                  <span className="text-xs font-normal text-gray-400">
+                    {CONFIG_PAGES.reduce((total, page) => total + page.items.length, 0)}
+                  </span>
+                </button>
+                <ul className="space-y-1">
+                  {CONFIG_PAGES.map((page) => {
+                    const active = activePage === page.key;
+                    const Icon = page.icon;
+                    return (
+                      <li key={page.key}>
+                        <button
+                          type="button"
+                          onClick={() => goTo(page.key, page.items[0].id, 'config-content')}
+                          aria-current={active ? 'page' : undefined}
+                          className={`flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm font-medium transition-colors ${
+                            active
+                              ? 'bg-[#3CCED7]/10 text-gray-900 dark:text-gray-100'
+                              : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-800'
+                          }`}
+                        >
+                          <Icon className={`size-4 shrink-0 ${active ? 'text-[#3CCED7]' : 'text-gray-400'}`} />
+                          <span className="flex-1">{page.title}</span>
+                          <span className="text-xs font-normal text-gray-400">{page.items.length}</span>
+                        </button>
+                        {active && (
+                          <ul className="mb-1 mt-1 space-y-0.5">
+                            {page.items.map((item) => (
+                              <li key={item.id} className="relative">
+                                {activeSection === item.id && (
+                                  <span className="absolute left-6 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-[#3CCED7]" />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => goTo(page.key, item.id)}
+                                  className={`w-full rounded-md py-1.5 pl-9 pr-3 text-left text-[13px] transition-colors ${
+                                    activeSection === item.id
+                                      ? 'font-medium text-gray-900 dark:text-gray-100'
+                                      : 'text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100'
+                                  }`}
+                                >
+                                  {item.title}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </nav>
+              <div className="min-w-0 flex-1 space-y-6">
+              {(activePage === 'all' || activePage === 'task') && (
+              <section className="space-y-3">
+                <h2 className={sectionTitle}>Tasks</h2>
+              <div id="task-types" className="scroll-mt-32 space-y-1">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Task Types</h3>
                 <table className={tableClass}>
                   <thead>
                     <tr>
@@ -367,10 +504,10 @@ export default function SystemConfigPage() {
                     ))}
                   </tbody>
                 </table>
-              </section>
+              </div>
 
-              <section className="space-y-2">
-                <h2 className={sectionTitle}>Task Statuses</h2>
+              <div id="task-statuses" className="scroll-mt-32 space-y-1">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Task Statuses</h3>
                 <table className={tableClass}>
                   <thead>
                     <tr>
@@ -406,10 +543,10 @@ export default function SystemConfigPage() {
                     ))}
                   </tbody>
                 </table>
-              </section>
+              </div>
 
-              <section className="space-y-2">
-                <h2 className={sectionTitle}>Task Priorities</h2>
+              <div id="task-priorities" className="scroll-mt-32 space-y-1">
+                <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Task Priorities</h3>
                 <table className={tableClass}>
                   <thead>
                     <tr>
@@ -432,11 +569,11 @@ export default function SystemConfigPage() {
                     ))}
                   </tbody>
                 </table>
-              </section>
+              </div>
 
-              <section className="space-y-3">
+              <div id="task-dropdown-options" className="scroll-mt-32 space-y-1">
                 <div className="flex items-center gap-3">
-                  <h2 className={sectionTitle}>Dropdown Options</h2>
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">Dropdown Options</h3>
                   <select
                     className="h-9 rounded-md border border-gray-200 bg-transparent px-2 text-sm dark:border-gray-700"
                     value={selectedOptionType}
@@ -487,19 +624,24 @@ export default function SystemConfigPage() {
                     </table>
                   </div>
                 ))}
-              </section>
+              </div>
 
-              {MODULE_KEYS.map((module) => (
+              </section>
+              )}
+
+              {MODULE_KEYS.filter((module) => activePage === 'all' || module === activePage).map((module) => (
                 <section key={module} className="space-y-3">
                   <h2 className={sectionTitle}>{MODULE_SECTIONS[module].title}</h2>
                   <OptionConfigTables
+                    module={module}
                     options={moduleOptions[module]}
                     fieldTitles={MODULE_SECTIONS[module].fields}
                     onChange={updateModuleOption(module)}
                   />
                 </section>
               ))}
-            </>
+              </div>
+            </div>
           )}
         </div>
       </DashboardLayout>
