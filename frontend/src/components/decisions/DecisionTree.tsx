@@ -449,6 +449,7 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
   const [moveHoverTopic, setMoveHoverTopic] = useState<string | null>(null);
   const [editingTopic, setEditingTopic] = useState<{ topic: string; value: string } | null>(null);
   const [newTopicTitle, setNewTopicTitle] = useState<string | null>(null);
+  const [newTopicError, setNewTopicError] = useState<string | null>(null);
   const [expandedTreeGroups, setExpandedTreeGroups] = useState<Set<string>>(new Set());
   const [topicGuideDismissed, setTopicGuideDismissed] = useState(false);
   const [topicGuidePage, setTopicGuidePage] = useState<0 | 1 | 2>(0);
@@ -1043,9 +1044,28 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
 
   const saveNewTopic = useCallback(async () => {
     if (!onCreateTopic || newTopicTitle == null) return;
+
     const title = (newTopicInputRef.current?.value ?? newTopicTitle).trim();
+    setNewTopicError(null);
+
+    if (!title) {
+      setNewTopicTitle(null);
+      return;
+    }
+
+    const topic = title.toLowerCase();
+
+    if (!/^[a-z0-9_-]+$/.test(topic)) {
+      setNewTopicError('Use letters, numbers, hyphens, or underscores. Example: Summer-Promo.');
+      return;
+    }
+
+    if (topic.length > 64) {
+      setNewTopicError('Topic must be 64 characters or fewer.');
+      return;
+    }
+
     setNewTopicTitle(null);
-    if (!title) return;
     await onCreateTopic(title);
   }, [newTopicTitle, onCreateTopic]);
 
@@ -1856,13 +1876,16 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
                     }}
                   >
                     {newTopicTitle != null ? (
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex w-full flex-wrap items-center gap-1.5 px-3">
                         <input
                           data-new-topic-input
                           ref={newTopicInputRef}
                           autoFocus
                           value={newTopicTitle}
-                          onChange={(event) => setNewTopicTitle(event.target.value)}
+                          onChange={(event) => {
+                            setNewTopicTitle(event.target.value);
+                            setNewTopicError(null);
+                          }}
                           onInput={(event) => setNewTopicTitle(event.currentTarget.value)}
                           onKeyDown={(event) => {
                             if (event.key === 'Enter') {
@@ -1898,11 +1921,19 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
                         >
                           <X className="h-4 w-4" />
                         </button>
+                        {newTopicError && (
+                          <p role="alert" className="basis-full text-xs text-rose-600">
+                            {newTopicError}
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setNewTopicTitle('')}
+                        onClick={() => {
+                          setNewTopicError(null);
+                          setNewTopicTitle('');
+                        }}
                         className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-400 transition group-hover:text-[#159aa3]"
                       >
                         <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-slate-400 transition group-hover:bg-[#3CCED7]/10 group-hover:text-[#159aa3]">
