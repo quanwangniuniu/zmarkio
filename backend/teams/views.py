@@ -4,6 +4,9 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.utils.decorators import method_decorator
 from django.views import View
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 import json
@@ -11,6 +14,7 @@ from core.models import Team, TeamMember, TeamRole
 from access_control.models import UserRole
 from access_control.middleware.authorization import AuthorizationMiddleware
 from access_control.services import get_user_current_org_id
+from teams.permissions import IsCurrentOrgAdmin
 from teams.services import (
     TeamServiceError,
     create_org_team,
@@ -288,35 +292,33 @@ class TeamMemberDetailView(TeamMemberAPIView):
             'message': 'User removed from team successfully'
         }, status=200)
 
-@method_decorator(csrf_exempt, name='dispatch')
-class TeamListCreateView(TeamMemberAPIView):
+class TeamListCreateView(APIView):
     """Organization-wide Team management (org admins / superusers only)"""
+    permission_classes = [IsAuthenticated, IsCurrentOrgAdmin]
 
-    @method_decorator(org_admin_required)
     def get(self, request):
         """GET /teams/?search= - List (and search) all Teams of the organization"""
         org_id = get_user_current_org_id(request.user)
         if not org_id:
-            return JsonResponse({'error': 'Organization context required',
-                                 'code': 'NO_ORGANIZATION'}, status=400)
+            return Response({'error': 'Organization context required',
+                             'code': 'NO_ORGANIZATION'}, status=400)
         teams = list_org_teams(org_id, request.GET.get('search', ''))
         items = [_team_payload(t, t.member_count) for t in teams]
-        return JsonResponse({'teams': items, 'team_count': len(items)})
+        return Response({'teams': items, 'team_count': len(items)})
 
-    @method_decorator(org_admin_required)
     def post(self, request):
         """POST /teams/ - Create a Team in the caller's organization"""
         org_id = get_user_current_org_id(request.user)
         if not org_id:
-            return JsonResponse({'error': 'Organization context required',
-                                 'code': 'NO_ORGANIZATION'}, status=400)
-        data = request.json if isinstance(request.json, dict) else {}
+            return Response({'error': 'Organization context required',
+                             'code': 'NO_ORGANIZATION'}, status=400)
+        data = request.data if isinstance(request.data, dict) else {}
         try:
             team = create_org_team(org_id, data.get('name'), data.get('desc'))
         except TeamServiceError as exc:
-            return JsonResponse({'error': exc.message, 'code': exc.code}, status=exc.status)
-        return JsonResponse({'message': 'Team created successfully',
-                             'team': _team_payload(team, 0)}, status=201)
+            return Response({'error': exc.message, 'code': exc.code}, status=exc.status)
+        return Response({'message': 'Team created successfully',
+                         'team': _team_payload(team, 0)}, status=201)
 
 
 # Additional helper view for team details with members
