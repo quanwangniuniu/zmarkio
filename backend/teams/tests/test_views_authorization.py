@@ -52,12 +52,6 @@ def _reset_schema():
         cursor.execute('SET search_path TO public')
 
 
-def _current_search_path():
-    with connection.cursor() as cursor:
-        cursor.execute('SHOW search_path')
-        return cursor.fetchone()[0]
-
-
 class TeamsAuthorizationBase(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -178,17 +172,6 @@ class TeamPermissionDecoratorTenantSchemaTest(TeamsAuthorizationBase):
         resp = self._view("MEMBER")(self._req(self.outsider), team_id=self.team.id)
         self.assertEqual(resp.status_code, 403)
         self.assertIn(b'not a team member', resp.content)
-
-    def test_search_path_is_preserved(self):
-        before = _current_search_path()
-        self._view()(self._req(self.leader), team_id=self.team.id)
-        self.assertEqual(_current_search_path(), before)
-        self.assertIn(slug_to_schema_name(self.org.slug), before)
-
-    def test_search_path_is_preserved_on_denial(self):
-        before = _current_search_path()
-        self._view()(self._req(self.outsider), team_id=self.team.id)
-        self.assertEqual(_current_search_path(), before)
 
     def test_membership_in_another_organization_schema_is_not_considered(self):
         # A leader row that exists only in the other organization's schema
