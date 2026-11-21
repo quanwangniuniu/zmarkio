@@ -309,7 +309,7 @@ export default function SystemConfigPage() {
             </p>
           ) : !config.can_edit ? (
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Only project admins can change the system configuration.
+              Only the organization admin or the project owner can change the system configuration.
             </p>
           ) : (
             <>

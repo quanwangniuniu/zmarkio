@@ -14,6 +14,7 @@ ACTION_CHOICES = [
     ('project.updated',           'Project Updated'),
     ('project.deleted',           'Project Deleted'),
     ('project.labels_updated',    'Project Labels Updated'),
+    ('project.config_updated',    'Project Config Updated'),
     ('org.slug_updated',          'Org Slug Updated'),
     ('org.deleted',               'Org Deleted'),
     ('org.admin_assigned',        'Org Admin Assigned'),

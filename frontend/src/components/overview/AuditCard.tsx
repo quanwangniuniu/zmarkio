@@ -16,6 +16,7 @@ const ACTION_LABEL: Record<string, string> = {
   'project.updated':          'updated project',
   'project.deleted':          'deleted project',
   'project.labels_updated':   'updated labels for',
+  'project.config_updated':   'updated system configuration for',
   'org.slug_updated':         'updated org slug',
   'org.deleted':              'deleted org',
   'org.admin_assigned':       'assigned org admin',
