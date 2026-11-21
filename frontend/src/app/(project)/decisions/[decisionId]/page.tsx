@@ -165,8 +165,31 @@ function DecisionDetailContent() {
     await detail.patchDraft({ plannedDecisionDate: next } as any);
   };
   const handleOptionsSave = async (next: DecisionOptionDraft[]) => {
-    await detail.patchDraft({ options: next });
-    clearFieldError('options', 'selectedOption');
+    clearFieldError('options');
+
+    const orderedOptions = next.map((option, index) => ({
+      ...option,
+      order:index,
+    }));
+
+    for (const [index, option] of orderedOptions.entries()) {
+      const label = `Option ${index + 1}`;
+      let message = '';
+
+      if (!option.text.trim()) {
+        message = `${label}: enter option text.`;
+      } else if (Array.from(option.text).length > 1000) {
+        message = `${label}: use 1000 characters or fewer.`;
+      }
+
+      if (message) {
+        setFieldErrors((previous) => ({ ...previous, options: message }));
+        return;
+      }
+    }
+
+    const saved = await detail.patchDraft({ options: orderedOptions });
+    if (saved) clearFieldError('selectedOption');
   };
 
   // ---- FSM actions ----

@@ -38,7 +38,10 @@ export default function DecisionOptionsSection({
   };
 
   const addOption = () => {
-    commit([...local, { text: '', isSelected: false, order: local.length }]);
+    setLocal((previous) => [
+      ...previous,
+      { text: '', isSelected: false, order: previous.length },
+    ]);
   };
 
   const updateText = (index: number, text: string) => {
@@ -47,7 +50,7 @@ export default function DecisionOptionsSection({
   };
 
   const commitText = async (index: number) => {
-    if (local[index]?.text === (value?.[index]?.text ?? '')) return;
+    if (!error && local[index]?.text === value[index]?.text) return;
     await commit(local);
   };
 
