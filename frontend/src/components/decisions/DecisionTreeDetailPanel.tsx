@@ -244,6 +244,7 @@ export default function DecisionTreeDetailPanel({
   };
 
   const handleSignalSubmit = async (payload: SignalFormPayload) => {
+    if (!signalsEditable) return;
     if (signalEdit?.id) {
       await DecisionAPI.updateSignal(decisionKey, signalEdit.id, payload, projectId);
       toast.success('Signal updated');
@@ -256,7 +257,7 @@ export default function DecisionTreeDetailPanel({
   };
 
   const handleSignalDelete = async () => {
-    if (!pendingSignalDelete?.id) return;
+    if (!signalsEditable || !pendingSignalDelete?.id) return;
     setSignalDeleting(true);
     try {
       await DecisionAPI.deleteSignal(decisionKey, pendingSignalDelete.id, projectId);

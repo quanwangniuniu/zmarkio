@@ -260,7 +260,7 @@ function DecisionDetailContent() {
     setSignalDialogOpen(true);
   };
   const handleSignalSubmit = async (payload: any) => {
-    if (!decisionId) return;
+    if (!decisionId || !ownerEditable) return;
     try {
       if (signalEdit?.id) {
         await DecisionAPI.updateSignal(decisionId, signalEdit.id, payload, projectId);
@@ -275,7 +275,7 @@ function DecisionDetailContent() {
     }
   };
   const handleSignalDelete = async () => {
-    if (!decisionId || !pendingSignalDelete?.id) return;
+    if (!decisionId || !ownerEditable || !pendingSignalDelete?.id) return;
     setSignalDeleting(true);
     try {
       await DecisionAPI.deleteSignal(decisionId, pendingSignalDelete.id, projectId);
