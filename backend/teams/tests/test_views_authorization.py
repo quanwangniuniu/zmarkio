@@ -318,6 +318,7 @@ class OrgAdminTeamsPolicyTest(TeamsAuthorizationBase):
         cls.wrong_org_role_user = mk("twrongorgrole", cls.org)
         cls.level3_user = mk("tlevel3", cls.org)
         cls.membership_only_admin = mk("tmemberadmin", cls.org)
+        cls.removed_admin = mk("tremovedadmin", cls.org)
         cls.other_org_admin = mk("totherorgadmin", cls.other_org)
         cls.foreign_user = mk("tforeign", cls.other_org)
         cls.dual_membership_user = mk("tdual", cls.other_org)
@@ -330,12 +331,21 @@ class OrgAdminTeamsPolicyTest(TeamsAuthorizationBase):
             user=cls.membership_only_admin, organization=cls.org, role='admin', is_active=True)
         OrganizationMembership.objects.create(
             user=cls.dual_membership_user, organization=cls.org, role='member', is_active=True)
+        for u in (cls.org_admin, cls.team_scoped_admin, cls.expired_admin,
+                  cls.deleted_role_admin, cls.wrong_org_role_user, cls.level3_user):
+            OrganizationMembership.objects.create(
+                user=u, organization=cls.org, role='member', is_active=True)
+        OrganizationMembership.objects.create(
+            user=cls.other_org_admin, organization=cls.other_org, role='member', is_active=True)
+        OrganizationMembership.objects.create(
+            user=cls.removed_admin, organization=cls.org, role='member', is_active=False)
 
         _set_schema(cls.org)
         admin_role = Role.objects.create(organization=cls.org, name="Organization Admin", level=2)
         staff_role = Role.objects.create(organization=cls.org, name="Staff", level=3)
         foreign_role = Role.objects.create(organization=cls.other_org, name="Organization Admin", level=2)
         UserRole.objects.create(user=cls.org_admin, role=admin_role)
+        UserRole.objects.create(user=cls.removed_admin, role=admin_role)
         UserRole.objects.create(user=cls.team_scoped_admin, role=admin_role, team=cls.team)
         UserRole.objects.create(user=cls.expired_admin, role=admin_role,
                                 valid_to=timezone.now() - timedelta(days=1))
@@ -491,6 +501,13 @@ class OrgAdminTeamsPolicyTest(TeamsAuthorizationBase):
                 with self.subTest(user=user.username, method=method, path=path):
                     resp = self._call(method, path, user=user, body=body)
                     self.assertEqual(resp.status_code, 403)
+        self._assert_team_state_unchanged()
+
+    def test_removed_admin_with_leftover_level2_role_stays_denied(self):
+        for method, path, body in self._all_endpoints():
+            with self.subTest(method=method, path=path):
+                resp = self._call(method, path, user=self.removed_admin, body=body)
+                self.assertEqual(resp.status_code, 403)
         self._assert_team_state_unchanged()
 
     def test_org_admin_edit_dialog_saves_team_role_changes_without_membership(self):

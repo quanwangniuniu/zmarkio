@@ -11,7 +11,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from core.models import Permission, Project, ProjectMember, Role
+from core.models import OrganizationMembership, Permission, Project, ProjectMember, Role
 from access_control.models import RolePermission, UserRole
 
 
@@ -767,6 +767,10 @@ def user_is_current_org_admin(user) -> bool:
         return False
     org_id = get_user_current_org_id(user)
     if not org_id:
+        return False
+    if not OrganizationMembership.objects.filter(
+        user=user, organization_id=org_id, is_active=True
+    ).exists():
         return False
     now = timezone.now()
     return UserRole.objects.filter(
