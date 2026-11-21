@@ -140,18 +140,20 @@ export default function DecisionPropertiesAside({
       <Row label="Confidence">
         {editable ? (
           <div>
-            <input
-              id="decision-field-confidence"
-              type="number"
-              min={1}
-              max={5}
-              step={1}
-              value={confLocal}
-              onChange={(e) => setConfLocal(e.target.value)}
-              onBlur={commitConfidence}
-              placeholder="1–5"
-              className="w-20 rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 outline-none transition focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
-            />
+            <div id="decision-field-confidence">
+              <InlineSelect
+                ariaLabel="Confidence"
+                placeholder="Select 1–5"
+                value={confidenceScore == null ? '' : String(confidenceScore)}
+                options={[1, 2, 3, 4, 5].map((score) => ({
+                  value: String(score),
+                  label: String(score),
+                }))}
+                onValueChange={(value) => {
+                  void onConfidenceChange?.(Number(value));
+                }}
+              />
+            </div>
             {errors?.confidence && (
               <div className="mt-1 text-[11px] text-rose-600">{errors.confidence}</div>
             )}

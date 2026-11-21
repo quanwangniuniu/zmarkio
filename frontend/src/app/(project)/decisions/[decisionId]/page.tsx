@@ -149,8 +149,17 @@ function DecisionDetailContent() {
     clearFieldError('riskLevel');
   };
   const handleConfidenceChange = async (next: number | null) => {
-    await detail.patchDraft({ confidenceScore: next });
     clearFieldError('confidenceScore');
+
+    if (next !== null && (!Number.isInteger(next) || next < 1 || next > 5)) {
+      setFieldErrors((previous) => ({
+        ...previous,
+        confidenceScore: 'Confidence score must be an integer between 1 and 5.',
+      }));
+      return;
+    }
+
+    await detail.patchDraft({ confidenceScore: next });
   };
   const handlePlannedDateChange = async (next: string | null) => {
     await detail.patchDraft({ plannedDecisionDate: next } as any);
