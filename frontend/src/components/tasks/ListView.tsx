@@ -1563,9 +1563,13 @@ export default function ListView({
           <EmptyState
             icon={<ListTodo className="h-5 w-5" />}
             title="No tasks yet"
-            description="Create your first task to start tracking work in this project."
+            description={
+              projectId
+                ? 'Create your first task to start tracking work in this project.'
+                : 'Click Create task to add the first one.'
+            }
             actionLabel="Add the first task"
-            onAction={() => setQuickCreateOpen(true)}
+            onAction={projectId ? () => setQuickCreateOpen(true) : undefined}
             actionIcon={<Plus className="h-3.5 w-3.5" />}
           />
 
