@@ -388,6 +388,7 @@ export type AdminAuditAction =
   | 'project.updated'
   | 'project.deleted'
   | 'project.labels_updated'
+  | 'project.config_updated'
   | 'org.slug_updated'
   | 'org.deleted'
   | 'org.admin_assigned'

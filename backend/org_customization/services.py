@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from operator import attrgetter
 
+from django.core.cache import cache
 from django.db import transaction
 from rest_framework import serializers
 
@@ -86,6 +87,8 @@ STATUS_CATEGORIES = {
     'CANCELLED': ('Cancelled', '#6B7280'),
 }
 
+CONFIG_CACHE_TTL = 300
+
 DEFAULT_STATUS_CATEGORIES = {
     Task.Status.DRAFT: 'TO_DO',
     Task.Status.SUBMITTED: 'TO_DO',
@@ -101,6 +104,16 @@ def _project_rows(model, project):
     if project is None or project.organization_id is None:
         return model.objects.none()
     return model.objects.filter(organization_id=project.organization_id, project_id=project.id)
+
+
+def _config_cache_key(project):
+    return f'orgcfg:{project.organization_id}:{project.id}'
+
+
+def clear_config_cache(project):
+    key = _config_cache_key(project)
+    cache.delete(key)
+    transaction.on_commit(lambda: cache.delete(key))
 
 
 def _rows_by_key(model, project):
@@ -164,6 +177,7 @@ def get_task_config(project):
 def seed_task_config(project):
     if project.organization_id is None:
         return
+    clear_config_cache(project)
     scope = {'organization_id': project.organization_id, 'project_id': project.id}
     TaskTypeConfig.objects.bulk_create([
         TaskTypeConfig(**scope, key=key, label=label, order=index)
@@ -214,6 +228,7 @@ def _save_rows(model, project, items, lookup_fields):
 
 @transaction.atomic
 def save_task_config(project, data):
+    clear_config_cache(project)
     _save_rows(TaskTypeConfig, project, data.get('task_types', []), ['key'])
     _save_rows(TaskStatusConfig, project, data.get('task_statuses', []), ['key'])
     _save_rows(TaskPriorityConfig, project, data.get('task_priorities', []), ['key'])
@@ -225,11 +240,48 @@ def save_task_config(project, data):
     )
 
 
-def get_system_config(project):
-    return {
-        'task': get_task_config(project),
-        **{module: get_option_config(project, module) for module in MODULE_OPTION_FIELDS},
-    }
+def get_system_config(project, cached=False):
+    if not cached:
+        return {
+            'task': get_task_config(project),
+            **{module: get_option_config(project, module) for module in MODULE_OPTION_FIELDS},
+        }
+    key = _config_cache_key(project)
+    config = cache.get(key)
+    if config is None:
+        config = get_system_config(project)
+        cache.set(key, config, CONFIG_CACHE_TTL)
+    return config
+
+
+AUDIT_ATTRIBUTES = ('label', 'short_label', 'color', 'enabled', 'order', 'category')
+ITEM_KEYS = ('key', 'task_type', 'field', 'value')
+
+
+def _flatten_config(config, path=()):
+    items = {}
+    for name, value in config.items():
+        if isinstance(value, dict):
+            items.update(_flatten_config(value, (*path, name)))
+        elif isinstance(value, list):
+            for item in value:
+                key = ' · '.join((*path, name, *(str(item[field]) for field in ITEM_KEYS if field in item)))
+                fields = item.get('editable', AUDIT_ATTRIBUTES)
+                items[key] = {field: item[field] for field in AUDIT_ATTRIBUTES if field in item and field in fields}
+    return items
+
+
+def config_changes(before, after):
+    before, after = _flatten_config(before), _flatten_config(after)
+    old, new = {}, {}
+    for key, values in after.items():
+        previous = before.get(key, {})
+        changed = {field: value for field, value in values.items() if previous.get(field) != value}
+        if changed:
+            new[key] = changed
+            if key in before:
+                old[key] = {field: previous.get(field) for field in changed}
+    return old, new
 
 
 def get_option_config(project, module):
@@ -294,6 +346,7 @@ def clean_options(module, items):
 
 @transaction.atomic
 def save_option_config(project, module, items):
+    clear_config_cache(project)
     _project_rows(OptionConfig, project).filter(module=module).delete()
     _save_rows(OptionConfig, project, [{**item, 'module': module} for item in items], ['module', 'field', 'value'])
 
