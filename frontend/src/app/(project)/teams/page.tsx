@@ -12,14 +12,13 @@ import { ChevronDown, Users, AlertCircle, Trash2 } from 'lucide-react';
 import TeamAPI from "@/lib/api/teamApi";
 import { UserRoleAPI } from "@/lib/api/userRoleApi";
 import { CreateUserRole } from "@/types/permission";
-import { TeamDetailResponse } from "@/types/team";
+import { Team, TeamDetailResponse } from "@/types/team";
 import { useAuthStore } from "@/lib/authStore";
 import Modal from "@/components/ui/Modal";
 import { Button } from "@/components/ui/button";
 import TeamAdminToolbar from "@/components/teams/TeamAdminToolbar";
 import CreateTeamDialog from "@/components/teams/CreateTeamDialog";
 import DeleteTeamDialog from "@/components/teams/DeleteTeamDialog";
-import { Team } from "@/types/team";
 
 
 

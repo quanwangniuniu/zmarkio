@@ -11,6 +11,8 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import TeamAPI from '@/lib/api/teamApi';
 import { Team } from '@/types/team';
 
@@ -67,9 +69,9 @@ export default function CreateTeamDialog({ open, onClose, onCreated }: CreateTea
           </DialogHeader>
 
           <div className="space-y-2">
-            <label htmlFor="create-team-name" className="text-sm font-medium text-gray-700">
+            <Label htmlFor="create-team-name" className="text-gray-700">
               Team name
-            </label>
+            </Label>
             <Input
               id="create-team-name"
               value={name}
@@ -81,15 +83,14 @@ export default function CreateTeamDialog({ open, onClose, onCreated }: CreateTea
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="create-team-desc" className="text-sm font-medium text-gray-700">
+            <Label htmlFor="create-team-desc" className="text-gray-700">
               Description (optional)
-            </label>
-            <textarea
+            </Label>
+            <Textarea
               id="create-team-desc"
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
               rows={3}
-              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
           </div>
 
