@@ -3,6 +3,8 @@ import LoadingSkeleton from '@/components/state-feedback/LoadingSkeleton';
 import ErrorState from '@/components/state-feedback/ErrorState';
 import DisabledOverlay from '@/components/state-feedback/DisabledOverlay';
 import FieldSkeleton from '@/components/state-feedback/FieldSkeleton';
+import EmptyState from '@/components/state-feedback/EmptyState';
+import { ListTodo, Plus } from 'lucide-react';
 
 const meta: Meta<typeof LoadingSkeleton> = {
   title: 'State/Feedback',
@@ -92,5 +94,30 @@ export const SameContentDifferentStates: Story = {
         </DisabledOverlay>
       </div>
     </div>
+  ),
+};
+
+export const EmptyStateExample: Story = {
+  name: 'Empty State',
+  render: () => (
+    <EmptyState
+      icon={<ListTodo />}
+      title="No tasks yet"
+      description="Create your first task to start tracking work."
+      actionLabel="Add the first task"
+      onAction={() => {}}
+      actionIcon={<Plus className="h-3.5 w-3.5" />}
+    />
+  ),
+};
+
+export const EmptyStateWithoutAction: Story = {
+  name: 'Empty State (no action)',
+  render: () => (
+    <EmptyState
+      icon={<ListTodo />}
+      title="No tasks yet"
+      description="Ask a project admin to create the first task."
+    />
   ),
 };
