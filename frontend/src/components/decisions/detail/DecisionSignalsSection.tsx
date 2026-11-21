@@ -1,6 +1,9 @@
 'use client';
 
 import { Pencil, Plus, Trash2 } from 'lucide-react';
+import { SIGNAL_METRIC, SIGNAL_MOVEMENT, SIGNAL_PERIOD } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionLabel } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionSignal } from '@/types/decision';
 
 interface Props {
@@ -20,6 +23,7 @@ export default function DecisionSignalsSection({
   onEdit,
   onDelete,
 }: Props) {
+  useOptionConfigVersion();
   return (
     <section
       id="decision-section-signals"
@@ -71,7 +75,7 @@ export default function DecisionSignalsSection({
                   {signal.displayTextOverride || signal.displayText || '—'}
                 </div>
                 <div className="mt-0.5 break-words text-[11px] text-gray-500">
-                  {signal.metric} · {signal.movement} · {signal.period}
+                  {optionLabel(SIGNAL_METRIC, signal.metric)} · {optionLabel(SIGNAL_MOVEMENT, signal.movement)} · {optionLabel(SIGNAL_PERIOD, signal.period)}
                   {signal.comparison && signal.comparison !== 'NONE' && ` · ${signal.comparison}`}
                   {signal.scopeType && ` · ${signal.scopeType}`}
                   {signal.scopeValue && `: ${signal.scopeValue}`}

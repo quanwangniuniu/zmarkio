@@ -120,8 +120,6 @@ public sealed record CreateDecisionDraftRequest(
     string? Reasoning,
     string? Topic,
     bool IsReferenceCase,
-    bool CreatedByAgent,
-    Guid? AgentSessionId,
     DateTimeOffset? PlannedDecisionDate,
     IReadOnlyList<DecisionSignalInput>? Signals,
     IReadOnlyList<DecisionOptionInput>? Options,

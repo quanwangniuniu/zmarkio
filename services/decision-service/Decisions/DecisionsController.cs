@@ -137,6 +137,10 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
+        if (DecisionAccessResponses.DraftOwnerRequired(existing, request, access) is { } forbidden)
+        {
+            return forbidden;
+        }
 
         try
         {
@@ -217,12 +221,19 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        if (!CanEditDraftSignals(existing, access))
+        if (!DecisionPermissionPolicy.CanEditDraftSignals(existing, access))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
-        var signal = await repository.CreateSignalAsync(lookup, access.UserId, input, cancellationToken);
-        return signal is null ? BadRequest(new { detail = "Signal could not be created." }) : Created($"/api/decisions/{lookup}/signals/{signal.Id}", signal);
+        try
+        {
+            var signal = await repository.CreateSignalAsync(lookup, access.UserId, input, cancellationToken);
+            return signal is null ? BadRequest(new { detail = "Signal could not be created." }) : Created($"/api/decisions/{lookup}/signals/{signal.Id}", signal);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
     }
 
     [HttpPatch("{lookup}/signals/{signalId:int}")]
@@ -238,12 +249,19 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        if (!CanEditDraftSignals(existing, access))
+        if (!DecisionPermissionPolicy.CanEditDraftSignals(existing, access))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
-        var signal = await repository.UpdateSignalAsync(lookup, signalId, input, cancellationToken);
-        return signal is null ? NotFound(new { detail = "Not found." }) : Ok(signal);
+        try
+        {
+            var signal = await repository.UpdateSignalAsync(lookup, signalId, input, cancellationToken);
+            return signal is null ? NotFound(new { detail = "Not found." }) : Ok(signal);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]> { [ex.Field] = new[] { ex.Message } });
+        }
     }
 
     [HttpDelete("{lookup}/signals/{signalId:int}")]
@@ -259,7 +277,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        if (!CanEditDraftSignals(existing, access))
+        if (!DecisionPermissionPolicy.CanEditDraftSignals(existing, access))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
@@ -393,12 +411,5 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     private static DecisionActionResponse ActionResponse(string detail, DecisionDetailDto decision)
     {
         return new DecisionActionResponse(detail, decision.Status, null, decision);
-    }
-
-    private static bool CanEditDraftSignals(DecisionDetailDto decision, DecisionAccessContext access)
-    {
-        return decision.Status == DecisionStatus.DRAFT
-            && decision.CreatedBy.HasValue
-            && decision.CreatedBy.Value == access.UserId;
     }
 }

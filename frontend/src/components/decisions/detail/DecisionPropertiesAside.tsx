@@ -2,15 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import InlineSelect from '@/components/tasks/detail/InlineSelect';
+import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionChoices, optionLabel } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionRiskLevel, DecisionStatus } from '@/types/decision';
-import type { ProjectMember } from './hooks/useProjectRole';
-
-const RISK_OPTIONS = [
-  { value: '__unassigned__', label: 'Unassigned' },
-  { value: 'LOW', label: 'Low' },
-  { value: 'MEDIUM', label: 'Medium' },
-  { value: 'HIGH', label: 'High' },
-];
+import { resolveUserName, type ProjectMember } from './hooks/useProjectRole';
 
 interface Props {
   status: DecisionStatus | null;
@@ -59,18 +55,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-function resolveUserName(members: ProjectMember[] | undefined, userId: number | null | undefined): string {
-  if (userId == null) return '—';
-  const member = members?.find((m) => (m.user?.id ?? m.user_id) === userId);
-  const user = member?.user;
-  return (
-    user?.name?.trim() ||
-    user?.username?.trim() ||
-    user?.email?.trim() ||
-    `User #${userId}`
-  );
-}
-
 export default function DecisionPropertiesAside({
   riskLevel,
   confidenceScore,
@@ -86,6 +70,7 @@ export default function DecisionPropertiesAside({
   onConfidenceChange,
   onPlannedDateChange,
 }: Props) {
+  useOptionConfigVersion();
   const [confLocal, setConfLocal] = useState<string>(
     confidenceScore != null ? String(confidenceScore) : ''
   );
@@ -128,7 +113,7 @@ export default function DecisionPropertiesAside({
                 ariaLabel="Risk level"
                 value={riskLevel ?? '__unassigned__'}
                 onValueChange={handleRiskChange}
-                options={RISK_OPTIONS}
+                options={[{ value: '__unassigned__', label: 'Unassigned' }, ...optionChoices(DECISION_RISK)]}
               />
             </div>
             {errors?.risk && (
@@ -136,7 +121,7 @@ export default function DecisionPropertiesAside({
             )}
           </div>
         ) : (
-          <span>{riskLevel ?? <span className="text-gray-400">—</span>}</span>
+          <span>{riskLevel ? optionLabel(DECISION_RISK, riskLevel) : <span className="text-gray-400">—</span>}</span>
         )}
       </Row>
 

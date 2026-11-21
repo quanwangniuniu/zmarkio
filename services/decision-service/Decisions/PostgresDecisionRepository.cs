@@ -157,8 +157,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 NULL,
                 NULL,
                 @is_reference_case,
-                @created_by_agent,
-                @agent_session_id,
+                false,
+                NULL,
                 false,
                 @project_id,
                 @project_seq,
@@ -179,8 +179,6 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         AddNullableInteger(command, "confidence", request.ConfidenceScore);
         AddNullableTimestamp(command, "planned_decision_date", request.PlannedDecisionDate);
         command.Parameters.AddWithValue("is_reference_case", request.IsReferenceCase);
-        command.Parameters.AddWithValue("created_by_agent", request.CreatedByAgent);
-        AddNullableUuid(command, "agent_session_id", request.AgentSessionId);
         command.Parameters.AddWithValue("project_id", projectId.Value);
         command.Parameters.AddWithValue("project_seq", projectSeq);
         AddNullableInteger(command, "actor_id", actorId);
@@ -503,6 +501,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             return null;
         }
 
+        await EnsureSignalOptionsEnabledAsync(connection, session.Transaction, decision.Id, [input], ct);
         var now = DateTimeOffset.UtcNow;
         var displayText = input.DisplayTextOverride
             ?? string.Join(" ", new[] { input.Metric, input.Movement, input.Period }.Where(value => !string.IsNullOrWhiteSpace(value)));
@@ -573,6 +572,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             return null;
         }
 
+        await EnsureSignalOptionsEnabledAsync(connection, session.Transaction, decision.Id, [input], ct);
         var now = DateTimeOffset.UtcNow;
         var displayText = input.DisplayTextOverride
             ?? string.Join(" ", new[] { input.Metric, input.Movement, input.Period }.Where(value => !string.IsNullOrWhiteSpace(value)));
@@ -1551,6 +1551,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         CancellationToken ct
     )
     {
+        await EnsureSignalOptionsEnabledAsync(connection, transaction, decisionId, signals ?? [], ct);
         using (var deleteCommand = connection.CreateCommand())
         {
             deleteCommand.Transaction = transaction;
@@ -1721,6 +1722,65 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         await command.ExecuteNonQueryAsync(ct);
     }
 
+    private static readonly (string Field, string Column, Func<DecisionSignalInput, string?> Value)[] SignalOptionFields =
+    [
+        ("signal_metric", "metric", signal => signal.Metric),
+        ("signal_movement", "movement", signal => signal.Movement),
+        ("signal_period", "period", signal => signal.Period),
+    ];
+
+    private static async Task EnsureSignalOptionsEnabledAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        int decisionId,
+        IEnumerable<DecisionSignalInput> signals,
+        CancellationToken ct
+    )
+    {
+        var requested = signals
+            .SelectMany(signal => SignalOptionFields.Select(option => (option.Field, Value: option.Value(signal))))
+            .Where(item => !string.IsNullOrWhiteSpace(item.Value))
+            .Distinct()
+            .ToList();
+        if (requested.Count == 0)
+        {
+            return;
+        }
+
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT o.field
+            FROM config."option" o
+            JOIN decisions d ON d.id = @decision_id AND d.project_id = o.project_id
+            JOIN core_project p ON p.id = d.project_id AND p.organization_id = o.organization_id
+            WHERE o.module = 'decisions'
+              AND o.enabled = false
+              AND (o.field, o.value) IN (SELECT * FROM unnest(@fields::text[], @values::text[]))
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM decision_signals s
+                  WHERE s.decision_id = d.id
+                    AND s.is_deleted = false
+                    AND CASE o.field
+                        WHEN 'signal_metric' THEN s.metric
+                        WHEN 'signal_movement' THEN s.movement
+                        ELSE s.period
+                    END = o.value
+              )
+            LIMIT 1
+            """;
+        command.Parameters.AddWithValue("decision_id", decisionId);
+        command.Parameters.AddWithValue("fields", requested.Select(item => item.Field).ToArray());
+        command.Parameters.AddWithValue("values", requested.Select(item => item.Value!).ToArray());
+        if (await command.ExecuteScalarAsync(ct) is string field)
+        {
+            throw new DecisionValidationException(
+                SignalOptionFields.First(option => option.Field == field).Column,
+                "This option is disabled for this project.");
+        }
+    }
+
     private static void AddNullableText(NpgsqlCommand command, string name, string? value)
     {
         command.Parameters.AddWithValue(name, NpgsqlDbType.Text, value is null ? DBNull.Value : value);
@@ -1744,11 +1804,6 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
     private static void AddNullableTimestamp(NpgsqlCommand command, string name, DateTimeOffset? value)
     {
         command.Parameters.AddWithValue(name, NpgsqlDbType.TimestampTz, value.HasValue ? value.Value : DBNull.Value);
-    }
-
-    private static void AddNullableUuid(NpgsqlCommand command, string name, Guid? value)
-    {
-        command.Parameters.AddWithValue(name, NpgsqlDbType.Uuid, value.HasValue ? value.Value : DBNull.Value);
     }
 
     private static string? GetNullableString(NpgsqlDataReader reader, string column)

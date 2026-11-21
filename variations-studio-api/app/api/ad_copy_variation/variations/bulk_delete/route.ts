@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 
 import { ApiError, jsonError, responseFromUnknown, startBulkPost } from '@/lib/bulk';
 import { prisma } from '@/lib/prisma';
-import { deleteVariationsByIds, findVariationsByIds } from '@/lib/variationStore';
+import {
+  deleteVariationsByIdsForProject,
+  findVariationsByIdsForUpdate,
+} from '@/lib/variationStore';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +22,7 @@ export async function POST(request: Request) {
 
   try {
     const payload = await prisma.$transaction(async (tx) => {
-      const rows = await findVariationsByIds(
+      const rows = await findVariationsByIdsForUpdate(
         ctx.schema,
         ctx.projectId,
         ctx.selectedBigIds,
@@ -32,8 +35,9 @@ export async function POST(request: Request) {
         throw new ApiError(400, `selected_ids must all be ${expectedStatus} rows`);
       }
 
-      const deletedCount = await deleteVariationsByIds(
+      const deletedCount = await deleteVariationsByIdsForProject(
         ctx.schema,
+        ctx.projectId,
         ctx.selectedBigIds,
         tx
       );
