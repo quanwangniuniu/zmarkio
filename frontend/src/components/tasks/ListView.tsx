@@ -1566,11 +1566,11 @@ export default function ListView({
             description={
               projectId
                 ? 'Create your first task to start tracking work in this project.'
-                : 'Click Create task to add the first one.'
+                : 'Select a project to start adding tasks.'
             }
-            actionLabel="Add the first task"
+            actionLabel={projectId ? 'Add the first task' : undefined}
             onAction={projectId ? () => setQuickCreateOpen(true) : undefined}
-            actionIcon={<Plus className="h-3.5 w-3.5" />}
+            actionIcon={projectId ? <Plus className="h-3.5 w-3.5" /> : undefined}
           />
 
         ) : (
