@@ -19,6 +19,7 @@ interface Props {
   createdByAgent?: boolean;
   editable: boolean;
   onTitleSave: (next: string) => void | Promise<void>;
+  titleError?: string;
   actionBar?: ReactNode;
 }
 
@@ -32,6 +33,7 @@ export default function DecisionDetailHeader({
   createdByAgent,
   editable,
   onTitleSave,
+  titleError,
   actionBar,
 }: Props) {
   const [local, setLocal] = useState(title ?? '');
@@ -46,7 +48,7 @@ export default function DecisionDetailHeader({
 
   const handleBlur = async () => {
     const normalized = local.trim();
-    if (!editable || normalized === (title ?? '').trim()) return;
+    if (!editable || (!titleError && normalized === (title ?? '').trim())) return;
     setSaving(true);
     try {
       await onTitleSave(normalized);
@@ -87,12 +89,19 @@ export default function DecisionDetailHeader({
             onBlur={handleBlur}
             placeholder="Untitled decision"
             aria-label="Decision title"
+            aria-invalid={Boolean(titleError)}
+            aria-describedby={titleError ? 'decision-title-error' : undefined}
             className="w-full border-0 border-b-2 border-transparent bg-transparent py-1 text-xl font-semibold text-gray-900 placeholder:text-gray-300 outline-none transition focus:border-[#3CCED7] sm:text-[22px]"
           />
         ) : (
           <h1 className="break-words text-xl font-semibold text-gray-900 sm:text-[22px]">
             {title?.trim() || <span className="text-gray-300">Untitled decision</span>}
           </h1>
+        )}
+        {editable && titleError && (
+          <p id="decision-title-error" role="alert" className="mt-1 text-xs text-rose-600">
+            {titleError}
+          </p>
         )}
         <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-gray-500">
           <DecisionStatusPill status={status ?? undefined} />

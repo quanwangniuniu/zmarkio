@@ -121,8 +121,20 @@ function DecisionDetailContent() {
 
   // ---- Patch helpers ----
   const handleTitleSave = async (next: string) => {
-    await detail.patchDraft({ title: next || null });
-    toast.success('Saved');
+    clearFieldError('title');
+
+    if (next === (title ?? '').trim()) return;
+
+    if (Array.from(next).length > 255) {
+      setFieldErrors((previous) => ({
+        ...previous,
+        title: 'Title must be 255 characters or fewer.',
+      }));
+      return;
+    }
+
+    const saved = await detail.patchDraft({ title: next || null });
+    if (saved) toast.success('Saved');
   };
   const handleContextSave = async (next: string) => {
     await detail.patchDraft({ contextSummary: next });
@@ -364,6 +376,7 @@ function DecisionDetailContent() {
             createdByAgent={createdByAgent}
             editable={editable}
             onTitleSave={handleTitleSave}
+            titleError={fieldErrors.title}
             actionBar={actionBar}
           />
 
