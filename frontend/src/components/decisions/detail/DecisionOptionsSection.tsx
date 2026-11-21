@@ -9,6 +9,7 @@ interface Props {
   editable: boolean;
   error?: string | null;
   selectedError?: string | null;
+  stageNewOptions?: boolean;
   onSave: (next: DecisionOptionDraft[]) => void | Promise<void>;
 }
 
@@ -17,6 +18,7 @@ export default function DecisionOptionsSection({
   editable,
   error,
   selectedError,
+  stageNewOptions = false,
   onSave,
 }: Props) {
   const [local, setLocal] = useState<DecisionOptionDraft[]>(value ?? []);
@@ -38,10 +40,15 @@ export default function DecisionOptionsSection({
   };
 
   const addOption = () => {
-    setLocal((previous) => [
+    const appendEmptyOption = (previous: DecisionOptionDraft[]) => [
       ...previous,
       { text: '', isSelected: false, order: previous.length },
-    ]);
+    ];
+    if (stageNewOptions) {
+      void commit(appendEmptyOption(local));
+      return;
+    }
+    setLocal(appendEmptyOption);
   };
 
   const updateText = (index: number, text: string) => {

@@ -17,6 +17,12 @@ import DecisionSignalDialog, {
   type SignalFormPayload,
 } from '@/components/decisions/detail/DecisionSignalDialog';
 import DecisionSignalsSection from '@/components/decisions/detail/DecisionSignalsSection';
+import {
+  readDraftFieldError,
+  validateDraftConfidence,
+  validateDraftOptions,
+  validateDraftTitle,
+} from '@/components/decisions/decisionValidation';
 import { useDecisionDetail } from '@/components/decisions/detail/hooks/useDecisionDetail';
 import { useProjectRole } from '@/components/decisions/detail/hooks/useProjectRole';
 import { DecisionAPI } from '@/lib/api/decisionApi';
@@ -88,6 +94,7 @@ export default function DecisionTreeDetailPanel({
 
   const [editing, setEditing] = useState(false);
   const [localTitle, setLocalTitle] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [panelDraft, setPanelDraft] = useState<PanelDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [signalDialogOpen, setSignalDialogOpen] = useState(false);
@@ -174,6 +181,7 @@ export default function DecisionTreeDetailPanel({
   };
 
   const startEditing = () => {
+    setFieldErrors({});
     setLocalTitle(title ?? '');
     setPanelDraft({
       contextSummary: contextSummary ?? '',
@@ -203,22 +211,39 @@ export default function DecisionTreeDetailPanel({
 
   const handleSaveAll = async () => {
     if (!panelDraft) return;
+    const payload = {
+      ...panelDraft,
+      title: localTitle.trim() || null,
+      options: panelDraft.options.map((option, order) => ({ ...option, order })),
+    };
+    const errors: Record<string, string> = {};
+    const titleError = validateDraftTitle(payload.title ?? '');
+    const confidenceError = validateDraftConfidence(payload.confidenceScore);
+    const optionsError = validateDraftOptions(payload.options);
+    if (titleError) errors.title = titleError;
+    if (confidenceError) errors.confidenceScore = confidenceError;
+    if (optionsError) errors.options = optionsError;
+
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
     setSaving(true);
     try {
-      await detail.saveDecision({
-        title: localTitle.trim() || null,
-        contextSummary: panelDraft.contextSummary,
-        reasoning: panelDraft.reasoning,
-        riskLevel: panelDraft.riskLevel,
-        confidenceScore: panelDraft.confidenceScore,
-        plannedDecisionDate: panelDraft.plannedDecisionDate,
-        options: panelDraft.options,
-      } as Parameters<typeof detail.saveDecision>[0]);
+      const saved = await detail.saveDecision(payload);
+      if (!saved) return;
+
       setEditing(false);
       setPanelDraft(null);
       toast.success('Saved');
       await notifyUpdated(isProvisional);
       onProvisionalSaved?.();
+    } catch (error) {
+      const apiErrors: Record<string, string> = {};
+      for (const field of ['title', 'confidenceScore', 'options']) {
+        const message = readDraftFieldError(error, field);
+        if (message) apiErrors[field] = message;
+      }
+      setFieldErrors(apiErrors);
     } finally {
       setSaving(false);
     }
@@ -296,12 +321,19 @@ export default function DecisionTreeDetailPanel({
                   onChange={(e) => setLocalTitle(e.target.value)}
                   placeholder="Untitled decision"
                   aria-label="Decision title"
+                  aria-invalid={Boolean(fieldErrors.title)}
+                  aria-describedby={fieldErrors.title ? 'panel-decision-title-error' : undefined}
                   className="mt-1 w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-[15px] font-semibold leading-snug text-gray-900 placeholder:text-gray-300 outline-none transition focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
                 />
               ) : (
                 <h2 className="mt-1 line-clamp-2 text-[15px] font-semibold leading-snug text-gray-900">
                   {title?.trim() || 'Untitled decision'}
                 </h2>
+              )}
+              {fieldsEditable && fieldErrors.title && (
+                <p id="panel-decision-title-error" role="alert" className="mt-1 text-xs text-rose-600">
+                  {fieldErrors.title}
+                </p>
               )}
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
@@ -373,6 +405,7 @@ export default function DecisionTreeDetailPanel({
                 approvedById={committed?.approvedBy ?? null}
                 members={members}
                 editable={fieldsEditable}
+                errors={{ confidence: fieldErrors.confidenceScore }}
                 onRiskChange={(next) =>
                   setPanelDraft((d) => (d ? { ...d, riskLevel: next } : d))
                 }
@@ -396,6 +429,8 @@ export default function DecisionTreeDetailPanel({
               <DecisionOptionsSection
                 value={displayOptions}
                 editable={fieldsEditable}
+                error={fieldErrors.options}
+                stageNewOptions
                 onSave={(next) => setPanelDraft((d) => (d ? { ...d, options: next } : d))}
               />
               <DecisionReasoningSection

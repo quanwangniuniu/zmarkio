@@ -16,6 +16,7 @@ import { useBuildUrl } from '@/lib/buildUrl';
 import dagre from '@dagrejs/dagre';
 import { CheckCircle2, FileText, Link2, PencilLine, Plus, Trash2, X } from 'lucide-react';
 import DecisionStatusPill from '@/components/decisions/DecisionStatusPill';
+import { readDraftFieldError } from '@/components/decisions/decisionValidation';
 import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
 import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionColorStyle, optionLabel } from '@/lib/orgCustomization/optionConfig';
@@ -459,6 +460,7 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
   const movePointerFromRef = useRef<{ decisionId: number; projectId: number | string; topic: string } | null>(null);
   const moveSuppressClickRef = useRef(false);
   const newTopicInputRef = useRef<HTMLInputElement | null>(null);
+  const savingNewTopicRef = useRef(false);
   const viewportSnapshotRef = useRef<{ left: number; top: number } | null>(null);
   const userPannedViewportRef = useRef(false);
 
@@ -1065,8 +1067,22 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
       return;
     }
 
-    setNewTopicTitle(null);
-    await onCreateTopic(title);
+    if (savingNewTopicRef.current) return;
+    savingNewTopicRef.current = true;
+
+    try {
+      await onCreateTopic(title);
+      setNewTopicTitle(null);
+    } catch (error) {
+      const message =
+        readDraftFieldError(error, 'topic') ??
+        readDraftFieldError(error, 'title') ??
+        'Failed to add topic.';
+
+      setNewTopicError(message);
+    } finally {
+      savingNewTopicRef.current = false;
+    }
   }, [newTopicTitle, onCreateTopic]);
 
   useEffect(() => {

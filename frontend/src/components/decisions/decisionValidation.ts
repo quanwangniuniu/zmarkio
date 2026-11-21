@@ -1,3 +1,4 @@
+import { isAxiosError } from 'axios';
 import type { DecisionOptionDraft, DecisionRiskLevel } from '@/types/decision';
 
 const FIELD_ORDER = [
@@ -56,4 +57,47 @@ export function validateDecisionDraft(
   if (!(fields.confidenceScore >= 1 && fields.confidenceScore <= 5))
     errors.confidenceScore = 'Confidence must be between 1 and 5.';
   return errors;
+}
+
+export function readDraftFieldError(
+  error: unknown,
+  field: string,
+): string | undefined {
+  if (!isAxiosError<Record<string, unknown>>(error)) return undefined;
+  if (error.response?.status !== 400) return undefined;
+
+  const value = error.response.data?.[field];
+  const message = Array.isArray(value) ? value[0] : value;
+
+  return typeof message === 'string' && message.trim()
+    ? message
+    : undefined;
+}
+
+export function validateDraftTitle(title: string): string | undefined {
+  if (Array.from(title).length > 255) {
+    return 'Title must be 255 characters or fewer.';
+  }
+
+  return undefined;
+}
+
+export function validateDraftConfidence(score: number | null): string | undefined {
+  if (score !== null && (!Number.isInteger(score) || score < 1 || score > 5)) {
+    return 'Confidence score must be an integer between 1 and 5.';
+  }
+
+  return undefined;
+}
+
+export function validateDraftOptions(options: DecisionOptionDraft[]): string | undefined {
+  for (const [index, option] of options.entries()) {
+    const label = `Option ${index + 1}`;
+    if (!option.text.trim()) return `${label}: enter option text.`;
+    if (Array.from(option.text).length > 1000) {
+      return `${label}: use 1000 characters or fewer.`;
+    }
+  }
+
+  return undefined;
 }

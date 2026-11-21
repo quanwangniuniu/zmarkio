@@ -33,6 +33,12 @@ import DecisionDeleteDialog from '@/components/decisions/DecisionDeleteDialog';
 import ConfirmDialog from '@/components/tasks/detail/ConfirmDialog';
 import { useDecisionDetail, extractError } from '@/components/decisions/detail/hooks/useDecisionDetail';
 import { useProjectRole } from '@/components/decisions/detail/hooks/useProjectRole';
+import {
+  readDraftFieldError,
+  validateDraftConfidence,
+  validateDraftOptions,
+  validateDraftTitle,
+} from '@/components/decisions/decisionValidation';
 import type {
   DecisionOptionDraft,
   DecisionRiskLevel,
@@ -125,16 +131,28 @@ function DecisionDetailContent() {
 
     if (next === (title ?? '').trim()) return;
 
-    if (Array.from(next).length > 255) {
+    const titleError = validateDraftTitle(next);
+    if (titleError) {
       setFieldErrors((previous) => ({
         ...previous,
-        title: 'Title must be 255 characters or fewer.',
+        title: titleError,
       }));
       return;
     }
 
-    const saved = await detail.patchDraft({ title: next || null });
-    if (saved) toast.success('Saved');
+    try {
+      const saved = await detail.patchDraft({ title: next || null });
+      if (saved) toast.success('Saved');
+    } catch (error) {
+      const message = readDraftFieldError(error, 'title');
+
+      if (message) {
+        setFieldErrors((previous) => ({
+          ...previous,
+          title: message,
+        }));
+      }
+    }
   };
   const handleContextSave = async (next: string) => {
     await detail.patchDraft({ contextSummary: next });
@@ -151,15 +169,27 @@ function DecisionDetailContent() {
   const handleConfidenceChange = async (next: number | null) => {
     clearFieldError('confidenceScore');
 
-    if (next !== null && (!Number.isInteger(next) || next < 1 || next > 5)) {
+    const confidenceError = validateDraftConfidence(next);
+    if (confidenceError) {
       setFieldErrors((previous) => ({
         ...previous,
-        confidenceScore: 'Confidence score must be an integer between 1 and 5.',
+        confidenceScore: confidenceError,
       }));
       return;
     }
 
-    await detail.patchDraft({ confidenceScore: next });
+    try {
+      await detail.patchDraft({ confidenceScore: next });
+    } catch (error) {
+      const message = readDraftFieldError(error, 'confidenceScore');
+
+      if (message) {
+        setFieldErrors((previous) => ({
+          ...previous,
+          confidenceScore: message,
+        }));
+      }
+    }
   };
   const handlePlannedDateChange = async (next: string | null) => {
     await detail.patchDraft({ plannedDecisionDate: next } as any);
@@ -167,29 +197,26 @@ function DecisionDetailContent() {
   const handleOptionsSave = async (next: DecisionOptionDraft[]) => {
     clearFieldError('options');
 
-    const orderedOptions = next.map((option, index) => ({
-      ...option,
-      order:index,
-    }));
-
-    for (const [index, option] of orderedOptions.entries()) {
-      const label = `Option ${index + 1}`;
-      let message = '';
-
-      if (!option.text.trim()) {
-        message = `${label}: enter option text.`;
-      } else if (Array.from(option.text).length > 1000) {
-        message = `${label}: use 1000 characters or fewer.`;
-      }
-
-      if (message) {
-        setFieldErrors((previous) => ({ ...previous, options: message }));
-        return;
-      }
+    const orderedOptions = next.map((option, order) => ({ ...option, order }));
+    const optionsError = validateDraftOptions(orderedOptions);
+    if (optionsError) {
+      setFieldErrors((previous) => ({ ...previous, options: optionsError }));
+      return;
     }
 
-    const saved = await detail.patchDraft({ options: orderedOptions });
-    if (saved) clearFieldError('selectedOption');
+    try {
+      const saved = await detail.patchDraft({ options: orderedOptions });
+      if (saved) clearFieldError('selectedOption');
+    } catch (error) {
+      const message = readDraftFieldError(error, 'options');
+
+      if (message) {
+        setFieldErrors((previous) => ({
+          ...previous,
+          options: message,
+        }));
+      }
+    }
   };
 
   // ---- FSM actions ----
@@ -253,7 +280,11 @@ function DecisionDetailContent() {
   };
 
   const performSaveDraft = async () => {
-    // Save-as-you-type is already live; button provides explicit feedback.
+    if (fieldErrors.title || fieldErrors.confidenceScore || fieldErrors.options) {
+      toast.error('Fix the highlighted fields before saving.');
+      return;
+    }
+
     toast.success('All changes saved');
   };
 

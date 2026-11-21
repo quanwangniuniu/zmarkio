@@ -7,8 +7,10 @@ import toast from 'react-hot-toast';
 import DecisionTree, { type DecisionTreeHandle, type DecisionTreeViewMode } from '@/components/decisions/DecisionTree';
 import DecisionFullscreenPanel from '@/components/decisions/DecisionFullscreenPanel';
 import DecisionTreeDetailPanel from '@/components/decisions/DecisionTreeDetailPanel';
+import { readDraftFieldError } from '@/components/decisions/decisionValidation';
 import DecisionTreeNavigator from '@/components/decisions/DecisionTreeNavigator';
 import { nestedProjectPath } from '@/lib/projectNestedRoutes';
+
 
 const DecisionTreeFlow = dynamic(() => import('@/components/decisions/DecisionTreeFlow'), {
   ssr: false,
@@ -333,6 +335,11 @@ export default function DecisionsGraphSection({
       toast.success('Topic added');
       await onDecisionUpdated?.({ fullReload: true });
     } catch (err) {
+      const fieldError =
+        readDraftFieldError(err, 'topic') ?? readDraftFieldError(err, 'title');
+
+      if (fieldError) throw err;
+
       const detail =
         (err as { response?: { data?: { detail?: string; title?: string } } })?.response?.data?.detail ||
         (err as { response?: { data?: { title?: string } } })?.response?.data?.title ||
