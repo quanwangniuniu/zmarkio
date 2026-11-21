@@ -31,7 +31,20 @@ import {
   isNestedProjectNavActive,
 } from '@/lib/projectNestedRoutes';
 import { useBuildUrl } from '@/lib/buildUrl';
+import { loadCampaignConfig } from '@/lib/campaigns/campaignConfig';
 import { loadCsmConfig } from '@/lib/csm/csmConfig';
+import { loadDecisionConfig } from '@/lib/decisions/decisionConfig';
+import {
+  NAV_COLLABORATE,
+  NAV_CONTENT,
+  NAV_MANAGE,
+  NAV_OVERVIEW,
+  NAV_TOOLS,
+  configureNavItems,
+  loadNavigationConfig,
+} from '@/lib/navigation/navigationConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import type { OptionTarget } from '@/lib/orgCustomization/optionConfig';
 import { loadTaskConfig } from '@/lib/tasks/taskConfig';
 
 const getInitials = (name?: string | null): string => {
@@ -56,6 +69,7 @@ const formatBudgetShort = (value: number | string | null | undefined): string | 
 type LucideIcon = typeof LayoutDashboard;
 
 interface NavItem {
+  key?: string;
   label: string;
   href: string;
   icon: LucideIcon;
@@ -64,6 +78,7 @@ interface NavItem {
 
 interface NavGroup {
   title: string;
+  config?: OptionTarget;
   items: NavItem[];
 }
 
@@ -73,27 +88,31 @@ const AGENT_PANEL_NAV_HREF = '#agent-panel';
 const navGroups: NavGroup[] = [
   {
     title: 'OVERVIEW',
+    config: NAV_OVERVIEW,
     items: [
-      { label: 'Overview', href: '/overview', icon: LayoutDashboard },
+      { key: 'overview', label: 'Overview', href: '/overview', icon: LayoutDashboard },
       { label: 'AI Agent', href: AGENT_PANEL_NAV_HREF, icon: Bot },
     ],
   },
   {
     title: 'MANAGE',
+    config: NAV_MANAGE,
     items: [
-      { label: 'Campaigns', href: '/campaigns', icon: Megaphone },
-      { label: 'Meta Ads', href: '/meta-ads', icon: BarChart3 },
-      { label: 'Tasks', href: '/tasks', icon: CheckSquare },
-      { label: 'Decisions', href: '/decisions', icon: GitBranch },
-      { label: 'Budget Pools', href: '/budget-pools', icon: PiggyBank },
-      { label: 'Spreadsheets', href: '/spreadsheets', icon: Table2 },
+      { key: 'campaigns', label: 'Campaigns', href: '/campaigns', icon: Megaphone },
+      { key: 'meta_ads', label: 'Meta Ads', href: '/meta-ads', icon: BarChart3 },
+      { key: 'tasks', label: 'Tasks', href: '/tasks', icon: CheckSquare },
+      { key: 'decisions', label: 'Decisions', href: '/decisions', icon: GitBranch },
+      { key: 'budget_pools', label: 'Budget Pools', href: '/budget-pools', icon: PiggyBank },
+      { key: 'spreadsheets', label: 'Spreadsheets', href: '/spreadsheets', icon: Table2 },
     ],
   },
   {
     title: 'CONTENT',
+    config: NAV_CONTENT,
     items: [
       { label: 'Variations Studio', href: '/variations-studio', icon: Sparkles },
       {
+        key: 'ads_draft',
         label: 'Ads Draft',
         href: '#',
         icon: Megaphone,
@@ -104,6 +123,7 @@ const navGroups: NavGroup[] = [
         ],
       },
       {
+        key: 'email_draft',
         label: 'Email Draft',
         href: '#',
         icon: Mail,
@@ -112,23 +132,25 @@ const navGroups: NavGroup[] = [
           { label: 'Klaviyo', href: '/klaviyo', icon: Mail },
         ],
       },
-      { label: 'Notion', href: '/notion', icon: Notebook },
+      { key: 'notion', label: 'Notion', href: '/notion', icon: Notebook },
     ],
   },
   {
     title: 'COLLABORATE',
+    config: NAV_COLLABORATE,
     items: [
-      { label: 'Meetings', href: '/meetings', icon: Users },
-      { label: 'Calendar', href: '/calendar', icon: Calendar },
-      { label: 'Messages', href: '/messages', icon: MessageSquare },
-      { label: 'Miro', href: '/miro', icon: Presentation },
+      { key: 'meetings', label: 'Meetings', href: '/meetings', icon: Users },
+      { key: 'calendar', label: 'Calendar', href: '/calendar', icon: Calendar },
+      { key: 'messages', label: 'Messages', href: '/messages', icon: MessageSquare },
+      { key: 'miro', label: 'Miro', href: '/miro', icon: Presentation },
     ],
   },
   {
     title: 'TOOLS',
+    config: NAV_TOOLS,
     items: [
-      { label: 'Workflows', href: '/workflows', icon: Workflow },
-      { label: 'Timeline', href: '/timeline', icon: Clock },
+      { key: 'workflows', label: 'Workflows', href: '/workflows', icon: Workflow },
+      { key: 'timeline', label: 'Timeline', href: '/timeline', icon: Clock },
     ],
   },
 ];
@@ -189,10 +211,11 @@ export default function DashboardSidebar() {
     return role ? humanize(role) : null;
   }, [user]);
 
-  const visibleNavGroups = useMemo(
-    () => (isAdminRole(user?.roles) ? [...navGroups, adminGroup] : navGroups),
-    [user?.roles],
-  );
+  useOptionConfigVersion();
+  const visibleNavGroups = [
+    ...navGroups.map((group) => ({ ...group, items: configureNavItems(group.items, group.config) })),
+    ...(isAdminRole(user?.roles) ? [adminGroup] : []),
+  ].filter((group) => group.items.length > 0);
   const projectHeaderLoading =
     !hasProjectStoreHydrated || loading || (projectHeaderChecking && !activeProject);
   const userCardLoading = !authInitialized || authLoading;
@@ -220,6 +243,9 @@ export default function DashboardSidebar() {
     if (!activeProject?.id) return;
     let cancelled = false;
     loadCsmConfig(activeProject.id);
+    loadDecisionConfig(activeProject.id);
+    loadCampaignConfig(activeProject.id);
+    loadNavigationConfig(activeProject.id);
     loadTaskConfig(activeProject.id).then((config) => {
       if (!cancelled) setCanEditConfig(Boolean(config?.can_edit));
     });

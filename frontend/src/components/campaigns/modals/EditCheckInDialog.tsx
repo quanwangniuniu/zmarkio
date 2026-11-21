@@ -8,6 +8,9 @@ import { CampaignAPI } from '@/lib/api/campaignApi';
 import BrandDialog from '@/components/tasks/detail/BrandDialog';
 import { Button } from '@/components/ui/button';
 import BrandButton from '../BrandButton';
+import { CHECKIN_SENTIMENT } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionColorStyle } from '@/lib/orgCustomization/optionConfig';
 import BrandConfirmDialog from '../BrandConfirmDialog';
 
 interface Props {
@@ -20,17 +23,17 @@ interface Props {
 
 const SENTIMENTS: Array<{
   value: CheckInSentiment;
-  label: string;
   Icon: typeof CheckCircle;
   tone: string;
   iconTone: string;
 }> = [
-  { value: 'POSITIVE', label: 'Positive', Icon: CheckCircle, tone: 'bg-emerald-50 text-emerald-800 ring-emerald-200', iconTone: 'text-emerald-600' },
-  { value: 'NEUTRAL',  label: 'Neutral',  Icon: Minus,       tone: 'bg-gray-50 text-gray-800 ring-gray-200',            iconTone: 'text-gray-500' },
-  { value: 'NEGATIVE', label: 'Negative', Icon: AlertCircle, tone: 'bg-rose-50 text-rose-800 ring-rose-200',            iconTone: 'text-rose-600' },
+  { value: 'POSITIVE', Icon: CheckCircle, tone: 'bg-emerald-50 text-emerald-800 ring-emerald-200', iconTone: 'text-emerald-600' },
+  { value: 'NEUTRAL',   Icon: Minus,       tone: 'bg-gray-50 text-gray-800 ring-gray-200',            iconTone: 'text-gray-500' },
+  { value: 'NEGATIVE', Icon: AlertCircle, tone: 'bg-rose-50 text-rose-800 ring-rose-200',            iconTone: 'text-rose-600' },
 ];
 
 export default function EditCheckInDialog({ open, onOpenChange, campaignId, checkIn, onSuccess }: Props) {
+  useOptionConfigVersion();
   const [sentiment, setSentiment] = useState<CheckInSentiment | null>(null);
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -113,7 +116,7 @@ export default function EditCheckInDialog({ open, onOpenChange, campaignId, chec
           <div>
             <p className="mb-2 text-xs font-medium text-gray-600">Sentiment</p>
             <div className="grid grid-cols-3 gap-2">
-              {SENTIMENTS.map(({ value, label, Icon, tone, iconTone }) => {
+              {SENTIMENTS.map(({ value, Icon, tone, iconTone }) => {
                 const active = sentiment === value;
                 return (
                   <button
@@ -121,6 +124,7 @@ export default function EditCheckInDialog({ open, onOpenChange, campaignId, chec
                     type="button"
                     disabled={busy}
                     onClick={() => setSentiment(value)}
+                    style={active ? optionColorStyle(CHECKIN_SENTIMENT.colors[value]) : undefined}
                     className={`flex flex-col items-center gap-1.5 rounded-lg border px-3 py-3 text-xs font-medium transition disabled:opacity-50 ${
                       active
                         ? `${tone} ring-1`
@@ -128,7 +132,7 @@ export default function EditCheckInDialog({ open, onOpenChange, campaignId, chec
                     }`}
                   >
                     <Icon className={`h-5 w-5 ${active ? iconTone : 'text-gray-400'}`} />
-                    {label}
+                    {CHECKIN_SENTIMENT.labels[value]}
                   </button>
                 );
               })}

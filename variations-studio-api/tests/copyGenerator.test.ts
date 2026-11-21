@@ -25,6 +25,7 @@ describe('CopyGenerator', () => {
     configMock.mockReturnValue({
       baseUrl: 'http://ollama.test:11434',
       model: 'test-model',
+      numCtx: 8192,
       timeoutMs: 5000,
       retryDelaysMs: [],
       keepAlive: '30m',

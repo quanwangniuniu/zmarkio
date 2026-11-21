@@ -26,6 +26,9 @@ import BrandButton from '@/components/campaigns/BrandButton';
 import BrandConfirmDialog from '@/components/campaigns/BrandConfirmDialog';
 import { useCampaignSnapshots } from '@/hooks/campaigns/useCampaignSnapshots';
 import type { PerformanceSnapshot } from '@/types/campaign';
+import { SNAPSHOT_METRIC, SNAPSHOT_MILESTONE } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionLabel } from '@/lib/orgCustomization/optionConfig';
 
 export interface SnapshotsSectionProps {
   campaignId: string;
@@ -111,6 +114,7 @@ function formatTimestamp(timestamp: string): string {
 
 const SnapshotsSection = forwardRef<SnapshotsSectionHandle, SnapshotsSectionProps>(
   function SnapshotsSection({ campaignId, isArchived = false, onCreate, onEdit }, ref) {
+    useOptionConfigVersion();
     const { items, loading, error, refresh, remove } = useCampaignSnapshots(campaignId);
     const [expandedSnapshots, setExpandedSnapshots] = useState<Set<string>>(new Set());
     const [hoveredRow, setHoveredRow] = useState<string | null>(null);
@@ -258,7 +262,7 @@ const SnapshotsSection = forwardRef<SnapshotsSectionHandle, SnapshotsSectionProp
                     <div className="flex items-start gap-4">
                       <div className="flex-shrink-0">
                         <span className="inline-flex items-center rounded-md border border-[#3CCED7]/30 bg-[#3CCED7]/10 px-2.5 py-1 text-xs font-medium text-[#1a9ba3]">
-                          {snapshot.milestone_type_display}
+                          {optionLabel(SNAPSHOT_MILESTONE, snapshot.milestone_type)}
                         </span>
                       </div>
 
@@ -270,7 +274,7 @@ const SnapshotsSection = forwardRef<SnapshotsSectionHandle, SnapshotsSectionProp
 
                           <div className="flex items-center gap-1">
                             <span className="text-sm text-gray-600">
-                              {snapshot.metric_type_display}:
+                              {optionLabel(SNAPSHOT_METRIC, snapshot.metric_type)}:
                             </span>
                             <span className="text-sm font-semibold text-gray-900">
                               {parseFloat(snapshot.metric_value).toLocaleString()}

@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import BrandDialog from '@/components/tasks/detail/BrandDialog';
 import InlineSelect from '@/components/tasks/detail/InlineSelect';
+import { SIGNAL_METRIC, SIGNAL_MOVEMENT, SIGNAL_PERIOD } from '@/lib/decisions/decisionConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionChoices, preferredOption } from '@/lib/orgCustomization/optionConfig';
 import type {
   DecisionSignal,
   SignalComparison,
@@ -13,42 +16,6 @@ import type {
   SignalPeriod,
   SignalScopeType,
 } from '@/types/decision';
-
-const METRIC_OPTIONS: { value: SignalMetric; label: string }[] = [
-  { value: 'ROAS', label: 'ROAS' },
-  { value: 'CPA', label: 'CPA' },
-  { value: 'CONVERSION_RATE', label: 'Conversion rate' },
-  { value: 'REVENUE', label: 'Revenue' },
-  { value: 'PURCHASES', label: 'Purchases' },
-  { value: 'CTR', label: 'CTR' },
-  { value: 'CLICKS', label: 'Clicks' },
-  { value: 'IMPRESSIONS', label: 'Impressions' },
-  { value: 'CPC', label: 'CPC' },
-  { value: 'CPM', label: 'CPM' },
-  { value: 'AD_SPEND', label: 'Ad spend' },
-  { value: 'AOV', label: 'AOV' },
-];
-
-const MOVEMENT_OPTIONS: { value: SignalMovement; label: string }[] = [
-  { value: 'SHARP_INCREASE', label: 'Sharp increase' },
-  { value: 'MODERATE_INCREASE', label: 'Moderate increase' },
-  { value: 'SLIGHT_INCREASE', label: 'Slight increase' },
-  { value: 'NO_SIGNIFICANT_CHANGE', label: 'No significant change' },
-  { value: 'SLIGHT_DECREASE', label: 'Slight decrease' },
-  { value: 'MODERATE_DECREASE', label: 'Moderate decrease' },
-  { value: 'SHARP_DECREASE', label: 'Sharp decrease' },
-  { value: 'VOLATILE', label: 'Volatile' },
-  { value: 'UNEXPECTED_SPIKE', label: 'Unexpected spike' },
-  { value: 'UNEXPECTED_DROP', label: 'Unexpected drop' },
-];
-
-const PERIOD_OPTIONS: { value: SignalPeriod; label: string }[] = [
-  { value: 'LAST_24_HOURS', label: 'Last 24 hours' },
-  { value: 'LAST_3_DAYS', label: 'Last 3 days' },
-  { value: 'LAST_7_DAYS', label: 'Last 7 days' },
-  { value: 'LAST_14_DAYS', label: 'Last 14 days' },
-  { value: 'LAST_30_DAYS', label: 'Last 30 days' },
-];
 
 const COMPARISON_OPTIONS: { value: SignalComparison; label: string }[] = [
   { value: 'NONE', label: 'None' },
@@ -101,6 +68,7 @@ export default function DecisionSignalDialog({
   onOpenChange,
   onSubmit,
 }: Props) {
+  useOptionConfigVersion();
   const [metric, setMetric] = useState<SignalMetric>('ROAS');
   const [movement, setMovement] = useState<SignalMovement>('NO_SIGNIFICANT_CHANGE');
   const [period, setPeriod] = useState<SignalPeriod>('LAST_7_DAYS');
@@ -127,9 +95,9 @@ export default function DecisionSignalDialog({
       setDeltaUnit(initial.deltaUnit ?? '__unassigned__');
       setDisplayTextOverride(initial.displayTextOverride ?? '');
     } else {
-      setMetric('ROAS');
-      setMovement('NO_SIGNIFICANT_CHANGE');
-      setPeriod('LAST_7_DAYS');
+      setMetric(preferredOption(SIGNAL_METRIC, 'ROAS') as SignalMetric);
+      setMovement(preferredOption(SIGNAL_MOVEMENT, 'NO_SIGNIFICANT_CHANGE') as SignalMovement);
+      setPeriod(preferredOption(SIGNAL_PERIOD, 'LAST_7_DAYS') as SignalPeriod);
       setComparison('NONE');
       setScopeType('__unassigned__');
       setScopeValue('');
@@ -208,7 +176,7 @@ export default function DecisionSignalDialog({
             ariaLabel="Metric"
             value={metric}
             onValueChange={(v) => setMetric(v as SignalMetric)}
-            options={METRIC_OPTIONS}
+            options={optionChoices(SIGNAL_METRIC, mode === 'edit' ? initial?.metric : null)}
           />
         </Field>
         <Field label="Movement">
@@ -216,7 +184,7 @@ export default function DecisionSignalDialog({
             ariaLabel="Movement"
             value={movement}
             onValueChange={(v) => setMovement(v as SignalMovement)}
-            options={MOVEMENT_OPTIONS}
+            options={optionChoices(SIGNAL_MOVEMENT, mode === 'edit' ? initial?.movement : null)}
           />
         </Field>
         <Field label="Period">
@@ -224,7 +192,7 @@ export default function DecisionSignalDialog({
             ariaLabel="Period"
             value={period}
             onValueChange={(v) => setPeriod(v as SignalPeriod)}
-            options={PERIOD_OPTIONS}
+            options={optionChoices(SIGNAL_PERIOD, mode === 'edit' ? initial?.period : null)}
           />
         </Field>
         <Field label="Comparison">

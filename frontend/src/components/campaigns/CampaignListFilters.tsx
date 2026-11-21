@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { Search, X } from 'lucide-react';
-import type { CampaignStatus } from '@/types/campaign';
+import { CAMPAIGN_STATUS } from '@/lib/campaigns/campaignConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { optionChoices } from '@/lib/orgCustomization/optionConfig';
 
 interface Props {
   searchQuery: string;
@@ -11,23 +13,13 @@ interface Props {
   onStatusChange: (status: string) => void;
 }
 
-const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'all', label: 'All statuses' },
-  { value: 'PLANNING', label: 'Planning' },
-  { value: 'TESTING', label: 'Testing' },
-  { value: 'SCALING', label: 'Scaling' },
-  { value: 'OPTIMIZING', label: 'Optimizing' },
-  { value: 'PAUSED', label: 'Paused' },
-  { value: 'COMPLETED', label: 'Completed' },
-  { value: 'ARCHIVED', label: 'Archived' },
-];
-
 export default function CampaignListFilters({
   searchQuery,
   statusFilter,
   onSearchChange,
   onStatusChange,
 }: Props) {
+  useOptionConfigVersion();
   const [local, setLocal] = useState(searchQuery);
 
   useEffect(() => {
@@ -63,7 +55,7 @@ export default function CampaignListFilters({
         onChange={(e) => onStatusChange(e.target.value)}
         className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 outline-none transition focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/20 sm:w-44"
       >
-        {STATUS_OPTIONS.map((o) => (
+        {[{ value: 'all', label: 'All statuses' }, ...optionChoices(CAMPAIGN_STATUS)].map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
       </select>
