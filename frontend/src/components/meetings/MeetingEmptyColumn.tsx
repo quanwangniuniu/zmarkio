@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus, CalendarPlus, CalendarCheck } from 'lucide-react';
+import { Plus, CalendarPlus, History } from 'lucide-react';
 import EmptyState from '@/components/state-feedback/EmptyState';
 
 interface Props {
@@ -26,7 +26,7 @@ export default function MeetingEmptyColumn({ variant, onCreate }: Props) {
 
     <EmptyState
       className="flex-1 rounded-xl border-2 border-dashed border-gray-200 bg-white/50"
-      icon={<CalendarCheck className="h-5 w-5" />}
+      icon={<History className="h-5 w-5" />}
       title="No completed meetings"
       description="Meetings with a scheduled day before today appear here."
     />

@@ -28,9 +28,9 @@ async function mockEmptyList(page: Page, pathname: string | RegExp) {
   );
 }
 
-// The EmptyState root is the parent of its title heading.
+// Find the EmptyState root by its test id, then pick the one with this title.
 function emptyState(page: Page, title: string) {
-  return page.getByRole('heading', { name: title }).locator('..');
+  return page.getByTestId('empty-state').filter({ has: page.getByRole('heading', { name: title }) });
 }
 
 test.describe('Empty states', () => {
@@ -63,6 +63,12 @@ test.describe('Empty states', () => {
     // The page treats a failed graph request as "no graph".
     await page.route(
       (url) => url.pathname === '/api/decisions/graph',
+      (route) => route.fulfill({ status: 404, json: {} }),
+    ); 
+    // Don't depend on whether the local backend has a decisions config;
+    // a 404 makes the page fall back to its default settings.
+    await page.route(
+      (url) => url.pathname === '/api/org-customization/decisions-config/',
       (route) => route.fulfill({ status: 404, json: {} }),
     );
 
