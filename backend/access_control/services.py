@@ -373,7 +373,6 @@ def get_project_permission_matrix(project_id: int) -> ProjectPermissionMatrixRes
 # - ASSET and /api/campaigns/** use the legacy resolver, unchanged (active).
 # - Every other route is described by POLICY_RULES (planned: resolved, not
 #   enforced by the middleware).
-# - EXEMPT_ROUTES classify routes that no Permission module covers; see there.
 #
 # Action model for POLICY_RULES: read VIEW; create/update/workflow EDIT;
 # approval decision APPROVE; deletion DELETE. The legacy resolver keeps its
@@ -438,11 +437,9 @@ _TEMPLATE_TAIL = r"/?"
 
 def _compile_template(template: str) -> Pattern:
     """Compile a path template ("queues/<pk>/agents/") into an anchored regex.
-    "<...>" matches one path segment; a trailing "/**" matches everything
-    beneath (exemptions only).
+    "<...>" matches one path segment.
     """
-    wildcard = template.endswith("/**")
-    body = template[:-3] if wildcard else template.strip("/")
+    body = template.strip("/")
     out: List[str] = []
     position = 0
     for match in _TEMPLATE_VARIABLE.finditer(body):
@@ -451,8 +448,6 @@ def _compile_template(template: str) -> Pattern:
         position = match.end()
     out.append(re.escape(body[position:]))
     regex = "".join(out)
-    if wildcard:
-        return re.compile("^" + regex + r"(?:[/.].*)?$")
     return re.compile("^" + regex + _TEMPLATE_TAIL + "$")
 
 
@@ -466,16 +461,6 @@ class PolicyRule:
     methods: FrozenSet[str]
     template: str
     pattern: Pattern
-
-
-@dataclass(frozen=True)
-class ExemptRoute:
-    """A route that is deliberately NOT gated by AuthorizationMiddleware."""
-
-    template: str
-    pattern: Pattern
-    reason: str
-    methods: Optional[FrozenSet[str]] = None  # None = every method
 
 
 ENFORCEMENT_ACTIVE = "active"
@@ -598,7 +583,7 @@ _CSM_RULE_SPECS: Tuple[_RuleSpec, ...] = (
 
 _CORE_RULE_SPECS: Tuple[_RuleSpec, ...] = (
     # INVITATION: management routes. approve and reject are both APPROVE (the
-    # two outcomes of one decision). Invitee self-service is in EXEMPT_ROUTES.
+    # two outcomes of one decision). Invitee self-service routes are not gated.
     ("INVITATION", "EDIT", ("POST",), "organizations/<str:org_id>/invitations/"),
     ("INVITATION", "VIEW", ("GET",), "organizations/<str:org_id>/invitations/list/"),
     ("INVITATION", "DELETE", ("DELETE",), "organizations/<str:org_id>/invitations/<int:invitation_id>/"),
@@ -659,53 +644,6 @@ def _build_rules() -> Tuple[PolicyRule, ...]:
 #: Ordered, explicit rule table for the non-legacy modules. First match wins.
 POLICY_RULES: Tuple[PolicyRule, ...] = _build_rules()
 
-# (template, reason, methods or None)
-_EXEMPT_SPECS: Tuple[Tuple[str, str, Optional[Tuple[str, ...]]], ...] = tuple(
-    [
-        *(
-            (prefix + "ad-channels/**", "Reference data; no Permission module.", None)
-            for prefix in BUDGET_PREFIXES
-        ),
-        (CORE_PREFIX + "invitations/accept-organization/", "Invitee self-service.", None),
-        (CORE_PREFIX + "invitations/accept/", "Invitee self-service.", None),
-        (CORE_PREFIX + "invitations/pending/", "Invitee self-service.", None),
-        (CORE_PREFIX + "projects/<str:project_id>/roles/", "Role lookup; not an Invitation resource.", None),
-        (CSM_PREFIX, "DRF API root.", ("GET",)),
-        (CSM_PREFIX + ".<format>", "DRF API root (format suffix).", ("GET",)),
-        (CSM_PREFIX + "customer-users/**", "Customer user admin; no Permission module.", None),
-        (CSM_PREFIX + "projects/<int:project_id>/customer-users/", "Customer user admin; no Permission module.", None),
-        (CSM_PREFIX + "notifications/**", "Per-user data; no Permission module.", None),
-        (CSM_PREFIX + "conversations/**", "CSM-specific permissions; no Permission module.", None),
-        (CSM_PREFIX + "templates/**", "Quick replies; no Permission module.", None),
-        (CSM_PREFIX + "template-tags/**", "Quick replies; no Permission module.", None),
-        (CSM_PREFIX + "support-projects/**", "CSM admin; no Permission module.", None),
-        (CSM_PREFIX + "work-types/**", "CSM admin; no Permission module.", None),
-        (CSM_PREFIX + "guidance/**", "CSM content; no Permission module.", None),
-        (CSM_PREFIX + "support-channels/**", "CSM admin; no Permission module.", None),
-        (CSM_PREFIX + "sla-policy/**", "CSM admin; no Permission module.", None),
-        (CSM_PREFIX + "business-hours-calendars/**", "CSM admin; no Permission module.", None),
-        (CSM_PREFIX + "quality/**", "Supervisor-only; no Permission module.", None),
-        (CSM_PREFIX + "routing-rules/**", "CSM routing; project-scoped view permissions; no Permission module.", None),
-        (CSM_PREFIX + "routing-sandbox/**", "CSM routing; project-scoped view permissions; no Permission module.", None),
-    ]
-)
-
-#: Classification of routes that no Permission module covers. This is
-#: future-policy documentation, not a runtime bypass: the middleware consults
-#: only resolve_policy(), planned routes are not enforced today, and unmapped
-#: routes are never gated. The completeness test requires every in-scope route
-#: to be mapped by a rule or classified here.
-EXEMPT_ROUTES: Tuple[ExemptRoute, ...] = tuple(
-    ExemptRoute(
-        template=template,
-        pattern=_compile_template(template),
-        reason=reason,
-        methods=frozenset(methods) if methods else None,
-    )
-    for template, reason, methods in _EXEMPT_SPECS
-)
-
-
 def resolve_policy(path: str, method: str) -> PolicyDecision:
     """Resolve what a request requires and whether that is enforced yet.
 
@@ -739,15 +677,6 @@ def resolve_module_and_action(path: str, method: str) -> Tuple[Optional[str], Op
     """(module, action) of resolve_policy(); ignores the enforcement state."""
     decision = resolve_policy(path, method)
     return decision.module, decision.action
-
-
-def is_explicitly_exempt(path: str, method: str) -> bool:
-    """Whether (path, method) is classified in EXEMPT_ROUTES (used by tests)."""
-    relative = path.lstrip("/")
-    for route in EXEMPT_ROUTES:
-        if route.pattern.match(relative) and (route.methods is None or method in route.methods):
-            return True
-    return False
 
 
 def get_user_current_org_id(user):

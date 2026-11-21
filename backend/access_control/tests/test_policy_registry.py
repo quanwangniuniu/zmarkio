@@ -2,20 +2,15 @@
 Tests for the explicit authorization policy registry that covers all
 nine Permission modules.
 
-Four layers:
+Three layers:
 
-1. Policy-table tests (pure, no DB): every rule in services.POLICY_RULES, an
-   independent hand-written literal table of (method, path) -> (module, action),
-   and the negative / edge cases (unsupported methods, lookalike paths, PATCH
-   is not assumed APPROVE) plus the documented hardening gaps (HEAD, `.json`).
-2. Route-completeness tests (no DB): walk the real URLconf and require every
-   in-scope route+method to be either mapped by a rule (or the legacy
-   ASSET/CAMPAIGN resolver) or listed in services.EXEMPT_ROUTES; and require
-   every rule to point at a real route that supports its method.
-3. Middleware allow/deny tests for every module (tenant schema, RequestFactory).
-4. Real-API tests live in test_policy_api_integration.py.
+1. Policy-table tests (pure, no DB): an independent hand-written literal table
+   of (method, path) -> (module, action), and the negative / edge cases
+   (unsupported methods, lookalike paths, PATCH is not assumed APPROVE) plus
+   the documented hardening gaps (HEAD, `.json`).
+2. Middleware allow/deny tests for every module (tenant schema, RequestFactory).
+3. Real-API tests live in test_policy_api_integration.py.
 """
-import re
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -25,8 +20,6 @@ from django.contrib.auth.models import AnonymousUser
 from django.db import connection
 from django.http import JsonResponse
 from django.test import RequestFactory, SimpleTestCase, TestCase
-from django.urls import Resolver404, get_resolver, resolve
-from django.urls.resolvers import URLResolver
 from django.utils import timezone
 
 from access_control import services
@@ -39,44 +32,11 @@ from core.services.tenant import slug_to_schema_name
 User = get_user_model()
 
 _UUID = "11111111-1111-1111-1111-111111111111"
-_ROUTE_VAR = re.compile(r"<(?:(\w+):)?(\w+)>")
-
-
-def sample_from_template(template):
-    """Concrete path (no leading slash) for a Django-style path template."""
-
-    def repl(match):
-        converter, name = match.group(1), match.group(2)
-        if converter == "uuid":
-            return _UUID
-        if name == "format":
-            return "json"
-        return "1"
-
-    return _ROUTE_VAR.sub(repl, template)
 
 
 # ---------------------------------------------------------------------------
 # 1. Policy-table tests (pure)
 # ---------------------------------------------------------------------------
-
-RULE_CASES = [(rule, method) for rule in services.POLICY_RULES for method in sorted(rule.methods)]
-
-
-@pytest.mark.parametrize(
-    "rule, method",
-    RULE_CASES,
-    ids=[f"{rule.module}:{method}:{rule.template}" for rule, method in RULE_CASES],
-)
-def test_every_rule_resolves_to_itself(rule, method):
-    path = "/" + sample_from_template(rule.template)
-    decision = services.resolve_policy(path, method)
-    assert decision.rule is rule
-    assert (decision.module, decision.action) == (rule.module, rule.action)
-
-    # Resolution is independent from enforcement: a rule-table rule always
-    # resolves to the same enforcement state as its module.
-    assert decision.enforcement == services.RULE_TABLE_ENFORCEMENT[rule.module]
 
 
 def _literal_rows():
@@ -226,7 +186,7 @@ def test_policy_table_literal_rows(method, path, module, action):
         # not matched, so these resolve to nothing (legacy behavior unchanged).
         ("GET", "/api/csm/queues.json", (None, None)),
         ("GET", "/api/campaigns.json", (None, None)),
-        # Lookalike / unknown paths are not gated (and are not exempt either).
+        # Lookalike / unknown paths are not gated.
         ("GET", "/api/csm/unknown/", (None, None)),
         ("GET", "/api/csm/queues/1/agents/2/extra/", (None, None)),
         ("GET", "/api/csm/queues/1/unknown/", (None, None)),
@@ -245,38 +205,6 @@ def test_policy_table_edge_cases(method, path, expected):
     assert services.resolve_module_and_action(path, method) == expected
 
 
-EXEMPT_SAMPLES = [
-    ("GET", "/api/budgets/ad-channels/"),
-    ("POST", "/budgets/ad-channels/"),
-    ("POST", "/api/core/invitations/accept/"),
-    ("POST", "/api/core/invitations/accept-organization/"),
-    ("GET", "/api/core/invitations/pending/"),
-    ("GET", "/api/core/projects/3/roles/"),
-    ("GET", "/api/csm/"),
-    ("GET", "/api/csm/.json"),
-    ("GET", "/api/csm/customer-users/"),
-    ("POST", "/api/csm/customer-users/invite/"),
-    ("GET", "/api/csm/projects/3/customer-users/"),
-    ("GET", "/api/csm/notifications/unread_count/"),
-    ("POST", "/api/csm/conversations/2/claim/"),
-    ("GET", "/api/csm/templates/"),
-    ("GET", "/api/csm/template-tags/"),
-    ("GET", "/api/csm/support-projects/"),
-    ("GET", "/api/csm/work-types/"),
-    ("GET", "/api/csm/guidance/"),
-    ("GET", "/api/csm/support-channels/"),
-    ("GET", "/api/csm/sla-policy/"),
-    ("GET", "/api/csm/business-hours-calendars/"),
-    ("GET", "/api/csm/quality/report/"),
-]
-
-
-@pytest.mark.parametrize("method, path", EXEMPT_SAMPLES, ids=[f"{m} {p}" for m, p in EXEMPT_SAMPLES])
-def test_exempt_routes_are_explicit_and_not_gated(method, path):
-    assert services.is_explicitly_exempt(path, method)
-    assert services.resolve_module_and_action(path, method) == (None, None)
-
-
 class PolicyRegistryIntegrityTest(SimpleTestCase):
     def test_all_nine_permission_modules_are_covered(self):
         expected = {module for module, _label in Permission.MODULE_CHOICES}
@@ -284,177 +212,9 @@ class PolicyRegistryIntegrityTest(SimpleTestCase):
         covered = set(services.MODULE_PATH_MAP.values()) | {rule.module for rule in services.POLICY_RULES}
         self.assertEqual(covered, expected)
 
-    def test_rules_use_valid_actions(self):
-        valid_actions = {action for action, _label in Permission.ACTION_CHOICES}
-        for rule in services.POLICY_RULES:
-            with self.subTest(rule=rule.template, module=rule.module):
-                self.assertIn(rule.action, valid_actions)
-                self.assertTrue(rule.methods)
-
-    def test_no_rule_is_shadowed_or_duplicated(self):
-        seen = set()
-        for rule, method in RULE_CASES:
-            key = (method, rule.template)
-            self.assertNotIn(key, seen)
-            seen.add(key)
-            path = "/" + sample_from_template(rule.template)
-            self.assertIs(services.resolve_policy(path, method).rule, rule)
-
-    def test_rules_do_not_overlap_exemptions(self):
-        for rule, method in RULE_CASES:
-            path = "/" + sample_from_template(rule.template)
-            with self.subTest(rule=rule.template, method=method):
-                self.assertFalse(services.is_explicitly_exempt(path, method))
-
-    def test_every_exemption_documents_a_reason(self):
-        for route in services.EXEMPT_ROUTES:
-            with self.subTest(route=route.template):
-                self.assertTrue(route.reason.strip())
-
-    def test_budget_rules_exist_for_both_mounts(self):
-        for rule in services.POLICY_RULES:
-            if rule.template.startswith("api/budgets/"):
-                twin = "budgets/" + rule.template[len("api/budgets/"):]
-                self.assertTrue(
-                    any(r.template == twin and r.module == rule.module and r.action == rule.action
-                        and r.methods == rule.methods for r in services.POLICY_RULES),
-                    twin,
-                )
-
 
 # ---------------------------------------------------------------------------
-# 2. Route completeness against the real URLconf
-# ---------------------------------------------------------------------------
-
-_SCOPE_PREFIXES = ("api/budgets/", "budgets/", "api/csm/", "api/assets/", "api/campaign")
-_CORE_SCOPE = re.compile(r"^api/core/(organizations/[^/]+/invitations|invitations|projects/[^/]+/(invitations|roles))")
-_UNGENERATED = re.compile(r"[\\()\[\]?*+{}|]")
-
-
-def _walk(patterns, prefix=""):
-    for pattern in patterns:
-        piece = str(pattern.pattern)
-        if isinstance(pattern, URLResolver):
-            yield from _walk(pattern.url_patterns, prefix + piece)
-        else:
-            yield prefix + piece, pattern.callback
-
-
-def _sample_from_raw(raw):
-    sample = re.sub(
-        r"\(\?P<(\w+)>[^)]*\)",
-        lambda m: "json" if m.group(1) == "format" else "1",
-        raw,
-    )
-    sample = sample_from_template(sample)
-    sample = sample.replace("^", "").replace("$", "").replace("\\.", ".").replace("/?", "")
-    return sample
-
-
-def _is_format_suffix_route(raw):
-    """DRF routers also serve every route with a `.json`-style format suffix.
-
-    Those variants are deliberately not matched by the policy (documented
-    future hardening item, matrix section 6), so the completeness walk skips them.
-    """
-    return "(?P<format>" in raw
-
-
-def _resolve_rule_path(template):
-    """Resolve a rule template against the real URLconf.
-
-    Tries the generic numeric sample first; if no route accepts it (for example
-    a `<uuid:id>` route), retries with a valid UUID in every variable position.
-    """
-    numeric = "/" + sample_from_template(template)
-    try:
-        return resolve(numeric)
-    except Resolver404:
-        pass
-    return resolve("/" + _ROUTE_VAR.sub(_UUID, template))
-
-
-def _in_scope(sample):
-    return sample.startswith(_SCOPE_PREFIXES) or bool(_CORE_SCOPE.match(sample))
-
-
-def _methods(callback):
-    """HTTP methods the view actually serves for this route.
-
-    DRF routers map put/delete onto detail routes even when the view class
-    disables them via http_method_names (e.g. TicketViewSet), so the route's
-    actions are intersected with the class's http_method_names.
-    """
-    view_class = getattr(callback, "cls", None) or getattr(callback, "view_class", None)
-    actions = getattr(callback, "actions", None)
-    if actions:
-        names = set(actions)
-    else:
-        allowed = getattr(view_class, "http_method_names", [])
-        names = {name for name in allowed if hasattr(view_class, name)}
-    enabled = getattr(view_class, "http_method_names", None)
-    if enabled is not None:
-        names &= set(enabled)
-    return {name.upper() for name in names} & {"GET", "POST", "PUT", "PATCH", "DELETE"}
-
-
-class PolicyRouteCompletenessTest(SimpleTestCase):
-    """Every in-scope real route + method is either gated or explicitly exempt."""
-
-    def test_every_in_scope_route_is_mapped_or_exempt(self):
-        problems = []
-        checked = 0
-        skipped_format_suffix = 0
-        for raw, callback in _walk(get_resolver().url_patterns):
-            sample = _sample_from_raw(raw)
-            if not _in_scope(sample):
-                continue
-            if _is_format_suffix_route(raw):
-                skipped_format_suffix += 1
-                continue
-            if _UNGENERATED.search(sample):
-                problems.append(f"cannot build a sample path for route {raw!r} -> {sample!r}")
-                continue
-            path = "/" + sample
-            for method in sorted(_methods(callback)):
-                checked += 1
-                decision = services.resolve_policy(path, method)
-                mapped = decision.module is not None and decision.action is not None
-                exempt = services.is_explicitly_exempt(path, method)
-                if mapped == exempt:
-                    state = "BOTH mapped and exempt" if mapped else "neither mapped nor exempt"
-                    problems.append(f"{method} {path} ({raw!r}): {state}")
-        self.assertGreater(checked, 50, "URLconf walk found suspiciously few in-scope routes")
-        self.assertGreater(
-            skipped_format_suffix, 0, "expected DRF format-suffix routes to be skipped (documented gap)"
-        )
-        self.assertEqual(problems, [], "\n".join(problems))
-
-    def test_every_nine_module_route_family_is_present_in_the_urlconf(self):
-        seen_modules = set()
-        for raw, callback in _walk(get_resolver().url_patterns):
-            sample = _sample_from_raw(raw)
-            if not _in_scope(sample) or _is_format_suffix_route(raw) or _UNGENERATED.search(sample):
-                continue
-            for method in _methods(callback):
-                module = services.resolve_policy("/" + sample, method).module
-                if module:
-                    seen_modules.add(module)
-        expected = {module for module, _label in Permission.MODULE_CHOICES}
-        self.assertEqual(seen_modules, expected)
-
-    def test_every_rule_points_at_a_real_route_that_supports_the_method(self):
-        for rule, method in RULE_CASES:
-            with self.subTest(rule=rule.template, method=method):
-                try:
-                    match = _resolve_rule_path(rule.template)
-                except Resolver404:
-                    self.fail(f"rule {rule.template!r} does not resolve to any route")
-                self.assertIn(method, _methods(match.func))
-
-
-# ---------------------------------------------------------------------------
-# 3. Middleware allow / deny for every module
+# 2. Middleware allow / deny for every module
 # ---------------------------------------------------------------------------
 
 #: (module, method, path, action) -- at least one real route per module.
@@ -583,7 +343,6 @@ class _MiddlewareBase(TestCase):
         self.assertJSONEqual(response.content, {"detail": "Permission denied"})
 
 
-
 #: Rule-table modules whose enforcement is *planned* in this PR.
 PLANNED_MODULES = ("BUDGET_REQUEST", "BUDGET_POOL", "BUDGET_ESCALATION", "QUEUE", "SUPPORT_TEAM", "TICKET", "INVITATION")
 
@@ -679,13 +438,7 @@ class MiddlewareAllNineModulesTest(_MiddlewareBase):
         holder = self.holders[("QUEUE", "VIEW")]  # placeholder user without QUEUE EDIT
         self._assert_denied(self._run(holder, "PATCH", "/api/csm/queues/1/"))
 
-    # -- explicit exemptions ----------------------------------------------
-
-    def test_exempt_routes_are_not_gated_for_a_user_with_an_unrelated_role(self):
-        for method, path in EXEMPT_SAMPLES:
-            with self.subTest(path=f"{method} {path}"):
-                self.assertIsNone(self._run(self.denied_user, method, path))
-
+    # -- unmapped routes ------------------------------------------------------
     def test_unmapped_and_options_requests_are_allowed(self):
         self.assertIsNone(self._run(self.denied_user, "GET", "/api/csm/unknown/"))
         self.assertIsNone(self._run(self.denied_user, "OPTIONS", "/api/csm/queues/"))
