@@ -126,9 +126,7 @@ def team_has_members_or_children(team):
 
 
 def soft_delete_team(team):
-    """Soft-delete `team`. Callers must first check team_has_members_or_children.
-    Other references are left untouched (hidden with the Team)."""
-    with transaction.atomic():
-        _Team.objects.filter(parent=team).update(parent=None)
-        team.is_deleted = True
-        team.save(update_fields=["is_deleted", "updated_at"])
+    """Soft-delete `team`. Callers must first check team_has_members_or_children,
+    which also guarantees it has no live child Teams to detach."""
+    team.is_deleted = True
+    team.save(update_fields=["is_deleted", "updated_at"])
