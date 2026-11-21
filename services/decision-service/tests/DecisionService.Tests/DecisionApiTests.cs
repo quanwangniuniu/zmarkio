@@ -1,4 +1,5 @@
 using System.Net;
+using System.Reflection;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -127,7 +128,52 @@ public sealed class DecisionApiTests
         Assert.Equal(HttpStatusCode.BadRequest, patchResponse.StatusCode);
     }
 
-    private sealed class DecisionApiFactory(bool authenticated) : WebApplicationFactory<Program>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Parent_validation_errors_are_mapped_to_field_level_400(bool patch)
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true, rejectParents: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "10");
+        var path = "/api/decisions/drafts";
+        if (patch)
+        {
+            var created = await client.PostAsJsonAsync(path, new { title = "Existing draft" });
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            var draft = await created.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+            path += $"/{draft!.Slug}";
+        }
+        var payload = new { parentDecisionIds = new[] { 123 }, topic = "pricing" };
+        var response = patch
+            ? await client.PatchAsJsonAsync(path, payload)
+            : await client.PostAsJsonAsync(path, payload);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.Equal("Decision 123 does not exist in this project.", Assert.Single(errors!["parentDecisionIds"]));
+        Assert.Single(errors);
+    }
+
+    // Only exercises HTTP error mapping; actual parent validation is covered against PostgreSQL.
+    public class ParentValidationRepositoryProxy : DispatchProxy
+    {
+        private readonly InMemoryDecisionRepository inner = new();
+
+        protected override object? Invoke(MethodInfo? targetMethod, object?[]? args)
+        {
+            var parents = args?.OfType<CreateDecisionDraftRequest>().FirstOrDefault()?.ParentDecisionIds
+                ?? args?.OfType<UpdateDecisionDraftRequest>().FirstOrDefault()?.ParentDecisionIds;
+            if (parents is { Count: > 0 })
+            {
+                return Task.FromException<DecisionDetailDto>(new DecisionValidationException(
+                    "parentDecisionIds", $"Decision {parents[0]} does not exist in this project."));
+            }
+            return targetMethod!.Invoke(inner, args);
+        }
+    }
+
+    private sealed class DecisionApiFactory(bool authenticated, bool rejectParents = false) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -144,7 +190,10 @@ public sealed class DecisionApiTests
             {
                 services.RemoveAll<IDecisionRepository>();
                 services.RemoveAll<IDecisionAccessService>();
-                services.AddSingleton<IDecisionRepository, InMemoryDecisionRepository>();
+                if (rejectParents)
+                    services.AddSingleton(DispatchProxy.Create<IDecisionRepository, ParentValidationRepositoryProxy>());
+                else
+                    services.AddSingleton<IDecisionRepository, InMemoryDecisionRepository>();
                 services.AddSingleton<IDecisionAccessService>(new TestDecisionAccessService(authenticated));
             });
         }

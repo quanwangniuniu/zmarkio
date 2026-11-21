@@ -52,7 +52,7 @@ const withProject = (projectId?: number | string | null) => {
 export const DecisionAPI = {
   createDraft: async (
     projectId: number | string,
-    body?: { origin_meeting_id?: number },
+    body?: Pick<DecisionDraftPayload, 'topic' | 'parentDecisionIds'> & { origin_meeting_id?: number },
   ) => {
     const response = await api.post<DecisionDraftResponse>(
       '/api/decisions/drafts/',

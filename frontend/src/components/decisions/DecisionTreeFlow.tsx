@@ -80,6 +80,7 @@ interface DecisionTreeFlowProps {
   onSelectNode?: (id: number) => void;
   onCreateDecision?: () => void | Promise<void>;
   onCreateChildDecision?: (node: DecisionGraphNode) => void | Promise<void>;
+  followUpError?: { parentId: number; message: string } | null;
   onEditDecision?: (node: DecisionGraphNode) => void;
   onDeleteDecision?: (node: DecisionGraphNode) => void;
   onCreateTopic?: (title: string) => void | Promise<void>;
@@ -336,6 +337,7 @@ const DecisionTreeFlow = forwardRef<DecisionTreeHandle, DecisionTreeFlowProps>(f
     onSelectNode,
     onCreateDecision,
     onCreateChildDecision,
+    followUpError,
     onEditDecision,
     onDeleteDecision,
     onCreateLink,
@@ -1060,6 +1062,11 @@ const DecisionTreeFlow = forwardRef<DecisionTreeHandle, DecisionTreeFlowProps>(f
                 <Plus className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                 Add follow-up
               </button>
+              {followUpError && followUpError.parentId === selectedDecision?.id && (
+                <p role="alert" className="max-w-64 px-2 text-xs text-red-600">
+                  {followUpError.message}
+                </p>
+              )}
               <div className="my-0.5 h-px bg-slate-100" />
               <button
                 type="button"
