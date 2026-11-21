@@ -51,6 +51,18 @@ function resolveLevel(role?: string | null): number {
   return ROLE_LEVELS[role.trim()] ?? EDIT_MAX_LEVEL;
 }
 
+export function resolveUserName(members: ProjectMember[] | undefined, userId: number | null | undefined): string {
+  if (userId == null) return '—';
+  const member = members?.find((m) => (m.user?.id ?? m.user_id) === userId);
+  const user = member?.user;
+  return (
+    user?.name?.trim() ||
+    user?.username?.trim() ||
+    user?.email?.trim() ||
+    `User #${userId}`
+  );
+}
+
 export function useProjectRole(projectId: number | string | null): ProjectRoleInfo {
   const user = useAuthStore((s) => s.user);
   const [role, setRole] = useState<string | null>(null);

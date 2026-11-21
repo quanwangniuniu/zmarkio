@@ -29,10 +29,12 @@ import DecisionApproveDialog from '@/components/decisions/detail/DecisionApprove
 import DecisionArchiveDialog from '@/components/decisions/detail/DecisionArchiveDialog';
 import DecisionReviewDialog from '@/components/decisions/detail/DecisionReviewDialog';
 import DecisionSignalDialog from '@/components/decisions/detail/DecisionSignalDialog';
+import DraftOwnerNotice from '@/components/decisions/detail/DraftOwnerNotice';
 import DecisionDeleteDialog from '@/components/decisions/DecisionDeleteDialog';
 import ConfirmDialog from '@/components/tasks/detail/ConfirmDialog';
 import { useDecisionDetail, extractError } from '@/components/decisions/detail/hooks/useDecisionDetail';
 import { useProjectRole } from '@/components/decisions/detail/hooks/useProjectRole';
+import { useDraftOwnerLock } from '@/components/decisions/detail/hooks/useDraftOwnerLock';
 import type {
   DecisionOptionDraft,
   DecisionRiskLevel,
@@ -72,6 +74,9 @@ function DecisionDetailContent() {
   const isEditingStatus = status ? EDITABLE_STATUSES.has(status) : false;
   const editable = isEditingStatus && canEdit;
   const committed = detail.committed;
+  const ownerId = detail.draft?.createdBy ?? committed?.createdBy ?? null;
+  const ownerLocked = useDraftOwnerLock(status, ownerId, canApproveOrReview);
+  const ownerEditable = editable && !ownerLocked;
   const title = detail.draft?.title ?? detail.committed?.title ?? '';
   const contextSummary = detail.draft?.contextSummary ?? committed?.contextSummary ?? '';
   const reasoning = detail.draft?.reasoning ?? committed?.reasoning ?? '';
@@ -255,7 +260,7 @@ function DecisionDetailContent() {
     setSignalDialogOpen(true);
   };
   const handleSignalSubmit = async (payload: any) => {
-    if (!decisionId) return;
+    if (!decisionId || !ownerEditable) return;
     try {
       if (signalEdit?.id) {
         await DecisionAPI.updateSignal(decisionId, signalEdit.id, payload, projectId);
@@ -270,7 +275,7 @@ function DecisionDetailContent() {
     }
   };
   const handleSignalDelete = async () => {
-    if (!decisionId || !pendingSignalDelete?.id) return;
+    if (!decisionId || !ownerEditable || !pendingSignalDelete?.id) return;
     setSignalDeleting(true);
     try {
       await DecisionAPI.deleteSignal(decisionId, pendingSignalDelete.id, projectId);
@@ -381,22 +386,23 @@ function DecisionDetailContent() {
                 error={fieldErrors.contextSummary}
                 onSave={handleContextSave}
               />
+              {editable && ownerLocked && <DraftOwnerNotice ownerId={ownerId} members={members} />}
               <DecisionOptionsSection
                 value={options}
-                editable={editable}
+                editable={ownerEditable}
                 error={fieldErrors.options}
                 selectedError={fieldErrors.selectedOption}
                 onSave={handleOptionsSave}
               />
               <DecisionReasoningSection
                 value={reasoning ?? ''}
-                editable={editable}
+                editable={ownerEditable}
                 error={fieldErrors.reasoning}
                 onSave={handleReasoningSave}
               />
               <DecisionSignalsSection
                 signals={signals}
-                editable={editable}
+                editable={ownerEditable}
                 topError={fieldErrors.signals}
                 onAdd={openSignalCreate}
                 onEdit={openSignalEdit}
