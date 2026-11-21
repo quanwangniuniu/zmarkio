@@ -60,6 +60,10 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
+        if (DecisionAccessResponses.DraftOwnerRequired(existing, request, access) is { } forbidden)
+        {
+            return forbidden;
+        }
         if (request.OriginMeetingId is not null)
         {
             return BadRequest(new Dictionary<string, string[]>

@@ -23,7 +23,9 @@ import {
   validateDraftOptions,
   validateDraftTitle,
 } from '@/components/decisions/decisionValidation';
+import DraftOwnerNotice from '@/components/decisions/detail/DraftOwnerNotice';
 import { useDecisionDetail } from '@/components/decisions/detail/hooks/useDecisionDetail';
+import { OWNER_ONLY_STATUSES, useDraftOwnerLock } from '@/components/decisions/detail/hooks/useDraftOwnerLock';
 import { useProjectRole } from '@/components/decisions/detail/hooks/useProjectRole';
 import { DecisionAPI } from '@/lib/api/decisionApi';
 import ConfirmDialog from '@/components/tasks/detail/ConfirmDialog';
@@ -34,8 +36,6 @@ import type {
   DecisionSignal,
   DecisionStatus,
 } from '@/types/decision';
-
-const DRAFT_SIGNAL_STATUSES = new Set<DecisionStatus>(['PREDRAFT', 'DRAFT', 'AWAITING_APPROVAL']);
 
 interface PanelDraft {
   contextSummary: string;
@@ -86,7 +86,7 @@ export default function DecisionTreeDetailPanel({
   const buildUrl = useBuildUrl();
   const decisionKey = decisionSlug ?? decisionId;
   const detail = useDecisionDetail(decisionKey, projectId);
-  const { canEdit: roleCanEdit, members } = useProjectRole(projectId);
+  const { canEdit: roleCanEdit, canApproveOrReview, members } = useProjectRole(projectId);
   const committed = detail.committed;
   const base = detail.base;
   const status = detail.status;
@@ -123,8 +123,11 @@ export default function DecisionTreeDetailPanel({
   const canEdit = canEditProp && roleCanEdit;
   const canModify = canEdit && effectiveStatus !== 'ARCHIVED';
   const fieldsEditable = canModify && editing && panelDraft != null;
+  const ownerId = detail.draft?.createdBy ?? committed?.createdBy ?? null;
+  const ownerLocked = useDraftOwnerLock(effectiveStatus, ownerId, canApproveOrReview);
+  const ownerFieldsEditable = fieldsEditable && !ownerLocked;
   const signalsEditable =
-    fieldsEditable && effectiveStatus != null && DRAFT_SIGNAL_STATUSES.has(effectiveStatus);
+    ownerFieldsEditable && effectiveStatus != null && OWNER_ONLY_STATUSES.has(effectiveStatus);
   const showEditButton = canModify && !editing && (base != null || graphNodeStatus != null);
 
   useEffect(() => {
@@ -212,14 +215,24 @@ export default function DecisionTreeDetailPanel({
   const handleSaveAll = async () => {
     if (!panelDraft) return;
     const payload = {
-      ...panelDraft,
       title: localTitle.trim() || null,
-      options: panelDraft.options.map((option, order) => ({ ...option, order })),
+      contextSummary: panelDraft.contextSummary,
+      riskLevel: panelDraft.riskLevel,
+      confidenceScore: panelDraft.confidenceScore,
+      plannedDecisionDate: panelDraft.plannedDecisionDate,
+      ...(ownerLocked
+        ? {}
+        : {
+            reasoning: panelDraft.reasoning,
+            options: panelDraft.options.map((option, order) => ({ ...option, order })),
+          }),
     };
     const errors: Record<string, string> = {};
     const titleError = validateDraftTitle(payload.title ?? '');
     const confidenceError = validateDraftConfidence(payload.confidenceScore);
-    const optionsError = validateDraftOptions(payload.options);
+    const optionsError = payload.options
+      ? validateDraftOptions(payload.options)
+      : undefined;
     if (titleError) errors.title = titleError;
     if (confidenceError) errors.confidenceScore = confidenceError;
     if (optionsError) errors.options = optionsError;
@@ -267,6 +280,7 @@ export default function DecisionTreeDetailPanel({
   };
 
   const handleSignalSubmit = async (payload: SignalFormPayload) => {
+    if (!signalsEditable) return;
     if (signalEdit?.id) {
       await DecisionAPI.updateSignal(decisionKey, signalEdit.id, payload, projectId);
       toast.success('Signal updated');
@@ -279,7 +293,7 @@ export default function DecisionTreeDetailPanel({
   };
 
   const handleSignalDelete = async () => {
-    if (!pendingSignalDelete?.id) return;
+    if (!signalsEditable || !pendingSignalDelete?.id) return;
     setSignalDeleting(true);
     try {
       await DecisionAPI.deleteSignal(decisionKey, pendingSignalDelete.id, projectId);
@@ -426,16 +440,17 @@ export default function DecisionTreeDetailPanel({
                   setPanelDraft((d) => (d ? { ...d, contextSummary: next } : d))
                 }
               />
+              {fieldsEditable && ownerLocked && <DraftOwnerNotice ownerId={ownerId} members={members} />}
               <DecisionOptionsSection
                 value={displayOptions}
-                editable={fieldsEditable}
+                editable={ownerFieldsEditable}
                 error={fieldErrors.options}
                 stageNewOptions
                 onSave={(next) => setPanelDraft((d) => (d ? { ...d, options: next } : d))}
               />
               <DecisionReasoningSection
                 value={displayReasoning}
-                editable={fieldsEditable}
+                editable={ownerFieldsEditable}
                 onSave={(next) => setPanelDraft((d) => (d ? { ...d, reasoning: next } : d))}
               />
               <DecisionSignalsSection

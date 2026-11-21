@@ -46,4 +46,36 @@ public static class DecisionPermissionPolicy
     {
         return RoleLevel(role) <= RequiredLevel(action);
     }
+
+    public static bool IsOwnerOnlyStatus(DecisionStatus status)
+    {
+        return status is DecisionStatus.PREDRAFT or DecisionStatus.DRAFT;
+    }
+
+    public static bool IsDraftOwnerOrApprover(DecisionDetailDto decision, DecisionAccessContext access)
+    {
+        return decision.CreatedBy == access.UserId
+            || access.RoleLevel <= ApprovalReviewMaxLevel;
+    }
+
+    public static bool CanEditDraftSignals(DecisionDetailDto decision, DecisionAccessContext access)
+    {
+        return IsOwnerOnlyStatus(decision.Status) && IsDraftOwnerOrApprover(decision, access);
+    }
+
+    public static string? DraftOwnerOnlyField(DecisionDetailDto decision, UpdateDecisionDraftRequest request)
+    {
+        if (!IsOwnerOnlyStatus(decision.Status))
+        {
+            return null;
+        }
+        return request switch
+        {
+            { Signals: not null } => "signals",
+            { Options: not null } => "options",
+            { Reasoning: { } reasoning } when reasoning != decision.Reasoning => "reasoning",
+            { ParentDecisionIds: not null } => "parentDecisionIds",
+            _ => null,
+        };
+    }
 }

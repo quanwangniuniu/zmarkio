@@ -4,11 +4,16 @@ import DecisionTreeDetailPanel from '@/components/decisions/DecisionTreeDetailPa
 const mockSaveDecision = jest.fn();
 const mockDraft = {
   id: 1,
+  createdBy: 100,
   title: 'Saved title',
   confidenceScore: 3,
   options: [{ id: 1, text: 'Existing option', isSelected: true, order: 4 }],
 };
 
+jest.mock('@/lib/authStore', () => ({
+  useAuthStore: (selector: (state: { user: { id: number } }) => unknown) =>
+    selector({ user: { id: 100 } }),
+}));
 jest.mock('@/lib/buildUrl', () => ({
   useBuildUrl: () => (path: string) => path,
 }));

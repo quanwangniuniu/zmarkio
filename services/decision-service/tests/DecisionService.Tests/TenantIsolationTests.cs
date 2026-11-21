@@ -145,7 +145,7 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         }));
 
     private static CreateDecisionDraftRequest Draft(string title) =>
-        new(title, null, null, null, null, null, false, false, null, null, null, null, null);
+        new(title, null, null, null, null, null, false, null, null, null, null);
 
     private async Task<long> Count(string schema, string slug)
     {

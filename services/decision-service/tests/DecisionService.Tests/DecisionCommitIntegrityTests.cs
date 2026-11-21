@@ -529,7 +529,7 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
     private JwtDecisionAccessService Access(int userId) => new(Connections(userId), Validator());
 
     private static CreateDecisionDraftRequest Draft(string title) =>
-        new(title, null, null, null, null, null, false, false, null, null, null, null, null);
+        new(title, null, null, null, null, null, false, null, null, null, null);
 
     private async Task<T> Scalar<T>(string sql)
     {
