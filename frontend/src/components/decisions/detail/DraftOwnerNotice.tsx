@@ -1,5 +1,4 @@
-import { resolveUserName } from '@/components/decisions/detail/DecisionPropertiesAside';
-import type { ProjectMember } from '@/components/decisions/detail/hooks/useProjectRole';
+import { resolveUserName, type ProjectMember } from '@/components/decisions/detail/hooks/useProjectRole';
 
 interface Props {
   ownerId: number | null | undefined;

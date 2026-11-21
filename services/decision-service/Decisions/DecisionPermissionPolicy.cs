@@ -47,15 +47,25 @@ public static class DecisionPermissionPolicy
         return RoleLevel(role) <= RequiredLevel(action);
     }
 
+    public static bool IsOwnerOnlyStatus(DecisionStatus status)
+    {
+        return status is DecisionStatus.PREDRAFT or DecisionStatus.DRAFT;
+    }
+
     public static bool IsDraftOwnerOrApprover(DecisionDetailDto decision, DecisionAccessContext access)
     {
         return decision.CreatedBy == access.UserId
             || access.RoleLevel <= ApprovalReviewMaxLevel;
     }
 
+    public static bool CanEditDraftSignals(DecisionDetailDto decision, DecisionAccessContext access)
+    {
+        return IsOwnerOnlyStatus(decision.Status) && IsDraftOwnerOrApprover(decision, access);
+    }
+
     public static string? DraftOwnerOnlyField(DecisionDetailDto decision, UpdateDecisionDraftRequest request)
     {
-        if (decision.Status is not (DecisionStatus.PREDRAFT or DecisionStatus.DRAFT))
+        if (!IsOwnerOnlyStatus(decision.Status))
         {
             return null;
         }
@@ -67,5 +77,10 @@ public static class DecisionPermissionPolicy
             { ParentDecisionIds: not null } => "parentDecisionIds",
             _ => null,
         };
+    }
+
+    public static string? DraftOwnerOnlyField(DecisionDetailDto decision)
+    {
+        return IsOwnerOnlyStatus(decision.Status) ? "connections" : null;
     }
 }

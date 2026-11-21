@@ -19,7 +19,7 @@ import DecisionSignalDialog, {
 import DecisionSignalsSection from '@/components/decisions/detail/DecisionSignalsSection';
 import DraftOwnerNotice from '@/components/decisions/detail/DraftOwnerNotice';
 import { useDecisionDetail } from '@/components/decisions/detail/hooks/useDecisionDetail';
-import { useDraftOwnerLock } from '@/components/decisions/detail/hooks/useDraftOwnerLock';
+import { OWNER_ONLY_STATUSES, useDraftOwnerLock } from '@/components/decisions/detail/hooks/useDraftOwnerLock';
 import { useProjectRole } from '@/components/decisions/detail/hooks/useProjectRole';
 import { DecisionAPI } from '@/lib/api/decisionApi';
 import ConfirmDialog from '@/components/tasks/detail/ConfirmDialog';
@@ -30,8 +30,6 @@ import type {
   DecisionSignal,
   DecisionStatus,
 } from '@/types/decision';
-
-const DRAFT_SIGNAL_STATUSES = new Set<DecisionStatus>(['PREDRAFT', 'DRAFT', 'AWAITING_APPROVAL']);
 
 interface PanelDraft {
   contextSummary: string;
@@ -122,7 +120,7 @@ export default function DecisionTreeDetailPanel({
   const ownerLocked = useDraftOwnerLock(effectiveStatus, ownerId, canApproveOrReview);
   const ownerFieldsEditable = fieldsEditable && !ownerLocked;
   const signalsEditable =
-    ownerFieldsEditable && effectiveStatus != null && DRAFT_SIGNAL_STATUSES.has(effectiveStatus);
+    ownerFieldsEditable && effectiveStatus != null && OWNER_ONLY_STATUSES.has(effectiveStatus);
   const showEditButton = canModify && !editing && (base != null || graphNodeStatus != null);
 
   useEffect(() => {

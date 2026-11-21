@@ -137,7 +137,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        if (DecisionAccessResponses.DraftOwnerRequired(existing, request, access) is { } forbidden)
+        if (DecisionAccessResponses.DraftOwnerRequired(existing, DecisionPermissionPolicy.DraftOwnerOnlyField(existing, request), access) is { } forbidden)
         {
             return forbidden;
         }
@@ -221,7 +221,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        if (!CanEditDraftSignals(existing, access))
+        if (!DecisionPermissionPolicy.CanEditDraftSignals(existing, access))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
@@ -249,7 +249,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        if (!CanEditDraftSignals(existing, access))
+        if (!DecisionPermissionPolicy.CanEditDraftSignals(existing, access))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
@@ -277,7 +277,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        if (!CanEditDraftSignals(existing, access))
+        if (!DecisionPermissionPolicy.CanEditDraftSignals(existing, access))
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
@@ -313,6 +313,10 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         if (access is not { Allowed: true })
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
+        }
+        if (DecisionAccessResponses.DraftOwnerRequired(existing, DecisionPermissionPolicy.DraftOwnerOnlyField(existing), access) is { } forbidden)
+        {
+            return forbidden;
         }
         var connections = await repository.UpdateConnectionsAsync(lookup, access.UserId, request, cancellationToken);
         return connections is null ? BadRequest(new { detail = "Connections could not be updated." }) : Ok(connections);
@@ -390,11 +394,5 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     private static DecisionActionResponse ActionResponse(string detail, DecisionDetailDto decision)
     {
         return new DecisionActionResponse(detail, decision.Status, null, decision);
-    }
-
-    private static bool CanEditDraftSignals(DecisionDetailDto decision, DecisionAccessContext access)
-    {
-        return decision.Status == DecisionStatus.DRAFT
-            && DecisionPermissionPolicy.IsDraftOwnerOrApprover(decision, access);
     }
 }

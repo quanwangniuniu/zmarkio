@@ -21,6 +21,10 @@ describe('useDraftOwnerLock', () => {
     mockUserId = 100;
   });
 
+  it('locks a draft with no recorded owner', () => {
+    expect(lock('DRAFT', null, false)).toBe(true);
+  });
+
   it('does not lock an approver', () => {
     expect(lock('DRAFT', 200, true)).toBe(false);
   });

@@ -181,11 +181,10 @@ public static class DecisionAccessResponses
 
     public static ObjectResult? DraftOwnerRequired(
         DecisionDetailDto decision,
-        UpdateDecisionDraftRequest request,
+        string? field,
         DecisionAccessContext access
     )
     {
-        var field = DecisionPermissionPolicy.DraftOwnerOnlyField(decision, request);
         if (field is null || DecisionPermissionPolicy.IsDraftOwnerOrApprover(decision, access))
         {
             return null;

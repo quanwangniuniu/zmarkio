@@ -57,7 +57,7 @@ public sealed class DecisionDraftsController(IDecisionRepository repository, IDe
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        if (DecisionAccessResponses.DraftOwnerRequired(existing, request, access) is { } forbidden)
+        if (DecisionAccessResponses.DraftOwnerRequired(existing, DecisionPermissionPolicy.DraftOwnerOnlyField(existing, request), access) is { } forbidden)
         {
             return forbidden;
         }
