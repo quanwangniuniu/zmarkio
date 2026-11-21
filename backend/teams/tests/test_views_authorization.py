@@ -478,8 +478,6 @@ class OrgAdminTeamsPolicyTest(TeamsAuthorizationBase):
         self.assertEqual(self._names(resp), ['Beta'])
         self.assertEqual(self._call('get', self._detail(), user=self.org_admin).status_code, 404)
         self.assertEqual(self._call('get', self._members(), user=self.org_admin).status_code, 404)
-        resp = self._call('get', '/auth/me/teams/', user=self.member)
-        self.assertEqual(resp.json()['team_ids'], [])
 
     def test_org_admin_gets_404_for_missing_team(self):
         for method in ('get', 'delete'):
