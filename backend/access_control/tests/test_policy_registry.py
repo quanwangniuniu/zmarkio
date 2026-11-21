@@ -7,7 +7,7 @@ Three layers:
 1. Policy-table tests (pure, no DB): an independent hand-written literal table
    of (method, path) -> (module, action), and the negative / edge cases
    (unsupported methods, lookalike paths, PATCH is not assumed APPROVE) plus
-   the documented hardening gaps (HEAD, `.json`).
+   the known hardening gaps (HEAD, `.json`).
 2. Middleware allow/deny tests for every module (tenant schema, RequestFactory).
 3. Real-API tests live in test_policy_api_integration.py.
 """
@@ -177,12 +177,12 @@ def test_policy_table_literal_rows(method, path, module, action):
         ("PUT", "/api/budgets/requests/7/", ("BUDGET_REQUEST", None)),
         ("DELETE", "/api/csm/tickets/5/", ("TICKET", None)),
         ("PATCH", "/api/csm/queues/5/agents/", ("SUPPORT_TEAM", None)),
-        # Documented hardening gap (matrix section 6): HEAD is not treated as GET,
+        # Known hardening gap: HEAD is not treated as GET,
         # for the rule table and for the legacy resolver alike.
         ("HEAD", "/api/csm/queues/", ("QUEUE", None)),
         ("HEAD", "/budgets/pools/", ("BUDGET_POOL", None)),
         ("HEAD", "/api/assets/list/", ("ASSET", None)),
-        # Documented hardening gap (matrix section 6): a `.json` format suffix is
+        # Known hardening gap: a `.json` format suffix is
         # not matched, so these resolve to nothing (legacy behavior unchanged).
         ("GET", "/api/csm/queues.json", (None, None)),
         ("GET", "/api/campaigns.json", (None, None)),

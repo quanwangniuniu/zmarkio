@@ -1,8 +1,8 @@
 """
 Representative real-API allow/deny tests for the modules added to the
 declarative authorization policy (BUDGET_REQUEST, BUDGET_POOL,
-BUDGET_ESCALATION, QUEUE, SUPPORT_TEAM, TICKET, INVITATION), plus explicitly
-exempt routes and the internal escalation webhook.
+BUDGET_ESCALATION, QUEUE, SUPPORT_TEAM, TICKET, INVITATION), plus routes that
+have no module permission and the internal escalation webhook.
 
 Every request is authenticated with a real JWT (Authorization: Bearer ...) and
 selects the tenant with X-Organization-Slug, so TenantSchemaMiddleware sets
@@ -214,8 +214,8 @@ class BudgetPolicyApiTest(ActivatedPolicyMixin, PolicyApiBase):
             )
         )
 
-    def test_ad_channels_exempt_route_succeeds_without_module_permission(self):
-        # Explicitly exempt (no Permission module); the user's role grants nothing relevant.
+    def test_ad_channels_route_succeeds_without_module_permission(self):
+        # No Permission module covers this route; the user's role grants nothing relevant.
         response = self._request("get", "/api/budgets/ad-channels/", self.denied_user)
         self.assertEqual(response.status_code, 200)
         self.assertIsInstance(response.json(), list)
@@ -306,8 +306,8 @@ class CsmPolicyApiTest(ActivatedPolicyMixin, PolicyApiBase):
         self.assertReachesView(response)
         self.assertEqual(response.json().get("detail"), self.CSM_ADMIN_REQUIRED)
 
-    def test_exempt_csm_route_is_not_gated_by_middleware(self):
-        # Reachability only: explicitly exempt resource with its own permission class.
+    def test_ungated_csm_route_is_not_gated_by_middleware(self):
+        # Reachability only: no module covers this resource; it has its own permission class.
         self.assertReachesView(self._request("get", "/api/csm/templates/", self.denied_user))
 
 
@@ -329,7 +329,7 @@ class InvitationPolicyApiTest(ActivatedPolicyMixin, PolicyApiBase):
         self.assertDeniedByMiddleware(self._request("post", path, self.holders[("INVITATION", "VIEW")], data={}))
 
     def test_pending_invitations_self_service_route_succeeds_without_invitation_permission(self):
-        # Exempt: an invitee has no INVITATION permission. Full fixture: 200 with an empty list.
+        # Not gated: an invitee has no INVITATION permission. Full fixture: 200 with an empty list.
         response = self._request("get", "/api/core/invitations/pending/", self.denied_user)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
@@ -362,13 +362,12 @@ class PlannedRoutesApiTest(PolicyApiBase):
         ]:
             with self.subTest(path=path):
                 response = self._request(method, path, user=self.denied_user)
-                self.assertFalse(self._is_middleware_denial(response))
+                self.assertReachesView(response)
 
     def test_escalation_webhook_is_unchanged(self):
         with override_settings(INTERNAL_WEBHOOK_ENABLED=True, INTERNAL_WEBHOOK_TOKEN=TEST_INTERNAL_TOKEN):
             response = self._request("post", "/api/budgets/escalate/", HTTP_X_INTERNAL_TOKEN=TEST_INTERNAL_TOKEN)
-        self.assertFalse(self._is_middleware_denial(response))
-        self.assertNotEqual(response.status_code, 401)
+        self.assertReachesView(response)
 
     def test_legacy_asset_route_is_still_enforced(self):
         self.assertDeniedByMiddleware(self._request("get", "/api/assets/", user=self.denied_user))
