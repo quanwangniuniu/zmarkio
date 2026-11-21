@@ -757,11 +757,12 @@ def get_user_current_org_id(user):
 
 
 def user_is_current_org_admin(user) -> bool:
-    """Org-wide Team management. True only for a valid, non-deleted
-    level-2 role of the user's CURRENT organization that is not scoped to a
-    Team. Runs under the request's tenant schema. A generic
-    OrganizationMembership 'admin' label is deliberately not enough. The
-    Asset/Campaign middleware bypass is unchanged.
+    """Org-wide Team management. True only for an active member of the
+    user's CURRENT organization who holds a valid, non-deleted level-2 role
+    of that organization that is not scoped to a Team. Runs under the
+    request's tenant schema. A generic OrganizationMembership 'admin' label
+    is deliberately not enough. The Asset/Campaign middleware bypass is
+    unchanged.
     """
     if not user or not getattr(user, "is_authenticated", False):
         return False

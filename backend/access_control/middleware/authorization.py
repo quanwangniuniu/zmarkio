@@ -249,16 +249,3 @@ class AuthorizationMiddleware:
                 return view_func(request, team_id=team_id, *args, **kwargs)
             return _wrapped_view
         return decorator
-
-    def org_admin_required(view_func: Callable) -> Callable:
-        """Organization-wide Team endpoints (list/search, create, delete).
-        Superusers and current-org level-2 admins only."""
-        @wraps(view_func)
-        def _wrapped_view(request, *args, **kwargs):
-            user = request.user
-            if not user.is_authenticated:
-                return JsonResponse({'error': 'Authentication required'}, status=401)
-            if user.is_superuser or access_control_services.user_is_current_org_admin(user):
-                return view_func(request, *args, **kwargs)
-            return JsonResponse({'error': 'Permission denied: organization admin required'}, status=403)
-        return _wrapped_view

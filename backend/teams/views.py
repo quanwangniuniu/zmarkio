@@ -14,7 +14,7 @@ from core.models import Team, TeamMember, TeamRole
 from access_control.models import UserRole
 from access_control.middleware.authorization import AuthorizationMiddleware
 from access_control.services import get_user_current_org_id
-from teams.permissions import IsCurrentOrgAdmin
+from teams.permissions import IsCurrentOrgAdmin, org_admin_required
 from teams.services import (
     TeamServiceError,
     create_org_team,
@@ -29,9 +29,6 @@ from teams.services import (
 # roles or remove members.
 team_member_required = AuthorizationMiddleware.team_permission_required(required_role="MEMBER")
 team_leader_required = AuthorizationMiddleware.team_permission_required(required_role="LEADER")
-# Level-2 org admins of the current organization (and superusers) bypass the
-# membership check above and may also list/create/delete Teams.
-org_admin_required = AuthorizationMiddleware.org_admin_required
 
 
 def _get_team_or_404(request, team_id):
