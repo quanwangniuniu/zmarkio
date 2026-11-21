@@ -31,16 +31,6 @@ team_member_required = AuthorizationMiddleware.team_permission_required(required
 team_leader_required = AuthorizationMiddleware.team_permission_required(required_role="LEADER")
 
 
-def _get_team_or_404(request, team_id):
-    """Non-deleted Team, restricted to the caller's organization when known
-    (defence in depth on top of the per-organization tenant schema)."""
-    filters = {'id': team_id, 'is_deleted': False}
-    org_id = get_user_current_org_id(request.user)
-    if org_id:
-        filters['organization_id'] = org_id
-    return get_object_or_404(Team, **filters)
-
-
 def _team_payload(team, member_count=None):
     payload = {
         'id': team.id,
@@ -86,7 +76,7 @@ class TeamMembersView(TeamMemberAPIView):
     @method_decorator(team_member_required)
     def get(self, request, team_id):
         """GET /teams/:id/members - List team members"""
-        team = _get_team_or_404(request, team_id)
+        team = get_object_or_404(Team, id=team_id, is_deleted=False)
         
         # Query TeamMember using team relationship
         memberships = TeamMember.objects.filter(team=team)
@@ -113,7 +103,7 @@ class TeamMembersView(TeamMemberAPIView):
     @method_decorator(team_leader_required)
     def post(self, request, team_id):
         """POST /teams/:id/members - Add user to team"""
-        team = _get_team_or_404(request, team_id)
+        team = get_object_or_404(Team, id=team_id, is_deleted=False)
         
         # Validate required fields
         user_id = request.json.get('user_id')
@@ -201,7 +191,7 @@ class TeamMemberDetailView(TeamMemberAPIView):
     @method_decorator(team_leader_required)
     def patch(self, request, team_id, user_id):
         """PATCH /teams/:id/members/:user_id - Update member role"""
-        team = _get_team_or_404(request, team_id)
+        team = get_object_or_404(Team, id=team_id, is_deleted=False)
         
         # Validate role_id in request
         role_id = request.json.get('role_id')
@@ -260,7 +250,7 @@ class TeamMemberDetailView(TeamMemberAPIView):
     @method_decorator(team_leader_required)
     def delete(self, request, team_id, user_id):
         """DELETE /teams/:id/members/:user_id - Remove member from team"""
-        team = _get_team_or_404(request, team_id)
+        team = get_object_or_404(Team, id=team_id, is_deleted=False)
         
         from core.models import CustomUser
         try:
@@ -326,7 +316,7 @@ class TeamDetailView(View):
     @method_decorator(org_admin_required)
     def delete(self, request, team_id):
         """DELETE /teams/:id - Soft-delete a Team that has no members or child Teams"""
-        team = _get_team_or_404(request, team_id)
+        team = get_object_or_404(Team, id=team_id, is_deleted=False)
         if team_has_members_or_children(team):
             return JsonResponse({
                 'error': 'Cannot delete team with active members or child teams',
@@ -338,7 +328,7 @@ class TeamDetailView(View):
     @method_decorator(team_member_required)
     def get(self, request, team_id):
         """Get detailed team information with members"""
-        team = _get_team_or_404(request, team_id)
+        team = get_object_or_404(Team, id=team_id, is_deleted=False)
         
         # Get team members using team relationship
         memberships = TeamMember.objects.filter(team=team)
