@@ -89,8 +89,8 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
             ProjectId = projectId,
             ProjectName = projectId.HasValue ? $"Project {projectId}" : null,
             IsReferenceCase = request.IsReferenceCase,
-            CreatedByAgent = request.CreatedByAgent,
-            AgentSessionId = request.AgentSessionId,
+            CreatedByAgent = false,
+            AgentSessionId = null,
             PlannedDecisionDate = request.PlannedDecisionDate,
             OriginMeeting = request.OriginMeetingId.HasValue
                 ? new DecisionOriginMeetingDto(
