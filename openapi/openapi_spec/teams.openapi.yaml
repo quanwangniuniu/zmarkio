@@ -269,16 +269,8 @@ paths:
                     type: integer
         '401':
           description: Authentication required
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
         '403':
           description: Not an organization admin
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
     post:
       summary: Create a new team
       description: >-
