@@ -76,6 +76,8 @@ class TeamsAuthorizationBase(TestCase):
         cls.superuser = mk("tsuper", is_superuser=True)
         cls.target = mk("ttarget")        # user that leaders add/modify/remove
         cls.new_user = mk("tnewuser")     # user that is not on any team yet
+        OrganizationMembership.objects.create(
+            user=cls.new_user, organization=cls.org, role='member', is_active=True)
 
         _set_schema(cls.org)
         cls.team = Team.objects.create(organization=cls.org, name="Alpha")
@@ -534,7 +536,8 @@ class OrgAdminTeamsPolicyTest(TeamsAuthorizationBase):
 
     def test_superuser_without_organization_cannot_use_org_wide_list(self):
         resp = self._call('get', '/api/teams/', user=self.superuser_no_org)
-        self.assertNotEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()['code'], 'NO_ORGANIZATION')
 
     # -- tenant isolation -----------------------------------------------
     def test_other_organization_admin_cannot_reach_this_organizations_teams(self):
@@ -567,6 +570,15 @@ class OrgAdminTeamsPolicyTest(TeamsAuthorizationBase):
                 self.assertEqual(resp.status_code, 400)
                 self.assertEqual(resp.json()['code'], 'USER_NOT_IN_ORGANIZATION')
         self.assertIsNone(self._role_of(self.foreign_user))
+
+    def test_add_member_rejects_removed_user_whose_profile_still_points_here(self):
+        # removed_admin keeps organization=self.org on the user row, but the
+        # membership is inactive.
+        resp = self._call('post', self._members(), user=self.org_admin,
+                          body={'user_id': self.removed_admin.id, 'role_id': TeamRole.MEMBER})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json()['code'], 'USER_NOT_IN_ORGANIZATION')
+        self.assertIsNone(self._role_of(self.removed_admin))
 
     def test_add_member_accepts_user_with_active_membership_in_this_organization(self):
         resp = self._call('post', self._members(), user=self.org_admin,

@@ -430,8 +430,8 @@ def _legacy_resolve(path: str, method: str) -> Tuple[Optional[str], Optional[str
 
 _TEMPLATE_VARIABLE = re.compile(r"<(?:\w+:)?\w+>")
 
-#: Optional trailing slash. A `.json` format suffix is not matched (see the
-#: policy doc, future hardening).
+#: Optional trailing slash. A `.json` format suffix is not matched (future
+#: hardening).
 _TEMPLATE_TAIL = r"/?"
 
 
@@ -473,7 +473,7 @@ LEGACY_ENFORCEMENT: Dict[str, str] = {
 }
 
 #: Enforcement state of POLICY_RULES routes, by module. All planned: resolved
-#: and documented but not enforced until existing roles hold the required
+#: but not enforced until existing roles hold the required
 #: RolePermission rows. CAMPAIGN here means templates and links only, not the
 #: active /api/campaigns/**. A module missing here is treated as planned.
 RULE_TABLE_ENFORCEMENT: Dict[str, str] = {

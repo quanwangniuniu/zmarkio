@@ -74,12 +74,9 @@ class TeamServiceError(Exception):
 
 
 def user_belongs_to_organization(user, organization_id):
-    """Same-organization check for adding Team members. Mirrors how the
-    tenant middleware resolves a user's organization, plus active
-    OrganizationMembership rows."""
-    current = getattr(user, "current_organization_id", None)
-    if current == organization_id or (current is None and user.organization_id == organization_id):
-        return True
+    """Same-organization check for adding Team members: an active
+    OrganizationMembership is required (the user's organization fields can
+    outlive a removal)."""
     return OrganizationMembership.objects.filter(
         user=user, organization_id=organization_id, is_active=True
     ).exists()
