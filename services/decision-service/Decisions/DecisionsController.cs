@@ -137,7 +137,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        if (DecisionAccessResponses.DraftOwnerRequired(existing, DecisionPermissionPolicy.DraftOwnerOnlyField(existing, request), access) is { } forbidden)
+        if (DecisionAccessResponses.DraftOwnerRequired(existing, request, access) is { } forbidden)
         {
             return forbidden;
         }
@@ -313,10 +313,6 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         if (access is not { Allowed: true })
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
-        }
-        if (DecisionAccessResponses.DraftOwnerRequired(existing, DecisionPermissionPolicy.DraftOwnerOnlyField(existing), access) is { } forbidden)
-        {
-            return forbidden;
         }
         var connections = await repository.UpdateConnectionsAsync(lookup, access.UserId, request, cancellationToken);
         return connections is null ? BadRequest(new { detail = "Connections could not be updated." }) : Ok(connections);

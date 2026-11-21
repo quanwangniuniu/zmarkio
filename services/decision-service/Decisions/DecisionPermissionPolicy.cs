@@ -78,9 +78,4 @@ public static class DecisionPermissionPolicy
             _ => null,
         };
     }
-
-    public static string? DraftOwnerOnlyField(DecisionDetailDto decision)
-    {
-        return IsOwnerOnlyStatus(decision.Status) ? "connections" : null;
-    }
 }

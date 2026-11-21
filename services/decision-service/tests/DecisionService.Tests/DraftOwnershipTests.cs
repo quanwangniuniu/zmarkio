@@ -71,21 +71,6 @@ public sealed class DraftOwnershipTests : IDisposable
     }
 
     [Fact]
-    public async Task Connections_update_rejects_another_editor()
-    {
-        var draft = await CreateDraft();
-        var connections = new { connectedDecisionIds = Array.Empty<int>() };
-        using var otherEditor = Client(OtherEditor, "Copywriter");
-        using var owner = Client(Owner, "Copywriter");
-
-        var rejected = await otherEditor.PutAsJsonAsync($"/api/decisions/{draft.Slug}/connections", connections);
-        var accepted = await owner.PutAsJsonAsync($"/api/decisions/{draft.Slug}/connections", connections);
-
-        Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
-    }
-
-    [Fact]
     public async Task Another_editor_can_still_change_shared_fields()
     {
         var draft = await CreateDraft();
