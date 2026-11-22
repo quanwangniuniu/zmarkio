@@ -7,6 +7,7 @@ import {
   type CopyGenerator,
   type CopyJson,
 } from '@/src/ai';
+import { buildSystemPrompt } from '@/src/ai/prompts';
 import { ApiError, projectIdParam } from '@/src/platform/http';
 import { getPlatformSpec, type PlatformSpec } from '@/src/platforms';
 import { applyCtaPolicy } from '@/src/platforms/cta';
@@ -149,18 +150,18 @@ export async function runCustomGenerate(args: {
   const instruction =
     typeof args.body.instruction === 'string' ? args.body.instruction : '';
 
+  const spec = getPlatformSpec('meta');
   const handler = sourceModeRegistry.get(sourceMode)!;
   const modeResult = await handler.resolve(
-    { schema: args.schema, userId: args.userId, projectId: project.projectId, instruction },
+    { schema: args.schema, userId: args.userId, projectId: project.projectId, instruction, spec },
     args.body
   );
 
   if (isEarlyReturn(modeResult)) return modeResult.response;
 
-  const spec = getPlatformSpec('meta');
   const batchId = randomUUID();
   const { copies, failedIndices, providerError } = await generateCopies(
-    spec.promptFragment,
+    buildSystemPrompt(spec),
     modeResult.userPrompt,
     count,
     generator

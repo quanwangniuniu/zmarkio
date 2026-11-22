@@ -3,6 +3,8 @@ import {
     fitExternalUrlPromptToContext,
     truncateRelevantTextByCharacters,
 } from '@/lib/pageTextBudget';
+import { buildExternalUrlPrompt, buildSystemPrompt } from '@/src/ai/prompts';
+import { metaSpec } from '@/src/platforms/meta';
 
 const PAGE_TEXT_START = 'Page text:\n---\n';
 const PAGE_TEXT_END = '\n---\n\nInstruction:';
@@ -43,6 +45,18 @@ describe('External URL page-text budgeting', () => {
         expect(estimatedTotal).toBeLessThanOrEqual(numCtx);
         expect(fitted.length).toBeLessThan(userPrompt.length);
         expect(extractPageText(fitted)).toContain('UNIQUE_LATE_SELLING_POINT');
+    });
+
+    it('shortens only the page text in a built URL prompt and preserves its instructions and keys', () => {
+        const longPage = 'Waterproof boots for long walks on rainy days.\n'.repeat(1000);
+        const instruction = 'Focus on comfort.';
+        const prompt = buildExternalUrlPrompt(longPage, instruction, metaSpec);
+        const fitted = fitExternalUrlPromptToContext(buildSystemPrompt(metaSpec), prompt, 8192);
+        const keys = metaSpec.fields.map(field => field.key).join(', ');
+
+        expect(fitted.length).toBeLessThan(prompt.length);
+        expect(fitted).toBe(prompt.replace(longPage, extractPageText(fitted)));
+        expect(fitted).toContain(`Instruction: ${instruction}\n\nReturn strict JSON with keys: ${keys}.`);
     });
 
     it('keeps high-value lines when the extracted page exceeds the character cap', () => {

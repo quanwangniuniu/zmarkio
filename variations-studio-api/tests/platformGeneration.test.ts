@@ -1,6 +1,6 @@
 import { requireProjectForUser } from '@/lib/projects';
 import { createVariation } from '@/lib/variationCreate';
-import { buildUserPrompt } from '@/src/ai/prompts';
+import { buildSystemPrompt, buildUserPrompt } from '@/src/ai/prompts';
 import type { CopyGenerator, CopyJson } from '@/src/ai/types';
 import { runCustomGenerate } from '@/src/domains/generate/orchestrator';
 import { getPlatformSpec, type PlatformSpec } from '@/src/platforms';
@@ -21,7 +21,8 @@ describe('platform configuration in generation and creation', () => {
   it('takes the prompt, version, CTA policy and slug source from the platform spec', async () => {
     const spec: PlatformSpec = {
       ...metaSpec,
-      promptFragment: 'Use the alternate platform prompt.',
+      fields: [...metaSpec.fields].reverse(),
+      promptFragment: 'Use the alternate platform prompt.\n\n',
       promptVersion: 'alternate-v2',
       cta: { kind: 'enum', field: 'cta', values: ['JOIN_US', 'SKIP'], normalization: 'exact', fallback: 'SKIP' },
       slugSource: { field: 'hook' },
@@ -52,24 +53,32 @@ describe('platform configuration in generation and creation', () => {
     });
 
     expect(getPlatformSpec).toHaveBeenCalledWith('meta');
-    expect(generateCopy).toHaveBeenCalledWith(spec.promptFragment, buildUserPrompt(baseCopy, 'Focus on value'));
+    expect(generateCopy).toHaveBeenCalledWith(buildSystemPrompt(spec), buildUserPrompt(baseCopy, 'Focus on value', spec));
     expect(result.results[0]).toMatchObject({
       cta: 'SKIP', prompt_version: 'alternate-v2', slug: 'hook-for-the-slug',
     });
   });
 
-  it('takes the manual create slug source from the platform spec', async () => {
-    jest.mocked(getPlatformSpec).mockReturnValue({ ...metaSpec, slugSource: { field: 'hook' } });
+  it.each([
+    { label: 'default', input: {}, expected: 'alternate-v2' },
+    { label: 'explicit', input: { prompt_version: 'request-v3' }, expected: 'request-v3' },
+  ])('uses the platform slug source and $label prompt version for manual create', async ({ input, expected }) => {
+    jest.mocked(getPlatformSpec).mockReturnValue({
+      ...metaSpec,
+      promptVersion: 'alternate-v2',
+      slugSource: { field: 'hook' },
+    });
 
     await createVariation({
       schema: 'test_tenant',
       projectId: BigInt(12),
       userId: 7,
-      body: { source_mode: 'custom', hook: 'Hook for manual slug', headline: 'Unused headline' },
+      body: { source_mode: 'custom', hook: 'Hook for manual slug', headline: 'Unused headline', ...input },
     });
 
-    expect(insertVariation).toHaveBeenCalledWith('test_tenant', expect.objectContaining({
+    expect(insertVariation).toHaveBeenLastCalledWith('test_tenant', expect.objectContaining({
       slug: 'hook-for-manual-slug',
+      promptVersion: expected,
     }));
   });
 });

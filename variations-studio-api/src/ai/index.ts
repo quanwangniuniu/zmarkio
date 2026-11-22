@@ -7,7 +7,6 @@ export {
   MAX_BATCH,
   BATCH_CONCURRENCY,
   MODEL_NAME,
-  PROMPT_VERSION,
   AI_QUOTA_MESSAGE,
   buildExternalUrlPrompt,
   buildUserPrompt,
