@@ -104,6 +104,7 @@ export default function CampaignsV2Page() {
           loading={loading}
           errorMessage={errorMessage}
           onRowClick={(c) => router.push(buildUrl(`/campaigns/${c.slug}`))}
+          onCreate={() => setCreateOpen(true)}
         />
 
         <CreateCampaignDialog

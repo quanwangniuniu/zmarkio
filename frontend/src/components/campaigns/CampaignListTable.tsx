@@ -1,11 +1,12 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus , Megaphone} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import type { CampaignData, CampaignStatus } from '@/types/campaign';
 import { useProjectStore } from '@/lib/projectStore';
 import { nestedProjectPathFromProject } from '@/lib/projectNestedRoutes';
 import CampaignStatusPill from './pills/CampaignStatusPill';
+import EmptyState from '@/components/state-feedback/EmptyState';
 import { CAMPAIGN_OBJECTIVE, CAMPAIGN_PLATFORM, CAMPAIGN_STATUS } from '@/lib/campaigns/campaignConfig';
 import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionLabel } from '@/lib/orgCustomization/optionConfig';
@@ -15,6 +16,7 @@ interface Props {
   loading: boolean;
   errorMessage: string | null;
   onRowClick?: (campaign: CampaignData) => void;
+  onCreate?: () => void;
 }
 
 const STATUS_DOT: Record<CampaignStatus, string> = {
@@ -42,6 +44,7 @@ export default function CampaignListTable({
   loading,
   errorMessage,
   onRowClick,
+  onCreate,
 }: Props) {
   useOptionConfigVersion();
   const router = useRouter();
@@ -57,12 +60,14 @@ export default function CampaignListTable({
       ) : errorMessage ? (
         <div className="px-6 py-12 text-center text-sm text-rose-600">{errorMessage}</div>
       ) : campaigns.length === 0 ? (
-        <div className="px-6 py-16 text-center">
-          <p className="text-sm font-medium text-gray-900">No campaigns yet</p>
-          <p className="mt-1 text-xs text-gray-500">
-            Click <span className="font-medium text-gray-700">Create Campaign</span> to add the first one.
-          </p>
-        </div>
+        <EmptyState
+              icon={<Megaphone className="h-5 w-5" />}
+              title='No campaigns yet'
+              description="Create your first campaign to start planning and tracking performance."
+              actionLabel="Create campaign"
+              onAction={onCreate}
+              actionIcon={<Plus className="h-3.5 w-3.5" /> }
+        />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[820px] text-sm">
