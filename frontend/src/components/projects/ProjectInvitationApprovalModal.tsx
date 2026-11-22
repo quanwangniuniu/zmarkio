@@ -92,7 +92,7 @@ export default function ProjectInvitationApprovalModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose}>
+    <Modal isOpen={isOpen} onClose={onClose} ariaLabel="Invitation Approvals">
       <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-[0_20px_60px_-40px_rgba(15,23,42,0.6)]">
         <div className="flex items-center justify-between border-b border-gray-100 bg-gradient-to-r from-white via-slate-50 to-blue-50 px-6 py-4">
           <div className="flex items-center gap-3">
