@@ -627,15 +627,11 @@ export default function MessagePageContent() {
                 icon={<MessageSquare className="h-5 w-5" />}
                 title="Select a conversation"
                 description="Choose a chat from the list or start a new conversation with your team members."
+                actionLabel="Browse conversations"
+                actionIcon={<PanelLeftOpen className="h-4 w-4" />}
+                onAction={() => setIsConversationDrawerOpen(true)}
+                actionClassName="md:hidden"
               />
-              <button
-                type="button"
-                onClick={() => setIsConversationDrawerOpen(true)}
-                className="mt-4 inline-flex items-center gap-2 rounded-md bg-[#3CCED7] px-3 py-2 text-sm font-medium text-white transition hover:bg-[#2AB5BD] md:hidden"
-              >
-                <PanelLeftOpen className="h-4 w-4" />
-                Browse conversations
-              </button>
             </div>
           ) : (
             <div className="h-full" data-testid="messages-chat-window">

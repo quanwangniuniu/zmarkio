@@ -13,6 +13,8 @@
  */
 
 import { test, expect, type Page } from '@playwright/test';
+import type { DecisionListResponse, DecisionGraphResponse } from '@/types/decision';
+import type { OptionModuleConfig } from '@/types/orgCustomization';
 
 const EMPTY_PAGE = { count: 0, next: null, previous: null, results: [] };
 
@@ -115,20 +117,30 @@ test.describe('Empty states', () => {
     // The decisions list uses token pagination: { items, nextPageToken }.
     await page.route(
       (url) => url.pathname === '/api/decisions/',
-      (route) => route.fulfill({ json: { items: [], nextPageToken: null } }),
+      (route) => route.fulfill({ json: { items: [], nextPageToken: null } satisfies DecisionListResponse }),
     );
     // An empty project returns an empty graph, not an error.
     await page.route(
       (url) => url.pathname === '/api/decisions/graph',
-      (route) => route.fulfill({ json: { nodes: [], edges: [], topics: [] } }),
+      (route) => route.fulfill({ json: { nodes: [], edges: [], topics: [] } satisfies DecisionGraphResponse }),
     ); 
     // A project with no saved settings returns every default option.
     await page.route(
       (url) => url.pathname === '/api/org-customization/decisions-config/',
-      (route) => route.fulfill({ json: DEFAULT_DECISIONS_CONFIG }),
+      (route) => route.fulfill({ json: DEFAULT_DECISIONS_CONFIG satisfies OptionModuleConfig }),
     );
+    // Start listening before navigating, so no request is missed.
+    const requested = (pathname: string) =>
+      page.waitForRequest((req) => new URL(req.url()).pathname === pathname);
+    const decisionRequests = Promise.all([
+      requested('/api/decisions/'),
+      requested('/api/decisions/graph'),
+      requested('/api/org-customization/decisions-config/'),
+    ]);
 
     await page.goto('/decisions');
+    // All three mocked endpoints must actually be called.
+    await decisionRequests;
 
     const card = emptyState(page, 'No decisions yet');
     await expect(card).toBeVisible({ timeout: FIRST_LOAD_TIMEOUT });
@@ -137,6 +149,9 @@ test.describe('Empty states', () => {
       - paragraph: Create your first decision to map context, options, signals, and outcomes into a traceable tree.
       - button "Create your first decision"
     `);
+    // If the decisions list request fails, the page still shows the empty card but
+    // also pops an error toast (react-hot-toast, role="status"). No toast = real empty branch.
+    await expect(page.getByRole('status').filter({ hasText: /\S/ })).toHaveCount(0);
   });
 
   test('meetings', async ({ page }) => {
@@ -159,7 +174,7 @@ test.describe('Empty states', () => {
     `);
   });
   
-  test('messages', async ({ page }) => {
+  test('messages (desktop): CTA is hidden', async ({ page }) => {
     await mockEmptyList(page, '/api/chat/chats/');
 
     await page.goto('/messages');
@@ -170,5 +185,24 @@ test.describe('Empty states', () => {
       - heading "Select a conversation" [level=3]
       - paragraph: Choose a chat from the list or start a new conversation with your team members.
     `);
+    // On desktop the conversation list is always visible, so the CTA is hidden (md:hidden).
+    await expect(card.getByRole('button', { name: 'Browse conversations' })).toBeHidden();
   });
+
+  test('messages (mobile): CTA opens the conversation drawer', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await mockEmptyList(page, '/api/chat/chats/');
+
+    await page.goto('/messages');
+
+    const card = emptyState(page, 'Select a conversation');
+    await expect(card).toBeVisible({ timeout: FIRST_LOAD_TIMEOUT });
+
+    const cta = card.getByRole('button', { name: 'Browse conversations' });
+    await expect(cta).toBeVisible();
+
+    await cta.click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+  });
+
 });

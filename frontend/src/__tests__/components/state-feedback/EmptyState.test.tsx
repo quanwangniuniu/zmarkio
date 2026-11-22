@@ -41,4 +41,16 @@ describe('EmptyState', () => {
           
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+
+  it('applies actionClassName to the CTA button', () => {
+    render(<EmptyState
+            icon={<span>icon</span>}
+            title="Select a conversation"
+            actionLabel="Browse conversations"
+            onAction={() => {}}
+            actionClassName="md:hidden"
+          />)
+
+    expect(screen.getByRole('button', { name: 'Browse conversations' })).toHaveClass('md:hidden');
+  });
 });

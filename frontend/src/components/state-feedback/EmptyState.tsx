@@ -10,6 +10,7 @@ type EmptyStateProps = {
   onAction?: () => void;
   actionIcon?: ReactNode;
   className?: string;
+  actionClassName?: string;
 };
 
 
@@ -20,6 +21,7 @@ export default function EmptyState({
   actionLabel,
   onAction,
   actionIcon,
+  actionClassName = '',
   className = '', }: EmptyStateProps) {
   return (
     <div className={`flex flex-col items-center justify-center px-4 py-12 text-center ${className}`} data-testid="empty-state">
@@ -30,9 +32,7 @@ export default function EmptyState({
         <button
           type="button"
           onClick={onAction}
-
-          className="mt-5 inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-[#3CCED7] to-[#A6E661] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3CCED7] focus-visible:ring-offset-2"
-
+          className={`mt-5 inline-flex items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-[#3CCED7] to-[#A6E661] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3CCED7] focus-visible:ring-offset-2 ${actionClassName}`}
         >
           {actionIcon}
           {actionLabel}
