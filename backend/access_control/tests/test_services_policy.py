@@ -1,16 +1,13 @@
 """
-Focused tests for the declarative authorization policy registry
-added to access_control.services, plus the middleware behaviors that
-registry is responsible for (zero-role grace, and resolution feeding the
-org-admin/superuser bypass checks).
+Focused tests for the authorization policy table in access_control.services
+(resolve_module_and_action), plus the middleware behaviors that depend on it
+(zero-role grace, and resolution feeding the org-admin/superuser bypass checks).
 
 This file is intentionally separate from test_middleware.py /
 test_authorization_logic.py (which already cover the ASSET/CAMPAIGN
-role-permission matrix end-to-end through process_view) rather than merging
-into either — it targets the new services.py functions directly (pure-unit
-level for resolve_module_and_action) plus the one middleware behavior
-(zero-role grace) that had no dedicated test anywhere in this app before the
-policy registry was added.
+role-permission matrix end-to-end through process_view): it targets
+resolve_module_and_action directly (pure-unit level) plus middleware
+behaviors that had no dedicated test anywhere in this app.
 """
 import pytest
 from datetime import timedelta
@@ -76,8 +73,7 @@ def test_resolve_module_and_action(path, method, expected):
 # No existing test file in this app exercised this path directly: a user
 # with ZERO UserRole rows at all (not merely a non-matching or expired role)
 # hitting a real module/action gate must be allowed through, per the
-# "grace period" comment in process_view. This is explicitly preserved,
-# unchanged, by the registry refactor.
+# "grace period" comment in process_view.
 # ---------------------------------------------------------------------------
 
 @override_settings(ROOT_URLCONF='access_control.tests.test_urls')
@@ -142,7 +138,7 @@ class ZeroRoleGraceBehaviorTest(TestCase):
 # so a None result here cannot be mistaken for the zero-role grace path),
 # and the two "no gate" branches (an unmapped URL, and a method with no
 # resolved action on a mapped module). None of these branches had any test
-# anywhere in this app before the policy registry was added.
+# anywhere in this app.
 # ---------------------------------------------------------------------------
 
 @override_settings(ROOT_URLCONF='access_control.tests.test_urls')

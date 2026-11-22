@@ -18,10 +18,8 @@ class AuthorizationMiddleware:
     Assumes the URL prefix contains the module (e.g., 'assets' maps to ASSET),
     and HTTP methods map to actions (GET→VIEW, POST→EDIT, etc.).
 
-    The URL -> (module, action) resolution lives in the declarative policy
-    registry in access_control.services (resolve_policy). Only "active"
-    decisions create a permission gate; "planned" routes are resolved but not
-    enforced here.
+    The URL -> (module, action) resolution lives in access_control.services
+    (resolve_module_and_action).
     """
 
     def __init__(self, get_response=None):
@@ -42,10 +40,10 @@ class AuthorizationMiddleware:
         # know whether there's an actual permission gate to bypass: audit logging
         # only fires when a real gate would have applied here — e.g. not
         # for /api/auth/login/, which never reaches a module permission check.
-        decision = access_control_services.resolve_policy(request.path, request.method)
-        module_key, action_key = decision.module, decision.action
-        # Only "active" decisions create a gate; "planned" routes are not enforced here.
-        has_permission_gate = decision.enforced
+        module_key, action_key = access_control_services.resolve_module_and_action(
+            request.path, request.method
+        )
+        has_permission_gate = module_key is not None and action_key is not None
 
         # Superusers bypass module-level authorization. The @require_* decorators
         # in this module already short-circuit for superusers ("Org admin

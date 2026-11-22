@@ -1,7 +1,5 @@
 import math
-import re
-from dataclasses import dataclass
-from typing import Dict, FrozenSet, List, NamedTuple, Optional, Pattern, Tuple, TypedDict
+from typing import Dict, List, Optional, Tuple, TypedDict
 
 from django.db.models import Q
 
@@ -365,26 +363,19 @@ def get_project_permission_matrix(project_id: int) -> ProjectPermissionMatrixRes
         "warnings": warnings,
     }
 # ---------------------------------------------------------------------------
-# Authorization policy registry
+# Authorization policy table
 # ---------------------------------------------------------------------------
 # Path resolution below is pure (no database, no request object): it maps
-# (path, method) to (module, action) plus an enforcement state.
-#
-# - ASSET and /api/campaigns/** use the legacy resolver, unchanged (active).
-# - Every other route is described by POLICY_RULES (planned: resolved, not
-#   enforced by the middleware).
-#
-# Action model for POLICY_RULES: read VIEW; create/update/workflow EDIT;
-# approval decision APPROVE; deletion DELETE. The legacy resolver keeps its
-# historical map (PATCH -> APPROVE) as the one exception.
+# (path, method) to (module, action) for the modules AuthorizationMiddleware
+# enforces: ASSET and /api/campaigns/**.
 
-#: Legacy resolver only: path segment after "api" -> module.
+#: Path segment after "api" -> module.
 MODULE_PATH_MAP: Dict[str, str] = {
     "assets": "ASSET",
     "campaigns": "CAMPAIGN",
 }
 
-#: Legacy resolver only: HTTP method -> default action.
+#: HTTP method -> default action.
 METHOD_ACTION_MAP: Dict[str, str] = {
     "GET": "VIEW",
     "POST": "EDIT",
@@ -393,7 +384,7 @@ METHOD_ACTION_MAP: Dict[str, str] = {
     "DELETE": "DELETE",
 }
 
-#: Legacy resolver only: a 4th path segment in this map forces the action.
+#: A 4th path segment in this map forces the action.
 #: No current ASSET/CAMPAIGN route has that shape; kept for compatibility.
 ACTION_KEYWORD_OVERRIDES: Dict[str, str] = {
     "approve": "APPROVE",
@@ -404,9 +395,9 @@ ACTION_KEYWORD_OVERRIDES: Dict[str, str] = {
 ORG_ADMIN_ROLE_LEVEL = 2
 
 
-def _legacy_resolve(path: str, method: str) -> Tuple[Optional[str], Optional[str]]:
-    """Legacy ASSET/CAMPAIGN resolver: the inline logic process_view used
-    before the registry, unchanged. Returns (None, None) for an unknown module and
+def resolve_module_and_action(path: str, method: str) -> Tuple[Optional[str], Optional[str]]:
+    """The (module, action) a request requires: the logic process_view used
+    inline before, unchanged. Returns (None, None) for an unknown module and
     (module, None) when the method has no action. Pure.
     """
     parts = path.strip("/").split("/")
@@ -422,261 +413,6 @@ def _legacy_resolve(path: str, method: str) -> Tuple[Optional[str], Optional[str
                 action_key = METHOD_ACTION_MAP.get(method)
 
     return module_key, action_key
-
-
-# ---------------------------------------------------------------------------
-# Explicit rule table for the remaining modules
-# ---------------------------------------------------------------------------
-
-_TEMPLATE_VARIABLE = re.compile(r"<(?:\w+:)?\w+>")
-
-#: Optional trailing slash. A `.json` format suffix is not matched (future
-#: hardening).
-_TEMPLATE_TAIL = r"/?"
-
-
-def _compile_template(template: str) -> Pattern:
-    """Compile a path template ("queues/<pk>/agents/") into an anchored regex.
-    "<...>" matches one path segment.
-    """
-    body = template.strip("/")
-    out: List[str] = []
-    position = 0
-    for match in _TEMPLATE_VARIABLE.finditer(body):
-        out.append(re.escape(body[position:match.start()]))
-        out.append("[^/]+")
-        position = match.end()
-    out.append(re.escape(body[position:]))
-    regex = "".join(out)
-    return re.compile("^" + regex + _TEMPLATE_TAIL + "$")
-
-
-@dataclass(frozen=True)
-class PolicyRule:
-    """One gated route: requests whose method is in `methods` and whose path
-    matches `template` require `module` + `action`."""
-
-    module: str
-    action: str
-    methods: FrozenSet[str]
-    template: str
-    pattern: Pattern
-
-
-ENFORCEMENT_ACTIVE = "active"
-ENFORCEMENT_PLANNED = "planned"
-
-#: Legacy resolver (/api/assets/**, /api/campaigns/**): enforced today.
-LEGACY_ENFORCEMENT: Dict[str, str] = {
-    "ASSET": ENFORCEMENT_ACTIVE,
-    "CAMPAIGN": ENFORCEMENT_ACTIVE,
-}
-
-#: Enforcement state of POLICY_RULES routes, by module. All planned: resolved
-#: but not enforced until existing roles hold the required
-#: RolePermission rows. CAMPAIGN here means templates and links only, not the
-#: active /api/campaigns/**. A module missing here is treated as planned.
-RULE_TABLE_ENFORCEMENT: Dict[str, str] = {
-    "CAMPAIGN": ENFORCEMENT_PLANNED,
-    "BUDGET_REQUEST": ENFORCEMENT_PLANNED,
-    "BUDGET_POOL": ENFORCEMENT_PLANNED,
-    "BUDGET_ESCALATION": ENFORCEMENT_PLANNED,
-    "QUEUE": ENFORCEMENT_PLANNED,
-    "SUPPORT_TEAM": ENFORCEMENT_PLANNED,
-    "TICKET": ENFORCEMENT_PLANNED,
-    "INVITATION": ENFORCEMENT_PLANNED,
-}
-
-
-class PolicyDecision(NamedTuple):
-    """What a request requires, and whether it is enforced yet."""
-
-    module: Optional[str]
-    action: Optional[str]
-    rule: Optional[PolicyRule]
-    enforcement: Optional[str] = None
-
-    @property
-    def enforced(self) -> bool:
-        """True only for a resolved (module, action) whose state is active."""
-        return (
-            self.module is not None
-            and self.action is not None
-            and self.enforcement == ENFORCEMENT_ACTIVE
-        )
-
-
-BUDGET_PREFIXES = ("api/budgets/", "budgets/")  # both mounts serve the same views
-CSM_PREFIX = "api/csm/"
-CORE_PREFIX = "api/core/"
-API_PREFIX = "api/"
-
-# (module, action, methods, path template relative to a prefix)
-_RuleSpec = Tuple[str, str, Tuple[str, ...], str]
-
-_BUDGET_RULE_SPECS: Tuple[_RuleSpec, ...] = (
-    # start-review is a workflow step (EDIT), not an approval. The view's own
-    # permission class additionally restricts deleting a request.
-    ("BUDGET_REQUEST", "VIEW", ("GET",), "requests/"),
-    ("BUDGET_REQUEST", "EDIT", ("POST",), "requests/"),
-    ("BUDGET_REQUEST", "VIEW", ("GET",), "requests/<int:pk>/"),
-    ("BUDGET_REQUEST", "EDIT", ("PATCH",), "requests/<int:pk>/"),
-    ("BUDGET_REQUEST", "DELETE", ("DELETE",), "requests/<int:pk>/"),
-    ("BUDGET_REQUEST", "EDIT", ("POST",), "requests/<int:pk>/start-review/"),
-    # UpdateAPIView also serves PUT, so both methods are the approval decision.
-    ("BUDGET_REQUEST", "APPROVE", ("PUT", "PATCH"), "requests/<int:pk>/decision/"),
-    ("BUDGET_POOL", "VIEW", ("GET",), "pools/"),
-    ("BUDGET_POOL", "EDIT", ("POST",), "pools/"),
-    ("BUDGET_POOL", "VIEW", ("GET",), "pools/<int:pk>/"),
-    ("BUDGET_POOL", "EDIT", ("PATCH",), "pools/<int:pk>/"),
-    ("BUDGET_POOL", "DELETE", ("DELETE",), "pools/<int:pk>/"),
-    # escalate/ is an anonymous webhook authenticated by the view
-    # (X-Internal-Token); the middleware never gates anonymous requests and
-    # never reads that header. The rule applies only to an authenticated caller.
-    ("BUDGET_ESCALATION", "EDIT", ("POST",), "escalate/"),
-)
-
-_CSM_RULE_SPECS: Tuple[_RuleSpec, ...] = (
-    # QUEUE: queue CRUD, queue-scoped ticket listings, project queue list.
-    ("QUEUE", "VIEW", ("GET",), "queues/"),
-    ("QUEUE", "EDIT", ("POST",), "queues/"),
-    ("QUEUE", "VIEW", ("GET",), "queues/<pk>/"),
-    ("QUEUE", "EDIT", ("PUT", "PATCH"), "queues/<pk>/"),
-    ("QUEUE", "DELETE", ("DELETE",), "queues/<pk>/"),
-    ("QUEUE", "VIEW", ("GET",), "queues/<pk>/tickets/"),
-    ("QUEUE", "VIEW", ("GET",), "queues/<pk>/ticket_counts/"),
-    ("QUEUE", "VIEW", ("GET",), "projects/<int:project_id>/queues/"),
-    ("QUEUE", "EDIT", ("POST",), "projects/<int:project_id>/queues/"),
-    # SUPPORT_TEAM: queue team/agent assignment (who staffs a queue).
-    ("SUPPORT_TEAM", "VIEW", ("GET",), "queues/<int:queue_id>/teams/"),
-    ("SUPPORT_TEAM", "EDIT", ("POST",), "queues/<int:queue_id>/teams/"),
-    ("SUPPORT_TEAM", "DELETE", ("DELETE",), "queues/<int:queue_id>/teams/<int:pk>/"),
-    ("SUPPORT_TEAM", "VIEW", ("GET",), "queues/<int:queue_id>/agents/"),
-    ("SUPPORT_TEAM", "EDIT", ("POST",), "queues/<int:queue_id>/agents/"),
-    ("SUPPORT_TEAM", "DELETE", ("DELETE",), "queues/<int:queue_id>/agents/<int:pk>/"),
-    # TICKET: claim and close are workflow steps (EDIT), not approvals.
-    ("TICKET", "VIEW", ("GET",), "tickets/"),
-    ("TICKET", "EDIT", ("POST",), "tickets/"),
-    ("TICKET", "VIEW", ("GET",), "tickets/<pk>/"),
-    ("TICKET", "EDIT", ("PATCH",), "tickets/<pk>/"),
-    ("TICKET", "EDIT", ("POST",), "tickets/<pk>/claim/"),
-    ("TICKET", "EDIT", ("POST",), "tickets/<pk>/close/"),
-    # TICKET: ticket forms, statuses and status machine.
-    ("TICKET", "VIEW", ("GET",), "ticket-forms/"),
-    ("TICKET", "EDIT", ("POST",), "ticket-forms/"),
-    ("TICKET", "VIEW", ("GET",), "ticket-forms/<pk>/"),
-    ("TICKET", "EDIT", ("PUT", "PATCH"), "ticket-forms/<pk>/"),
-    ("TICKET", "DELETE", ("DELETE",), "ticket-forms/<pk>/"),
-    ("TICKET", "EDIT", ("PUT",), "ticket-forms/<pk>/fields/"),
-    ("TICKET", "EDIT", ("POST",), "ticket-forms/<pk>/set-default/"),
-    ("TICKET", "VIEW", ("GET",), "ticket-forms/<pk>/assignments/"),
-    ("TICKET", "EDIT", ("PUT",), "ticket-forms/<pk>/assignments/"),
-    ("TICKET", "VIEW", ("GET",), "ticket-statuses/"),
-    ("TICKET", "EDIT", ("POST",), "ticket-statuses/"),
-    ("TICKET", "VIEW", ("GET",), "ticket-statuses/<pk>/"),
-    ("TICKET", "EDIT", ("PATCH",), "ticket-statuses/<pk>/"),
-    ("TICKET", "DELETE", ("DELETE",), "ticket-statuses/<pk>/"),
-    ("TICKET", "VIEW", ("GET",), "ticket-status-machine/"),
-    ("TICKET", "EDIT", ("PUT",), "ticket-status-machine/"),
-    ("TICKET", "EDIT", ("PATCH",), "ticket-status-machine/auto-resolve/"),
-)
-
-_CORE_RULE_SPECS: Tuple[_RuleSpec, ...] = (
-    # INVITATION: management routes. approve and reject are both APPROVE (the
-    # two outcomes of one decision). Invitee self-service routes are not gated.
-    ("INVITATION", "EDIT", ("POST",), "organizations/<str:org_id>/invitations/"),
-    ("INVITATION", "VIEW", ("GET",), "organizations/<str:org_id>/invitations/list/"),
-    ("INVITATION", "DELETE", ("DELETE",), "organizations/<str:org_id>/invitations/<int:invitation_id>/"),
-    ("INVITATION", "EDIT", ("POST",), "invitations/<int:invitation_id>/resend/"),
-    ("INVITATION", "VIEW", ("GET",), "projects/<str:project_id>/invitations/"),
-    ("INVITATION", "VIEW", ("GET",), "projects/<str:project_id>/invitations/pending-approval/"),
-    ("INVITATION", "APPROVE", ("POST",), "projects/<str:project_id>/invitations/<int:invitation_id>/approve/"),
-    ("INVITATION", "APPROVE", ("DELETE",), "projects/<str:project_id>/invitations/<int:invitation_id>/reject/"),
-)
-
-
-_CAMPAIGN_RULE_SPECS: Tuple[_RuleSpec, ...] = (
-    # CAMPAIGN: templates and link resources (outside the legacy /api/campaigns/).
-    ("CAMPAIGN", "VIEW", ("GET",), "campaign-templates/"),
-    ("CAMPAIGN", "EDIT", ("POST",), "campaign-templates/"),
-    ("CAMPAIGN", "VIEW", ("GET",), "campaign-templates/<id>/"),
-    ("CAMPAIGN", "EDIT", ("PUT", "PATCH"), "campaign-templates/<id>/"),
-    ("CAMPAIGN", "DELETE", ("DELETE",), "campaign-templates/<id>/"),
-    ("CAMPAIGN", "EDIT", ("POST",), "campaign-templates/<id>/create-campaign/"),
-    ("CAMPAIGN", "VIEW", ("GET",), "campaign-task-links/"),
-    ("CAMPAIGN", "EDIT", ("POST",), "campaign-task-links/"),
-    ("CAMPAIGN", "DELETE", ("DELETE",), "campaign-task-links/<id>/"),
-    ("CAMPAIGN", "VIEW", ("GET",), "campaign-decision-links/"),
-    ("CAMPAIGN", "EDIT", ("POST",), "campaign-decision-links/"),
-    ("CAMPAIGN", "VIEW", ("GET",), "campaign-calendar-links/"),
-    ("CAMPAIGN", "EDIT", ("POST",), "campaign-calendar-links/"),
-)
-
-
-def _build_rules() -> Tuple[PolicyRule, ...]:
-    rules: List[PolicyRule] = []
-
-    def add(prefix: str, spec: _RuleSpec) -> None:
-        module, action, methods, tail = spec
-        template = prefix + tail
-        rules.append(
-            PolicyRule(
-                module=module,
-                action=action,
-                methods=frozenset(methods),
-                template=template,
-                pattern=_compile_template(template),
-            )
-        )
-
-    for prefix in BUDGET_PREFIXES:
-        for spec in _BUDGET_RULE_SPECS:
-            add(prefix, spec)
-    for spec in _CSM_RULE_SPECS:
-        add(CSM_PREFIX, spec)
-    for spec in _CORE_RULE_SPECS:
-        add(CORE_PREFIX, spec)
-    for spec in _CAMPAIGN_RULE_SPECS:
-        add(API_PREFIX, spec)
-    return tuple(rules)
-
-
-#: Ordered, explicit rule table for the non-legacy modules. First match wins.
-POLICY_RULES: Tuple[PolicyRule, ...] = _build_rules()
-
-def resolve_policy(path: str, method: str) -> PolicyDecision:
-    """Resolve what a request requires and whether that is enforced yet.
-
-    Legacy resolver first (active), then POLICY_RULES (state from
-    RULE_TABLE_ENFORCEMENT). A path match without a method match returns
-    (module, None); no match returns (None, None). Resolution never depends
-    on the enforcement state. Pure.
-    """
-    module_key, action_key = _legacy_resolve(path, method)
-    if module_key is not None:
-        return PolicyDecision(
-            module_key, action_key, None,
-            LEGACY_ENFORCEMENT.get(module_key, ENFORCEMENT_PLANNED),
-        )
-
-    relative = path.lstrip("/")
-    path_only_module: Optional[str] = None
-    for rule in POLICY_RULES:
-        if rule.pattern.match(relative):
-            if method in rule.methods:
-                return PolicyDecision(
-                    rule.module, rule.action, rule,
-                    RULE_TABLE_ENFORCEMENT.get(rule.module, ENFORCEMENT_PLANNED),
-                )
-            if path_only_module is None:
-                path_only_module = rule.module
-    return PolicyDecision(path_only_module, None, None)
-
-
-def resolve_module_and_action(path: str, method: str) -> Tuple[Optional[str], Optional[str]]:
-    """(module, action) of resolve_policy(); ignores the enforcement state."""
-    decision = resolve_policy(path, method)
-    return decision.module, decision.action
 
 
 def get_user_current_org_id(user):
