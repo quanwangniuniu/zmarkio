@@ -7,9 +7,9 @@ import type { StatusTone } from './statusTypes';
 
 const toneClasses: Record<StatusTone, string> = {
   todo: 'bg-gray-200 text-gray-900',
-  in_progress: 'bg-blue-500 text-white',
-  in_review: 'bg-indigo-500 text-white',
-  done: 'bg-green-600 text-white',
+  in_progress: 'bg-blue-600 text-white',
+  in_review: 'bg-indigo-600 text-white',
+  done: 'bg-green-700 text-white',
   default: 'bg-gray-200 text-gray-900',
 };
 

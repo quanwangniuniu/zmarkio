@@ -26,7 +26,7 @@ export default function ErrorState({
         <span className="text-xl" aria-hidden="true">
           {icon ?? '⚠'}
         </span>
-        <span className="text-sm font-semibold uppercase tracking-wide text-red-500">Error</span>
+        <span className="text-sm font-semibold uppercase tracking-wide text-red-700">Error</span>
       </div>
       <div className="text-lg font-semibold text-red-900">{title}</div>
       {description ? <p className="text-sm text-red-700">{description}</p> : null}
