@@ -1,16 +1,14 @@
-import { AxiosError, type AxiosRequestConfig, type AxiosResponse } from 'axios';
-import type { BaseQueryFn } from '@reduxjs/toolkit/query';
-import api from '@/lib/api';
+import { AxiosError, type AxiosResponse } from 'axios';
+import { fakeBaseQuery } from '@reduxjs/toolkit/query';
 import { getApiErrorDetail } from '@/lib/api/errorMessage';
 
 export type QueryError = { status?: number; data?: unknown };
 
-type QueryArgs = Pick<AxiosRequestConfig, 'url' | 'method' | 'data' | 'params'>;
+export const apiBaseQuery = fakeBaseQuery<QueryError>();
 
-export const axiosBaseQuery = (): BaseQueryFn<QueryArgs, unknown, QueryError> => async (args) => {
+export const fromApi = async <T>(request: () => Promise<T>) => {
   try {
-    const response = await api.request(args);
-    return { data: response.data };
+    return { data: await request() };
   } catch (error) {
     const response = (error as AxiosError).response;
     return { error: { status: response?.status, data: response?.data } };
