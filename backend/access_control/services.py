@@ -1,5 +1,7 @@
 import math
-from typing import Dict, List, Optional, TypedDict
+from typing import Dict, List, Optional, Tuple, TypedDict
+
+from django.db.models import Q
 
 from django.core.cache import cache
 from django.db import connection, transaction
@@ -7,7 +9,7 @@ from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from core.models import Permission, Project, ProjectMember, Role
+from core.models import OrganizationMembership, Permission, Project, ProjectMember, Role
 from access_control.models import RolePermission, UserRole
 
 
@@ -360,3 +362,126 @@ def get_project_permission_matrix(project_id: int) -> ProjectPermissionMatrixRes
         "matrix": matrix,
         "warnings": warnings,
     }
+# ---------------------------------------------------------------------------
+# Authorization policy table
+# ---------------------------------------------------------------------------
+# Path resolution below is pure (no database, no request object): it maps
+# (path, method) to (module, action) for the modules AuthorizationMiddleware
+# enforces: ASSET and /api/campaigns/**.
+
+#: Path segment after "api" -> module.
+MODULE_PATH_MAP: Dict[str, str] = {
+    "assets": "ASSET",
+    "campaigns": "CAMPAIGN",
+}
+
+#: HTTP method -> default action.
+METHOD_ACTION_MAP: Dict[str, str] = {
+    "GET": "VIEW",
+    "POST": "EDIT",
+    "PUT": "EDIT",
+    "PATCH": "APPROVE",
+    "DELETE": "DELETE",
+}
+
+#: A 4th path segment in this map forces the action.
+#: No current ASSET/CAMPAIGN route has that shape; kept for compatibility.
+ACTION_KEYWORD_OVERRIDES: Dict[str, str] = {
+    "approve": "APPROVE",
+    "export": "EXPORT",
+}
+
+#: Role level that grants the org-admin bypass in process_view.
+ORG_ADMIN_ROLE_LEVEL = 2
+
+
+def resolve_module_and_action(path: str, method: str) -> Tuple[Optional[str], Optional[str]]:
+    """The (module, action) a request requires: the logic process_view used
+    inline before, unchanged. Returns (None, None) for an unknown module and
+    (module, None) when the method has no action. Pure.
+    """
+    parts = path.strip("/").split("/")
+    module_key: Optional[str] = None
+    action_key: Optional[str] = None
+
+    if len(parts) >= 2 and parts[0] == "api":
+        module_key = MODULE_PATH_MAP.get(parts[1])
+        if module_key is not None:
+            if len(parts) >= 4 and parts[3] in ACTION_KEYWORD_OVERRIDES:
+                action_key = ACTION_KEYWORD_OVERRIDES[parts[3]]
+            else:
+                action_key = METHOD_ACTION_MAP.get(method)
+
+    return module_key, action_key
+
+
+def get_user_current_org_id(user):
+    """Organization the tenant middleware resolves for `user`
+    (current_organization, falling back to the legacy organization FK)."""
+    return getattr(user, "current_organization_id", None) or getattr(user, "organization_id", None)
+
+
+def user_is_current_org_admin(user) -> bool:
+    """Org-wide Team management. True only for an active member of the
+    user's CURRENT organization who holds a valid, non-deleted level-2 role
+    of that organization that is not scoped to a Team. Runs under the
+    request's tenant schema. A generic OrganizationMembership 'admin' label
+    is deliberately not enough. The Asset/Campaign middleware bypass is
+    unchanged.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    org_id = get_user_current_org_id(user)
+    if not org_id:
+        return False
+    if not OrganizationMembership.objects.filter(
+        user=user, organization_id=org_id, is_active=True
+    ).exists():
+        return False
+    now = timezone.now()
+    return UserRole.objects.filter(
+        user=user,
+        is_deleted=False,
+        team__isnull=True,
+        role__is_deleted=False,
+        role__organization_id=org_id,
+        role__level=ORG_ADMIN_ROLE_LEVEL,
+        valid_from__lte=now,
+    ).filter(Q(valid_to__gte=now) | Q(valid_to__isnull=True)).exists()
+
+
+def user_can_manage_all_teams(user) -> bool:
+    """The single signal exposed to the frontend (`can_manage_all_teams`
+    on /auth/me/). True when the backend will accept the org-wide Team
+    endpoints for this user: a superuser or a strict current-organization
+    Level-2 admin (user_is_current_org_admin), and an organization context
+    exists (the list/create endpoints need one).
+
+    Unlike the request-time decorator this may run outside the tenant schema
+    (login, token refresh), so it selects the organization's schema itself and
+    restores the previous search_path, the same approach as
+    core.admin_utils.is_org_admin.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    org = getattr(user, "current_organization", None) or getattr(user, "organization", None)
+    if org is None:
+        return False
+    if user.is_superuser:
+        return True
+
+    from django.db import connection, transaction
+    from core.services.tenant import slug_to_schema_name
+
+    with connection.cursor() as cursor:
+        cursor.execute("SHOW search_path")
+        original_path = cursor.fetchone()[0]
+        cursor.execute(f"SET search_path TO {slug_to_schema_name(org.slug)}, public")
+    try:
+        with transaction.atomic():
+            return user_is_current_org_admin(user)
+    except Exception:
+        return False
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(f"SET search_path TO {original_path}")

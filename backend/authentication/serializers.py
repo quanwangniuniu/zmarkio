@@ -63,6 +63,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     roles = serializers.SerializerMethodField()
     avatar = serializers.SerializerMethodField()
     is_org_admin = serializers.SerializerMethodField()
+    can_manage_all_teams = serializers.SerializerMethodField()
     is_csm_admin = serializers.SerializerMethodField()
     is_csm_supervisor = serializers.SerializerMethodField()
     password_rotation = serializers.SerializerMethodField()
@@ -73,12 +74,17 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'id', 'email', 'username', 'is_verified', 'is_staff',
             'organization', 'current_organization', 'roles', 'first_name', 'last_name',
             'avatar', 'job', 'department', 'location',
-            'is_org_admin', 'is_csm_admin', 'is_csm_supervisor', 'password_rotation',
+            'is_org_admin', 'can_manage_all_teams', 'is_csm_admin', 'is_csm_supervisor', 'password_rotation',
         ]
 
     def get_is_org_admin(self, obj):
         from core.admin_utils import is_org_admin
         return is_org_admin(obj)
+
+    def get_can_manage_all_teams(self, obj):
+        # Strict org-wide Team management signal (not is_org_admin)
+        from access_control.services import user_can_manage_all_teams
+        return user_can_manage_all_teams(obj)
 
     def get_is_csm_admin(self, obj):
         from core.admin_utils import is_csm_admin
