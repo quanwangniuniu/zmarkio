@@ -31,17 +31,19 @@ from access_control.tests.test_urls import dummy_view
     "path, method, expected",
     [
         # ASSET: plain GET/POST/DELETE map through METHOD_ACTION_MAP.
-        ("/api/assets/list/", "GET", ("ASSET", "VIEW")),
-        ("/api/assets/1/delete/", "DELETE", ("ASSET", "DELETE")),
-        ("/api/assets/1/edit/", "POST", ("ASSET", "EDIT")),
-        ("/api/assets/1/edit/", "PUT", ("ASSET", "EDIT")),
-        # ASSET: 4th path segment "export" forces EXPORT regardless of method.
+        ("/api/assets/", "GET", ("ASSET", "VIEW")),
+        ("/api/assets/1/", "DELETE", ("ASSET", "DELETE")),
+        ("/api/assets/", "POST", ("ASSET", "EDIT")),
+        ("/api/assets/1/", "PUT", ("ASSET", "EDIT")),
+        # ASSET: legacy keyword override (no current route has this shape): a
+        # 4th path segment "export" forces EXPORT regardless of method.
         ("/api/assets/1/export/", "GET", ("ASSET", "EXPORT")),
         ("/api/assets/1/export/", "POST", ("ASSET", "EXPORT")),
         # CAMPAIGN: plain create/edit map through METHOD_ACTION_MAP.
-        ("/api/campaigns/create/", "POST", ("CAMPAIGN", "EDIT")),
-        ("/api/campaigns/1/edit/", "PUT", ("CAMPAIGN", "EDIT")),
-        # CAMPAIGN: 4th path segment "approve" forces APPROVE regardless of method.
+        ("/api/campaigns/", "POST", ("CAMPAIGN", "EDIT")),
+        ("/api/campaigns/1/", "PUT", ("CAMPAIGN", "EDIT")),
+        # CAMPAIGN: legacy keyword override (no current route has this shape): a
+        # 4th path segment "approve" forces APPROVE regardless of method.
         ("/api/campaigns/1/approve/", "PUT", ("CAMPAIGN", "APPROVE")),
         ("/api/campaigns/1/approve/", "GET", ("CAMPAIGN", "APPROVE")),
         # PATCH with no keyword override falls back to METHOD_ACTION_MAP["PATCH"].
@@ -53,10 +55,7 @@ from access_control.tests.test_urls import dummy_view
         ("/", "GET", (None, None)),
         # Module resolves but method has no entry in METHOD_ACTION_MAP ->
         # module_key set, action_key None.
-        ("/api/assets/list/", "OPTIONS", ("ASSET", None)),
-        # Short path (module segment only, no 3rd/4th segment) still resolves
-        # the module and falls back to METHOD_ACTION_MAP.
-        ("/api/assets/", "GET", ("ASSET", "VIEW")),
+        ("/api/assets/", "OPTIONS", ("ASSET", None)),
         # A 4th-segment value that merely contains "approve"/"export" as a
         # substring (not an exact segment match) must NOT trigger the
         # keyword override.

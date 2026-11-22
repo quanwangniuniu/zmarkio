@@ -141,7 +141,7 @@ class TeamMembersView(TeamMemberAPIView):
                 'error': 'User does not belong to this organization',
                 'code': 'USER_NOT_IN_ORGANIZATION'
             }, status=400)
-        
+
         existing_membership = TeamMember.objects.filter(
             user=user,
             team=team

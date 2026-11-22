@@ -3,6 +3,11 @@ Team services using core models through compatibility layer
 This maintains the existing API while using the new core models
 """
 
+from django.db import IntegrityError, transaction
+from django.db.models import Count
+
+from core.models import OrganizationMembership, Team as _Team
+
 from .compatibility import (
     add_member,
     remove_member,
@@ -57,10 +62,6 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Organization-wide Team management (Level-2 org admins)
 # ---------------------------------------------------------------------------
-from django.db import IntegrityError, transaction
-from django.db.models import Count
-
-from core.models import OrganizationMembership, Team as _Team
 
 TEAM_NAME_MAX_LENGTH = _Team._meta.get_field("name").max_length
 
