@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { skipToken } from '@reduxjs/toolkit/query';
 import { CheckSquare, GitBranch, Headset, LayoutList, Megaphone, PanelLeft, type LucideIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
@@ -8,14 +9,14 @@ import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { getApiErrorDetail } from '@/lib/api/errorMessage';
-import { fetchSystemConfig, saveSystemConfig } from '@/lib/api/orgCustomizationApi';
 import { storeCsmConfig } from '@/lib/csm/csmConfig';
 import { storeCampaignConfig } from '@/lib/campaigns/campaignConfig';
 import { storeDecisionConfig } from '@/lib/decisions/decisionConfig';
 import { storeNavigationConfig } from '@/lib/navigation/navigationConfig';
 import { useProjectStore } from '@/lib/projectStore';
 import { storeTaskConfig } from '@/lib/tasks/taskConfig';
+import { getQueryErrorDetail } from '@/store/baseQuery';
+import { useGetSystemConfigQuery, useSaveSystemConfigMutation } from '@/store/orgCustomizationApi';
 import { getTaskTypeDefinition } from '@/lib/tasks/taskTypes';
 import { getDefaultFieldOptions } from '@/lib/tasks/typeFieldSchemas';
 import type { OptionConfig, SystemConfig, TaskConfig, TaskFieldOptionConfig } from '@/types/orgCustomization';
@@ -237,7 +238,6 @@ export default function SystemConfigPage() {
   const [optionRows, setOptionRows] = useState<OptionRow[]>([]);
   const [optionType, setOptionType] = useState('');
   const [moduleOptions, setModuleOptions] = useState<Record<ModuleKey, OptionConfig[]>>({ csm: [], decisions: [], campaigns: [], navigation: [] });
-  const [saving, setSaving] = useState(false);
   const [activePage, setActivePage] = useState<ConfigPage | 'all'>('all');
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState('task-types');
@@ -278,13 +278,17 @@ export default function SystemConfigPage() {
     setModuleOptions({ csm: next.csm.options, decisions: next.decisions.options, campaigns: next.campaigns.options, navigation: next.navigation.options });
   };
 
+  const { currentData, error: loadError } = useGetSystemConfigQuery(projectId ?? skipToken, { refetchOnMountOrArgChange: true });
+  const [saveSystemConfig, { isLoading: saving }] = useSaveSystemConfigMutation();
+
   useEffect(() => {
-    if (!projectId) return;
-    setConfig(null);
-    fetchSystemConfig(projectId)
-      .then(loadConfig)
-      .catch((error) => toast.error(getApiErrorDetail(error, 'Failed to load system configuration')));
-  }, [projectId]);
+    if (currentData) loadConfig(currentData);
+    else setConfig(null);
+  }, [currentData]);
+
+  useEffect(() => {
+    if (loadError) toast.error(getQueryErrorDetail(loadError, 'Failed to load system configuration'));
+  }, [loadError]);
 
   const optionTypes = useMemo(
     () => Array.from(new Set(optionRows.map((row) => row.task_type))),
@@ -321,21 +325,22 @@ export default function SystemConfigPage() {
       toast.error(invalid);
       return;
     }
-    setSaving(true);
     try {
-      const saved = await saveSystemConfig(projectId, {
-        task: {
-          task_types: config.task_types,
-          task_statuses: config.task_statuses,
-          task_priorities: config.task_priorities,
-          task_field_options: optionRowsToSave(optionRows),
+      const saved = await saveSystemConfig({
+        projectId,
+        config: {
+          task: {
+            task_types: config.task_types,
+            task_statuses: config.task_statuses,
+            task_priorities: config.task_priorities,
+            task_field_options: optionRowsToSave(optionRows),
+          },
+          csm: { options: moduleOptions.csm },
+          decisions: { options: moduleOptions.decisions },
+          campaigns: { options: moduleOptions.campaigns },
+          navigation: { options: moduleOptions.navigation },
         },
-        csm: { options: moduleOptions.csm },
-        decisions: { options: moduleOptions.decisions },
-        campaigns: { options: moduleOptions.campaigns },
-        navigation: { options: moduleOptions.navigation },
-      });
-      loadConfig(saved);
+      }).unwrap();
       storeTaskConfig(projectId, { ...saved.task, can_edit: saved.can_edit });
       storeCsmConfig(projectId, { ...saved.csm, can_edit: saved.can_edit });
       storeDecisionConfig(projectId, { ...saved.decisions, can_edit: saved.can_edit });
@@ -343,9 +348,7 @@ export default function SystemConfigPage() {
       storeNavigationConfig(projectId, { ...saved.navigation, can_edit: saved.can_edit });
       toast.success('System configuration saved');
     } catch (error) {
-      toast.error(getApiErrorDetail(error, 'Failed to save system configuration'));
-    } finally {
-      setSaving(false);
+      toast.error(getQueryErrorDetail(error, 'Failed to save system configuration'));
     }
   };
 
