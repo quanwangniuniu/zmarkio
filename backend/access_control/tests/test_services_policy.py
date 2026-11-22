@@ -183,10 +183,6 @@ class AdditionalDecisionBranchCoverageTest(TestCase):
         )
         UserRole.objects.create(user=cls.user_mismatched_role, role=cls.role_no_asset_view, valid_from=now)
 
-        cls.user_plain = User.objects.create_user(
-            username="plainuser2", email="plainuser2@example.com", password="pw"
-        )
-
         cls.factory = RequestFactory()
         cls.middleware = AuthorizationMiddleware()
 
@@ -240,17 +236,19 @@ class AdditionalDecisionBranchCoverageTest(TestCase):
         self.assertIsNone(response)
 
     def test_unmapped_url_allowed_for_authenticated_user(self):
-        # A normal authenticated user hitting a URL that does not resolve to
-        # any module (not under /api/<mapped-segment>/...) must be allowed
-        # through: there is no gate to enforce, regardless of roles.
+        # A URL that does not resolve to any module (not under
+        # /api/<mapped-segment>/...) must be allowed through: there is no gate
+        # to enforce. This user's only role has no ASSET permission, so a
+        # wrongly applied gate would deny (the zero-role grace cannot mask it).
         req = self.factory.get('/health/')
-        req.user = self.user_plain
+        req.user = self.user_mismatched_role
         self.assertIsNone(self.middleware.process_view(req, dummy_view, (), {}))
 
     def test_options_request_on_mapped_module_allowed(self):
         # OPTIONS has no entry in METHOD_ACTION_MAP, so even though the
         # module resolves (ASSET), no action resolves and there is no gate
-        # to enforce -- regardless of the user's roles.
-        req = self.factory.options('/api/assets/list/')
-        req.user = self.user_plain
+        # to enforce. This user's only role has no ASSET permission, so a
+        # wrongly applied gate would deny (the zero-role grace cannot mask it).
+        req = self.factory.options('/api/assets/')
+        req.user = self.user_mismatched_role
         self.assertIsNone(self.middleware.process_view(req, dummy_view, (), {}))
