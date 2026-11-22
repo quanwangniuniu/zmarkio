@@ -1,12 +1,9 @@
-import { createApi } from '@reduxjs/toolkit/query/react';
+import { baseApi } from '@/store/api/baseApi';
 import type { SystemConfig, SystemConfigUpdate } from '@/types/orgCustomization';
-import { axiosBaseQuery } from './baseQuery';
 
 const SYSTEM_CONFIG_URL = '/api/org-customization/system-config/';
 
-export const orgCustomizationApi = createApi({
-  reducerPath: 'orgCustomizationApi',
-  baseQuery: axiosBaseQuery(),
+export const orgCustomizationApi = baseApi.injectEndpoints({
   endpoints: (build) => ({
     getSystemConfig: build.query<SystemConfig, number | string>({
       query: (projectId) => ({ url: SYSTEM_CONFIG_URL, params: { project_id: projectId } }),

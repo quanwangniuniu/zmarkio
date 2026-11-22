@@ -1,7 +1,7 @@
 import api from '@/lib/api';
 import { makeStore } from '@/store';
-import { getQueryErrorDetail } from '@/store/baseQuery';
-import { orgCustomizationApi } from '@/store/orgCustomizationApi';
+import { getQueryErrorDetail } from '@/store/api/baseQuery';
+import { orgCustomizationApi } from '@/store/modules/orgCustomization';
 
 jest.mock('@/lib/api', () => ({ __esModule: true, default: { request: jest.fn() } }));
 
