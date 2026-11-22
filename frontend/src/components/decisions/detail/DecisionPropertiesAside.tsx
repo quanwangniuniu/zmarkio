@@ -6,7 +6,7 @@ import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
 import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionChoices, optionLabel } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionRiskLevel, DecisionStatus } from '@/types/decision';
-import type { ProjectMember } from './hooks/useProjectRole';
+import { resolveUserName, type ProjectMember } from './hooks/useProjectRole';
 
 interface Props {
   status: DecisionStatus | null;
@@ -52,18 +52,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
       <span className={LABEL}>{label}</span>
       <div className={`${VALUE} min-w-0`}>{children}</div>
     </div>
-  );
-}
-
-function resolveUserName(members: ProjectMember[] | undefined, userId: number | null | undefined): string {
-  if (userId == null) return '—';
-  const member = members?.find((m) => (m.user?.id ?? m.user_id) === userId);
-  const user = member?.user;
-  return (
-    user?.name?.trim() ||
-    user?.username?.trim() ||
-    user?.email?.trim() ||
-    `User #${userId}`
   );
 }
 

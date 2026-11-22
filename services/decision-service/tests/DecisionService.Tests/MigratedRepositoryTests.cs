@@ -127,6 +127,36 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     }
 
     [Fact]
+    public async Task Create_never_marks_a_decision_as_agent_created()
+    {
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Human draft"), CancellationToken.None);
+
+        Assert.False(created.CreatedByAgent);
+        Assert.Null(created.AgentSessionId);
+        Assert.Equal(0, await database.Count(
+            $"SELECT count(*) FROM decisions WHERE id = {created.Id} AND (created_by_agent OR agent_session_id IS NOT NULL)"));
+    }
+
+    [Fact]
+    public async Task Agent_provenance_written_outside_the_api_is_still_returned()
+    {
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Agent draft"), CancellationToken.None);
+        var sessionId = Guid.NewGuid();
+        await database.Execute(
+            $"UPDATE decisions SET created_by_agent = true, agent_session_id = '{sessionId}' WHERE id = {created.Id}");
+
+        var detail = await repository.GetAsync(created.Id.ToString(), CancellationToken.None);
+        Assert.True(detail!.CreatedByAgent);
+        Assert.Equal(sessionId, detail.AgentSessionId);
+
+        var summary = Assert.Single(
+            (await repository.ListAsync(ProjectId, null, 100, 0, CancellationToken.None)).Items,
+            item => item.Id == created.Id);
+        Assert.True(summary.CreatedByAgent);
+        Assert.Equal(sessionId, summary.AgentSessionId);
+    }
+
+    [Fact]
     public async Task Get_finds_by_id_and_slug()
     {
         var created = await repository.CreateAsync(ProjectId, UserId, Draft("Lookup"), CancellationToken.None);
@@ -167,8 +197,19 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     {
         var created = await repository.CreateAsync(ProjectId, UserId, Draft("Commit me"), CancellationToken.None);
 
-        Assert.Null(await repository.TransitionAsync(created.Slug, UserId, DecisionStatus.REVIEWED, CancellationToken.None));
-        var committed = await repository.TransitionAsync(created.Slug, UserId, DecisionStatus.COMMITTED, CancellationToken.None);
+        Assert.Null(await repository.TransitionAsync(
+            created.Slug,
+            UserId,
+            DecisionTransitionAction.MarkReviewed,
+            CancellationToken.None
+        ));
+
+        var committed = await repository.TransitionAsync(
+            created.Slug,
+            UserId,
+            DecisionTransitionAction.Commit,
+            CancellationToken.None
+        );
 
         Assert.Equal(DecisionStatus.COMMITTED, committed?.Status);
         Assert.NotNull(committed?.CommittedAt);
@@ -334,9 +375,26 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     {
         var created = await repository.CreateAsync(ProjectId, UserId, Draft("Review me"), CancellationToken.None);
 
-        Assert.Null(await repository.CreateReviewAsync(created.Slug, UserId, Review(), CancellationToken.None));
-        await repository.TransitionAsync(created.Slug, UserId, DecisionStatus.COMMITTED, CancellationToken.None);
-        var reviewed = await repository.CreateReviewAsync(created.Slug, UserId, Review(), CancellationToken.None);
+        Assert.Null(await repository.CreateReviewAsync(
+            created.Slug,
+            UserId,
+            Review(),
+            CancellationToken.None
+        ));
+
+        await repository.TransitionAsync(
+            created.Slug,
+            UserId,
+            DecisionTransitionAction.Commit,
+            CancellationToken.None
+        );
+
+        var reviewed = await repository.CreateReviewAsync(
+            created.Slug,
+            UserId,
+            Review(),
+            CancellationToken.None
+        );
 
         Assert.Equal(DecisionStatus.REVIEWED, reviewed?.Status);
         Assert.Equal("GOOD", Assert.Single((await repository.ListReviewsAsync(created.Slug, CancellationToken.None))!).DecisionQuality);
@@ -363,7 +421,7 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     }
 
     private static CreateDecisionDraftRequest Draft(string title, IReadOnlyList<int>? parents = null, int? meetingId = null) =>
-        new(title, "Context", DecisionRiskLevel.LOW, 70, "Reasoning", "pricing", false, false, null, null,
+        new(title, "Context", DecisionRiskLevel.LOW, 70, "Reasoning", "pricing", false, null,
             [Signal("CTR")], [new DecisionOptionInput("Ship it", true, 0)], parents, meetingId);
 
     private static DecisionSignalInput Signal(string metric) =>
