@@ -6,19 +6,28 @@ import {
   type DraftTaskFixture,
 } from '../tasks/tasks-helpers';
 
-async function holdGet(page: Page, matches: (pathname: string) => boolean): Promise<() => void> {
+type HeldRequest = { requested: Promise<void>; release: () => void };
+
+async function holdGet(page: Page, pathname: string): Promise<HeldRequest> {
   let release: () => void = () => {};
+  let markRequested: () => void = () => {};
   const released = new Promise<void>((resolve) => {
     release = resolve;
   });
-  await page.route('**/api/**', async (route) => {
-    const pathname = new URL(route.request().url()).pathname;
-    if (route.request().method() === 'GET' && matches(pathname)) {
-      await released;
-    }
-    await route.continue();
+  const requested = new Promise<void>((resolve) => {
+    markRequested = resolve;
   });
-  return release;
+  await page.route(
+    (url) => decodeURIComponent(url.pathname) === pathname,
+    async (route) => {
+      if (route.request().method() === 'GET') {
+        markRequested();
+        await released;
+      }
+      await route.continue();
+    },
+  );
+  return { requested, release };
 }
 
 test.describe('Skeleton loaders', () => {
@@ -26,58 +35,71 @@ test.describe('Skeleton loaders', () => {
   let task: DraftTaskFixture | null = null;
 
   test.afterEach(async ({ page }) => {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
     if (task) {
       await deleteTaskById(page, task.id);
       task = null;
     }
   });
 
-  test('overview shows a skeleton until its data loads', async ({ page }) => {
-    const release = await holdGet(page, (pathname) => pathname === '/api/dashboard/summary/');
+  test('overview keeps one skeleton until the page data and the dashboard data load', async ({ page }) => {
+    const summary = await holdGet(page, '/api/dashboard/summary/');
+    const workspace = await holdGet(page, '/api/dashboard/workspace/');
     const skeleton = page.locator('main .skeleton-fade');
     const content = page.locator('#custom-kpis');
+    const dashboard = page.getByText('Project Overview', { exact: true });
 
     await page.goto('/overview', { waitUntil: 'domcontentloaded' });
 
+    await summary.requested;
     await expect(skeleton.first()).toBeVisible({ timeout: 30_000 });
     await expect(content).toHaveCount(0);
 
-    release();
+    summary.release();
 
-    await expect(content).toBeVisible({ timeout: 30_000 });
+    await workspace.requested;
+    await expect(content).toBeAttached({ timeout: 30_000 });
+    await expect(skeleton.first()).toBeVisible();
+    await expect(dashboard).toHaveCount(0);
+
+    workspace.release();
+
+    await expect(dashboard).toBeVisible({ timeout: 30_000 });
+    await expect(skeleton).toHaveCount(0);
   });
 
   test('task list shows skeleton rows until tasks load', async ({ page }) => {
-    const release = await holdGet(page, (pathname) => pathname === '/api/tasks/');
+    const projectId = await getActiveProjectIdFromStore(page);
+    task = await createDraftTaskViaApi(page, projectId, `E2E skeleton list task ${Date.now()}`);
+    const tasks = await holdGet(page, '/api/tasks/');
     const list = page.getByTestId('task-list');
+    const row = list.getByTestId('task-row').filter({ hasText: task.summary });
 
     await page.goto('/tasks?tab=tasks', { waitUntil: 'domcontentloaded' });
 
+    await tasks.requested;
     await expect(list.locator('.skeleton-fade').first()).toBeVisible({ timeout: 30_000 });
+    await expect(row).toHaveCount(0);
 
-    release();
+    tasks.release();
 
-    await expect(list.locator('.skeleton-fade')).toHaveCount(0, { timeout: 30_000 });
+    await expect(row).toBeVisible({ timeout: 30_000 });
+    await expect(list.locator('.skeleton-fade')).toHaveCount(0);
   });
 
   test('task detail shows a skeleton header until the task loads', async ({ page }) => {
-    await page.goto('/tasks', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByTestId('tab-tasks')).toBeVisible({ timeout: 30_000 });
     const projectId = await getActiveProjectIdFromStore(page);
-    task = await createDraftTaskViaApi(page, projectId, 'E2E skeleton loader task');
-    const slug = task.slug;
-    const release = await holdGet(
-      page,
-      (pathname) => decodeURIComponent(pathname) === `/api/tasks/${slug}/`,
-    );
+    task = await createDraftTaskViaApi(page, projectId, `E2E skeleton detail task ${Date.now()}`);
+    const detail = await holdGet(page, `/api/tasks/${task.slug}/`);
     const priority = page.getByTestId('header-priority-trigger');
 
-    await page.goto(`/tasks/${encodeURIComponent(slug)}`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`/tasks/${encodeURIComponent(task.slug)}`, { waitUntil: 'domcontentloaded' });
 
+    await detail.requested;
     await expect(page.locator('main .skeleton-fade').first()).toBeVisible({ timeout: 30_000 });
     await expect(priority).toHaveCount(0);
 
-    release();
+    detail.release();
 
     await expect(priority).toBeVisible({ timeout: 30_000 });
   });
