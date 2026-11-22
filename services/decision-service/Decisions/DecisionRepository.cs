@@ -45,6 +45,14 @@ public sealed class DecisionValidationException(string field, string message) : 
     public string Field { get; } = field;
 }
 
+public sealed class DecisionTransitionConflictException(string message) : Exception(message)
+{
+}
+public sealed class DecisionSelfApprovalException()
+    : Exception("You cannot approve a decision you submitted.")
+{
+}
+
 public sealed class InMemoryDecisionRepository : IDecisionRepository
 {
     private readonly ConcurrentDictionary<int, DecisionRecord> _decisions = new();
@@ -74,7 +82,7 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
     {
         return Task.FromResult<DecisionDetailDto?>(Find(lookup) is { } decision ? ToDetail(decision) : null);
     }
-    internal DecisionAuditSnapshot? GetAudit(string lookup)
+    public DecisionAuditSnapshot? GetAudit(string lookup)
     {
         var decision = Find(lookup);
         if (decision is null)
@@ -201,6 +209,12 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
         {
             return Task.FromResult<DecisionDetailDto?>(null);
         }
+        if (action == DecisionTransitionAction.Approve &&
+            actorId is int approverId &&
+            existing.CommittedBy == approverId)
+        {
+            throw new DecisionSelfApprovalException();
+        }
         DecisionStatus targetStatus;
         switch (action)
         {
@@ -297,6 +311,12 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
 
         if (!_decisions.TryUpdate(existing.Id, updated, existing))
         {
+            if (action is DecisionTransitionAction.Commit or DecisionTransitionAction.Approve)
+            {
+                throw new DecisionTransitionConflictException(
+                    "The decision changed. Refresh and try again."
+                );
+            }
             return Task.FromResult<DecisionDetailDto?>(null);
         }
 
@@ -638,20 +658,20 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
             decision.OriginMeeting
         );
     }
-    internal sealed record DecisionCommitRecord(
+    public sealed record DecisionCommitRecord(
     int DecisionId,
     int? CommittedBy,
     DateTimeOffset CommittedAt,
     object ValidationSnapshot
     );
-    internal sealed record DecisionStateTransitionRecord(
+    public sealed record DecisionStateTransitionRecord(
     int DecisionId,
     DecisionStatus FromStatus,
     DecisionStatus ToStatus,
     int? TriggeredBy,
     DateTimeOffset Timestamp
     );
-    internal sealed record DecisionAuditSnapshot(
+    public sealed record DecisionAuditSnapshot(
     int DecisionId,
     DecisionStatus Status,
     DateTimeOffset? CommittedAt,

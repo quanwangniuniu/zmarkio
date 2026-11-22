@@ -388,6 +388,14 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
                 })
                 : Ok(ActionResponse(detail, decision));
         }
+        catch (DecisionSelfApprovalException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { detail = ex.Message });
+        }
+        catch (DecisionTransitionConflictException ex)
+        {
+            return Conflict(new { detail = ex.Message });
+        }
         catch (DecisionValidationException ex)
         {
             return BadRequest(

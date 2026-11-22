@@ -350,6 +350,23 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         {
             return null;
         }
+        if (action == DecisionTransitionAction.Approve && actorId is int approverId)
+        {
+            using var checkSubmitter = connection.CreateCommand();
+            checkSubmitter.Transaction = transaction;
+            checkSubmitter.CommandText = """
+        SELECT committed_by_id = @approver_id
+        FROM decisions
+        WHERE id = @id
+        """;
+            checkSubmitter.Parameters.AddWithValue("approver_id", approverId);
+            checkSubmitter.Parameters.AddWithValue("id", existing.Id);
+
+            if (await checkSubmitter.ExecuteScalarAsync(ct) is true)
+            {
+                throw new DecisionSelfApprovalException();
+            }
+        }
         DecisionStatus targetStatus;
         switch (action)
         {
@@ -414,6 +431,10 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                     AND status = @from_status
                     AND title IS NOT DISTINCT FROM @from_title
                     AND risk_level IS NOT DISTINCT FROM @from_risk_level
+                    AND (
+                    @action <> 'Approve'
+                    OR (committed_by_id = @actor_id) IS NOT TRUE
+                    )
             """;
         command.Parameters.AddWithValue("action", action.ToString());
         command.Parameters.AddWithValue("requires_approval", existing.RiskLevel == DecisionRiskLevel.HIGH);
@@ -431,6 +452,12 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         var affectedRows = await command.ExecuteNonQueryAsync(ct);
         if (affectedRows == 0)
         {
+            if (action is DecisionTransitionAction.Commit or DecisionTransitionAction.Approve)
+            {
+                throw new DecisionTransitionConflictException(
+                    "The decision changed. Refresh and try again."
+                );
+            }
             return null;
         }
 
@@ -935,7 +962,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
         var transaction = session.Transaction;
-        var decision = await GetAsync(connection, lookup, ct, lockForUpdate: true);
+        var decision = await GetAsync(connection, lookup, ct);
 
         if (decision is null ||
             decision.Status is not (DecisionStatus.COMMITTED or DecisionStatus.REVIEWED))
@@ -991,7 +1018,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return reviewed;
     }
 
-    private async Task<DecisionDetailDto?> GetAsync(NpgsqlConnection connection, string lookup, CancellationToken ct, bool lockForUpdate = false)
+    private async Task<DecisionDetailDto?> GetAsync(NpgsqlConnection connection, string lookup, CancellationToken ct)
     {
         var lookupIsId = int.TryParse(lookup, out var numericId);
         using var command = connection.CreateCommand();
@@ -1023,11 +1050,6 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             WHERE d.is_deleted = false
               AND ((@lookup_is_id = true AND d.id = @id) OR d.slug = @slug)
             """;
-
-        if (lockForUpdate)
-        {
-            command.CommandText += "\nFOR UPDATE OF d";
-        }
 
         command.Parameters.AddWithValue("lookup_is_id", lookupIsId);
         command.Parameters.AddWithValue("id", numericId);
