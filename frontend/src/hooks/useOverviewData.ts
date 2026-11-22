@@ -127,7 +127,7 @@ export interface UseOverviewDataReturn {
 export function useOverviewData(projectId: number | string | null | undefined): UseOverviewDataReturn {
   const [data, setData] = useState<OverviewMock>(EMPTY_DATA);
   const [alerts, setAlerts] = useState<AlertData[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loadedProjectId, setLoadedProjectId] = useState<number | string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -135,12 +135,11 @@ export function useOverviewData(projectId: number | string | null | undefined): 
       setData(EMPTY_DATA);
       setAlerts([]);
       setErrors({});
-      setLoading(false);
+      setLoadedProjectId(null);
       return;
     }
 
     let cancelled = false;
-    setLoading(true);
     const pid = projectId;
     const pidStr = String(pid);
 
@@ -325,19 +324,21 @@ export function useOverviewData(projectId: number | string | null | undefined): 
       });
       setAlerts(alertsOut);
       setErrors(nextErrors);
-      setLoading(false);
+      setLoadedProjectId(pid);
     };
 
     run().catch((e) => {
       if (cancelled) return;
       setErrors({ fatal: errMessage(e) });
-      setLoading(false);
+      setLoadedProjectId(pid);
     });
 
     return () => {
       cancelled = true;
     };
   }, [projectId]);
+
+  const loading = projectId != null && loadedProjectId !== projectId;
 
   return { data, alerts, loading, errors };
 }

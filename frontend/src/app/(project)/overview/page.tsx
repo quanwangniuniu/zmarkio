@@ -20,8 +20,10 @@ function ErrorBanner({ errors }: { errors: Record<string, string> }) {
 
 export default function OverviewPage() {
   const activeProject = useProjectStore((s) => s.activeProject);
+  const hasProjectStoreHydrated = useProjectStore((s) => s.hasHydrated);
   const projectId = activeProject?.id ?? null;
-  const { data, alerts, loading, errors } = useOverviewData(projectId);
+  const { data, alerts, loading: dataLoading, errors } = useOverviewData(projectId);
+  const loading = !hasProjectStoreHydrated || dataLoading;
   useOverviewSectionHashScroll(!loading && projectId != null);
 
   return (
