@@ -8,16 +8,13 @@ import OnboardingGate from '@/components/onboarding/OnboardingGate';
 import { TrackingProvider } from '@/lib/tracking/TrackingProvider';
 import UpgradeModal from '@/components/plans/UpgradeModal';
 import ToastDedupeCleaner from './ToastDedupeCleaner';
-import { StoreProvider } from '@/store/StoreProvider';
 
 export function AppProviders({ children }: { children: ReactNode }) {
   return (
     <AuthProvider>
       <TrackingProvider>
         <OnboardingProvider>
-          <OnboardingGate>
-            <StoreProvider>{children}</StoreProvider>
-          </OnboardingGate>
+          <OnboardingGate>{children}</OnboardingGate>
         </OnboardingProvider>
       </TrackingProvider>
       <UpgradeModal />

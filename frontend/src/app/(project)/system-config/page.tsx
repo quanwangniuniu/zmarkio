@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { skipToken } from '@reduxjs/toolkit/query';
 import { CheckSquare, GitBranch, Headset, LayoutList, Megaphone, PanelLeft, type LucideIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useDispatch, useSelector } from 'react-redux';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { Button } from '@/components/ui/button';
@@ -15,8 +15,8 @@ import { storeDecisionConfig } from '@/lib/decisions/decisionConfig';
 import { storeNavigationConfig } from '@/lib/navigation/navigationConfig';
 import { useProjectStore } from '@/lib/projectStore';
 import { storeTaskConfig } from '@/lib/tasks/taskConfig';
-import { getQueryErrorDetail } from '@/store/api/baseQuery';
-import { useGetSystemConfigQuery, useSaveSystemConfigMutation } from '@/store/modules/orgCustomization';
+import type { AppDispatch, RootState } from '@/store';
+import { loadSystemConfig, saveSystemConfig, selectSystemConfig, selectSystemConfigSaving } from '@/store/modules/orgCustomization';
 import { getTaskTypeDefinition } from '@/lib/tasks/taskTypes';
 import { getDefaultFieldOptions } from '@/lib/tasks/typeFieldSchemas';
 import type { OptionConfig, SystemConfig, TaskConfig, TaskFieldOptionConfig } from '@/types/orgCustomization';
@@ -278,17 +278,21 @@ export default function SystemConfigPage() {
     setModuleOptions({ csm: next.csm.options, decisions: next.decisions.options, campaigns: next.campaigns.options, navigation: next.navigation.options });
   };
 
-  const { currentData, error: loadError } = useGetSystemConfigQuery(projectId ?? skipToken, { refetchOnMountOrArgChange: true });
-  const [saveSystemConfig, { isLoading: saving }] = useSaveSystemConfigMutation();
+  const dispatch = useDispatch<AppDispatch>();
+  const systemConfig = useSelector((state: RootState) => selectSystemConfig(state, projectId));
+  const saving = useSelector(selectSystemConfigSaving);
 
   useEffect(() => {
-    if (currentData) loadConfig(currentData);
+    if (!projectId) return;
+    dispatch(loadSystemConfig(projectId))
+      .unwrap()
+      .catch((message) => toast.error(typeof message === 'string' ? message : 'Failed to load system configuration'));
+  }, [dispatch, projectId]);
+
+  useEffect(() => {
+    if (systemConfig) loadConfig(systemConfig);
     else setConfig(null);
-  }, [currentData]);
-
-  useEffect(() => {
-    if (loadError) toast.error(getQueryErrorDetail(loadError, 'Failed to load system configuration'));
-  }, [loadError]);
+  }, [systemConfig]);
 
   const optionTypes = useMemo(
     () => Array.from(new Set(optionRows.map((row) => row.task_type))),
@@ -326,7 +330,7 @@ export default function SystemConfigPage() {
       return;
     }
     try {
-      const saved = await saveSystemConfig({
+      const saved = await dispatch(saveSystemConfig({
         projectId,
         config: {
           task: {
@@ -340,15 +344,15 @@ export default function SystemConfigPage() {
           campaigns: { options: moduleOptions.campaigns },
           navigation: { options: moduleOptions.navigation },
         },
-      }).unwrap();
+      })).unwrap();
       storeTaskConfig(projectId, { ...saved.task, can_edit: saved.can_edit });
       storeCsmConfig(projectId, { ...saved.csm, can_edit: saved.can_edit });
       storeDecisionConfig(projectId, { ...saved.decisions, can_edit: saved.can_edit });
       storeCampaignConfig(projectId, { ...saved.campaigns, can_edit: saved.can_edit });
       storeNavigationConfig(projectId, { ...saved.navigation, can_edit: saved.can_edit });
       toast.success('System configuration saved');
-    } catch (error) {
-      toast.error(getQueryErrorDetail(error, 'Failed to save system configuration'));
+    } catch (message) {
+      toast.error(typeof message === 'string' ? message : 'Failed to save system configuration');
     }
   };
 

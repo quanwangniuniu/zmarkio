@@ -1,14 +1,13 @@
-import { combineSlices, configureStore } from '@reduxjs/toolkit';
-import { baseApi } from './api/baseApi';
-
-export const rootReducer = combineSlices(baseApi);
+import { configureStore } from '@reduxjs/toolkit';
+import orgCustomizationReducer from './modules/orgCustomization/slice';
 
 export const makeStore = () =>
   configureStore({
-    reducer: rootReducer,
-    middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(baseApi.middleware),
+    reducer: {
+      orgCustomization: orgCustomizationReducer,
+    },
   });
 
 export type AppStore = ReturnType<typeof makeStore>;
-export type RootState = ReturnType<typeof rootReducer>;
+export type RootState = ReturnType<AppStore['getState']>;
 export type AppDispatch = AppStore['dispatch'];
