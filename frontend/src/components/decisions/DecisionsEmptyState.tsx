@@ -1,6 +1,8 @@
 'use client';
 
-import { Plus } from 'lucide-react';
+import { GitBranch ,Plus} from 'lucide-react';
+import EmptyState from '@/components/state-feedback/EmptyState';
+
 
 interface Props {
   onCreate: () => void;
@@ -9,21 +11,14 @@ interface Props {
 
 export default function DecisionsEmptyState({ onCreate, canCreate }: Props) {
   return (
-    <div className="flex flex-col items-center justify-center px-4 py-12 text-center sm:px-6 sm:py-16">
-      <h3 className="text-base font-semibold text-gray-900">No decisions yet</h3>
-      <p className="mt-1 max-w-md text-sm text-gray-500">
-        Create your first decision to map context, options, signals, and outcomes into a traceable tree.
-      </p>
-      {canCreate && (
-        <button
-          type="button"
-          onClick={onCreate}
-          className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#3CCED7] to-[#A6E661] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 sm:w-auto"
-        >
-          <Plus className="h-4 w-4" />
-          Create your first decision
-        </button>
-      )}
-    </div>
+    <EmptyState
+      icon={<GitBranch className="h-5 w-5" />}
+      title='No decisions yet'
+      description="Create your first decision to map context, options, signals, and outcomes into a traceable tree."
+      actionLabel={canCreate ? 'Create your first decision' : undefined}
+      onAction={canCreate ? onCreate : undefined}
+      actionIcon={canCreate ? <Plus className="h-3.5 w-3.5" /> : undefined}
+    />
+
   );
 }

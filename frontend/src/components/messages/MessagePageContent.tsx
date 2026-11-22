@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Bookmark, Hash, MessageSquare, PanelLeftOpen, Search } from 'lucide-react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import EmptyState from '@/components/state-feedback/EmptyState';
 import { useAuthStore } from '@/lib/authStore';
 import { useChatStore } from '@/lib/chatStore';
 import { useChatData } from '@/hooks/useChatData';
@@ -621,24 +622,16 @@ export default function MessagePageContent() {
               </div>
             </div>
           ) : !currentChat ? (
-            <div className="flex-1 flex items-center justify-center p-6 text-center">
-              <div>
-                <MessageSquare className="w-16 h-16 text-gray-200 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-700 mb-2">
-                  Select a conversation
-                </h3>
-                <p className="text-gray-500 text-sm max-w-sm">
-                  Choose a chat from the list or start a new conversation with your team members.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setIsConversationDrawerOpen(true)}
-                  className="mt-4 inline-flex items-center gap-2 rounded-md bg-[#3CCED7] px-3 py-2 text-sm font-medium text-white transition hover:bg-[#2AB5BD] md:hidden"
-                >
-                  <PanelLeftOpen className="h-4 w-4" />
-                  Browse conversations
-                </button>
-              </div>
+            <div className="flex-1 flex flex-col items-center justify-center p-6">
+              <EmptyState
+                icon={<MessageSquare className="h-5 w-5" />}
+                title="Select a conversation"
+                description="Choose a chat from the list or start a new conversation with your team members."
+                actionLabel="Browse conversations"
+                actionIcon={<PanelLeftOpen className="h-4 w-4" />}
+                onAction={() => setIsConversationDrawerOpen(true)}
+                actionClassName="md:hidden"
+              />
             </div>
           ) : (
             <div className="h-full" data-testid="messages-chat-window">
