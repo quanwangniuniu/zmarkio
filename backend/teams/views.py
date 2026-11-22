@@ -15,7 +15,9 @@ from access_control.models import UserRole
 from access_control.middleware.authorization import AuthorizationMiddleware
 from access_control.services import get_user_current_org_id
 from teams.permissions import IsCurrentOrgAdmin, org_admin_required
+from teams.serializers import TeamCreateSerializer
 from teams.services import (
+    TEAM_NAME_MAX_LENGTH,
     TeamServiceError,
     create_org_team,
     list_org_teams,
@@ -279,6 +281,17 @@ class TeamMemberDetailView(TeamMemberAPIView):
             'message': 'User removed from team successfully'
         }, status=200)
 
+def _input_error(errors):
+    """This endpoint's {error, code} body for the first serializer error."""
+    field, details = next(iter(errors.items()))
+    if field == 'desc':
+        return {'error': 'desc must be a string', 'code': 'INVALID_DESC'}
+    if field == 'name' and details[0].code == 'max_length':
+        return {'error': f'name must be at most {TEAM_NAME_MAX_LENGTH} characters',
+                'code': 'NAME_TOO_LONG'}
+    return {'error': 'name is required', 'code': 'MISSING_NAME'}
+
+
 class TeamListCreateView(APIView):
     """Organization-wide Team management (org admins / superusers only)"""
     permission_classes = [IsAuthenticated, IsCurrentOrgAdmin]
@@ -299,9 +312,11 @@ class TeamListCreateView(APIView):
         if not org_id:
             return Response({'error': 'Organization context required',
                              'code': 'NO_ORGANIZATION'}, status=400)
-        data = request.data if isinstance(request.data, dict) else {}
+        serializer = TeamCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(_input_error(serializer.errors), status=400)
         try:
-            team = create_org_team(org_id, data.get('name'), data.get('desc'))
+            team = create_org_team(org_id, **serializer.validated_data)
         except TeamServiceError as exc:
             return Response({'error': exc.message, 'code': exc.code}, status=exc.status)
         return Response({'message': 'Team created successfully',

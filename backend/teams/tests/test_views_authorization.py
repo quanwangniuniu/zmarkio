@@ -404,17 +404,26 @@ class OrgAdminTeamsPolicyTest(TeamsAuthorizationBase):
     # -- create ----------------------------------------------------------
     def test_org_admin_creates_team_in_own_organization(self):
         resp = self._call('post', '/api/teams/', user=self.org_admin,
-                          body={'name': '  Gamma  ', 'desc': 'd', 'organization_id': self.other_org.id})
+                          body={'name': '  Gamma  ', 'desc': ' d ', 'organization_id': self.other_org.id})
         self.assertEqual(resp.status_code, 201)
         self._db()
         team = Team.objects.get(id=resp.json()['team']['id'])
-        self.assertEqual((team.name, team.desc, team.organization_id), ('Gamma', 'd', self.org.id))
+        self.assertEqual((team.name, team.desc, team.organization_id), ('Gamma', ' d ', self.org.id))
 
     def test_create_validation(self):
-        for body in ({}, {'name': '   '}, {'name': 5}, {'name': 'x' * 201}, {'name': 'ok', 'desc': 3}):
+        cases = (
+            ({}, 'MISSING_NAME'),
+            ({'name': '   '}, 'MISSING_NAME'),
+            ({'name': 5}, 'MISSING_NAME'),
+            ([], 'MISSING_NAME'),
+            ({'name': 'x' * 201}, 'NAME_TOO_LONG'),
+            ({'name': 'ok', 'desc': 3}, 'INVALID_DESC'),
+        )
+        for body, code in cases:
             with self.subTest(body=body):
                 resp = self._call('post', '/api/teams/', user=self.org_admin, body=body)
                 self.assertEqual(resp.status_code, 400)
+                self.assertEqual(resp.json()['code'], code)
 
     def test_duplicate_name_returns_409_including_soft_deleted_teams(self):
         resp = self._call('post', '/api/teams/', user=self.org_admin, body={'name': 'Alpha'})

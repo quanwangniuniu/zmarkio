@@ -93,17 +93,9 @@ def list_org_teams(organization_id, search=""):
 
 
 def create_org_team(organization_id, name, desc=None):
-    """Create a Team in `organization_id`. Soft-deleted Teams keep their name,
-    so a duplicate (deleted or not) is a 409."""
-    name = (name or "").strip() if isinstance(name, str) else ""
-    if not name:
-        raise TeamServiceError("name is required", "MISSING_NAME", 400)
-    if len(name) > TEAM_NAME_MAX_LENGTH:
-        raise TeamServiceError(
-            f"name must be at most {TEAM_NAME_MAX_LENGTH} characters", "NAME_TOO_LONG", 400
-        )
-    if desc is not None and not isinstance(desc, str):
-        raise TeamServiceError("desc must be a string", "INVALID_DESC", 400)
+    """Create a Team in `organization_id`; `name` and `desc` are validated by
+    TeamCreateSerializer. Soft-deleted Teams keep their name, so a duplicate
+    (deleted or not) is a 409."""
     if _Team.objects.filter(organization_id=organization_id, name=name).exists():
         raise TeamServiceError("A team with this name already exists", "TEAM_NAME_TAKEN", 409)
     try:
