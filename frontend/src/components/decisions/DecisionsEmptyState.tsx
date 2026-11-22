@@ -12,7 +12,7 @@ interface Props {
 export default function DecisionsEmptyState({ onCreate, canCreate }: Props) {
   return (
     <EmptyState
-      icon={<GitBranch className="h-6 w-6" />}
+      icon={<GitBranch className="h-5 w-5" />}
       title='No decisions yet'
       description="Create your first decision to map context, options, signals, and outcomes into a traceable tree."
       actionLabel={canCreate ? 'Create your first decision' : undefined}

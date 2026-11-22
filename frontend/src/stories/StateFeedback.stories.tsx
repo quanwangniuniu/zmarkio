@@ -101,7 +101,7 @@ export const EmptyStateExample: Story = {
   name: 'Empty State',
   render: () => (
     <EmptyState
-      icon={<ListTodo />}
+      icon={<ListTodo className="h-5 w-5" />}
       title="No tasks yet"
       description="Create your first task to start tracking work."
       actionLabel="Add the first task"
@@ -115,7 +115,7 @@ export const EmptyStateWithoutAction: Story = {
   name: 'Empty State (no action)',
   render: () => (
     <EmptyState
-      icon={<ListTodo />}
+      icon={<ListTodo className="h-5 w-5" />}
       title="No tasks yet"
       description="Ask a project admin to create the first task."
     />

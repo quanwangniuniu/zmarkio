@@ -1,5 +1,4 @@
-import type { ReactNode } from "react";
-
+import type { ReactNode } from 'react';
 
 type EmptyStateProps = {
   icon: ReactNode;
@@ -13,7 +12,6 @@ type EmptyStateProps = {
   actionClassName?: string;
 };
 
-
 export default function EmptyState({
   icon,
   title,
@@ -22,7 +20,8 @@ export default function EmptyState({
   onAction,
   actionIcon,
   actionClassName = '',
-  className = '', }: EmptyStateProps) {
+  className = '', 
+}: EmptyStateProps) {
   return (
     <div className={`flex flex-col items-center justify-center px-4 py-12 text-center ${className}`} data-testid="empty-state">
       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-500">{icon}</div>
@@ -39,6 +38,6 @@ export default function EmptyState({
         </button>
       ) : null}
     </div>
-  )
-};
+  );
+}
 

@@ -1,5 +1,5 @@
 /**
- * MED-309: Playwright snapshot coverage for the shared EmptyState component.
+ * Playwright snapshot coverage for the shared EmptyState component.
  *
  * List APIs are mocked to return empty results, so the specs don't depend on
  * the signed-in E2E user's real data. Each EmptyState card is checked with a

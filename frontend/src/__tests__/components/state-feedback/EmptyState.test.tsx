@@ -24,7 +24,7 @@ describe('EmptyState', () => {
             icon={<span>icon</span>}
             title="No tasks yet"
             actionLabel="Add the first task"
-            onAction={()=>{}}
+            onAction={() => {}}
           />)
           
     expect(screen.getByRole('button', { name: 'Add the first task' })).toBeInTheDocument();
@@ -41,6 +41,7 @@ describe('EmptyState', () => {
           
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
+
 
   it('applies actionClassName to the CTA button', () => {
     render(<EmptyState
