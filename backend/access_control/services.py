@@ -515,8 +515,8 @@ API_PREFIX = "api/"
 _RuleSpec = Tuple[str, str, Tuple[str, ...], str]
 
 _BUDGET_RULE_SPECS: Tuple[_RuleSpec, ...] = (
-    # start-review is a workflow step (EDIT), not an approval. Deleting also
-    # needs EDIT in the view's own permission class.
+    # start-review is a workflow step (EDIT), not an approval. The view's own
+    # permission class additionally restricts deleting a request.
     ("BUDGET_REQUEST", "VIEW", ("GET",), "requests/"),
     ("BUDGET_REQUEST", "EDIT", ("POST",), "requests/"),
     ("BUDGET_REQUEST", "VIEW", ("GET",), "requests/<int:pk>/"),
