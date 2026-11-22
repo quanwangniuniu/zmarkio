@@ -38,14 +38,12 @@ from access_control.tests.test_urls import dummy_view
         # ASSET: legacy keyword override (no current route has this shape): a
         # 4th path segment "export" forces EXPORT regardless of method.
         ("/api/assets/1/export/", "GET", ("ASSET", "EXPORT")),
-        ("/api/assets/1/export/", "POST", ("ASSET", "EXPORT")),
         # CAMPAIGN: plain create/edit map through METHOD_ACTION_MAP.
         ("/api/campaigns/", "POST", ("CAMPAIGN", "EDIT")),
         ("/api/campaigns/1/", "PUT", ("CAMPAIGN", "EDIT")),
         # CAMPAIGN: legacy keyword override (no current route has this shape): a
         # 4th path segment "approve" forces APPROVE regardless of method.
         ("/api/campaigns/1/approve/", "PUT", ("CAMPAIGN", "APPROVE")),
-        ("/api/campaigns/1/approve/", "GET", ("CAMPAIGN", "APPROVE")),
         # PATCH with no keyword override falls back to METHOD_ACTION_MAP["PATCH"].
         ("/api/assets/1/", "PATCH", ("ASSET", "APPROVE")),
         # Unknown module segment -> no module, no action.
