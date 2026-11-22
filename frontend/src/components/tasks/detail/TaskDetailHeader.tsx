@@ -228,7 +228,7 @@ export default function TaskDetailHeader({
         )}
         {loading ? (
           <div className="space-y-4">
-            <Skeleton className="h-8 w-72" />
+            <Skeleton className="h-10 w-72" />
             <div className="flex flex-wrap items-center gap-2">
               <Skeleton className="h-6 w-20 rounded-full" />
               <Skeleton className="h-6 w-20 rounded-full" />
@@ -414,9 +414,9 @@ export default function TaskDetailHeader({
       <div className="overflow-hidden rounded-b-xl border-t border-gray-100 bg-gray-50/40 px-4 py-3 sm:px-6">
         {loading ? (
           <div className="flex flex-wrap items-center gap-2">
-            <Skeleton className="h-8 w-28 rounded-md" />
-            <Skeleton className="h-8 w-24 rounded-md" />
-            <Skeleton className="h-8 w-20 rounded-md" />
+            <Skeleton className="h-9 w-28 rounded-md" />
+            <Skeleton className="h-9 w-24 rounded-md" />
+            <Skeleton className="h-9 w-20 rounded-md" />
           </div>
         ) : (
           <FSMActionBar task={task} members={members} onMutated={onMutated} />
