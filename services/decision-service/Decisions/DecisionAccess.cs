@@ -178,4 +178,21 @@ public static class DecisionAccessResponses
             StatusCode = StatusCodes.Status403Forbidden,
         };
     }
+
+    public static ObjectResult? DraftOwnerRequired(
+        DecisionDetailDto decision,
+        UpdateDecisionDraftRequest request,
+        DecisionAccessContext access
+    )
+    {
+        var field = DecisionPermissionPolicy.DraftOwnerOnlyField(decision, request);
+        if (field is null || DecisionPermissionPolicy.IsDraftOwnerOrApprover(decision, access))
+        {
+            return null;
+        }
+        return new ObjectResult(new { detail = $"{field} can only be changed by the draft owner." })
+        {
+            StatusCode = StatusCodes.Status403Forbidden,
+        };
+    }
 }

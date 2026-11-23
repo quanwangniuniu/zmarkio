@@ -15,7 +15,7 @@ export const existingMode: SourceModeHandler = {
       ctx.projectId
     );
     return {
-      userPrompt: buildUserPrompt(creativeToTemplate(loaded), ctx.instruction),
+      userPrompt: buildUserPrompt(creativeToTemplate(loaded), ctx.instruction, ctx.spec),
       creativeId: loaded.id,
       sourceRef: '',
     };

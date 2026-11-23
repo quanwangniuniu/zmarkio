@@ -15,7 +15,7 @@ export const externalUrlMode: SourceModeHandler = {
     try {
       const pageText = await fetchUrlText(sourceRef);
       return {
-        userPrompt: buildExternalUrlPrompt(pageText, ctx.instruction),
+        userPrompt: buildExternalUrlPrompt(pageText, ctx.instruction, ctx.spec),
         creativeId: null,
         sourceRef,
       };

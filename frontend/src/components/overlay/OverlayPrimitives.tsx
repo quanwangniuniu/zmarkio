@@ -65,6 +65,7 @@ type PopoverProps = {
 export function Popover({ trigger, title, children, className = '' }: PopoverProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -92,8 +93,9 @@ export function Popover({ trigger, title, children, className = '' }: PopoverPro
           className={`absolute left-1/2 top-full z-50 mt-3 w-64 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-4 shadow-lg ${className}`}
           role="dialog"
           aria-modal="false"
+          aria-labelledby={title ? titleId : undefined}
         >
-          {title ? <div className="mb-2 text-sm font-semibold text-slate-900">{title}</div> : null}
+          {title ? <div id={titleId} className="mb-2 text-sm font-semibold text-slate-900">{title}</div> : null}
           <div className="text-sm text-slate-600">{children}</div>
         </div>
       ) : null}

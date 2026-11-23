@@ -1,0 +1,50 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`platform-aware prompts assembles the free-text platform system prompt 1`] = `
+"You write product copy for a test platform.
+
+OUTPUT JSON SHAPE
+Return strict JSON with exactly these three keys: title, body, action. No prose, no explanation, no fences.
+
+Use a concise, conversational tone.
+
+OUTPUT LANGUAGE
+Detect the language of the source ad copy. Output every text field in THAT SAME LANGUAGE. If the source is English, output English. If the source is Chinese, output Chinese. If the source is Portuguese, output Portuguese. NEVER translate to a different language.
+
+DIVERSITY
+Each call should explore a different angle: a different value proposition, a different emotional hook, or a different sentence structure. Avoid producing variations that read as near-duplicates of the source or of an obvious literal rewrite. Surprise, contrast, urgency, social proof, and specific numbers are all valid angles to vary across calls.
+
+VOICE
+Preserve the source's offer, target audience, and tone. Do not invent product features, prices, or claims that are not implied by the source."
+`;
+
+exports[`platform-aware prompts builds the free-text platform external URL user prompt 1`] = `
+"Below is the rendered text content of a public ad page. The page may contain navigation, ad library metadata, advertiser info, and unrelated boilerplate. Identify the actual ad copy inside it (typically: a short hook line, a headline, a body paragraph, and a call-to-action button label), then produce a NEW VARIATION of that ad copy following the user's instruction.
+
+LANGUAGE LOCK (CRITICAL)
+Detect the language of the ad copy embedded in the page text below. Output every text field in THAT SAME LANGUAGE. NEVER drift to English unless the source ad copy is already English. If the page is in Portuguese, the output must be in Portuguese.
+
+Apply all length caps and the diversity rule from the system instructions to the new variation. Each value in the JSON must be the NEW VARIATION, not the extracted source.
+
+Page text:
+---
+Plan a better weekend
+Pack comfortable essentials for your next trip.
+Explore the collection
+---
+
+Instruction: Rewrite all three fields with fresh phrasing, exploring a different angle than a literal rewrite. Preserve the source language. Respect the length caps.
+
+Return strict JSON with keys: title, body, action. No prose, no fences."
+`;
+
+exports[`platform-aware prompts builds the free-text platform template user prompt 1`] = `
+"Source ad (reference only; every text field you return must use NEW wording):
+- Title: Plan a better weekend
+- Body: Pack comfortable essentials for your next trip.
+- Action: Explore the collection
+
+Instruction: Rewrite all three fields with fresh phrasing, exploring a different angle than a literal rewrite. Respect the length caps.
+
+Write one new variation of the source ad. The title, body and action must each differ from the source."
+`;

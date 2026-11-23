@@ -3,30 +3,10 @@
 import ChatFAB from '@/components/global-chat/ChatFAB';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import OverviewContent from '@/components/overview/OverviewContent';
+import { WorkspaceDashboardSkeleton } from '@/components/projects/WorkspaceDashboard';
 import { useOverviewData } from '@/hooks/useOverviewData';
 import { useOverviewSectionHashScroll } from '@/hooks/useOverviewSectionHashScroll';
 import { useProjectStore } from '@/lib/projectStore';
-
-function OverviewSkeleton() {
-  return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-      {[0, 1, 2, 3].map((i) => (
-        <div
-          key={i}
-          className="h-72 rounded-xl bg-white p-5 shadow-sm ring-1 ring-gray-100"
-        >
-          <div className="mb-4 h-4 w-32 animate-pulse rounded bg-gray-100" />
-          <div className="space-y-2">
-            <div className="h-3 w-full animate-pulse rounded bg-gray-100" />
-            <div className="h-3 w-5/6 animate-pulse rounded bg-gray-100" />
-            <div className="h-3 w-4/6 animate-pulse rounded bg-gray-100" />
-            <div className="h-3 w-3/6 animate-pulse rounded bg-gray-100" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 function ErrorBanner({ errors }: { errors: Record<string, string> }) {
   const fields = Object.keys(errors);
@@ -40,8 +20,10 @@ function ErrorBanner({ errors }: { errors: Record<string, string> }) {
 
 export default function OverviewPage() {
   const activeProject = useProjectStore((s) => s.activeProject);
+  const hasProjectStoreHydrated = useProjectStore((s) => s.hasHydrated);
   const projectId = activeProject?.id ?? null;
-  const { data, alerts, loading, errors } = useOverviewData(projectId);
+  const { data, alerts, loading: dataLoading, errors } = useOverviewData(projectId);
+  const loading = !hasProjectStoreHydrated || dataLoading;
   useOverviewSectionHashScroll(!loading && projectId != null);
 
   return (
@@ -52,7 +34,7 @@ export default function OverviewPage() {
     >
       <ErrorBanner errors={errors} />
       {loading ? (
-        <OverviewSkeleton />
+        <WorkspaceDashboardSkeleton />
       ) : (
         <OverviewContent
           data={data}

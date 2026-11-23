@@ -1,13 +1,13 @@
 import { ApiError } from '@/lib/bulk';
 import { prisma } from '@/lib/prisma';
-import { MODEL_NAME, PROMPT_VERSION } from '@/lib/prompts';
+import { MODEL_NAME } from '@/lib/prompts';
 import { allocateSlugs, readSlugSource } from '@/lib/slugs';
 import { insertVariation } from '@/lib/variationStore';
 import { getPlatformSpec } from '@/src/platforms';
 
 // Field rules come from AdCopyVariationSerializer plus the model defaults:
 // source_mode is the only required field, project and created_by are set by the
-// view, and the platform spec selects the slug source.
+// view, and the platform spec selects the slug source and default prompt version.
 
 const SOURCE_MODES = new Set(['existing', 'custom', 'external_url']);
 const STATUSES = new Set(['draft', 'reviewed']);
@@ -111,7 +111,8 @@ export async function createVariation(args: {
   ) as Record<(typeof TEXT_FIELDS)[number], string>;
 
   const creativeId = await resolveCreativeId(args.body.creative, args.projectId);
-  const [slug] = allocateSlugs([readSlugSource(text, getPlatformSpec('meta'))]);
+  const spec = getPlatformSpec('meta');
+  const [slug] = allocateSlugs([readSlugSource(text, spec)]);
 
   return insertVariation(args.schema, {
     sourceMode,
@@ -122,7 +123,7 @@ export async function createVariation(args: {
     cta: text.cta,
     instruction: optionalText(args.body, 'instruction'),
     modelName: optionalText(args.body, 'model_name') || MODEL_NAME,
-    promptVersion: optionalText(args.body, 'prompt_version') || PROMPT_VERSION,
+    promptVersion: optionalText(args.body, 'prompt_version') || spec.promptVersion,
     batchId: optionalBatchId(args.body.batch_id),
     batchPosition: optionalBatchPosition(args.body.batch_position),
     status,

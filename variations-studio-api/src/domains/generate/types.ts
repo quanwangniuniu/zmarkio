@@ -1,10 +1,11 @@
-import type { CopyJson } from '@/src/ai/types';
+import type { PlatformSpec } from '@/src/platforms';
 
 export type GenerateContext = {
   schema: string;
   userId: number;
   projectId: bigint;
   instruction: string;
+  spec: PlatformSpec;
 };
 
 export type SourceModeResult = {

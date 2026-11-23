@@ -2,10 +2,11 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { format, isSameDay } from 'date-fns';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, MessagesSquare } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Message, MessageListProps } from '@/types/chat';
 import { Skeleton } from '@/components/ui/skeleton';
+import EmptyState from '@/components/state-feedback/EmptyState';
 import MessageItem from './MessageItem';
 
 // ─── Loading skeleton ──────────────────────────────────────────────────────────
@@ -761,8 +762,12 @@ export default function MessageList({
 
           {/* Empty state */}
           {messages.length === 0 && !isLoading && (
-            <div className="flex items-center justify-center flex-1 text-gray-500 text-sm">
-              <p>No messages yet. Start the conversation!</p>
+            <div className="flex flex-1 items-center justify-center">
+              <EmptyState
+                icon={<MessagesSquare className="h-5 w-5" />}
+                title="No messages yet"
+                description="Start the conversation by sending the first message."
+              />
             </div>
           )}
 

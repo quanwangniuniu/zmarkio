@@ -20,7 +20,7 @@ export const customMode: SourceModeHandler = {
   mode: 'custom',
   async resolve(ctx: GenerateContext, body: Record<string, unknown>): Promise<SourceModeResult> {
     return {
-      userPrompt: buildUserPrompt(parseBaseCopy(body.base_copy), ctx.instruction),
+      userPrompt: buildUserPrompt(parseBaseCopy(body.base_copy), ctx.instruction, ctx.spec),
       creativeId: null,
       sourceRef: '',
     };

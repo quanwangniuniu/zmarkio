@@ -7,6 +7,7 @@
     "@opentelemetry/sdk-node",
     "@radix-ui/react-slot",
     "kafkajs",
+    "@storybook/addon-a11y",
     "@storybook/addon-essentials",
     "@storybook/addon-interactions",
     "@storybook/addon-links",

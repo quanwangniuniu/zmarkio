@@ -1,6 +1,10 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { useState } from 'react';
+import { axe, toHaveNoViolations } from 'jest-axe';
 import ConfirmModal from '@/components/ui/ConfirmModal';
+
+expect.extend(toHaveNoViolations);
 
 describe('ConfirmModal', () => {
   it('does not render when closed', () => {
@@ -86,5 +90,50 @@ describe('ConfirmModal', () => {
     const buttons = dialog.querySelectorAll('button');
     buttons[buttons.length - 1].focus();
     fireEvent.keyDown(document, { key: 'Tab' });
+  });
+
+  it('names and describes the dialog and passes axe', async () => {
+    const { baseElement } = render(
+      <ConfirmModal
+        isOpen
+        onClose={jest.fn()}
+        onConfirm={jest.fn()}
+        title="Delete item"
+        message="This cannot be undone"
+      />
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Delete item' });
+    expect(dialog).toHaveAccessibleDescription('This cannot be undone');
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus();
+    expect(await axe(baseElement)).toHaveNoViolations();
+  });
+
+  it('restores focus to the trigger when closed', async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Delete
+          </button>
+          <ConfirmModal
+            isOpen={open}
+            onClose={() => setOpen(false)}
+            onConfirm={jest.fn()}
+            title="Delete item"
+            message="This cannot be undone"
+          />
+        </>
+      );
+    }
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: 'Delete' });
+    await user.click(trigger);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });
