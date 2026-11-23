@@ -16,6 +16,8 @@ export type MeetingTypeMultiSelectButtonProps = {
   value: string[];
   onChange: (next: string[]) => void;
   disabled?: boolean;
+  /** Optional D12 configuration seam. Omitted means all meeting types are visible. */
+  visibleTypeSlugs?: string[];
 };
 
 /**
@@ -25,7 +27,14 @@ export function MeetingTypeMultiSelectButton({
   value,
   onChange,
   disabled,
+  visibleTypeSlugs,
 }: MeetingTypeMultiSelectButtonProps) {
+  const visibleOptions = visibleTypeSlugs
+    ? MEETING_TYPE_FILTER_OPTIONS.filter((option) =>
+        visibleTypeSlugs.includes(option.slug),
+      )
+    : MEETING_TYPE_FILTER_OPTIONS;
+
   const n = value.length;
   const label =
     n === 0 ? 'Meeting type' : n === 1 ? 'Meeting type · 1' : `Meeting type · ${n}`;
@@ -63,7 +72,7 @@ export function MeetingTypeMultiSelectButton({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <div className="max-h-[min(60vh,320px)] overflow-y-auto py-1">
-          {MEETING_TYPE_FILTER_OPTIONS.map((o) => {
+          {visibleOptions.map((o) => {
             const checked = value.includes(o.slug);
             return (
               <button

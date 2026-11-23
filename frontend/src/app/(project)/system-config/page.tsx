@@ -12,6 +12,7 @@ import { fetchSystemConfig, saveSystemConfig } from '@/lib/api/orgCustomizationA
 import { storeCsmConfig } from '@/lib/csm/csmConfig';
 import { storeCampaignConfig } from '@/lib/campaigns/campaignConfig';
 import { storeDecisionConfig } from '@/lib/decisions/decisionConfig';
+import { storeMeetingsConfig } from '@/lib/meetings/meetingsConfig';
 import { storeNavigationConfig } from '@/lib/navigation/navigationConfig';
 import { useProjectStore } from '@/lib/projectStore';
 import { storeTaskConfig } from '@/lib/tasks/taskConfig';
@@ -28,7 +29,7 @@ const sectionTitle = 'text-lg font-semibold text-gray-900 dark:text-gray-100';
 
 type ConfigListKey = 'task_types' | 'task_statuses' | 'task_priorities';
 
-type ModuleKey = 'csm' | 'decisions' | 'campaigns' | 'navigation';
+type ModuleKey = 'csm' | 'decisions' | 'campaigns' | 'navigation' | 'meetings';
 
 const MODULE_SECTIONS: Record<ModuleKey, { title: string; fields: Record<string, string> }> = {
   csm: { title: 'CSM', fields: { ticket_priority: 'Ticket Priorities' } },
@@ -56,6 +57,15 @@ const MODULE_SECTIONS: Record<ModuleKey, { title: string; fields: Record<string,
   navigation: {
     title: 'Sidebar Navigation',
     fields: { overview: 'Overview', manage: 'Manage', content: 'Content', collaborate: 'Collaborate', tools: 'Tools' },
+  },
+  meetings: {
+    title: 'Meetings',
+    fields: {
+      filter: 'Advanced Filters',
+      filter_type: 'Meeting Type Filter',
+      section: 'Detail Sections',
+      panel: 'Detail Panels',
+    },
   },
 };
 
@@ -204,13 +214,13 @@ export default function SystemConfigPage() {
   const [config, setConfig] = useState<TaskConfig | null>(null);
   const [optionRows, setOptionRows] = useState<OptionRow[]>([]);
   const [optionType, setOptionType] = useState('');
-  const [moduleOptions, setModuleOptions] = useState<Record<ModuleKey, OptionConfig[]>>({ csm: [], decisions: [], campaigns: [], navigation: [] });
+  const [moduleOptions, setModuleOptions] = useState<Record<ModuleKey, OptionConfig[]>>({ csm: [], decisions: [], campaigns: [], navigation: [], meetings: [] });
   const [saving, setSaving] = useState(false);
 
   const loadConfig = (next: SystemConfig) => {
     setConfig({ ...next.task, can_edit: next.can_edit });
     setOptionRows(buildOptionRows(next.task.task_field_options));
-    setModuleOptions({ csm: next.csm.options, decisions: next.decisions.options, campaigns: next.campaigns.options, navigation: next.navigation.options });
+    setModuleOptions({ csm: next.csm.options, decisions: next.decisions.options, campaigns: next.campaigns.options, navigation: next.navigation.options, meetings: next.meetings.options });
   };
 
   useEffect(() => {
@@ -269,6 +279,7 @@ export default function SystemConfigPage() {
         decisions: { options: moduleOptions.decisions },
         campaigns: { options: moduleOptions.campaigns },
         navigation: { options: moduleOptions.navigation },
+        meetings: { options: moduleOptions.meetings },
       });
       loadConfig(saved);
       storeTaskConfig(projectId, { ...saved.task, can_edit: saved.can_edit });
@@ -276,6 +287,7 @@ export default function SystemConfigPage() {
       storeDecisionConfig(projectId, { ...saved.decisions, can_edit: saved.can_edit });
       storeCampaignConfig(projectId, { ...saved.campaigns, can_edit: saved.can_edit });
       storeNavigationConfig(projectId, { ...saved.navigation, can_edit: saved.can_edit });
+      storeMeetingsConfig(projectId, { ...saved.meetings, can_edit: saved.can_edit });
       toast.success('System configuration saved');
     } catch (error) {
       toast.error(getApiErrorDetail(error, 'Failed to save system configuration'));
@@ -292,7 +304,7 @@ export default function SystemConfigPage() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">System Configuration</h1>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Choose which task types, CSM, Decisions, Campaigns and sidebar options {activeProject?.name ?? 'this project'} uses, and rename,
+                Choose which task types, CSM, Decisions, Campaigns, Meetings and sidebar options {activeProject?.name ?? 'this project'} uses, and rename,
                 recolor or reorder them.
               </p>
             </div>

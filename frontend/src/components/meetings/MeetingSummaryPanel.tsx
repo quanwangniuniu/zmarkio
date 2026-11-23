@@ -72,6 +72,11 @@ export interface MeetingSummaryPanelProps {
   onMeetingUpdated?: (meeting: Meeting) => void;
   /** Called after this meeting is deleted from the server (parent should close panel and refresh). */
   onMeetingDeleted?: () => void;
+  /** Visibility configuration for D12 meeting surfaces. Defaults preserve current behavior. */
+  surfaceVisibility?: {
+    actionItems?: boolean;
+    knowledgeNav?: boolean;
+  };
 }
 
 export function MeetingSummaryPanel({
@@ -80,7 +85,10 @@ export function MeetingSummaryPanel({
   onClose,
   onMeetingUpdated,
   onMeetingDeleted,
+  surfaceVisibility,
 }: MeetingSummaryPanelProps) {
+  const showActionItems = surfaceVisibility?.actionItems ?? true;
+  const showKnowledgeNav = surfaceVisibility?.knowledgeNav ?? true;
   const buildUrl = useBuildUrl();
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [loading, setLoading] = useState(true);
@@ -587,29 +595,33 @@ export function MeetingSummaryPanel({
               )}
             </PanelSection>
 
-            <PanelSection
-              title="Action items"
-              description="Capture follow-ups from this meeting and convert them into project tasks in one step. Lineage is stored on the task."
-            >
-              <MeetingActionItemsSection
-                projectId={projectId}
-                meetingId={meetingId}
-                projectMembers={projectMembers}
-                onChanged={() => void loadMeeting()}
-              />
-            </PanelSection>
+            {showActionItems && (
+              <PanelSection
+                title="Action items"
+                description="Capture follow-ups from this meeting and convert them into project tasks in one step. Lineage is stored on the task."
+              >
+                <MeetingActionItemsSection
+                  projectId={projectId}
+                  meetingId={meetingId}
+                  projectMembers={projectMembers}
+                  onChanged={() => void loadMeeting()}
+                />
+              </PanelSection>
+            )}
 
-            <PanelSection
-              title="Contextual knowledge"
-              description="Meeting → tasks and decisions (origin links). Use this to reconstruct reasoning and execution chains."
-            >
-              <MeetingSummaryKnowledgeNav
-                projectId={projectId}
-                meetingId={meetingId}
-                generatedDecisions={meeting.generated_decisions ?? []}
-                generatedTasks={meeting.generated_tasks ?? []}
-              />
-            </PanelSection>
+            {showKnowledgeNav && (
+              <PanelSection
+                title="Contextual knowledge"
+                description="Meeting → tasks and decisions (origin links). Use this to reconstruct reasoning and execution chains."
+              >
+                <MeetingSummaryKnowledgeNav
+                  projectId={projectId}
+                  meetingId={meetingId}
+                  generatedDecisions={meeting.generated_decisions ?? []}
+                  generatedTasks={meeting.generated_tasks ?? []}
+                />
+              </PanelSection>
+            )}
 
             <PanelSection title="Related artifacts" description="Other linked workspace items.">
               <MeetingSummaryRelatedArtifacts

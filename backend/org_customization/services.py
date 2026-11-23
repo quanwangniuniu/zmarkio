@@ -53,6 +53,34 @@ NAVIGATION_GROUPS = {
     'tools': (('workflows', 'Workflows'), ('timeline', 'Timeline')),
 }
 
+# Surface keys follow `meetings.<field>.<value>`; `filter_type` maps to `meetings.filter.type.*`.
+# The dashboard `UpcomingMeetingsPanel` is owned by D1 (`overview.panel.upcoming_meetings`), not registered here.
+MEETING_SURFACES = {
+    'filter': (
+        ('date_from', 'Date from'),
+        ('date_to', 'Date to'),
+        ('has_generated_decisions', 'Has generated decisions'),
+        ('has_generated_tasks', 'Has generated tasks'),
+        ('is_archived', 'Archived'),
+    ),
+    'filter_type': (
+        ('planning', 'Planning'),
+        ('client-meeting', 'Client Meeting'),
+        ('stand-up', 'Stand-up'),
+        ('review-retrospective', 'Review & Retrospective'),
+        ('deployment-sync', 'Deployment Sync'),
+    ),
+    'section': (('action_items', 'Action items'),),
+    'panel': (('knowledge_nav', 'Contextual knowledge'),),
+}
+
+MEETING_SURFACE_ATTRIBUTES = {
+    'filter': ('enabled',),
+    'filter_type': LIST_ATTRIBUTES,
+    'section': ('enabled',),
+    'panel': ('enabled',),
+}
+
 MODULE_OPTION_FIELDS = {
     'csm': {
         'ticket_priority': OptionField(Ticket, 'priority', 'queue.project'),
@@ -75,6 +103,10 @@ MODULE_OPTION_FIELDS = {
     'navigation': {
         group: OptionField(None, group, None, LIST_ATTRIBUTES, items, 'overview' if group == 'overview' else None)
         for group, items in NAVIGATION_GROUPS.items()
+    },
+    'meetings': {
+        field: OptionField(None, field, None, MEETING_SURFACE_ATTRIBUTES[field], items)
+        for field, items in MEETING_SURFACES.items()
     },
 }
 

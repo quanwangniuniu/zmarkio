@@ -5,7 +5,9 @@ import { Search, SlidersHorizontal } from 'lucide-react';
 import InlineSelect, { type InlineSelectOption } from '@/components/tasks/detail/InlineSelect';
 import AdvancedFilterDialog, {
   type AdvancedFilterState,
+  type AdvancedFilterVisibility,
   countActiveAdvancedFilters,
+  maskAdvancedFilter,
 } from './AdvancedFilterDialog';
 
 const ALL_TYPES_VALUE = '__all__';
@@ -17,6 +19,7 @@ interface Props {
   typeSlug: string;
   onTypeSlugChange: (slug: string) => void;
   typeOptions: { slug: string; label: string }[];
+  advancedFieldVisibility?: AdvancedFilterVisibility;
   tagSlug: string;
   onTagSlugChange: (slug: string) => void;
   tagOptions: { slug: string; label: string }[];
@@ -30,6 +33,7 @@ export default function MeetingsFilterBar({
   typeSlug,
   onTypeSlugChange,
   typeOptions,
+  advancedFieldVisibility,
   tagSlug,
   onTagSlugChange,
   tagOptions,
@@ -54,7 +58,9 @@ export default function MeetingsFilterBar({
     [tagOptions],
   );
 
-  const activeAdvancedCount = countActiveAdvancedFilters(advanced);
+  const activeAdvancedCount = countActiveAdvancedFilters(
+    maskAdvancedFilter(advanced, advancedFieldVisibility),
+  );
 
   return (
     <section className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-gray-100">
@@ -114,6 +120,7 @@ export default function MeetingsFilterBar({
         onOpenChange={setAdvancedOpen}
         value={advanced}
         onApply={onAdvancedChange}
+        fieldVisibility={advancedFieldVisibility}
       />
     </section>
   );

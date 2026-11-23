@@ -45,11 +45,41 @@ export function countActiveAdvancedFilters(state: AdvancedFilterState): number {
   return n;
 }
 
+export type AdvancedFilterField =
+  | 'date_from'
+  | 'date_to'
+  | 'has_generated_decisions'
+  | 'has_generated_tasks'
+  | 'is_archived';
+
+export type AdvancedFilterVisibility = Partial<
+  Record<AdvancedFilterField, boolean>
+>;
+
+export function maskAdvancedFilter(
+  state: AdvancedFilterState,
+  visibility?: AdvancedFilterVisibility,
+): AdvancedFilterState {
+  const visible = (field: AdvancedFilterField) => visibility?.[field] ?? true;
+  return {
+    date_from: visible('date_from') ? state.date_from : '',
+    date_to: visible('date_to') ? state.date_to : '',
+    has_generated_decisions: visible('has_generated_decisions')
+      ? state.has_generated_decisions
+      : null,
+    has_generated_tasks: visible('has_generated_tasks')
+      ? state.has_generated_tasks
+      : null,
+    is_archived: visible('is_archived') ? state.is_archived : null,
+  };
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   value: AdvancedFilterState;
   onApply: (state: AdvancedFilterState) => void;
+  fieldVisibility?: AdvancedFilterVisibility;
 }
 
 function TriState({
@@ -99,7 +129,11 @@ export default function AdvancedFilterDialog({
   onOpenChange,
   value,
   onApply,
+  fieldVisibility,
 }: Props) {
+  const visible = (field: AdvancedFilterField) =>
+    fieldVisibility?.[field] ?? true;
+
   const [draft, setDraft] = useState<AdvancedFilterState>(value);
 
   useEffect(() => {
@@ -107,10 +141,12 @@ export default function AdvancedFilterDialog({
   }, [open, value]);
 
   const handleApply = () => {
-    if (draft.date_from && draft.date_to && draft.date_from > draft.date_to) {
+    const next = maskAdvancedFilter(draft, fieldVisibility);
+
+    if (next.date_from && next.date_to && next.date_from > next.date_to) {
       return;
     }
-    onApply(draft);
+    onApply(next);
     onOpenChange(false);
   };
 
@@ -143,8 +179,9 @@ export default function AdvancedFilterDialog({
           </div>
 
           <div className="space-y-5 px-5 pb-5 pt-4">
+            {(visible('date_from') || visible('date_to')) && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
+              {visible('date_from') && <div>
                 <label
                   htmlFor="filter-date-from"
                   className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500"
@@ -158,8 +195,8 @@ export default function AdvancedFilterDialog({
                   onChange={(e) => setDraft({ ...draft, date_from: e.target.value })}
                   className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
                 />
-              </div>
-              <div>
+              </div>}
+              {visible('date_to') && <div>
                 <label
                   htmlFor="filter-date-to"
                   className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-gray-500"
@@ -173,29 +210,33 @@ export default function AdvancedFilterDialog({
                   onChange={(e) => setDraft({ ...draft, date_to: e.target.value })}
                   className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
                 />
-              </div>
+              </div>}
             </div>
-            {draft.date_from && draft.date_to && draft.date_from > draft.date_to && (
+            )}
+            {visible('date_from') && visible('date_to') &&
+              draft.date_from && draft.date_to && draft.date_from > draft.date_to && (
               <p className="text-xs text-rose-600">End date must be on or after start date.</p>
             )}
 
+            {(visible('has_generated_decisions') || visible('has_generated_tasks') || visible('is_archived')) && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <TriState
+              {visible('has_generated_decisions') && <TriState
                 label="Has generated decisions"
                 value={draft.has_generated_decisions}
                 onChange={(v) => setDraft({ ...draft, has_generated_decisions: v })}
-              />
-              <TriState
+              />}
+              {visible('has_generated_tasks') && <TriState
                 label="Has generated tasks"
                 value={draft.has_generated_tasks}
                 onChange={(v) => setDraft({ ...draft, has_generated_tasks: v })}
-              />
-              <TriState
+              />}
+              {visible('is_archived') && <TriState
                 label="Archived"
                 value={draft.is_archived}
                 onChange={(v) => setDraft({ ...draft, is_archived: v })}
-              />
+              />}
             </div>
+            )}
 
             <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
               <button
