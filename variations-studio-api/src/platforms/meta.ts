@@ -1,4 +1,3 @@
-import { buildJsonShapePrompt, PROMPT_VERSION, SHARED_SYSTEM_RULES } from '@/src/ai/prompts';
 import type { PlatformSpec } from './types';
 
 const CTA_ENUM_ALLOWLIST = (
@@ -23,28 +22,34 @@ const CTA_ENUM_ALLOWLIST = (
   + 'WATCH_LIVE_VIDEO, SHOP_WITH_AI, TRY_ON_WITH_AI'
 );
 
+const hookLimits = { maxWords: 10, maxChars: 50 } as const;
+const headlineLimits = { maxChars: 40 } as const;
+const descriptionLimits = { maxChars: 125 } as const;
+
 const fields = [
   { key: 'hook', label: 'Hook', type: 'string', required: true,
-    limits: { maxWords: 10, maxChars: 50 } },
+    limits: hookLimits },
   { key: 'headline', label: 'Headline', type: 'string', required: true,
-    limits: { maxChars: 40 } },
+    limits: headlineLimits },
   { key: 'description', label: 'Description', type: 'string', required: true,
-    limits: { maxChars: 125 } },
+    limits: descriptionLimits },
   { key: 'cta', label: 'CTA', type: 'string', required: true, limits: {} },
 ] as const;
 
-const promptFragment = (
+const promptIntro = (
   'You are an expert paid-media copywriter producing high-conversion ad copy '
   + 'variations for Meta (Facebook + Instagram Feed). Your output is consumed '
   + 'directly by Meta\'s Marketing API, so format and length constraints are hard '
   + 'rules, not stylistic preferences.\n\n'
-  + buildJsonShapePrompt(fields.map((field) => field.key))
-  + 'LENGTH CAPS (HARD)\n'
-  + '- hook: at most 10 words AND at most 50 characters. The hook is the first '
+);
+
+const promptFragment = (
+  'LENGTH CAPS (HARD)\n'
+  + `- hook: at most ${hookLimits.maxWords} words AND at most ${hookLimits.maxChars} characters. The hook is the first `
   + 'punchy line that stops the scroll.\n'
-  + '- headline: at most 40 characters. Single line. No trailing punctuation.\n'
-  + '- description: at most 125 characters. This maps to Meta\'s primary text. '
-  + 'Aim for clarity over cleverness; Meta truncates beyond 125.\n'
+  + `- headline: at most ${headlineLimits.maxChars} characters. Single line. No trailing punctuation.\n`
+  + `- description: at most ${descriptionLimits.maxChars} characters. This maps to Meta's primary text. `
+  + `Aim for clarity over cleverness; Meta truncates beyond ${descriptionLimits.maxChars}.\n`
   + 'If a field would naturally exceed its cap, REWRITE it shorter. Do not copy '
   + 'source length; the cap overrides the source.\n\n'
   + 'CALL-TO-ACTION (HARD)\n'
@@ -54,7 +59,6 @@ const promptFragment = (
   + 'case. Do NOT invent values outside this enum. If the source\'s cta is '
   + 'already a valid enum, keep it; if the source\'s cta is free-text or '
   + 'non-English, map it to the closest enum value above.\n\n'
-  + SHARED_SYSTEM_RULES
 );
 
 export const metaSpec = {
@@ -71,8 +75,8 @@ export const metaSpec = {
   // Feed creative presets.
   aspectRatios: ['1:1', '4:5'],
   language: { mode: 'source', excludedFields: ['cta'] },
-  // Full system prompt: the Meta sections plus the shared rules.
+  promptIntro,
   promptFragment,
-  promptVersion: PROMPT_VERSION,
+  promptVersion: 'v1',
   slugSource: { field: 'headline' },
 } as const satisfies PlatformSpec;

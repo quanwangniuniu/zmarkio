@@ -47,6 +47,9 @@ export type PlatformSpec = {
     /** Fields such as enum tokens must not be translated. */
     readonly excludedFields: readonly string[];
   };
+  /** Opening before the shared JSON instructions. Include the trailing paragraph break. */
+  readonly promptIntro: string;
+  /** Platform rules between the JSON and language instructions. Include the trailing paragraph break. */
   readonly promptFragment: string;
   readonly promptVersion: string;
   /** Index selects one item of a repeated field. */
