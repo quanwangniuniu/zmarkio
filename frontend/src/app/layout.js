@@ -1,6 +1,7 @@
 import "./globals.css";
 // import 'highlight.js/styles/atom-one-dark.min.css';
 import { AppProviders } from '../components/providers/AppProviders';
+import { StoreProvider } from '../store/StoreProvider';
 
 export const metadata = {
   title: "Marketing Simplified - Campaign Management",
@@ -16,7 +17,9 @@ export default function RootLayout({ children }) {
       <head>
       </head>
       <body>
-        <AppProviders>{children}</AppProviders>
+        <StoreProvider>
+          <AppProviders>{children}</AppProviders>
+        </StoreProvider>
       </body>
     </html>
   );
