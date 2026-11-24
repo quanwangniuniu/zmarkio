@@ -1,7 +1,10 @@
 import uuid
 
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
+
+from core.crypto import decrypt_token, encrypt_token
 
 
 class AuthenticationLockout(models.Model):
@@ -40,3 +43,62 @@ class AuthenticationLockout(models.Model):
     def seconds_remaining(self):
         remaining = int((self.locked_until - timezone.now()).total_seconds())
         return max(0, remaining)
+
+
+class MfaDevice(models.Model):
+    """A user's TOTP authenticator. One per user; confirmed_at is set once the
+    first code from the authenticator app has been verified."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='mfa_device',
+    )
+    # core.crypto.encrypt_token output; the plain base32 secret is never stored.
+    encrypted_secret = models.TextField()
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'authentication_mfa_devices'
+
+    def __str__(self):
+        state = 'confirmed' if self.is_confirmed else 'pending'
+        return f'MFA device for user {self.user_id} ({state})'
+
+    @property
+    def is_confirmed(self):
+        return self.confirmed_at is not None
+
+    def set_secret(self, raw_secret):
+        self.encrypted_secret = encrypt_token(raw_secret)
+
+    def get_secret(self):
+        return decrypt_token(self.encrypted_secret)
+
+
+class RecoveryCode(models.Model):
+    """A single-use MFA recovery code. Only a SHA-256 hash is stored; the plain
+    codes are returned to the user once, when they are generated."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='mfa_recovery_codes',
+    )
+    code_hash = models.CharField(max_length=64)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'authentication_mfa_recovery_codes'
+        indexes = [
+            models.Index(fields=['user', 'used_at']),
+        ]
+
+    def __str__(self):
+        state = 'used' if self.used_at else 'unused'
+        return f'Recovery code for user {self.user_id} ({state})'
