@@ -85,6 +85,9 @@ google-auth-httplib2==0.1.1
 requests-oauthlib==1.3.1  # OAuth2Session for token exchange
 PyJWT==2.13.0  # JWT verification with clock tolerance (leeway)
 
+# MFA (TOTP one-time codes for org-admin login)
+pyotp==2.9.0
+
 # AI Agent
 anthropic>=0.40.0
 openpyxl>=3.1.0
