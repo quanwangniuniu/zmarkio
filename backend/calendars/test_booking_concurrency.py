@@ -41,6 +41,24 @@ class ConcurrentBookingTests(TransactionTestCase):
             cursor.execute('DROP SCHEMA IF EXISTS "org_booking_race" CASCADE')
         super().tearDown()
 
+    def _fixture_teardown(self):
+        # `config.task_type` lives outside the public schema and holds an FK to
+        # core_organization, so Django's default TRUNCATE (without CASCADE) is
+        # rejected and rows survive, breaking the next test's setUp. Flush with
+        # CASCADE instead.
+        from django.core.management import call_command
+
+        for db_name in self._databases_names(include_mirrors=False):
+            call_command(
+                "flush",
+                verbosity=0,
+                interactive=False,
+                database=db_name,
+                reset_sequences=False,
+                allow_cascade=True,
+                inhibit_post_migrate=False,
+            )
+
     def _race(self, different_links=False):
         barrier = Barrier(2)
         start = next_weekday_at(11)
