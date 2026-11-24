@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
@@ -6,6 +8,7 @@ from rest_framework.test import APIClient
 from audit.models import AdminAuditEvent
 from core.models import Organization, ProjectMember
 from org_customization.models import OptionConfig, TaskTypeConfig
+from org_customization.services import MODULE_OPTION_FIELDS
 from org_customization.tests.test_task_config import make_project, make_user
 
 SYSTEM_CONFIG_PATH = reverse('org-customization-system-config')
@@ -98,6 +101,17 @@ class ConfigAuditCachePermissionTest(TestCase):
 
         task_type = next(t for t in self.client.get(self.url).data['task']['task_types'] if t['key'] == 'budget')
         self.assertEqual(task_type['label'], 'Spend')
+
+    def test_cache_written_before_a_new_module_existed_is_not_read(self):
+        # Simulates a config cached by the previous deploy, before the meetings module was added.
+        with patch.dict(MODULE_OPTION_FIELDS):
+            del MODULE_OPTION_FIELDS['meetings']
+            self.assertNotIn('meetings', self.client.get(self.url).data)
+
+        response = self.client.get(f"{reverse('org-customization-meetings-config')}?project_id={self.project.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['options'])
 
     def test_cached_read_skips_config_queries(self):
         self.client.get(self.url)

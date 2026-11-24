@@ -1,7 +1,6 @@
 import { fetchOptionConfig } from '@/lib/api/orgCustomizationApi';
 import { createConfigLoader } from '@/lib/orgCustomization/configLoader';
 import { applyOptionConfig, createOptionTarget } from '@/lib/orgCustomization/optionConfig';
-import type { AdvancedFilterField, AdvancedFilterVisibility } from '@/components/meetings/AdvancedFilterDialog';
 import { MEETING_TYPE_FILTER_OPTIONS } from '@/lib/meetings/meetingTypeSlugs';
 
 /**
@@ -9,6 +8,15 @@ import { MEETING_TYPE_FILTER_OPTIONS } from '@/lib/meetings/meetingTypeSlugs';
  * `filter_type` is `meetings.filter.type.*`. The dashboard `UpcomingMeetingsPanel`
  * belongs to D1 (`overview.panel.upcoming_meetings`) and is intentionally not here.
  */
+export type AdvancedFilterField =
+  | 'date_from'
+  | 'date_to'
+  | 'has_generated_decisions'
+  | 'has_generated_tasks'
+  | 'is_archived';
+
+export type AdvancedFilterVisibility = Record<AdvancedFilterField, boolean>;
+
 export const MEETINGS_FILTER = createOptionTarget({
   date_from: 'Date from',
   date_to: 'Date to',
@@ -41,7 +49,7 @@ export const storeMeetingsConfig = meetingsConfigLoader.store;
 export const advancedFilterVisibility = (): AdvancedFilterVisibility =>
   Object.fromEntries(
     Object.keys(MEETINGS_FILTER.defaults).map((field) => [field, MEETINGS_FILTER.values.includes(field)]),
-  ) as Record<AdvancedFilterField, boolean>;
+  ) as AdvancedFilterVisibility;
 
 /**
  * Applies label/order/visibility to known meeting types. Custom project types that the

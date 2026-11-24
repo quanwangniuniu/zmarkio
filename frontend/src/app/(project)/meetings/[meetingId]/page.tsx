@@ -30,7 +30,7 @@ import ActionItemsSection from '@/components/meetings/detail/ActionItemsSection'
 import ContextualKnowledgeSection from '@/components/meetings/detail/ContextualKnowledgeSection';
 import RelatedArtifactsSection from '@/components/meetings/detail/RelatedArtifactsSection';
 import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
-import { isMeetingSurfaceEnabled, loadMeetingsConfig } from '@/lib/meetings/meetingsConfig';
+import { isMeetingSurfaceEnabled } from '@/lib/meetings/meetingsConfig';
 
 interface Member {
   id: number;
@@ -76,10 +76,6 @@ export default function MeetingDetailPage() {
   const { projectId } = useActiveProjectForFlatRoute();
   const meetingId = String(params.meetingId);
   useOptionConfigVersion();
-
-  useEffect(() => {
-    if (projectId) void loadMeetingsConfig(projectId);
-  }, [projectId]);
 
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [availableTransitions, setAvailableTransitions] = useState<string[]>([]);

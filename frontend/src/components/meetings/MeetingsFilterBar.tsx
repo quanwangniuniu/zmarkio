@@ -5,10 +5,10 @@ import { Search, SlidersHorizontal } from 'lucide-react';
 import InlineSelect, { type InlineSelectOption } from '@/components/tasks/detail/InlineSelect';
 import AdvancedFilterDialog, {
   type AdvancedFilterState,
-  type AdvancedFilterVisibility,
   countActiveAdvancedFilters,
-  maskAdvancedFilter,
 } from './AdvancedFilterDialog';
+import { configureMeetingTypeOptions } from '@/lib/meetings/meetingsConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 
 const ALL_TYPES_VALUE = '__all__';
 const ALL_TAGS_VALUE = '__all__';
@@ -19,7 +19,6 @@ interface Props {
   typeSlug: string;
   onTypeSlugChange: (slug: string) => void;
   typeOptions: { slug: string; label: string }[];
-  advancedFieldVisibility?: AdvancedFilterVisibility;
   tagSlug: string;
   onTagSlugChange: (slug: string) => void;
   tagOptions: { slug: string; label: string }[];
@@ -33,22 +32,19 @@ export default function MeetingsFilterBar({
   typeSlug,
   onTypeSlugChange,
   typeOptions,
-  advancedFieldVisibility,
   tagSlug,
   onTagSlugChange,
   tagOptions,
   advanced,
   onAdvancedChange,
 }: Props) {
+  useOptionConfigVersion();
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  const typeSelectOptions: InlineSelectOption[] = useMemo(
-    () => [
-      { value: ALL_TYPES_VALUE, label: 'All types' },
-      ...typeOptions.map((t) => ({ value: t.slug, label: t.label })),
-    ],
-    [typeOptions],
-  );
+  const typeSelectOptions: InlineSelectOption[] = [
+    { value: ALL_TYPES_VALUE, label: 'All types' },
+    ...configureMeetingTypeOptions(typeOptions).map((t) => ({ value: t.slug, label: t.label })),
+  ];
 
   const tagSelectOptions: InlineSelectOption[] = useMemo(
     () => [
@@ -58,9 +54,7 @@ export default function MeetingsFilterBar({
     [tagOptions],
   );
 
-  const activeAdvancedCount = countActiveAdvancedFilters(
-    maskAdvancedFilter(advanced, advancedFieldVisibility),
-  );
+  const activeAdvancedCount = countActiveAdvancedFilters(advanced);
 
   return (
     <section className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-gray-100">
@@ -120,7 +114,6 @@ export default function MeetingsFilterBar({
         onOpenChange={setAdvancedOpen}
         value={advanced}
         onApply={onAdvancedChange}
-        fieldVisibility={advancedFieldVisibility}
       />
     </section>
   );

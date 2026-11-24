@@ -18,6 +18,8 @@ import { MeetingSummaryKnowledgeNav } from '@/components/meetings/MeetingSummary
 import { MeetingSummaryRelatedArtifacts } from '@/components/meetings/MeetingSummaryRelatedArtifacts';
 import { ZoomPostMeetingSection } from '@/components/meetings/ZoomPostMeetingSection';
 import { MeetingActionItemsSection } from '@/components/meetings/MeetingActionItemsSection';
+import { isMeetingSurfaceEnabled } from '@/lib/meetings/meetingsConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { ProjectMemberPicker } from '@/components/meetings/ProjectMemberPicker';
 import { formatProjectMemberLabel } from '@/components/meetings/projectMemberLabel';
 import { ProjectAPI, type ProjectMemberData } from '@/lib/api/projectApi';
@@ -72,11 +74,6 @@ export interface MeetingSummaryPanelProps {
   onMeetingUpdated?: (meeting: Meeting) => void;
   /** Called after this meeting is deleted from the server (parent should close panel and refresh). */
   onMeetingDeleted?: () => void;
-  /** Visibility configuration for D12 meeting surfaces. Defaults preserve current behavior. */
-  surfaceVisibility?: {
-    actionItems?: boolean;
-    knowledgeNav?: boolean;
-  };
 }
 
 export function MeetingSummaryPanel({
@@ -85,10 +82,8 @@ export function MeetingSummaryPanel({
   onClose,
   onMeetingUpdated,
   onMeetingDeleted,
-  surfaceVisibility,
 }: MeetingSummaryPanelProps) {
-  const showActionItems = surfaceVisibility?.actionItems ?? true;
-  const showKnowledgeNav = surfaceVisibility?.knowledgeNav ?? true;
+  useOptionConfigVersion();
   const buildUrl = useBuildUrl();
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [loading, setLoading] = useState(true);
@@ -595,7 +590,7 @@ export function MeetingSummaryPanel({
               )}
             </PanelSection>
 
-            {showActionItems && (
+            {isMeetingSurfaceEnabled('section.action_items') && (
               <PanelSection
                 title="Action items"
                 description="Capture follow-ups from this meeting and convert them into project tasks in one step. Lineage is stored on the task."
@@ -609,7 +604,7 @@ export function MeetingSummaryPanel({
               </PanelSection>
             )}
 
-            {showKnowledgeNav && (
+            {isMeetingSurfaceEnabled('panel.knowledge_nav') && (
               <PanelSection
                 title="Contextual knowledge"
                 description="Meeting → tasks and decisions (origin links). Use this to reconstruct reasoning and execution chains."

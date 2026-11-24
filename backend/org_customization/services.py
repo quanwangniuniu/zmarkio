@@ -1,3 +1,4 @@
+import zlib
 from dataclasses import dataclass
 from operator import attrgetter
 
@@ -138,8 +139,15 @@ def _project_rows(model, project):
     return model.objects.filter(organization_id=project.organization_id, project_id=project.id)
 
 
+def _config_schema_version():
+    # Changes whenever a module or field is added or removed, so a config cached by the
+    # previous deploy (which would be missing the new module) is never read back.
+    schema = sorted((module, sorted(fields)) for module, fields in MODULE_OPTION_FIELDS.items())
+    return format(zlib.crc32(repr(schema).encode()), 'x')
+
+
 def _config_cache_key(project):
-    return f'orgcfg:{project.organization_id}:{project.id}'
+    return f'orgcfg:{project.organization_id}:{project.id}:{_config_schema_version()}'
 
 
 def clear_config_cache(project):

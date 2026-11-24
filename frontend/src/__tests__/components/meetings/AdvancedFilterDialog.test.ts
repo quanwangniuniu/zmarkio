@@ -4,6 +4,15 @@ import {
   countActiveAdvancedFilters,
   maskAdvancedFilter,
 } from '@/components/meetings/AdvancedFilterDialog';
+import { fetchOptionConfig } from '@/lib/api/orgCustomizationApi';
+import { loadMeetingsConfig, storeMeetingsConfig } from '@/lib/meetings/meetingsConfig';
+import type { OptionConfig } from '@/types/orgCustomization';
+
+jest.mock('@/lib/api/orgCustomizationApi', () => ({ fetchOptionConfig: jest.fn() }));
+
+const hidden = (value: string): OptionConfig => ({
+  field: 'filter', value, default_label: value, label: null, color: null, enabled: false, order: 0, is_default: false, editable: [],
+});
 
 describe('AdvancedFilterDialog filter helpers', () => {
   test('empty filter produces no query params', () => {
@@ -71,14 +80,22 @@ describe('maskAdvancedFilter', () => {
     is_archived: false,
   };
 
-  test('keeps everything when no visibility is given', () => {
+  test('keeps everything when nothing is configured', () => {
     expect(maskAdvancedFilter(full)).toEqual(full);
   });
 
-  test('clears hidden fields so they are not sent or counted', () => {
-    const masked = maskAdvancedFilter(full, { date_to: false, is_archived: false });
+  test('clears filters hidden in the project config so they are not sent or counted', async () => {
+    (fetchOptionConfig as jest.Mock).mockResolvedValueOnce({
+      options: [hidden('date_to'), hidden('is_archived')],
+      can_edit: true,
+    });
+    await loadMeetingsConfig(5);
+
+    const masked = maskAdvancedFilter(full);
     expect(masked).toEqual({ ...full, date_to: '', is_archived: null });
     expect(advancedFilterToParams(masked)).not.toHaveProperty('is_archived');
     expect(countActiveAdvancedFilters(masked)).toBe(3);
+
+    storeMeetingsConfig(5, { options: [], can_edit: true });
   });
 });

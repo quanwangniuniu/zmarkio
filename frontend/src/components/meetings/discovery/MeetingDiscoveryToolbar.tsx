@@ -38,8 +38,6 @@ export interface MeetingDiscoveryToolbarProps
   /** Meeting type slugs from URL; toolbar multi-select updates immediately. */
   selectedMeetingTypeSlugs: string[];
   onMeetingTypeSlugsChange: (next: string[]) => void;
-  /** Optional D12 configuration seam; omitted means all types are visible. */
-  visibleMeetingTypeSlugs?: string[];
   onAdvancedFiltersApply: MeetingFiltersPanelProps['onAdvancedFiltersApply'];
   onPopoverCancel: () => void;
   canClear: boolean;
@@ -128,7 +126,6 @@ export function MeetingDiscoveryToolbar({
   filterBadgeCount,
   selectedMeetingTypeSlugs,
   onMeetingTypeSlugsChange,
-  visibleMeetingTypeSlugs,
   onAdvancedFiltersApply,
   onPopoverCancel,
   canClear,
@@ -174,7 +171,6 @@ export function MeetingDiscoveryToolbar({
         value={selectedMeetingTypeSlugs}
         onChange={onMeetingTypeSlugsChange}
         disabled={panelProps.disabled}
-        visibleTypeSlugs={visibleMeetingTypeSlugs}
       />
 
       <Popover open={filterOpen} onOpenChange={handleFilterOpenChange}>

@@ -23,15 +23,8 @@ import CreateMeetingDialog from '@/components/meetings/CreateMeetingDialog';
 import {
   EMPTY_ADVANCED_FILTER,
   advancedFilterToParams,
-  maskAdvancedFilter,
   type AdvancedFilterState,
 } from '@/components/meetings/AdvancedFilterDialog';
-import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
-import {
-  advancedFilterVisibility,
-  configureMeetingTypeOptions,
-  loadMeetingsConfig,
-} from '@/lib/meetings/meetingsConfig';
 
 const DEFAULT_TYPE_FALLBACKS = [
   'Planning',
@@ -55,11 +48,6 @@ function dedupeByKey<T>(rows: T[], key: (row: T) => string): T[] {
 
 export default function MeetingsV2Page() {
   const { projectId, activeProject } = useActiveProjectForFlatRoute();
-  const meetingsConfigVersion = useOptionConfigVersion();
-
-  useEffect(() => {
-    if (projectId) void loadMeetingsConfig(projectId);
-  }, [projectId]);
 
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -86,12 +74,6 @@ export default function MeetingsV2Page() {
     };
   }, [search]);
 
-  const advancedFieldVisibility = useMemo(
-    () => advancedFilterVisibility(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [meetingsConfigVersion],
-  );
-
   const queryParams = useMemo<MeetingListQueryParams>(() => {
     const base: MeetingListQueryParams = {
       ordering: '-created_at',
@@ -100,11 +82,9 @@ export default function MeetingsV2Page() {
     if (debouncedSearch) base.q = debouncedSearch;
     if (typeSlug) base.meeting_type = [typeSlug];
     if (tagSlug) base.tag = tagSlug;
-    const advParams = advancedFilterToParams(
-      maskAdvancedFilter(advanced, advancedFieldVisibility),
-    );
+    const advParams = advancedFilterToParams(advanced);
     return { ...base, ...advParams };
-  }, [debouncedSearch, typeSlug, tagSlug, advanced, advancedFieldVisibility]);
+  }, [debouncedSearch, typeSlug, tagSlug, advanced]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -148,12 +128,6 @@ export default function MeetingsV2Page() {
     );
   }, [rows]);
 
-  const filterTypeOptions = useMemo(
-    () => configureMeetingTypeOptions(typeOptions),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [typeOptions, meetingsConfigVersion],
-  );
-
   const typeSuggestions = useMemo(() => {
     const labels = typeOptions.map((t) => t.label);
     const merged = [...new Set([...labels, ...DEFAULT_TYPE_FALLBACKS])];
@@ -190,8 +164,7 @@ export default function MeetingsV2Page() {
             onSearchChange={setSearch}
             typeSlug={typeSlug}
             onTypeSlugChange={setTypeSlug}
-            typeOptions={filterTypeOptions}
-            advancedFieldVisibility={advancedFieldVisibility}
+            typeOptions={typeOptions}
             tagSlug={tagSlug}
             onTagSlugChange={setTagSlug}
             tagOptions={tagOptions}

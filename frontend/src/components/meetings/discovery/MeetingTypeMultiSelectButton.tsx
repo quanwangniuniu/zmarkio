@@ -9,6 +9,8 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { MEETING_TYPE_FILTER_OPTIONS } from '@/lib/meetings/meetingTypeSlugs';
+import { configureMeetingTypeOptions } from '@/lib/meetings/meetingsConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { cn } from '@/lib/utils';
 
 export type MeetingTypeMultiSelectButtonProps = {
@@ -16,8 +18,6 @@ export type MeetingTypeMultiSelectButtonProps = {
   value: string[];
   onChange: (next: string[]) => void;
   disabled?: boolean;
-  /** Optional D12 configuration seam. Omitted means all meeting types are visible. */
-  visibleTypeSlugs?: string[];
 };
 
 /**
@@ -27,14 +27,8 @@ export function MeetingTypeMultiSelectButton({
   value,
   onChange,
   disabled,
-  visibleTypeSlugs,
 }: MeetingTypeMultiSelectButtonProps) {
-  const visibleOptions = visibleTypeSlugs
-    ? MEETING_TYPE_FILTER_OPTIONS.filter((option) =>
-        visibleTypeSlugs.includes(option.slug),
-      )
-    : MEETING_TYPE_FILTER_OPTIONS;
-
+  useOptionConfigVersion();
   const n = value.length;
   const label =
     n === 0 ? 'Meeting type' : n === 1 ? 'Meeting type · 1' : `Meeting type · ${n}`;
@@ -72,7 +66,7 @@ export function MeetingTypeMultiSelectButton({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <div className="max-h-[min(60vh,320px)] overflow-y-auto py-1">
-          {visibleOptions.map((o) => {
+          {configureMeetingTypeOptions(MEETING_TYPE_FILTER_OPTIONS).map((o) => {
             const checked = value.includes(o.slug);
             return (
               <button
