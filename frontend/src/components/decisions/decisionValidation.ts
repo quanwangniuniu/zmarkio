@@ -112,8 +112,7 @@ export const FIELD_MESSAGES = {
   confidenceOutOfRange: (value: number) => `Saved value ${value} is out of range. Choose 1–5.`,
   topicNameEmpty: 'Enter a topic name.',
   topicKeyEmpty: 'Include at least one letter or number (a–z, 0–9).',
-  topicKeyTooLong: (length: number) =>
-    `Shorten the name — its key would be ${length} characters (max ${DECISION_LIMITS.topicKey}).`,
+  topicKeyTooLong: `This name is too long. Use ${DECISION_LIMITS.topicKey} characters or fewer.`,
   topicKeyExists: (key: string) => `A topic with the key ${key} already exists. Choose another name.`,
 } as const;
 
@@ -152,7 +151,7 @@ export function validateNewTopicName(name: string, existingKeys: Iterable<string
   const key = toTopicKey(name);
   if (!key) return { key, error: FIELD_MESSAGES.topicKeyEmpty };
   if (key.length > DECISION_LIMITS.topicKey) {
-    return { key, error: FIELD_MESSAGES.topicKeyTooLong(key.length) };
+    return { key, error: FIELD_MESSAGES.topicKeyTooLong };
   }
   const existing = new Set(Array.from(existingKeys, (k) => k.trim().toLowerCase()));
   if (existing.has(key)) return { key, error: FIELD_MESSAGES.topicKeyExists(key) };

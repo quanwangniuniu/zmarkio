@@ -94,7 +94,7 @@ describe('validateNewTopicName', () => {
 
   it('rejects a key longer than 64 characters', () => {
     expect(validateNewTopicName('a'.repeat(72), []).error).toBe(
-      'Shorten the name — its key would be 72 characters (max 64).',
+      'This name is too long. Use 64 characters or fewer.',
     );
   });
 
