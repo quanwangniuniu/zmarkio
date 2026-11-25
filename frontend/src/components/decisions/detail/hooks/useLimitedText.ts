@@ -31,7 +31,7 @@ export const isComposingKey = (e: KeyboardEvent) =>
   e.nativeEvent.isComposing || e.keyCode === 229;
 
 export function useLimitedText({ value, onChange, max, counterFrom, singleLine, maxHeight }: Options) {
-  const ref = useRef<HTMLTextAreaElement>(null);
+  const elementRef = useRef<HTMLTextAreaElement | null>(null);
   const [pastedCut, setPastedCut] = useState(false);
   // Firefox fires an input event after compositionend, before the parent
   // re-renders; compare against this so it can't undo the clip.
@@ -47,7 +47,7 @@ export function useLimitedText({ value, onChange, max, counterFrom, singleLine, 
   };
 
   const grow = useCallback(() => {
-    const el = ref.current;
+    const el = elementRef.current;
     if (!el) return;
     el.style.height = 'auto';
     const full = el.scrollHeight;
@@ -55,10 +55,19 @@ export function useLimitedText({ value, onChange, max, counterFrom, singleLine, 
     el.style.overflowY = maxHeight && full > maxHeight ? 'auto' : 'hidden';
   }, [maxHeight]);
 
+  // Measure on mount too: the textarea may appear after the value is set (e.g. on Edit).
+  const ref = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      elementRef.current = el;
+      if (el) grow();
+    },
+    [grow],
+  );
+
   useLayoutEffect(() => {
     latestRef.current = value;
     grow();
-    const el = ref.current;
+    const el = elementRef.current;
     if (el && pendingCaretRef.current != null) {
       el.setSelectionRange(pendingCaretRef.current, pendingCaretRef.current);
       pendingCaretRef.current = null;
@@ -141,6 +150,7 @@ export function useLimitedText({ value, onChange, max, counterFrom, singleLine, 
       onCompositionStart,
       onCompositionEnd,
     },
+    elementRef,
     length,
     message,
     clearNotice: () => setPastedCut(false),

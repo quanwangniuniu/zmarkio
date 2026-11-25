@@ -35,11 +35,11 @@ export default function DecisionOptionTextField({
     counterFrom: COUNTER_THRESHOLDS.optionText,
     maxHeight: 180,
   });
-  const { ref } = text.textareaProps;
+  const { elementRef } = text;
 
   useEffect(() => {
-    if (focusOnMount) ref.current?.focus();
-  }, [focusOnMount, ref]);
+    if (focusOnMount) elementRef.current?.focus();
+  }, [focusOnMount, elementRef]);
 
   const showHint = !!error || (focused && (text.length.showCounter || text.message != null));
 

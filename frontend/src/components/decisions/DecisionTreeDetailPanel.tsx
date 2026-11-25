@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useBuildUrl } from '@/lib/buildUrl';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { ExternalLink, Loader2, Pencil, Save, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DecisionStatusPill from '@/components/decisions/DecisionStatusPill';
@@ -19,6 +19,9 @@ import DecisionSignalDialog, {
 import DecisionSignalsSection from '@/components/decisions/detail/DecisionSignalsSection';
 import DraftOwnerNotice from '@/components/decisions/detail/DraftOwnerNotice';
 import { useDecisionDetail } from '@/components/decisions/detail/hooks/useDecisionDetail';
+import { isComposingKey, useLimitedText } from '@/components/decisions/detail/hooks/useLimitedText';
+import TextLimitHint from '@/components/decisions/detail/TextLimitHint';
+import { COUNTER_THRESHOLDS, DECISION_LIMITS } from '@/components/decisions/decisionValidation';
 import { OWNER_ONLY_STATUSES, useDraftOwnerLock } from '@/components/decisions/detail/hooks/useDraftOwnerLock';
 import { useProjectRole } from '@/components/decisions/detail/hooks/useProjectRole';
 import { DecisionAPI } from '@/lib/api/decisionApi';
@@ -88,6 +91,15 @@ export default function DecisionTreeDetailPanel({
 
   const [editing, setEditing] = useState(false);
   const [localTitle, setLocalTitle] = useState('');
+  const [titleFocused, setTitleFocused] = useState(false);
+  const titleHintId = useId();
+  const titleText = useLimitedText({
+    value: localTitle,
+    onChange: setLocalTitle,
+    max: DECISION_LIMITS.title,
+    counterFrom: COUNTER_THRESHOLDS.title,
+    singleLine: true,
+  });
   const [panelDraft, setPanelDraft] = useState<PanelDraft | null>(null);
   const [saving, setSaving] = useState(false);
   const [signalDialogOpen, setSignalDialogOpen] = useState(false);
@@ -221,10 +233,15 @@ export default function DecisionTreeDetailPanel({
       toast.success('Saved');
       await notifyUpdated(isProvisional);
       onProvisionalSaved?.();
+    } catch {
+      // saveDecision already showed a toast; stay in edit mode.
     } finally {
       setSaving(false);
     }
   };
+
+  const showTitleHint =
+    titleFocused && (titleText.length.showCounter || titleText.message != null);
 
   const displayContext = fieldsEditable ? panelDraft.contextSummary : (contextSummary ?? '');
   const displayReasoning = fieldsEditable ? panelDraft.reasoning : (reasoning ?? '');
@@ -293,14 +310,27 @@ export default function DecisionTreeDetailPanel({
                 {saving && <span className="text-[11px] text-gray-400">Saving…</span>}
               </div>
               {fieldsEditable ? (
-                <input
-                  type="text"
-                  value={localTitle}
-                  onChange={(e) => setLocalTitle(e.target.value)}
-                  placeholder="Untitled decision"
-                  aria-label="Decision title"
-                  className="mt-1 w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-[15px] font-semibold leading-snug text-gray-900 placeholder:text-gray-300 outline-none transition focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
-                />
+                <>
+                  <textarea
+                    {...titleText.textareaProps}
+                    // The panel saves all fields together, so Enter doesn't save here.
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !isComposingKey(e)) e.preventDefault();
+                    }}
+                    onFocus={() => setTitleFocused(true)}
+                    onBlur={() => {
+                      setTitleFocused(false);
+                      titleText.clearNotice();
+                    }}
+                    placeholder="Untitled decision"
+                    aria-label="Decision title"
+                    aria-describedby={showTitleHint ? titleHintId : undefined}
+                    className="mt-1 block w-full resize-none break-words rounded-md border border-gray-200 bg-white px-2 py-1 text-[15px] font-semibold leading-snug text-gray-900 placeholder:text-gray-300 outline-none transition focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
+                  />
+                  {showTitleHint && (
+                    <TextLimitHint id={titleHintId} length={titleText.length} message={titleText.message} />
+                  )}
+                </>
               ) : (
                 <h2 className="mt-1 line-clamp-2 text-[15px] font-semibold leading-snug text-gray-900">
                   {title?.trim() || 'Untitled decision'}
