@@ -6,11 +6,14 @@ from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 
+from access_control.models import UserRole
 from authentication import mfa
 from authentication.models import MfaDevice
-from core.admin_utils import assign_org_admin
-from core.models import CustomUser, Organization
+from core.admin_utils import assign_org_admin, is_org_admin
+from core.models import CustomUser, Organization, OrganizationMembership, Role
 from core.services.auth_tokens import build_user_refresh_token
+from core.services.tenant import slug_to_schema_name
+from core.tenant_context import tenant_schema_context
 
 
 pytestmark = pytest.mark.django_db
@@ -125,16 +128,64 @@ def test_admin_finishes_setup_from_profile_and_regains_access(org_admin):
     assert response.status_code == 200
 
 
+# --- every way admin records can be stored ----------------------------------
+#
+# Admin status lives in two places: A = an 'admin' OrganizationMembership
+# (public schema only) and B = a level-2 UserRole (a tenant table, so it can end
+# up in the org's own schema or in public, depending on the search_path when it
+# was written). The gate must block exactly the users is_org_admin() treats as
+# admins, whichever combination they have.
+
+def give_membership_admin(user, organization):
+    OrganizationMembership.objects.create(user=user, organization=organization, role="admin", is_active=True)
+
+
+def give_level2_role(user, organization):
+    role, _ = Role.objects.get_or_create(
+        organization=organization, name="Organization Admin", defaults={"level": 2}
+    )
+    UserRole.objects.create(user=user, role=role)
+
+
+ADMIN_RECORD_CASES = {
+    # case id: (has A, where B is, is an admin)
+    "A_and_B_in_org_schema": (True, "org", True),
+    "A_and_B_in_public": (True, "public", True),
+    "A_only": (True, None, True),
+    "B_in_org_schema_only": (False, "org", True),
+    "B_in_public_only": (False, "public", False),
+    "no_admin_records": (False, None, False),
+}
+
+
+@pytest.mark.parametrize(
+    "has_membership, role_schema, is_admin",
+    list(ADMIN_RECORD_CASES.values()),
+    ids=list(ADMIN_RECORD_CASES),
+)
+def test_mfa_gate_matches_is_org_admin_for_every_record_combination(
+    organization, has_membership, role_schema, is_admin
+):
+    user = make_user(organization, "case@mfa-gate.com")
+    if has_membership:
+        give_membership_admin(user, organization)
+    if role_schema == "org":
+        with tenant_schema_context(slug_to_schema_name(organization.slug)):
+            give_level2_role(user, organization)
+    elif role_schema == "public":
+        give_level2_role(user, organization)
+
+    response = client_with(pre_mfa_token(user)).get(ADMIN_API)
+
+    assert is_org_admin(user) is is_admin
+    if is_admin:
+        assert response.status_code == 403
+        assert response.json()["errorCode"] == "MFA_REQUIRED"
+    else:
+        assert response.json().get("errorCode") != "MFA_REQUIRED"
+
+
 # --- not affected ------------------------------------------------------------
-
-def test_member_requests_are_not_mfa_gated(organization):
-    member = make_user(organization, "member@mfa-gate.com")
-
-    response = client_with(pre_mfa_token(member)).get(ADMIN_API)
-
-    assert response.status_code == 403
-    assert response.json().get("errorCode") != "MFA_REQUIRED"
-
 
 def test_superuser_is_not_mfa_gated(organization):
     superuser = make_user(organization, "root@mfa-gate.com", is_superuser=True)
