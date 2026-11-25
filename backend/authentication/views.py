@@ -847,22 +847,27 @@ class GoogleOAuthCallbackView(APIView):
                         redirect_url = f"{settings.FRONTEND_URL}/set-password?token={temp_token}"
                         return redirect(redirect_url)
                     
-                    # User exists and has password - log them in
-                    refresh = build_user_refresh_token(user)
-                    profile_data = UserProfileSerializer(user).data
-                    custom_access_token = generate_organization_access_token(user)
-                    
-                    print(f"[GOOGLE OAUTH] Login successful for existing user")
-                    
-                    # Generate a temporary token for secure auth data transfer
                     import json
                     import base64
-                    auth_data = {
-                        'token': str(refresh.access_token),
-                        'refresh': str(refresh),
-                        'user': profile_data,
-                        'organization_access_token': custom_access_token
-                    }
+                    # Org admins still need MFA after Google sign-in (MED-326):
+                    # send the same challenge as /auth/login/ instead of tokens.
+                    if mfa.requires_mfa(user):
+                        auth_data = mfa_challenge_payload(user)
+                    else:
+                        # User exists and has password - log them in
+                        refresh = build_user_refresh_token(user)
+                        profile_data = UserProfileSerializer(user).data
+                        custom_access_token = generate_organization_access_token(user)
+
+                        print(f"[GOOGLE OAUTH] Login successful for existing user")
+
+                        # Generate a temporary token for secure auth data transfer
+                        auth_data = {
+                            'token': str(refresh.access_token),
+                            'refresh': str(refresh),
+                            'user': profile_data,
+                            'organization_access_token': custom_access_token
+                        }
                     
                     # Encode auth data as base64 for URL transmission
                     auth_data_json = json.dumps(auth_data)

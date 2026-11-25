@@ -8,10 +8,15 @@ from django.contrib.auth import get_user_model
 from unittest.mock import patch, Mock
 import jwt
 import time
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
+import base64
+import json
 
 from django.core import signing
+from authentication import mfa
 from authentication.views import GOOGLE_OAUTH_STATE_SALT, build_google_oauth_state
+from core.admin_utils import assign_org_admin
+from core.models import Organization
 
 User = get_user_model()
 
@@ -183,6 +188,57 @@ class GoogleOAuthCallbackViewTest(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn('/auth/google/callback', response.url)
         self.assertIn('auth_data=', response.url)
+
+    @patch('authentication.views.OAuth2Session')
+    @patch('authentication.views.jwt.decode')
+    @patch('authentication.views.jwt.get_unverified_header')
+    @patch('authentication.views.requests.get')
+    @patch('cryptography.x509.load_pem_x509_certificate')
+    def test_callback_org_admin_gets_mfa_challenge_instead_of_tokens(self, mock_load_cert, mock_requests, mock_get_header, mock_jwt_decode, mock_oauth_session):
+        """MED-326: Google sign-in must not let an org admin skip MFA."""
+        organization = Organization.objects.create(name='Google MFA Org')
+        user = User.objects.create_user(
+            username='googleadmin',
+            email='admin@gmail.com',
+            password='Password123!',
+            google_id='google_admin_id',
+            google_registered=True,
+            password_set=True,
+            is_verified=True,
+            organization=organization,
+        )
+        assign_org_admin(user, organization)
+
+        mock_get_header.return_value = {'kid': 'key_id_admin'}
+        mock_cert = Mock()
+        mock_cert.public_key.return_value = Mock()
+        mock_load_cert.return_value = mock_cert
+        mock_jwt_decode.return_value = {
+            'sub': 'google_admin_id',
+            'email': 'admin@gmail.com',
+            'email_verified': True,
+            'name': 'Google Admin'
+        }
+        mock_session_instance = Mock()
+        mock_session_instance.fetch_token.return_value = {
+            'id_token': 'fake_id_token',
+            'access_token': 'fake_access_token'
+        }
+        mock_oauth_session.return_value = mock_session_instance
+        mock_requests.return_value.json.return_value = {
+            'key_id_admin': '-----BEGIN CERTIFICATE-----\nfake_cert\n-----END CERTIFICATE-----'
+        }
+
+        response = self.client.get(self._callback_url(state=self._signed_state()))
+
+        self.assertEqual(response.status_code, 302)
+        encoded = parse_qs(urlparse(response.url).query)['auth_data'][0]
+        auth_data = json.loads(base64.urlsafe_b64decode(encoded))
+        self.assertTrue(auth_data['mfa_required'])
+        self.assertTrue(auth_data['mfa_enrollment_required'])
+        self.assertEqual(mfa.read_mfa_token(auth_data['mfa_token']), user)
+        self.assertNotIn('token', auth_data)
+        self.assertNotIn('refresh', auth_data)
     
     @patch('authentication.views.OAuth2Session')
     @patch('authentication.views.jwt.decode')
