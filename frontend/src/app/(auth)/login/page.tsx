@@ -7,6 +7,7 @@ import AuthFormWrapper from '@/components/auth/AuthFormWrapper';
 import AuthFeedback from '@/components/auth/AuthFeedback';
 import AuthFields from '@/components/auth/AuthFields';
 import AuthSubmit from '@/components/auth/AuthSubmit';
+import MfaSetupWizard from '@/components/auth/MfaSetupWizard';
 import MfaVerifyStep from '@/components/auth/MfaVerifyStep';
 import useAuth from '@/hooks/useAuth';
 import { useAuthStore } from '@/lib/authStore';
@@ -29,7 +30,7 @@ type LoginSecurityNotice = {
 function LoginPageContent() {
   const router = useRouter();
   const { login } = useAuth();
-  const { initialized, loading: authLoading, isAuthenticated } = useAuthStore();
+  const { initialized, loading: authLoading, isAuthenticated, completeLogin } = useAuthStore();
   const [formData, setFormData] = useState<LoginRequest>({
     email: '',
     password: ''
@@ -308,17 +309,31 @@ function LoginPageContent() {
   if (mfaChallenge?.enrollmentRequired) {
     return (
       <AuthFormWrapper title="Set up two-step verification">
-        <div className="space-y-6 text-center">
+        <div className="space-y-6">
           <p className="text-sm text-gray-600">
             Organization admins must set up two-step verification before signing in.
           </p>
-          <button
-            type="button"
-            onClick={() => setMfaChallenge(null)}
-            className="text-sm font-medium text-gray-600 hover:text-gray-500 transition-colors"
-          >
-            Back to sign in
-          </button>
+          <MfaSetupWizard
+            mfaToken={mfaChallenge.mfaToken}
+            onComplete={async (response) => {
+              // Only now, after the recovery codes were saved, is the admin signed in.
+              await completeLogin(response);
+              router.push(buildUrl('/overview'));
+            }}
+            onExpired={() => {
+              toast.error('Your sign-in has expired. Please sign in again.', { position: 'top-center' });
+              setMfaChallenge(null);
+            }}
+          />
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => setMfaChallenge(null)}
+              className="text-sm font-medium text-gray-600 hover:text-gray-500 transition-colors"
+            >
+              Back to sign in
+            </button>
+          </div>
         </div>
       </AuthFormWrapper>
     );

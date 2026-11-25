@@ -19,6 +19,7 @@ import {
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import PrivacyExportPanel from '@/components/profile/PrivacyExportPanel';
+import MfaProfileSection from '@/components/profile/MfaProfileSection';
 import useAuth from '@/hooks/useAuth';
 import { useAuthStore } from '@/lib/authStore';
 import { useRouter } from 'next/navigation';
@@ -27,13 +28,15 @@ import { authAPI, readPersistedAuthState } from '@/lib/api';
 import { Skeleton } from '@/components/ui/skeleton';
 import { OrganizationAPI, OrgListItem } from '@/lib/api/organizationApi';
 
-type SectionKey = 'overview' | 'organization' | 'privacy' | 'sessions';
+type SectionKey = 'overview' | 'organization' | 'privacy' | 'sessions' | 'security';
 
 const SECTIONS: Array<{ id: SectionKey; label: string }> = [
   { id: 'overview', label: 'Overview' },
   { id: 'organization', label: 'Organization' },
   { id: 'privacy', label: 'Privacy' },
   { id: 'sessions', label: 'Active Sessions' },
+  // MED-326: org admins only (filtered below).
+  { id: 'security', label: 'Security' },
 ];
 
 const getInitials = (name?: string | null): string => {
@@ -211,6 +214,14 @@ function ProfileContent() {
   const setUser = useAuthStore((s) => s.setUser);
   const router = useRouter();
   const [activeSection, setActiveSection] = useState<SectionKey>('overview');
+  // MED-326: admins blocked by MFA_REQUIRED are sent to /profile?mfa=setup.
+  const [mfaSetupRequested, setMfaSetupRequested] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('mfa') === 'setup') {
+      setMfaSetupRequested(true);
+      setActiveSection('security');
+    }
+  }, []);
   const [saving, setSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -676,6 +687,7 @@ function ProfileContent() {
     if (activeSection === 'overview') return renderOverview();
     if (activeSection === 'organization') return renderOrganization();
     if (activeSection === 'sessions') return renderSessions();
+    if (activeSection === 'security') return <MfaProfileSection autoStart={mfaSetupRequested} />;
     return <PrivacyExportPanel />;
   };
 
@@ -840,7 +852,7 @@ function ProfileContent() {
                 <div className="rounded-lg border border-gray-200 bg-white">
                   <div className="border-b border-gray-200">
                     <nav className="flex gap-6 px-5" aria-label="Profile sections">
-                      {SECTIONS.map((section) => {
+                      {SECTIONS.filter((section) => section.id !== 'security' || user?.is_org_admin).map((section) => {
                         const active = activeSection === section.id;
                         return (
                           <button
