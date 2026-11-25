@@ -75,3 +75,32 @@ test('org admin signs in with a recovery code, which works only once', async ({ 
   await expectAdminPageBlocked(secondPage);
   await secondSession.close();
 });
+
+test('org admin without MFA must set it up at next sign-in', async ({ page, newOrgAdmin }) => {
+  await signInWithPassword(page, newOrgAdmin.email, newOrgAdmin.password);
+
+  // The correct password alone only leads to the setup wizard.
+  await expect(page.getByRole('heading', { name: 'Set up two-step verification' })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'MFA QR code' })).toBeVisible();
+  await expectAdminPageBlocked(page);
+
+  // Add the key to the "authenticator app" and confirm with its first code.
+  await signInWithPassword(page, newOrgAdmin.email, newOrgAdmin.password);
+  const secret = (await page.getByTestId('mfa-secret').textContent())!.trim();
+  newOrgAdmin.secret = secret; // lets the fixture sign in again to clean up
+  await page.getByLabel('Verification code').fill(totp(secret));
+  await page.getByRole('button', { name: 'Verify and turn on' }).click();
+
+  // Recovery codes are shown once; Continue waits until the admin confirms saving them.
+  await expect(page.getByRole('list', { name: 'Recovery codes' }).getByRole('listitem')).toHaveCount(10);
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download' }).click();
+  expect((await download).suggestedFilename()).toBe('mediajira-recovery-codes.txt');
+  const continueButton = page.getByRole('button', { name: 'Continue' });
+  await expect(continueButton).toBeDisabled();
+  await page.getByLabel('I have saved these recovery codes').check();
+  await continueButton.click();
+
+  await expect(page).toHaveURL(/\/overview/);
+  await expectAdminPageOpens(page);
+});
