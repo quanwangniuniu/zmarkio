@@ -10,6 +10,7 @@ import { useBuildUrl } from '@/lib/buildUrl';
 import { DecisionAPI } from '@/lib/api/decisionApi';
 
 import DecisionDetailHeader from '@/components/decisions/detail/DecisionDetailHeader';
+import { extractFieldErrors } from '@/components/decisions/decisionValidation';
 import DecisionFSMActionBar from '@/components/decisions/detail/DecisionFSMActionBar';
 import DecisionPropertiesAside from '@/components/decisions/detail/DecisionPropertiesAside';
 import DecisionCommitChecklistAside from '@/components/decisions/detail/DecisionCommitChecklistAside';
@@ -125,8 +126,19 @@ function DecisionDetailContent() {
   };
 
   // ---- Patch helpers ----
+  const saveDraft = async (payload: Parameters<typeof detail.patchDraft>[0], fields: string[]) => {
+    try {
+      await detail.patchDraft(payload);
+      clearFieldError(...fields);
+    } catch (err) {
+      const errors = extractFieldErrors(err);
+      if (Object.keys(errors).length > 0) setFieldErrors((prev) => ({ ...prev, ...errors }));
+      throw err;
+    }
+  };
+
   const handleTitleSave = async (next: string) => {
-    await detail.patchDraft({ title: next || null });
+    await saveDraft({ title: next || null }, ['title']);
     toast.success('Saved');
   };
   const handleContextSave = async (next: string) => {
@@ -138,19 +150,16 @@ function DecisionDetailContent() {
     clearFieldError('reasoning');
   };
   const handleRiskChange = async (next: DecisionRiskLevel | null) => {
-    await detail.patchDraft({ riskLevel: next });
-    clearFieldError('riskLevel');
+    await saveDraft({ riskLevel: next }, ['riskLevel']);
   };
   const handleConfidenceChange = async (next: number | null) => {
-    await detail.patchDraft({ confidenceScore: next });
-    clearFieldError('confidenceScore');
+    await saveDraft({ confidenceScore: next }, ['confidenceScore']);
   };
   const handlePlannedDateChange = async (next: string | null) => {
     await detail.patchDraft({ plannedDecisionDate: next } as any);
   };
   const handleOptionsSave = async (next: DecisionOptionDraft[]) => {
-    await detail.patchDraft({ options: next });
-    clearFieldError('options', 'selectedOption');
+    await saveDraft({ options: next }, ['options', 'selectedOption']);
   };
 
   // ---- FSM actions ----
@@ -369,6 +378,8 @@ function DecisionDetailContent() {
             createdByAgent={createdByAgent}
             editable={editable}
             onTitleSave={handleTitleSave}
+            error={fieldErrors.title}
+            onErrorDismiss={() => clearFieldError('title')}
             actionBar={actionBar}
           />
 

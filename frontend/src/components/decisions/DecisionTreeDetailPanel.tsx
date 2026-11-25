@@ -21,7 +21,7 @@ import DraftOwnerNotice from '@/components/decisions/detail/DraftOwnerNotice';
 import { useDecisionDetail } from '@/components/decisions/detail/hooks/useDecisionDetail';
 import { isComposingKey, useLimitedText } from '@/components/decisions/detail/hooks/useLimitedText';
 import TextLimitHint from '@/components/decisions/detail/TextLimitHint';
-import { COUNTER_THRESHOLDS, DECISION_LIMITS } from '@/components/decisions/decisionValidation';
+import { COUNTER_THRESHOLDS, DECISION_LIMITS, extractFieldErrors } from '@/components/decisions/decisionValidation';
 import { OWNER_ONLY_STATUSES, useDraftOwnerLock } from '@/components/decisions/detail/hooks/useDraftOwnerLock';
 import { useProjectRole } from '@/components/decisions/detail/hooks/useProjectRole';
 import { DecisionAPI } from '@/lib/api/decisionApi';
@@ -92,10 +92,14 @@ export default function DecisionTreeDetailPanel({
   const [editing, setEditing] = useState(false);
   const [localTitle, setLocalTitle] = useState('');
   const [titleFocused, setTitleFocused] = useState(false);
+  const [panelErrors, setPanelErrors] = useState<Record<string, string>>({});
   const titleHintId = useId();
   const titleText = useLimitedText({
     value: localTitle,
-    onChange: setLocalTitle,
+    onChange: (next) => {
+      setLocalTitle(next);
+      setPanelErrors(({ title: _dismissed, ...rest }) => rest);
+    },
     max: DECISION_LIMITS.title,
     counterFrom: COUNTER_THRESHOLDS.title,
     singleLine: true,
@@ -214,10 +218,12 @@ export default function DecisionTreeDetailPanel({
     setEditing(false);
     setPanelDraft(null);
     setLocalTitle(title ?? '');
+    setPanelErrors({});
   };
 
   const handleSaveAll = async () => {
     if (!panelDraft) return;
+    setPanelErrors({});
     setSaving(true);
     try {
       await detail.saveDecision({
@@ -233,15 +239,17 @@ export default function DecisionTreeDetailPanel({
       toast.success('Saved');
       await notifyUpdated(isProvisional);
       onProvisionalSaved?.();
-    } catch {
+    } catch (err) {
       // saveDecision already showed a toast; stay in edit mode.
+      setPanelErrors(extractFieldErrors(err));
     } finally {
       setSaving(false);
     }
   };
 
   const showTitleHint =
-    titleFocused && (titleText.length.showCounter || titleText.message != null);
+    !!panelErrors.title ||
+    (titleFocused && (titleText.length.showCounter || titleText.message != null));
 
   const displayContext = fieldsEditable ? panelDraft.contextSummary : (contextSummary ?? '');
   const displayReasoning = fieldsEditable ? panelDraft.reasoning : (reasoning ?? '');
@@ -325,10 +333,16 @@ export default function DecisionTreeDetailPanel({
                     placeholder="Untitled decision"
                     aria-label="Decision title"
                     aria-describedby={showTitleHint ? titleHintId : undefined}
-                    className="mt-1 block w-full resize-none break-words rounded-md border border-gray-200 bg-white px-2 py-1 text-[15px] font-semibold leading-snug text-gray-900 placeholder:text-gray-300 outline-none transition focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
+                    aria-invalid={panelErrors.title ? true : undefined}
+                    className={`mt-1 block w-full resize-none break-words rounded-md border ${panelErrors.title ? 'border-rose-400' : 'border-gray-200'} bg-white px-2 py-1 text-[15px] font-semibold leading-snug text-gray-900 placeholder:text-gray-300 outline-none transition focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30`}
                   />
                   {showTitleHint && (
-                    <TextLimitHint id={titleHintId} length={titleText.length} message={titleText.message} />
+                    <TextLimitHint
+                      id={titleHintId}
+                      length={titleText.length}
+                      message={titleText.message}
+                      error={panelErrors.title}
+                    />
                   )}
                 </>
               ) : (
@@ -415,6 +429,7 @@ export default function DecisionTreeDetailPanel({
                 onPlannedDateChange={(next) =>
                   setPanelDraft((d) => (d ? { ...d, plannedDecisionDate: next } : d))
                 }
+                errors={{ risk: panelErrors.riskLevel, confidence: panelErrors.confidenceScore }}
               />
               {originMeeting ? (
                 <DecisionOriginMeetingBlock origin={originMeeting} projectId={projectId} />
@@ -430,6 +445,7 @@ export default function DecisionTreeDetailPanel({
               <DecisionOptionsSection
                 value={displayOptions}
                 editable={ownerFieldsEditable}
+                error={panelErrors.options}
                 onSave={(next) => setPanelDraft((d) => (d ? { ...d, options: next } : d))}
               />
               <DecisionReasoningSection

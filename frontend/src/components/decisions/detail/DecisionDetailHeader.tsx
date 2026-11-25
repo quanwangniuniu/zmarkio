@@ -22,6 +22,8 @@ interface Props {
   createdByAgent?: boolean;
   editable: boolean;
   onTitleSave: (next: string) => void | Promise<void>;
+  error?: string | null;
+  onErrorDismiss?: () => void;
   actionBar?: ReactNode;
 }
 
@@ -35,6 +37,8 @@ export default function DecisionDetailHeader({
   createdByAgent,
   editable,
   onTitleSave,
+  error,
+  onErrorDismiss,
   actionBar,
 }: Props) {
   const [local, setLocal] = useState(title ?? '');
@@ -45,7 +49,10 @@ export default function DecisionDetailHeader({
 
   const text = useLimitedText({
     value: local,
-    onChange: setLocal,
+    onChange: (next) => {
+      setLocal(next);
+      if (error) onErrorDismiss?.();
+    },
     max: DECISION_LIMITS.title,
     counterFrom: COUNTER_THRESHOLDS.title,
     singleLine: true,
@@ -90,7 +97,8 @@ export default function DecisionDetailHeader({
     }
   };
 
-  const showHint = editable && focused && (text.length.showCounter || text.message != null);
+  const showHint =
+    editable && (!!error || (focused && (text.length.showCounter || text.message != null)));
 
   return (
     <section className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-100 sm:rounded-xl">
@@ -126,9 +134,14 @@ export default function DecisionDetailHeader({
               placeholder="Untitled decision"
               aria-label="Decision title"
               aria-describedby={showHint ? hintId : undefined}
-              className="block w-full resize-none break-words border-0 border-b-2 border-transparent bg-transparent py-1 text-xl font-semibold leading-snug text-gray-900 placeholder:text-gray-300 outline-none transition focus:border-[#3CCED7] sm:text-[22px]"
+              aria-invalid={error ? true : undefined}
+              className={`block w-full resize-none break-words border-0 border-b-2 bg-transparent py-1 text-xl font-semibold leading-snug text-gray-900 placeholder:text-gray-300 outline-none transition sm:text-[22px] ${
+                error ? 'border-rose-400' : 'border-transparent focus:border-[#3CCED7]'
+              }`}
             />
-            {showHint && <TextLimitHint id={hintId} length={text.length} message={text.message} />}
+            {showHint && (
+              <TextLimitHint id={hintId} length={text.length} message={text.message} error={error} />
+            )}
           </>
         ) : (
           <h1 className="break-words text-xl font-semibold text-gray-900 sm:text-[22px]">
