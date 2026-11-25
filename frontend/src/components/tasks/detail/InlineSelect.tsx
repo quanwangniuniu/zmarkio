@@ -18,6 +18,8 @@ interface Props {
   placeholder?: string;
   disabled?: boolean;
   ariaLabel?: string;
+  invalid?: boolean;
+  ariaDescribedBy?: string;
 }
 
 export default function InlineSelect({
@@ -27,12 +29,20 @@ export default function InlineSelect({
   placeholder,
   disabled,
   ariaLabel,
+  invalid,
+  ariaDescribedBy,
 }: Props) {
   return (
     <Select.Root value={value} onValueChange={onValueChange} disabled={disabled}>
       <Select.Trigger
         aria-label={ariaLabel}
-        className="inline-flex min-w-0 w-full items-center justify-between gap-2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-sm text-gray-900 outline-none transition hover:border-gray-300 focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500 [&>span:first-child]:min-w-0 [&>span:first-child]:truncate"
+        aria-invalid={invalid || undefined}
+        aria-describedby={ariaDescribedBy}
+        className={`inline-flex min-w-0 w-full items-center justify-between gap-2 rounded-md border bg-white px-2.5 py-1.5 text-sm text-gray-900 outline-none transition focus:ring-2 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500 [&>span:first-child]:min-w-0 [&>span:first-child]:truncate ${
+          invalid
+            ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-200'
+            : 'border-gray-200 hover:border-gray-300 focus:border-[#3CCED7] focus:ring-[#3CCED7]/30'
+        }`}
       >
         <Select.Value placeholder={placeholder || 'Select…'} />
         <Select.Icon className="shrink-0 text-gray-400">

@@ -2,6 +2,7 @@
 
 import { CheckCircle2, Circle } from 'lucide-react';
 import type { DecisionOptionDraft, DecisionRiskLevel, DecisionSignal } from '@/types/decision';
+import { isConfidenceOutOfRange } from '@/components/decisions/decisionValidation';
 
 interface Props {
   contextSummary: string;
@@ -72,7 +73,7 @@ export default function DecisionCommitChecklistAside({
     {
       key: 'confidence',
       label: 'Confidence score',
-      ok: confidenceScore !== null && confidenceScore !== undefined,
+      ok: confidenceScore != null && !isConfidenceOutOfRange(confidenceScore),
       anchorId: 'decision-field-confidence',
     },
   ];
@@ -132,7 +133,7 @@ export default function DecisionCommitChecklistAside({
         </p>
       ) : (
         <p className="mt-3 text-[11px] text-gray-500">
-          Click an item to jump to the section.
+          Needed to commit — not errors. Drafts save anytime.
         </p>
       )}
     </section>
