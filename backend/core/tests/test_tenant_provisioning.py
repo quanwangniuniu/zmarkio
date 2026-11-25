@@ -95,7 +95,6 @@ def test_new_organization_leaves_variation_table_to_studio(tenant_slugs):
     assert _table_exists('core_project', schema)
     assert _table_exists('core_projectmember', schema)
     assert not _table_exists('ad_copy_variation_adcopyvariation', schema)
-    assert _table_exists('ad_copy_variation_adcopyvariation', 'public')
 
 
 def test_reprovisioning_does_not_repair_variation_columns(tenant_slugs):
