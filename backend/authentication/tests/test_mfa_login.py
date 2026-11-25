@@ -19,6 +19,8 @@ pytestmark = pytest.mark.django_db
 
 LOGIN_URL = "/auth/login/"
 VERIFY_URL = "/auth/mfa/verify/"
+ENROLL_START_URL = "/auth/mfa/enroll/start/"
+ENROLL_CONFIRM_URL = "/auth/mfa/enroll/confirm/"
 PASSWORD = "CurrentPassword123!"
 
 
@@ -236,3 +238,43 @@ def test_verify_needs_exactly_one_of_code_or_recovery_code(enrolled_admin, extra
     response = verify({"mfa_token": login(user).data["mfa_token"], **extra})
 
     assert response.status_code == 400
+
+
+# --- enrollment straight from the login step --------------------------------
+
+def test_unenrolled_admin_enrolls_with_mfa_token_and_is_signed_in(org_admin):
+    client = APIClient()
+    mfa_token = login(org_admin).data["mfa_token"]
+
+    started = client.post(ENROLL_START_URL, {"mfa_token": mfa_token}, format="json")
+    secret = started.data["secret"]
+    confirmed = client.post(
+        ENROLL_CONFIRM_URL,
+        {"mfa_token": mfa_token, "code": pyotp.TOTP(secret).now()},
+        format="json",
+    )
+
+    assert started.status_code == 200
+    assert confirmed.status_code == 200
+    assert len(confirmed.data["recovery_codes"]) == mfa.RECOVERY_CODE_COUNT
+    assert AccessToken(confirmed.data["token"]).payload["mfa_verified"] is True
+    assert login(org_admin).data["mfa_enrollment_required"] is False
+
+
+def test_enroll_start_rejects_invalid_mfa_token():
+    response = APIClient().post(ENROLL_START_URL, {"mfa_token": "not-a-real-token"}, format="json")
+
+    assert response.status_code == 401
+
+
+def test_password_alone_cannot_replace_an_enrolled_admins_authenticator(enrolled_admin):
+    """Someone with only the password must not be able to register their own phone."""
+    user, secret, _ = enrolled_admin
+    mfa_token = login(user).data["mfa_token"]
+
+    response = APIClient().post(ENROLL_START_URL, {"mfa_token": mfa_token}, format="json")
+
+    assert response.status_code == 409
+    assert response.data["errorCode"] == "MFA_ALREADY_ENROLLED"
+    assert "secret" not in response.data
+    assert MfaDevice.objects.get(user=user).get_secret() == secret

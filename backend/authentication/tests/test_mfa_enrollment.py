@@ -1,6 +1,7 @@
 import pyotp
 import pytest
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import AccessToken
 
 from authentication import mfa
 from authentication.models import MfaDevice, RecoveryCode
@@ -96,6 +97,17 @@ def test_confirm_with_correct_code_enrolls_and_returns_recovery_codes_once(org_a
     assert MfaDevice.objects.get(user=org_admin).is_confirmed is True
     assert RecoveryCode.objects.filter(user=org_admin).count() == mfa.RECOVERY_CODE_COUNT
     assert mfa.consume_recovery_code(org_admin, codes[0]) is True
+
+
+def test_confirm_replaces_the_session_token_with_an_mfa_verified_one(org_admin):
+    """An admin who was already signed in gets a token the MFA gate will accept."""
+    client = client_for(org_admin)
+    secret = start(client).data["secret"]
+
+    response = confirm(client, pyotp.TOTP(secret).now())
+
+    assert AccessToken(response.data["token"]).payload["mfa_verified"] is True
+    assert "refresh" in response.data
 
 
 def test_confirm_with_wrong_code_keeps_device_pending(org_admin):

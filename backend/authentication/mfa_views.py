@@ -3,7 +3,7 @@
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -12,7 +12,21 @@ from authentication.login_security import LoginSecurityService
 from authentication.models import MfaDevice
 from authentication.serializers import MfaCodeSerializer, MfaVerifySerializer
 from authentication.views import build_login_response_data
-from core.admin_permissions import IsOrgAdmin
+
+
+class CanEnrollMfa(BasePermission):
+    """Org admins may enroll with either a normal JWT (already signed in) or the
+    mfa_token from /auth/login/ (password accepted, MFA not yet set up)."""
+
+    def has_permission(self, request, view):
+        if request.user and request.user.is_authenticated:
+            user = request.user
+        else:
+            user = mfa.read_mfa_token(str(request.data.get('mfa_token') or ''))
+        if user is None or not mfa.requires_mfa(user):
+            return False
+        request.mfa_user = user
+        return True
 
 
 def _already_enrolled_response():
@@ -25,10 +39,10 @@ def _already_enrolled_response():
 class MfaEnrollStartView(APIView):
     """Create (or replace) a pending authenticator secret and return it for the QR code."""
 
-    permission_classes = [IsAuthenticated, IsOrgAdmin]
+    permission_classes = [CanEnrollMfa]
 
     def post(self, request):
-        user = request.user
+        user = request.mfa_user
         if mfa.get_confirmed_device(user):
             return _already_enrolled_response()
 
@@ -48,14 +62,17 @@ class MfaEnrollStartView(APIView):
 
 
 class MfaEnrollConfirmView(APIView):
-    """Verify the first code from the authenticator app, then issue recovery codes once."""
+    """Verify the first code from the authenticator app, then issue recovery codes once.
 
-    permission_classes = [IsAuthenticated, IsOrgAdmin]
+    Enrolling also completes sign-in: the response includes MFA-verified tokens.
+    """
+
+    permission_classes = [CanEnrollMfa]
 
     def post(self, request):
         serializer = MfaCodeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = request.user
+        user = request.mfa_user
 
         with transaction.atomic():
             device = MfaDevice.objects.select_for_update().filter(user=user).first()
@@ -76,7 +93,12 @@ class MfaEnrollConfirmView(APIView):
             device.save(update_fields=['confirmed_at', 'updated_at'])
             recovery_codes = mfa.generate_recovery_codes(user)
 
-        return Response({'recovery_codes': recovery_codes}, status=status.HTTP_200_OK)
+        LoginSecurityService.clear_successful_login(
+            LoginSecurityService.build_identifiers(request, user.email)
+        )
+        response_data = build_login_response_data(request, user, mfa_verified=True)
+        response_data['recovery_codes'] = recovery_codes
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class MfaVerifyView(APIView):
