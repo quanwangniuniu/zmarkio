@@ -24,7 +24,7 @@ public interface IDecisionRepository
     Task<DecisionSignalDto?> UpdateSignalAsync(string lookup, int signalId, DecisionSignalInput input, CancellationToken ct);
     Task<bool> DeleteSignalAsync(string lookup, int signalId, CancellationToken ct);
     Task<DecisionConnectionsResponse?> GetConnectionsAsync(string lookup, CancellationToken ct);
-    Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, DecisionConnectionsUpdateRequest request, CancellationToken ct);
+    Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, bool isSuperuser, DecisionConnectionsUpdateRequest request, CancellationToken ct);
     Task<DecisionGraphResponse> GetGraphAsync(int projectId, bool allProjects, int userId, bool isSuperuser, CancellationToken ct);
     Task<DecisionTopicLabelResponse?> UpsertTopicLabelAsync(int projectId, string topic, string title, CancellationToken ct);
     Task<TopicLabelDeleteResult> DeleteTopicLabelAsync(int projectId, string topic, CancellationToken ct);
@@ -432,7 +432,7 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
         ));
     }
 
-    public Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, DecisionConnectionsUpdateRequest request, CancellationToken ct)
+    public Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, bool isSuperuser, DecisionConnectionsUpdateRequest request, CancellationToken ct)
     {
         return GetConnectionsAsync(lookup, ct);
     }

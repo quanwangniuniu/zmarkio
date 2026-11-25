@@ -314,7 +314,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
-        var connections = await repository.UpdateConnectionsAsync(lookup, access.UserId, request, cancellationToken);
+        var connections = await repository.UpdateConnectionsAsync(lookup, access.UserId, access.IsSuperuser, request, cancellationToken);
         return connections is null ? BadRequest(new { detail = "Connections could not be updated." }) : Ok(connections);
     }
 

@@ -673,7 +673,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return decision is null ? null : await BuildConnectionsPayloadAsync(connection, decision.Id, decision.ProjectId, decision.ProjectSeq, ct);
     }
 
-    public async Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, DecisionConnectionsUpdateRequest request, CancellationToken ct)
+    public async Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, bool isSuperuser, DecisionConnectionsUpdateRequest request, CancellationToken ct)
     {
         await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
@@ -684,7 +684,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             return null;
         }
 
-        var targetIds = await ResolveConnectionTargetIdsAsync(connection, decision, request, ct);
+        var targetIds = await ResolveConnectionTargetIdsAsync(connection, decision, actorId, isSuperuser, request, ct);
         if (targetIds is null)
         {
             return null;
@@ -1289,6 +1289,8 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
     private async Task<IReadOnlyList<int>?> ResolveConnectionTargetIdsAsync(
         NpgsqlConnection connection,
         DecisionDetailDto decision,
+        int? actorId,
+        bool isSuperuser,
         DecisionConnectionsUpdateRequest request,
         CancellationToken ct
     )
@@ -1320,9 +1322,23 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                   AND target_project.is_deleted = false
                   AND current_project.is_deleted = false
                   AND target_project.organization_id = current_project.organization_id
+                  AND (
+                      target.project_id = @project_id
+                      OR @is_superuser
+                      OR EXISTS (
+                          SELECT 1
+                          FROM core_projectmember member
+                          WHERE member.project_id = target.project_id
+                            AND member.user_id = @user_id
+                            AND member.is_active = true
+                            AND member.is_deleted = false
+                      )
+                  )
                 """;
             byIdCommand.Parameters.AddWithValue("project_id", decision.ProjectId.Value);
             byIdCommand.Parameters.AddWithValue("ids", requestedIds.ToArray());
+            byIdCommand.Parameters.AddWithValue("is_superuser", isSuperuser);
+            AddNullableInteger(byIdCommand, "user_id", actorId);
 
             var byIdResult = new List<int>();
             await using var byIdReader = await byIdCommand.ExecuteReaderAsync(ct);
@@ -1656,6 +1672,43 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             return;
         }
 
+        if (parentDecisionIds.Contains(decisionId))
+        {
+            throw new DecisionValidationException("parentDecisionIds", "Decision cannot reference itself.");
+        }
+
+        var candidateParentIds = parentDecisionIds.Distinct().ToArray();
+        if (candidateParentIds.Length > 0)
+        {
+            using var validationCommand = connection.CreateCommand();
+            validationCommand.Transaction = transaction;
+            validationCommand.CommandText = """
+                WITH RECURSIVE descendants(id) AS (
+                    SELECT to_decision_id
+                    FROM decision_edges
+                    WHERE from_decision_id = @decision_id
+                      AND edge_type = 'FOLLOW_UP'
+                      AND is_deleted = false
+                    UNION
+                    SELECT edge.to_decision_id
+                    FROM decision_edges edge
+                    JOIN descendants ON descendants.id = edge.from_decision_id
+                    WHERE edge.edge_type = 'FOLLOW_UP'
+                      AND edge.is_deleted = false
+                )
+                SELECT EXISTS (
+                    SELECT 1 FROM descendants WHERE id = ANY(@parent_ids)
+                )
+                """;
+            validationCommand.Parameters.AddWithValue("decision_id", decisionId);
+            validationCommand.Parameters.AddWithValue("parent_ids", candidateParentIds);
+            if (Convert.ToBoolean(await validationCommand.ExecuteScalarAsync(ct)))
+            {
+                throw new DecisionValidationException(
+                    "parentDecisionIds", "Adding this parent introduces a cycle.");
+            }
+        }
+
         using (var deleteCommand = connection.CreateCommand())
         {
             deleteCommand.Transaction = transaction;
@@ -1664,7 +1717,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             await deleteCommand.ExecuteNonQueryAsync(ct);
         }
 
-        foreach (var parentId in parentDecisionIds.Distinct().Where(parentId => parentId != decisionId))
+        foreach (var parentId in candidateParentIds)
         {
             using var command = connection.CreateCommand();
             command.Transaction = transaction;

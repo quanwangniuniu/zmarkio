@@ -94,7 +94,13 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         Assert.Null(await repository.GetAsync(GlobexSlug, CancellationToken.None));
         Assert.Null(await repository.UpdateDraftAsync(GlobexSlug, AcmeUser, new UpdateDecisionDraftRequest(
             "hijacked", null, null, null, null, null, null, null, null, null, null), CancellationToken.None));
-        Assert.Null(await repository.UpdateConnectionsAsync(own.Slug, AcmeUser, new DecisionConnectionsUpdateRequest([500], null), CancellationToken.None));
+        Assert.Null(await repository.UpdateConnectionsAsync(own.Slug, AcmeUser, false, new DecisionConnectionsUpdateRequest([500], null), CancellationToken.None));
+        await Execute($"UPDATE public.core_customuser SET is_superuser = true WHERE id = {AcmeUser}");
+        var superuser = await Access(AcmeUser).AuthorizeAsync(
+            Request(AcmeUser), SharedProject, DecisionAccessAction.Edit, CancellationToken.None);
+        Assert.True(superuser is { Allowed: true, IsSuperuser: true });
+        Assert.Null(await repository.UpdateConnectionsAsync(
+            own.Slug, AcmeUser, superuser!.IsSuperuser, new DecisionConnectionsUpdateRequest([500], null), CancellationToken.None));
         Assert.Equal(0, await Scalar("SELECT count(*) FROM org_acme.decision_edges"));
         Assert.Equal(0, await Scalar("SELECT count(*) FROM org_globex.decision_edges"));
         Assert.Equal("Globex secret", await Scalar<string>($"SELECT title FROM org_globex.decisions WHERE slug = '{GlobexSlug}'"));
