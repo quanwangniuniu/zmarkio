@@ -5,8 +5,6 @@
   "access_control/tests/test_middleware.py": 2.5,
   "access_control/tests/test_models.py": 20.6,
   "access_control/tests/test_views.py": 28.3,
-  "ad_copy_variation/test_tenant_backfill.py": 12.4,
-  "ad_copy_variation/tests.py": 40.6,
   "agent/test_agent_workflows.py": 939.7,
   "agent/test_analysis_llm_contract.py": 2.2,
   "agent/test_approval_gate.py": 23.5,
