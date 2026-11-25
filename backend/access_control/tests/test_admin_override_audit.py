@@ -1,5 +1,8 @@
+import json
+
 from django.db import connection
 from django.test import TestCase, RequestFactory, override_settings
+from access_control.tests.mfa_request_factory import MfaVerifiedRequestFactory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
@@ -49,7 +52,7 @@ class AdminOverrideAuditTest(TestCase):
         )
         UserRole.objects.create(user=cls.plain_user, role=cls.role_asset_viewer, valid_from=timezone.now())
 
-        cls.factory = RequestFactory()
+        cls.factory = MfaVerifiedRequestFactory()
         cls.middleware = AuthorizationMiddleware()
 
         with connection.cursor() as cursor:
@@ -96,6 +99,15 @@ class AdminOverrideAuditTest(TestCase):
         self.assertEqual(audit.override_type, 'ORG_ADMIN')
         self.assertEqual(audit.module, 'CAMPAIGN')
         self.assertEqual(audit.action, 'APPROVE')
+
+    def test_org_admin_without_mfa_is_blocked_and_not_logged(self):
+        """MED-326: a level-2 role grants no bypass until MFA is passed this session."""
+        req = RequestFactory().put('/api/campaigns/1/approve/')
+        req.user = self.org_admin_user
+        resp = self.middleware.process_view(req, dummy_view, (), {})
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(json.loads(resp.content)['errorCode'], 'MFA_REQUIRED')
+        self.assertEqual(AdminOverrideAudit.objects.count(), 0)
 
     def test_superuser_bypass_on_non_module_path_is_not_logged(self):
         # /api/auth/... never resolves to a recognized module, so there is no

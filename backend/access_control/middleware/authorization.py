@@ -8,6 +8,8 @@ from core.services.tenant import slug_to_schema_name
 from access_control.models import RolePermission, UserRole, AdminOverrideAudit
 from access_control import services as access_control_services
 from access_control.services import get_user_permission_bundle
+from authentication import mfa
+from core.admin_utils import has_org_admin_membership
 from typing import Optional, Callable, Any
 from functools import wraps
 from core.models import Team, TeamMember, TeamRole
@@ -55,6 +57,14 @@ class AuthorizationMiddleware:
                 self._log_override(request, user, 'SUPERUSER', module_key, action_key)
             return None
 
+        # MED-326: org-admin privileges need a token that passed MFA this session.
+        # Org admins are recognised the same two ways as is_org_admin(): an
+        # 'admin' OrganizationMembership (checked here) or a level-2 role
+        # (checked in the bypass below).
+        mfa_pending = not mfa.request_has_mfa(request) and not mfa.is_mfa_exempt_path(request.path)
+        if mfa_pending and has_org_admin_membership(user):
+            return JsonResponse(mfa.mfa_required_payload(user), status=403)
+
         # Propagate org-admin role context for downstream permission checks (MED-240).
         # Default False; set True when a valid Organization Admin (level == 2) role exists.
         request.is_org_admin = False
@@ -72,6 +82,8 @@ class AuthorizationMiddleware:
                 role__level=2,
                 valid_from__lte=_now,
             ).filter(Q(valid_to__gte=_now) | Q(valid_to__isnull=True)).exists():
+                if mfa_pending:
+                    return JsonResponse(mfa.mfa_required_payload(user), status=403)
                 request.is_org_admin = True
                 if has_permission_gate:
                     self._log_override(request, user, 'ORG_ADMIN', module_key, action_key)

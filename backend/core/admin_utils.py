@@ -29,6 +29,27 @@ def assign_org_admin(user, org):
     UserRole.objects.get_or_create(user=user, role=admin_role)
 
 
+def has_org_admin_membership(user):
+    """Return True if the user is an active 'admin' member of their CURRENT org.
+
+    The public-schema half of is_org_admin(): a single query, no schema switch.
+    """
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+
+    current_org = getattr(user, 'current_organization', None) or getattr(user, 'organization', None)
+    if not current_org:
+        return False
+
+    from core.models import OrganizationMembership
+    return OrganizationMembership.objects.filter(
+        user=user,
+        organization=current_org,
+        is_active=True,
+        role='admin'
+    ).exists()
+
+
 def is_org_admin(user):
     """Return True if the user holds an Organization Admin role in their CURRENT org.
 
@@ -47,15 +68,7 @@ def is_org_admin(user):
         return False
 
     # Check OrganizationMembership in public schema
-    from core.models import OrganizationMembership
-    has_membership_admin = OrganizationMembership.objects.filter(
-        user=user,
-        organization=current_org,
-        is_active=True,
-        role='admin'
-    ).exists()
-
-    if has_membership_admin:
+    if has_org_admin_membership(user):
         return True
 
     # Fallback: Check tenant-schema UserRole

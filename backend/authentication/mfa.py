@@ -16,6 +16,7 @@ from django.core import signing
 from django.db import transaction
 from django.utils import timezone
 
+from authentication.middleware import PasswordRotationMiddleware
 from authentication.models import MfaDevice, RecoveryCode
 
 MFA_ISSUER_NAME = "MediaJira"
@@ -26,6 +27,9 @@ RECOVERY_CODE_COUNT = 10
 # Short-lived, signed "password accepted" pass that only the MFA endpoints accept.
 MFA_TOKEN_SALT = "authentication.mfa.login"
 MFA_TOKEN_MAX_AGE_SECONDS = 5 * 60
+# Requests an org admin can still make before passing MFA: the same account
+# endpoints password rotation leaves open, plus the MFA endpoints themselves.
+MFA_EXEMPT_PREFIXES = PasswordRotationMiddleware.EXEMPT_PREFIXES + ("/auth/mfa/",)
 
 
 def requires_mfa(user) -> bool:
@@ -113,3 +117,21 @@ def read_mfa_token(token):
     if user is None or getattr(user, "auth_token_version", 0) != payload.get("v"):
         return None
     return user
+
+
+def request_has_mfa(request) -> bool:
+    """True when the request's JWT was issued after passing MFA (see build_login_response_data)."""
+    token = getattr(request, "auth", None)
+    return bool(token is not None and token.get("mfa_verified"))
+
+
+def is_mfa_exempt_path(path: str) -> bool:
+    return path.startswith(MFA_EXEMPT_PREFIXES)
+
+
+def mfa_required_payload(user) -> dict:
+    return {
+        "error": "MFA verification required.",
+        "errorCode": "MFA_REQUIRED",
+        "mfa_enrollment_required": get_confirmed_device(user) is None,
+    }

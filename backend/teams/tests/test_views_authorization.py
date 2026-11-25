@@ -99,7 +99,10 @@ class TeamsAuthorizationBase(TestCase):
     def _headers(self, user, org=None):
         if user is None:
             return {}
-        token = str(RefreshToken.for_user(user).access_token)
+        refresh = RefreshToken.for_user(user)
+        # MED-326: org admins in these tests have passed MFA this session.
+        refresh['mfa_verified'] = True
+        token = str(refresh.access_token)
         return {
             'HTTP_AUTHORIZATION': f'Bearer {token}',
             'HTTP_X_ORGANIZATION_SLUG': (org or self.org).slug,
