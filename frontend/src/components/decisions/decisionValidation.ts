@@ -58,13 +58,8 @@ export function validateDecisionDraft(
   return errors;
 }
 
-// ---------------------------------------------------------------------------
-// MED-545: field limits for draft editing (mirrors decision-service
-// DecisionDraftValidation). Lengths are counted in code points, not UTF-16
-// units, so an emoji counts as 1 — same as the backend's EnumerateRunes.
-// Do not use the HTML maxLength attribute for these fields.
-// ---------------------------------------------------------------------------
-
+// Mirrors decision-service limits. Counted in code points like the backend,
+// not UTF-16, so don't use the HTML maxLength attribute.
 export const DECISION_LIMITS = {
   title: 255,
   optionText: 1000,
@@ -72,7 +67,6 @@ export const DECISION_LIMITS = {
   topicKey: 64,
 } as const;
 
-/** Character count at which the counter becomes visible. */
 export const COUNTER_THRESHOLDS = {
   title: 230,
   optionText: 900,
@@ -128,8 +122,6 @@ export function isConfidenceOutOfRange(value: number | null | undefined): value 
   return value != null && (value < 1 || value > 5);
 }
 
-// ---- Topic keys -----------------------------------------------------------
-
 /** trim → lowercase → spaces/underscores to "-" → drop non [a-z0-9-] → collapse "-" → trim "-" */
 export function toTopicKey(name: string): string {
   return name
@@ -158,17 +150,9 @@ export function validateNewTopicName(name: string, existingKeys: Iterable<string
   return { key, error: null };
 }
 
-// ---- Server errors --------------------------------------------------------
-
 const snakeToCamel = (field: string) => field.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
 
-/**
- * Turns a failed request into `{ field: message }`.
- * Supports decision-service 400s (`{ title: ["..."] }`) and the commit
- * format (`{ error: { details: { fieldErrors: [{ field, message }] } } }`).
- * snake_case field names are converted to camelCase.
- * Returns {} when the error carries no field errors (e.g. network failure).
- */
+/** Maps a failed request to `{ field: message }`; handles flat 400s and the commit format. */
 export function extractFieldErrors(err: unknown): Record<string, string> {
   const data = (err as { response?: { data?: unknown } })?.response?.data;
   if (!data || typeof data !== 'object' || Array.isArray(data)) return {};

@@ -32,11 +32,8 @@ export interface OptionsSave {
   sent: Map<string, string>;
 }
 
-/**
- * Options to send. Never sends blank text:
- * - unsaved blank row: skipped
- * - cleared saved row: sends its last saved text
- */
+// Never sends blank text: unsaved blank rows are skipped,
+// cleared saved rows resend their last saved text.
 export function buildOptionsSave(rows: OptionRow[]): OptionsSave {
   const options: DecisionOptionDraft[] = [];
   const sent = new Map<string, string>();
