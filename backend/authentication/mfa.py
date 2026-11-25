@@ -11,6 +11,8 @@ import hashlib
 import secrets
 
 import pyotp
+from django.contrib.auth import get_user_model
+from django.core import signing
 from django.db import transaction
 from django.utils import timezone
 
@@ -21,6 +23,9 @@ MFA_ISSUER_NAME = "MediaJira"
 # small clock drift between the server and the authenticator app.
 TOTP_VALID_WINDOW = 1
 RECOVERY_CODE_COUNT = 10
+# Short-lived, signed "password accepted" pass that only the MFA endpoints accept.
+MFA_TOKEN_SALT = "authentication.mfa.login"
+MFA_TOKEN_MAX_AGE_SECONDS = 5 * 60
 
 
 def requires_mfa(user) -> bool:
@@ -89,3 +94,22 @@ def consume_recovery_code(user, code) -> bool:
         used_at__isnull=True,
     ).update(used_at=timezone.now())
     return updated == 1
+
+
+def create_mfa_token(user) -> str:
+    """Issued by LoginView after the password check; carries no API access."""
+    payload = {"uid": user.pk, "v": getattr(user, "auth_token_version", 0)}
+    return signing.dumps(payload, salt=MFA_TOKEN_SALT)
+
+
+def read_mfa_token(token):
+    """Return the user for a valid, unexpired MFA token, otherwise None."""
+    try:
+        payload = signing.loads(token, salt=MFA_TOKEN_SALT, max_age=MFA_TOKEN_MAX_AGE_SECONDS)
+    except signing.BadSignature:  # also covers SignatureExpired
+        return None
+    user = get_user_model().objects.filter(pk=payload.get("uid"), is_active=True).first()
+    # A password change bumps auth_token_version and invalidates outstanding passes.
+    if user is None or getattr(user, "auth_token_version", 0) != payload.get("v"):
+        return None
+    return user

@@ -197,3 +197,18 @@ class MfaCodeSerializer(serializers.Serializer):
     """A 6-digit code from the user's authenticator app."""
 
     code = serializers.CharField(max_length=32, trim_whitespace=True)
+
+
+class MfaVerifySerializer(serializers.Serializer):
+    """Second login step: the MFA token from /auth/login/ plus a TOTP or recovery code."""
+
+    mfa_token = serializers.CharField()
+    code = serializers.CharField(max_length=32, required=False, allow_blank=True, trim_whitespace=True)
+    recovery_code = serializers.CharField(max_length=64, required=False, allow_blank=True, trim_whitespace=True)
+
+    def validate(self, attrs):
+        has_code = bool(attrs.get('code'))
+        has_recovery_code = bool(attrs.get('recovery_code'))
+        if has_code == has_recovery_code:
+            raise serializers.ValidationError('Provide either code or recovery_code.')
+        return attrs

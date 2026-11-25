@@ -18,6 +18,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .serializers import UserProfileSerializer, OrganizationTokenRefreshSerializer, PasswordValidationSerializer
 from .login_security import LoginSecurityService
 from .password_rotation import get_password_rotation_status
+from . import mfa
 from .services import refresh_organization_access_token
 from .throttles import LoginIPThrottle, LoginUsernameThrottle
 from core.admin_utils import assign_org_admin
@@ -246,6 +247,56 @@ class VerifyEmailView(APIView):
         except User.DoesNotExist:
             return Response({"error": "Invalid token"}, status=400)
 
+
+def build_login_response_data(request, user, mfa_verified=False):
+    """Issue tokens, register the session and build the login response body."""
+    refresh = build_user_refresh_token(user)
+    if mfa_verified:
+        # Copied by SimpleJWT into every access token derived from this refresh token.
+        refresh["mfa_verified"] = True
+
+    # Register session in Redis
+    jti = str(refresh["jti"])
+    meta = {
+        "ip": request.META.get("REMOTE_ADDR"),
+        "user_agent": request.META.get("HTTP_USER_AGENT", ""),
+        "created_at": datetime.datetime.utcnow().isoformat(),
+    }
+    try:
+        cap = user.current_organization.max_concurrent_sessions if user.current_organization else 5
+        SessionRegistry.register_session(user.pk, jti, meta, cap)
+    except Exception:
+        logger.exception("Failed to register session in Redis for user %s", user.pk)
+
+    profile_data = UserProfileSerializer(user, context={'request': request}).data
+
+    # Generate organization access token if user belongs to an organization
+    custom_access_token = generate_organization_access_token(user)
+
+    response_data = {
+        'message': 'Login successful',
+        'token': str(refresh.access_token),
+        'refresh': str(refresh),
+        'user': profile_data
+    }
+
+    # Add organization access token if user belongs to an organization
+    if custom_access_token:
+        response_data['organization_access_token'] = custom_access_token
+
+    return response_data
+
+
+def mfa_challenge_payload(user):
+    """Password accepted for an org admin: ask for MFA instead of issuing tokens."""
+    return {
+        'message': 'MFA verification required',
+        'mfa_required': True,
+        'mfa_enrollment_required': mfa.get_confirmed_device(user) is None,
+        'mfa_token': mfa.create_mfa_token(user),
+    }
+
+
 @method_decorator(csrf_exempt, name='dispatch')
 class LoginView(APIView):
     login_throttle_classes = [LoginIPThrottle, LoginUsernameThrottle]
@@ -339,36 +390,12 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         
-        refresh = build_user_refresh_token(user)
+        # Org admins must pass TOTP MFA before any token is issued (MED-326).
+        # Failure counters are only cleared once the MFA step succeeds.
+        if mfa.requires_mfa(user):
+            return Response(mfa_challenge_payload(user), status=status.HTTP_200_OK)
 
-        # Register session in Redis
-        jti = str(refresh["jti"])
-        meta = {
-            "ip": request.META.get("REMOTE_ADDR"),
-            "user_agent": request.META.get("HTTP_USER_AGENT", ""),
-            "created_at": datetime.datetime.utcnow().isoformat(),
-        }
-        try:
-            cap = user.current_organization.max_concurrent_sessions if user.current_organization else 5
-            SessionRegistry.register_session(user.pk, jti, meta, cap)
-        except Exception:
-            logger.exception("Failed to register session in Redis for user %s", user.pk)
-
-        profile_data = UserProfileSerializer(user, context={'request': request}).data
-        
-        # Generate organization access token if user belongs to an organization
-        custom_access_token = generate_organization_access_token(user)
-        
-        response_data = {
-            'message': 'Login successful',
-            'token': str(refresh.access_token),
-            'refresh': str(refresh),
-            'user': profile_data
-        }
-        
-        # Add organization access token if user belongs to an organization
-        if custom_access_token:
-            response_data['organization_access_token'] = custom_access_token
+        response_data = build_login_response_data(request, user)
 
         LoginSecurityService.clear_successful_login(login_identifiers)
         
