@@ -54,6 +54,31 @@ export interface LoginResponse {
   requires_password_setup?: boolean;
 }
 
+// MED-326: an org admin's password was accepted, but MFA must come next.
+export interface MfaChallengeResponse {
+  message: string;
+  mfa_required: true;
+  mfa_enrollment_required: boolean;
+  mfa_token: string;
+}
+
+export interface MfaVerifyRequest {
+  mfa_token: string;
+  code?: string;
+  recovery_code?: string;
+}
+
+export interface MfaEnrollStartResponse {
+  secret: string;
+  otpauth_uri: string;
+}
+
+// Enrolling also completes sign-in, so this is a full login response plus the
+// recovery codes, which are only ever returned this once.
+export interface MfaEnrollConfirmResponse extends LoginResponse {
+  recovery_codes: string[];
+}
+
 export interface ChangePasswordResponse {
   message: string;
   user: User;

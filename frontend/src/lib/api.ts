@@ -11,6 +11,9 @@ import {
   GoogleAuthResponse,
   SetPasswordRequest,
   ChangePasswordResponse,
+  MfaEnrollConfirmResponse,
+  MfaEnrollStartResponse,
+  MfaVerifyRequest,
 } from '../types/auth';
 import { isRetryableAuthError } from './authMessages';
 
@@ -417,6 +420,26 @@ function notifySessionEvicted() {
   window.location.href = '/login';
 }
 
+// MED-326: an org admin's token has not passed MFA. Several requests can be
+// rejected at once, so only the first one redirects.
+let _mfaRedirectPending = false;
+
+function handleMfaRequired(enrollmentRequired: boolean) {
+  if (_mfaRedirectPending) return;
+  _mfaRedirectPending = true;
+
+  if (enrollmentRequired) {
+    // Not set up yet: the profile page's MFA wizard works with the current token.
+    if (!window.location.pathname.startsWith('/profile')) {
+      window.location.href = '/profile?mfa=setup';
+    }
+  } else {
+    // Already set up elsewhere: sign in again to enter a code.
+    try { sessionStorage.setItem('mfa_reauth', '1'); } catch (_) {}
+    endSession();
+  }
+}
+
 // Request interceptor to add auth token to requests
 api.interceptors.request.use(
   (config) => {
@@ -483,7 +506,9 @@ api.interceptors.response.use(
     const isAuthEndpoint =
       url === '/auth/login/' ||
       url === '/auth/token/refresh/' ||
-      url === '/auth/logout/';
+      url === '/auth/logout/' ||
+      // MED-326: a 401 here means the short-lived mfa_token expired, not the session.
+      url === '/auth/mfa/verify/';
 
     if (status === 401 && !isAuthEndpoint && !shouldBypassGlobalLogout) {
       if (typeof window !== 'undefined' && config && !config._retry) {
@@ -522,6 +547,16 @@ api.interceptors.response.use(
       if (!currentPath.startsWith('/set-password')) {
         window.location.href = '/set-password?rotation=1';
       }
+    }
+
+    if (
+      typeof window !== 'undefined' &&
+      status === 403 &&
+      responseData?.errorCode === 'MFA_REQUIRED'
+    ) {
+      handleMfaRequired(Boolean(responseData?.mfa_enrollment_required));
+      // The page is about to change; keep the caller from showing an error.
+      return new Promise(() => {});
     }
 
     if (
@@ -616,6 +651,26 @@ export const authAPI = {
 
   changePassword: async(current_password: string, new_password: string): Promise<ChangePasswordResponse> => {
     const response = await api.post('/auth/change-password/', { current_password, new_password });
+    return response.data;
+  },
+
+  // MED-326: second login step for org admins (TOTP code or recovery code).
+  verifyMfa: async (data: MfaVerifyRequest): Promise<LoginResponse> => {
+    const response = await api.post('/auth/mfa/verify/', data);
+    return response.data;
+  },
+
+  // mfaToken comes from the login step; omit it when already signed in (profile page).
+  startMfaEnrollment: async (mfaToken?: string): Promise<MfaEnrollStartResponse> => {
+    const response = await api.post('/auth/mfa/enroll/start/', mfaToken ? { mfa_token: mfaToken } : {});
+    return response.data;
+  },
+
+  confirmMfaEnrollment: async (code: string, mfaToken?: string): Promise<MfaEnrollConfirmResponse> => {
+    const response = await api.post(
+      '/auth/mfa/enroll/confirm/',
+      mfaToken ? { code, mfa_token: mfaToken } : { code },
+    );
     return response.data;
   },
 
