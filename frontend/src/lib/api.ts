@@ -11,6 +11,7 @@ import {
   GoogleAuthResponse,
   SetPasswordRequest,
   ChangePasswordResponse,
+  MfaChallengeResponse,
   MfaEnrollConfirmResponse,
   MfaEnrollStartResponse,
   MfaVerifyRequest,
@@ -420,6 +421,11 @@ function notifySessionEvicted() {
   window.location.href = '/login';
 }
 
+// MED-326: sessionStorage keys read by the login page.
+export const MFA_REAUTH_STORAGE_KEY = 'mfa_reauth';
+// Set by the Google callback page when an org admin still needs MFA.
+export const MFA_CHALLENGE_STORAGE_KEY = 'mfa_challenge';
+
 // MED-326: an org admin's token has not passed MFA. Several requests can be
 // rejected at once, so only the first one redirects.
 let _mfaRedirectPending = false;
@@ -435,7 +441,7 @@ function handleMfaRequired(enrollmentRequired: boolean) {
     }
   } else {
     // Already set up elsewhere: sign in again to enter a code.
-    try { sessionStorage.setItem('mfa_reauth', '1'); } catch (_) {}
+    try { sessionStorage.setItem(MFA_REAUTH_STORAGE_KEY, '1'); } catch (_) {}
     endSession();
   }
 }
@@ -575,7 +581,7 @@ api.interceptors.response.use(
 
 // Authentication API functions - connected to Django backend
 export const authAPI = {
-  login: async (credentials: LoginRequest): Promise<LoginResponse> => {
+  login: async (credentials: LoginRequest): Promise<LoginResponse | MfaChallengeResponse> => {
     const response = await api.post('/auth/login/', credentials);
     return response.data;
   },

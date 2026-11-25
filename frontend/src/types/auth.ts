@@ -62,6 +62,12 @@ export interface MfaChallengeResponse {
   mfa_token: string;
 }
 
+// What the login page needs to continue to the MFA step.
+export interface MfaChallenge {
+  mfaToken: string;
+  enrollmentRequired: boolean;
+}
+
 export interface MfaVerifyRequest {
   mfa_token: string;
   code?: string;
@@ -156,6 +162,7 @@ export interface ApiResponse<T> {
   retry_after_seconds?: number;
   requires_captcha?: boolean;
   lockout_until?: string;
+  mfa?: MfaChallenge;
 }
 
 export interface SsoRedirectParams {

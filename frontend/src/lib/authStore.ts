@@ -8,7 +8,7 @@ import {
   LEGACY_AUTH_STORAGE_KEY,
   SESSION_ENDED_EVENT,
 } from './api';
-import { User } from '../types/auth';
+import { LoginResponse, MfaChallenge, User } from '../types/auth';
 import TeamAPI from './api/teamApi';
 import { LOGIN_ERROR_MESSAGES, isNetworkError, isRetryableAuthError } from './authMessages';
 import { useChatStore } from './chatStore';
@@ -49,7 +49,11 @@ interface AuthState {
     retry_after_seconds?: number;
     requires_captcha?: boolean;
     lockout_until?: string;
+    // MED-326: password accepted for an org admin; MFA comes next.
+    mfa?: MfaChallenge;
   }>;
+  // Store the tokens from a successful login response (password, MFA or Google).
+  completeLogin: (response: LoginResponse) => Promise<void>;
   logout: () => Promise<void>;
   getCurrentUser: () => Promise<{ success: boolean; error?: string; retryable?: boolean }>;
   getUserTeams: () => Promise<{ success: boolean; error?: string }>;
@@ -102,50 +106,66 @@ export const useAuthStore = create<AuthState>()(
       setSelectedTeamId: (selectedTeamId) => set({ selectedTeamId }),
       setHasHydrated: (hasHydrated) => set({ hasHydrated }),
 
+      // Store tokens after any successful sign-in (password, MFA step or Google)
+      completeLogin: async (response: LoginResponse) => {
+        const { token, refresh, user, organization_access_token } = response;
+
+        // Persist auth data immediately so downstream requests include the token
+        set({
+          user,
+          token,
+          refreshToken: refresh,
+          organizationAccessToken: organization_access_token || null,
+          isAuthenticated: true,
+        });
+
+        // Get user teams after successful login
+        let userTeams: number[] = [];
+        let selectedTeamId: number | null = null;
+
+        try {
+          const teamsResponse = await TeamAPI.getUserTeams();
+          userTeams = teamsResponse.team_ids || [];
+          // Select the first team by default, or null if no teams
+          selectedTeamId = userTeams.length > 0 ? userTeams[0] : null;
+        } catch (teamError) {
+          console.warn('Failed to fetch user teams:', teamError);
+          // Continue with login even if team fetch fails
+        }
+
+        set({
+          userTeams,
+          selectedTeamId,
+          loading: false,
+        });
+
+        // Refresh user data to get latest avatar and profile info
+        try {
+          await get().getCurrentUser();
+        } catch (error) {
+          console.warn('Failed to refresh user data after login:', error);
+          // Don't fail login if refresh fails
+        }
+      },
+
       // Login action
       login: async (email: string, password: string) => {
         set({ loading: true });
         try {
           const response = await authAPI.login({ email, password });
-          const { token, refresh, user, organization_access_token } = response;
 
-          // Persist auth data immediately so downstream requests include the token
-          set({
-            user,
-            token,
-            refreshToken: refresh,
-            organizationAccessToken: organization_access_token || null,
-            isAuthenticated: true,
-          });
-
-          // Get user teams after successful login
-          let userTeams: number[] = [];
-          let selectedTeamId: number | null = null;
-
-          try {
-            const teamsResponse = await TeamAPI.getUserTeams();
-            userTeams = teamsResponse.team_ids || [];
-            // Select the first team by default, or null if no teams
-            selectedTeamId = userTeams.length > 0 ? userTeams[0] : null;
-          } catch (teamError) {
-            console.warn('Failed to fetch user teams:', teamError);
-            // Continue with login even if team fetch fails
+          if ('mfa_required' in response) {
+            set({ loading: false });
+            return {
+              success: false,
+              mfa: {
+                mfaToken: response.mfa_token,
+                enrollmentRequired: response.mfa_enrollment_required,
+              },
+            };
           }
 
-          set({
-            userTeams,
-            selectedTeamId,
-            loading: false,
-          });
-
-          // Refresh user data to get latest avatar and profile info
-          try {
-            await get().getCurrentUser();
-          } catch (error) {
-            console.warn('Failed to refresh user data after login:', error);
-            // Don't fail login if refresh fails
-          }
-
+          await get().completeLogin(response);
           return { success: true };
         } catch (error: any) {
           set({ loading: false });

@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import api from '@/lib/api';
+import api, { MFA_CHALLENGE_STORAGE_KEY } from '@/lib/api';
 import { useAuthStore } from '@/lib/authStore';
 
 function GoogleCallbackContent() {
@@ -32,6 +32,19 @@ function GoogleCallbackContent() {
           try {
             const authDataJson = atob(authDataParam);
             const authData = JSON.parse(authDataJson);
+
+            // MED-326: org admins still need MFA; continue on the login page.
+            if (authData.mfa_required) {
+              sessionStorage.setItem(
+                MFA_CHALLENGE_STORAGE_KEY,
+                JSON.stringify({
+                  mfaToken: authData.mfa_token,
+                  enrollmentRequired: authData.mfa_enrollment_required,
+                }),
+              );
+              router.push('/login');
+              return;
+            }
             
             // Store tokens and user in Zustand
             if (authData.token) {

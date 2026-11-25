@@ -32,6 +32,11 @@ export default function useAuth() {
         return { success: true };
       }
 
+      // MED-326: org admin — the login page shows the MFA step instead.
+      if (result.mfa) {
+        return { success: false, mfa: result.mfa };
+      }
+
       // Normalize store-level errors into the shared ApiResponse shape
       return {
         success: false,

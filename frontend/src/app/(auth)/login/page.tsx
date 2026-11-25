@@ -7,11 +7,14 @@ import AuthFormWrapper from '@/components/auth/AuthFormWrapper';
 import AuthFeedback from '@/components/auth/AuthFeedback';
 import AuthFields from '@/components/auth/AuthFields';
 import AuthSubmit from '@/components/auth/AuthSubmit';
+import MfaVerifyStep from '@/components/auth/MfaVerifyStep';
 import useAuth from '@/hooks/useAuth';
 import { useAuthStore } from '@/lib/authStore';
 import { validateLoginForm, hasValidationErrors } from '@/utils/validation';
-import { LoginRequest, FormValidation } from '@/types/auth';
+import { LoginRequest, FormValidation, MfaChallenge } from '@/types/auth';
 import { LOGIN_ERROR_MESSAGES, isNetworkError } from '@/lib/authMessages';
+import { buildUrl } from '@/lib/buildUrl';
+import { MFA_CHALLENGE_STORAGE_KEY, MFA_REAUTH_STORAGE_KEY } from '@/lib/api';
 import toast from 'react-hot-toast';
 
 const SAVED_LOGIN_EMAIL_KEY = 'saved-login-email';
@@ -35,6 +38,7 @@ function LoginPageContent() {
   const [loading, setLoading] = useState<boolean>(false);
   const [showEmailVerificationHelp, setShowEmailVerificationHelp] = useState<boolean>(false);
   const [securityNotice, setSecurityNotice] = useState<LoginSecurityNotice | null>(null);
+  const [mfaChallenge, setMfaChallenge] = useState<MfaChallenge | null>(null);
 
   useEffect(() => {
     try {
@@ -55,6 +59,25 @@ function LoginPageContent() {
           position: 'top-center',
           duration: 4000,
           style: { background: '#1e293b', color: '#fff', fontWeight: 500, minWidth: '320px' },
+        });
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // MED-326: pick up an MFA step handed over by the Google callback page, and
+  // explain why an org admin whose session lacked MFA was signed out.
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(MFA_CHALLENGE_STORAGE_KEY);
+      if (stored) {
+        sessionStorage.removeItem(MFA_CHALLENGE_STORAGE_KEY);
+        setMfaChallenge(JSON.parse(stored));
+      }
+      if (sessionStorage.getItem(MFA_REAUTH_STORAGE_KEY)) {
+        sessionStorage.removeItem(MFA_REAUTH_STORAGE_KEY);
+        toast('For your security, please sign in again and enter your verification code.', {
+          position: 'top-center',
+          duration: 5000,
         });
       }
     } catch { /* ignore */ }
@@ -126,6 +149,8 @@ function LoginPageContent() {
           duration: 2000,
           position: 'top-center',
         });
+      } else if (result.mfa) {
+        setMfaChallenge(result.mfa);
       } else {
         handleLoginError(result);
       }
@@ -266,6 +291,37 @@ function LoginPageContent() {
 
   if (initialized && isAuthenticated) {
     return null;
+  }
+
+  if (mfaChallenge && !mfaChallenge.enrollmentRequired) {
+    return (
+      <AuthFormWrapper title="Two-step verification">
+        <MfaVerifyStep
+          mfaToken={mfaChallenge.mfaToken}
+          onSuccess={() => router.push(buildUrl('/overview'))}
+          onRestart={() => setMfaChallenge(null)}
+        />
+      </AuthFormWrapper>
+    );
+  }
+
+  if (mfaChallenge?.enrollmentRequired) {
+    return (
+      <AuthFormWrapper title="Set up two-step verification">
+        <div className="space-y-6 text-center">
+          <p className="text-sm text-gray-600">
+            Organization admins must set up two-step verification before signing in.
+          </p>
+          <button
+            type="button"
+            onClick={() => setMfaChallenge(null)}
+            className="text-sm font-medium text-gray-600 hover:text-gray-500 transition-colors"
+          >
+            Back to sign in
+          </button>
+        </div>
+      </AuthFormWrapper>
+    );
   }
 
   return (
