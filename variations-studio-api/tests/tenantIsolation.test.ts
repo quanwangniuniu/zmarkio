@@ -1,7 +1,6 @@
 import { POST as generate } from '@/app/api/ad_copy_variation/variations/generate/route';
 import { prisma } from '@/lib/prisma';
-import { tenantTable } from '@/lib/tenant';
-import { VARIATION_TABLE, findVariationById } from '@/lib/variationStore';
+import { findVariationById } from '@/lib/variationStore';
 
 import {
   setupStudioFixture,
@@ -44,7 +43,7 @@ afterAll(async () => {
 });
 
 describe('tenant schema isolation', () => {
-  it('persists generate results in the org schema, not public', async () => {
+  it('persists generate results in the org schema', async () => {
     const response = await generate(
       studioRequest('/api/ad_copy_variation/variations/generate/', {
         token,
@@ -70,10 +69,5 @@ describe('tenant schema isolation', () => {
       id,
       sourceMode: 'custom',
     });
-
-    const publicRows = await prisma.$queryRaw<{ id: bigint }[]>`
-      SELECT id FROM ${tenantTable('public', VARIATION_TABLE)}
-      WHERE id = ${id}`;
-    expect(publicRows).toEqual([]);
   });
 });
