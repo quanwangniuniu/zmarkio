@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'crypto';
 import { test as base, expect, type APIRequestContext } from '@playwright/test';
+import { enrollMfaAfterLogin, isMfaChallenge } from '../mfa/mfa-api';
 
 type Account = {
   api: APIRequestContext;
@@ -47,7 +48,9 @@ export const test = base.extend<{}, { account: Account }>({
       // Login again to obtain the real profile and organization token after onboarding.
       const loggedIn = await guest.post('/auth/login/', { data: credentials });
       expect(loggedIn.status(), 'Log in the worker test user').toBe(200);
-      const auth = await loggedIn.json();
+      const loginBody = await loggedIn.json();
+      // MED-326: the organization creator is an org admin, so sign-in goes through MFA setup.
+      const auth = isMfaChallenge(loginBody) ? await enrollMfaAfterLogin(guest, loginBody) : loginBody;
       await api.dispose();
       api = await playwright.request.newContext({
         baseURL,

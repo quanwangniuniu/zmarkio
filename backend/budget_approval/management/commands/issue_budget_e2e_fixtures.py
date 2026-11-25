@@ -12,6 +12,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from access_control.models import Role, RolePermission, UserRole
+from authentication import mfa
+from authentication.models import MfaDevice
 from budget_approval.models import BudgetPool
 from core.admin_utils import assign_org_admin
 from core.models import AdChannel, Organization, OrganizationMembership, Permission, Project, ProjectMember, Team
@@ -38,6 +40,7 @@ USER_SPECS = (
     ("org_admin", "e2e-budget-org-admin@example.com", True),
     ("regular", "e2e-budget-regular@example.com", False),
 )
+ORG_ADMIN_KEYS = {key for key, _, is_org_admin in USER_SPECS if is_org_admin}
 
 
 class Command(BaseCommand):
@@ -135,6 +138,8 @@ class Command(BaseCommand):
                 "refresh_token": str(refresh),
                 "organization_access_token": generate_organization_access_token(user),
             }
+            if key in ORG_ADMIN_KEYS:
+                tokens[key]["mfa_secret"] = self._ensure_mfa(user)
 
         return {
             "organization_id": organization.id,
@@ -249,6 +254,16 @@ class Command(BaseCommand):
 
             users[key] = user
         return users
+
+    def _ensure_mfa(self, user):
+        """Org admins must pass MFA to sign in (MED-326). Enroll them with a fresh
+        secret each run so the E2E login can compute the TOTP code."""
+        secret = mfa.generate_secret()
+        device, _ = MfaDevice.objects.get_or_create(user=user)
+        device.set_secret(secret)
+        device.confirmed_at = timezone.now()
+        device.save()
+        return secret
 
     def _ensure_pool_and_channel(self, project):
         channel, _ = AdChannel.objects.get_or_create(
