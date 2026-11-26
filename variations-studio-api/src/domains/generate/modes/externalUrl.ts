@@ -22,8 +22,7 @@ export const externalUrlMode: SourceModeHandler = {
     } catch (err) {
       const message =
         err instanceof BrowserlessError ? err.message : 'Browserless fetch failed';
-      const count =
-        typeof body.count === 'number' ? body.count : 1;
+      const { count } = ctx;
       return {
         earlyReturn: true,
         response: {
