@@ -46,6 +46,7 @@ import {
 import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import type { OptionTarget } from '@/lib/orgCustomization/optionConfig';
 import { loadTaskConfig } from '@/lib/tasks/taskConfig';
+import { loadTasksModuleConfig } from '@/lib/tasks/tasksModuleConfig';
 
 const getInitials = (name?: string | null): string => {
   if (!name) return '?';
@@ -246,6 +247,7 @@ export default function DashboardSidebar() {
     loadDecisionConfig(activeProject.id);
     loadCampaignConfig(activeProject.id);
     loadNavigationConfig(activeProject.id);
+    loadTasksModuleConfig(activeProject.id);
     loadTaskConfig(activeProject.id).then((config) => {
       if (!cancelled) setCanEditConfig(Boolean(config?.can_edit));
     });

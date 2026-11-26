@@ -1,8 +1,7 @@
 """Ollama chat client for project-RAG rewrite and grounded answers.
 
 Calls POST /api/chat on the same server as the embedding client
-(settings.RAG_OLLAMA_BASE_URL). This is not the ad-copy client: that one
-sends an ad JSON schema and is owned by ad_copy_variation.
+(settings.RAG_OLLAMA_BASE_URL).
 
 qwen3 thinks by default. think=false is always sent so the reply is the
 answer text, not a reasoning trace. A rewrite that comes back as more than

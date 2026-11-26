@@ -112,14 +112,19 @@ describe('generate with source_mode=external_url', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('returns 502 when the page cannot be fetched', async () => {
+  it.each([10, '10'])('returns 502 when the page cannot be fetched for count %j', async (count) => {
     fetchMock.mockRejectedValue(new BrowserlessError('Browserless fetch failed'));
 
-    const response = await generateExternal();
+    const response = await generateExternal({ count });
 
     expect(response.status).toBe(502);
     const body = await readJson(response);
-    expect(body).toMatchObject({ count_requested: 1, count_succeeded: 0 });
+    expect(body).toMatchObject({
+      count_requested: 10,
+      count_succeeded: 0,
+      count_failed: 10,
+      failed_indices: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    });
     expect(ollamaMock).not.toHaveBeenCalled();
   });
 
