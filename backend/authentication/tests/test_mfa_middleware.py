@@ -39,12 +39,8 @@ def organization():
 
 def make_user(organization, email, **extra):
     return CustomUser.objects.create_user(
-        username=email.split("@")[0],
-        email=email,
-        password=PASSWORD,
-        organization=organization,
-        is_verified=True,
-        **extra,
+        username=email.split("@")[0], email=email, password=PASSWORD,
+        organization=organization, is_verified=True, **extra,
     )
 
 
@@ -74,27 +70,17 @@ def pre_mfa_token(user):
     return str(build_user_refresh_token(user).access_token)
 
 
-# --- blocked -----------------------------------------------------------------
-
-def test_admin_without_mfa_is_blocked_and_sent_to_setup(org_admin):
-    response = client_with(pre_mfa_token(org_admin)).get(ADMIN_API)
-
-    assert response.status_code == 403
-    assert response.json()["errorCode"] == "MFA_REQUIRED"
-    assert response.json()["mfa_enrollment_required"] is True
-
-
-def test_enrolled_admin_with_pre_mfa_token_is_blocked_and_told_to_sign_in_again(org_admin):
-    enroll(org_admin)
+@pytest.mark.parametrize("enrolled", [False, True], ids=["not_enrolled", "enrolled"])
+def test_admin_with_pre_mfa_token_is_blocked(org_admin, enrolled):
+    if enrolled:
+        enroll(org_admin)
 
     response = client_with(pre_mfa_token(org_admin)).get(ADMIN_API)
 
     assert response.status_code == 403
     assert response.json()["errorCode"] == "MFA_REQUIRED"
-    assert response.json()["mfa_enrollment_required"] is False
+    assert response.json()["mfa_enrollment_required"] is (not enrolled)
 
-
-# --- allowed -----------------------------------------------------------------
 
 def test_admin_who_passed_mfa_at_login_keeps_admin_access(org_admin):
     secret = enroll(org_admin)
@@ -105,32 +91,23 @@ def test_admin_who_passed_mfa_at_login_keeps_admin_access(org_admin):
         "/auth/mfa/verify/", {"mfa_token": mfa_token, "code": pyotp.TOTP(secret).now()}, format="json"
     ).data["token"]
 
-    response = client_with(token).get(ADMIN_API)
-
-    assert response.status_code == 200
+    assert client_with(token).get(ADMIN_API).status_code == 200
 
 
-def test_admin_without_mfa_can_still_reach_account_and_mfa_endpoints(org_admin):
+def test_admin_without_mfa_finishes_setup_from_profile_and_regains_access(org_admin):
+    """Account and MFA endpoints stay reachable, so an old session can enroll."""
     client = client_with(pre_mfa_token(org_admin))
-
     assert client.get("/auth/me/").status_code == 200
-    assert client.post("/auth/mfa/enroll/start/", format="json").status_code == 200
 
-
-def test_admin_finishes_setup_from_profile_and_regains_access(org_admin):
-    """The profile-page path: old token -> enroll -> new MFA-verified token."""
-    client = client_with(pre_mfa_token(org_admin))
     secret = client.post("/auth/mfa/enroll/start/", format="json").data["secret"]
     new_token = client.post(
         "/auth/mfa/enroll/confirm/", {"code": pyotp.TOTP(secret).now()}, format="json"
     ).data["token"]
 
-    response = client_with(new_token).get(ADMIN_API)
-
-    assert response.status_code == 200
+    assert client_with(new_token).get(ADMIN_API).status_code == 200
 
 
-# --- every way admin records can be stored ----------------------------------
+# --- every way an admin record can be stored --------------------------------
 #
 # Admin status lives in two places: A = an 'admin' OrganizationMembership
 # (public schema only) and B = a level-2 UserRole (a tenant table, so it can end
@@ -141,84 +118,59 @@ def give_membership_admin(user, organization):
     OrganizationMembership.objects.create(user=user, organization=organization, role="admin", is_active=True)
 
 
-def give_level2_role(user, organization):
-    role, _ = Role.objects.get_or_create(
-        organization=organization, name="Organization Admin", defaults={"level": 2}
-    )
-    UserRole.objects.create(user=user, role=role)
+def give_level2_role(user, organization, schema, schema_org=None, **extra):
+    def create():
+        role, _ = Role.objects.get_or_create(
+            organization=organization, name="Organization Admin", defaults={"level": 2}
+        )
+        UserRole.objects.create(user=user, role=role, **extra)
+
+    if schema == "org":
+        with tenant_schema_context(slug_to_schema_name((schema_org or organization).slug)):
+            create()
+    else:
+        create()
+
+
+def make_superuser(user):
+    user.is_superuser = True
+    user.save(update_fields=["is_superuser"])
+
+
+def other_org():
+    return Organization.objects.create(name="MFA Other Org", email_domain="mfa-other.com")
 
 
 ADMIN_RECORD_CASES = {
-    # case id: (has A, where B is, needs MFA)
-    "A_and_B_in_org_schema": (True, "org", True),
-    "A_and_B_in_public": (True, "public", True),
-    "A_only": (True, None, True),
-    "B_in_org_schema_only": (False, "org", True),
-    "B_in_public_only": (False, "public", True),
-    "no_admin_records": (False, None, False),
+    "A_and_B_in_org_schema": (lambda u, o: (give_membership_admin(u, o), give_level2_role(u, o, "org")), True),
+    "A_and_B_in_public": (lambda u, o: (give_membership_admin(u, o), give_level2_role(u, o, "public")), True),
+    "A_only": (lambda u, o: give_membership_admin(u, o), True),
+    "B_in_org_schema_only": (lambda u, o: give_level2_role(u, o, "org"), True),
+    "B_in_public_only": (lambda u, o: give_level2_role(u, o, "public"), True),
+    # is_org_admin() ignores expiry, so the MFA gate must too.
+    "expired_B_in_org_schema": (
+        lambda u, o: give_level2_role(u, o, "org", valid_to=timezone.now() - timedelta(days=1)), True
+    ),
+    # A level-2 role in this org's schema whose Role names another org (historical data).
+    "B_in_org_schema_for_another_org": (lambda u, o: give_level2_role(u, other_org(), "org", schema_org=o), True),
+    # Admin of another org while this org is selected (get_org_admin_org_ids honours it).
+    "A_in_another_org": (lambda u, o: give_membership_admin(u, other_org()), True),
+    "no_admin_records": (lambda u, o: None, False),
+    "superuser_without_admin_records": (lambda u, o: make_superuser(u), False),
 }
 
 
-@pytest.mark.parametrize(
-    "has_membership, role_schema, needs_mfa",
-    list(ADMIN_RECORD_CASES.values()),
-    ids=list(ADMIN_RECORD_CASES),
-)
-def test_every_admin_record_combination_requires_mfa(
-    organization, has_membership, role_schema, needs_mfa
-):
+@pytest.mark.parametrize("set_up, needs_mfa", list(ADMIN_RECORD_CASES.values()), ids=list(ADMIN_RECORD_CASES))
+def test_every_admin_record_requires_mfa(organization, set_up, needs_mfa):
     user = make_user(organization, "case@mfa-gate.com")
-    if has_membership:
-        give_membership_admin(user, organization)
-    if role_schema == "org":
-        with tenant_schema_context(slug_to_schema_name(organization.slug)):
-            give_level2_role(user, organization)
-    elif role_schema == "public":
-        give_level2_role(user, organization)
+    set_up(user, organization)
 
     response = client_with(pre_mfa_token(user)).get(ADMIN_API)
 
+    # Login and enrollment (requires_mfa) and the middleware apply the same rule.
     assert mfa.requires_mfa(user) is needs_mfa
     if needs_mfa:
         assert response.status_code == 403
         assert response.json()["errorCode"] == "MFA_REQUIRED"
     else:
         assert response.json().get("errorCode") != "MFA_REQUIRED"
-
-
-def test_expired_level2_role_still_requires_mfa(organization):
-    """is_org_admin() ignores expiry, so the MFA gate must too."""
-    user = make_user(organization, "expired@mfa-gate.com")
-    with tenant_schema_context(slug_to_schema_name(organization.slug)):
-        role, _ = Role.objects.get_or_create(
-            organization=organization, name="Organization Admin", defaults={"level": 2}
-        )
-        UserRole.objects.create(user=user, role=role, valid_to=timezone.now() - timedelta(days=1))
-
-    response = client_with(pre_mfa_token(user)).get(ADMIN_API)
-
-    assert response.status_code == 403
-    assert response.json()["errorCode"] == "MFA_REQUIRED"
-
-
-def test_admin_of_another_org_requires_mfa(organization):
-    """Admin of org A while org B is selected: admin access to A still needs MFA."""
-    other_org = Organization.objects.create(name="MFA Other Org", email_domain="mfa-other.com")
-    user = make_user(organization, "cross@mfa-gate.com")
-    give_membership_admin(user, other_org)
-
-    response = client_with(pre_mfa_token(user)).get(ADMIN_API)
-
-    assert mfa.requires_mfa(user) is True
-    assert response.status_code == 403
-    assert response.json()["errorCode"] == "MFA_REQUIRED"
-
-
-# --- not affected ------------------------------------------------------------
-
-def test_superuser_is_not_mfa_gated(organization):
-    superuser = make_user(organization, "root@mfa-gate.com", is_superuser=True)
-
-    response = client_with(pre_mfa_token(superuser)).get(ADMIN_API)
-
-    assert response.json().get("errorCode") != "MFA_REQUIRED"

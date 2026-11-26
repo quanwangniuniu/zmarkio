@@ -181,7 +181,6 @@ def test_confirm_enrolls_and_returns_recovery_codes_only_once(org_admin):
     assert len(response.data["recovery_codes"]) == mfa.RECOVERY_CODE_COUNT
     assert AccessToken(response.data["token"]).payload["mfa_verified"] is True
     assert MfaDevice.objects.get(user=org_admin).is_confirmed is True
-    # Once enrolled, neither endpoint hands out new codes or a new secret.
     again = client.post(CONFIRM_URL, {"code": pyotp.TOTP(secret).now()}, format="json")
     restart = client.post(START_URL, format="json")
     assert (again.status_code, restart.status_code) == (409, 409)
@@ -324,6 +323,7 @@ def test_verify_needs_exactly_one_of_code_or_recovery_code(enrolled_admin, codes
     response = verify({"mfa_token": login(user).data["mfa_token"], **codes})
 
     assert response.status_code == 400
+    assert "Provide either code or recovery_code." in str(response.data)
     assert "token" not in response.data
 
 
