@@ -32,7 +32,7 @@ import {
 import { useDecisionMapUrlState } from '@/components/decisions/hooks/useDecisionMapUrlState';
 import { DecisionAPI } from '@/lib/api/decisionApi';
 import type { DecisionGraphEdge, DecisionGraphNode, DecisionGraphResponse } from '@/types/decision';
-import { toTopicKey } from '@/components/decisions/decisionValidation';
+import { generateTopicKey } from '@/components/decisions/decisionValidation';
 
 type DecisionGraphWindow = Window & {
   __decisionGraphZoomIn?: () => void;
@@ -330,7 +330,7 @@ export default function DecisionsGraphSection({
   const handleCreateTopic = async (title: string) => {
     if (!projectId) return;
     try {
-      await DecisionAPI.createDecisionTopic(projectId, toTopicKey(title), title);
+      await DecisionAPI.createDecisionTopic(projectId, generateTopicKey(title), title);
       toast.success('Topic added');
       await onDecisionUpdated?.({ fullReload: true });
     } catch (err) {

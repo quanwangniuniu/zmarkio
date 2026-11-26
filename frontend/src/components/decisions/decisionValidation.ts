@@ -100,14 +100,14 @@ const formatCount = (n: number) => n.toLocaleString('en-US');
 export const FIELD_MESSAGES = {
   limitReached: 'Character limit reached.',
   pastedCut: (max: number) => `Pasted text was cut to fit ${formatCount(max)} characters.`,
+  maxCharacters: (max: number) => `Max ${formatCount(max)} characters.`,
   optionEmpty: 'Enter text, or remove this option.',
   optionsTooFew: "Add at least two options, then choose the one you're committing to.",
   optionNotSelected: "Choose the option you're committing to.",
   confidenceOutOfRange: (value: number) => `Saved value ${value} is out of range. Choose 1–5.`,
   topicNameEmpty: 'Enter a topic name.',
-  topicKeyEmpty: 'Include at least one letter or number (a–z, 0–9).',
-  topicKeyTooLong: `This name is too long. Use ${DECISION_LIMITS.topicKey} characters or fewer.`,
-  topicKeyExists: (key: string) => `A topic with the key ${key} already exists. Choose another name.`,
+  topicNameTooLong: `Use ${DECISION_LIMITS.topicName} characters or fewer.`,
+  topicNameExists: (name: string) => `A topic named "${name}" already exists.`,
 } as const;
 
 export function formatCounter(state: LengthState): string {
@@ -133,21 +133,39 @@ export function toTopicKey(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-export interface TopicNameCheck {
-  key: string;
-  error: string | null;
+const sameName = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+
+const KEY_SUFFIX_LENGTH = 5;
+
+// FNV-1a: a short, stable hash, so the same name always gives the same key.
+function nameHash(name: string): string {
+  let hash = 0x811c9dc5;
+  for (const ch of sameName(name)) {
+    hash ^= ch.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(KEY_SUFFIX_LENGTH, '0').slice(-KEY_SUFFIX_LENGTH);
 }
 
-export function validateNewTopicName(name: string, existingKeys: Iterable<string>): TopicNameCheck {
-  if (!name.trim()) return { key: '', error: FIELD_MESSAGES.topicNameEmpty };
-  const key = toTopicKey(name);
-  if (!key) return { key, error: FIELD_MESSAGES.topicKeyEmpty };
-  if (key.length > DECISION_LIMITS.topicKey) {
-    return { key, error: FIELD_MESSAGES.topicKeyTooLong };
+// The map's topic list leaves out topics with no decisions, and the API upserts by key. A suffix
+// from the name keeps different names apart, and sends a retried name to the same row.
+export function generateTopicKey(name: string): string {
+  const maxSlug = DECISION_LIMITS.topicKey - KEY_SUFFIX_LENGTH - 1;
+  const slug = toTopicKey(name).slice(0, maxSlug).replace(/-+$/, '');
+  return `${slug || 'topic'}-${nameHash(name)}`;
+}
+
+/** Returns the error to show for a new topic name, or null if it can be saved. */
+export function validateNewTopicName(name: string, topics: Iterable<{ title?: string | null }>): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return FIELD_MESSAGES.topicNameEmpty;
+  // decision-service counts the name in UTF-16 units (String.Length), unlike title and option text.
+  if (trimmed.length > DECISION_LIMITS.topicName) return FIELD_MESSAGES.topicNameTooLong;
+  const target = sameName(trimmed);
+  for (const topic of topics) {
+    if (sameName(topic.title ?? '') === target) return FIELD_MESSAGES.topicNameExists(trimmed);
   }
-  const existing = new Set(Array.from(existingKeys, (k) => k.trim().toLowerCase()));
-  if (existing.has(key)) return { key, error: FIELD_MESSAGES.topicKeyExists(key) };
-  return { key, error: null };
+  return null;
 }
 
 const snakeToCamel = (field: string) => field.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());

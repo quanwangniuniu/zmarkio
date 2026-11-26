@@ -8,60 +8,75 @@ import {
   isConfidenceOutOfRange,
   isOptionTextBlank,
   lengthState,
+  generateTopicKey,
   toTopicKey,
   validateNewTopicName,
 } from '@/components/decisions/decisionValidation';
 
+// A real title and a real option write-up, reused for the length rules below.
+const TITLE =
+  'Shift 30% of the remaining Q4 Meta budget into Google Search and YouTube for the Black Friday to Boxing Day period, ' +
+  'keep TikTok flat, and review the split with the paid social and search leads once the first December results are in. ' +
+  'Confirm with finance before the 1 December cut-off.';
+const OPTION =
+  'Use the existing vendor for all Q4 creative production. They already know our brand guidelines and have delivered the last three campaigns on time. '.repeat(8);
+const firstChars = (text: string, n: number) => Array.from(text).slice(0, n).join('');
+
 describe('charCount / clip', () => {
-  it('counts emoji as one character', () => {
-    expect('👍'.length).toBe(2);
-    expect(charCount('a👍b')).toBe(3);
+  it('counts an emoji as one character, like the backend', () => {
+    expect('🎄'.length).toBe(2);
+    expect(charCount('🎄 Christmas push')).toBe(16);
     expect(charCount(null)).toBe(0);
   });
 
-  it('leaves text within the limit untouched', () => {
-    expect(clip('abc', 3)).toEqual({ text: 'abc', cut: false });
+  it('leaves a title that fits untouched', () => {
+    expect(clip('Q4 budget split', DECISION_LIMITS.title)).toEqual({ text: 'Q4 budget split', cut: false });
   });
 
-  it('cuts by code point without splitting an emoji', () => {
-    expect(clip('ab👍👍', 3)).toEqual({ text: 'ab👍', cut: true });
+  it('cuts by character without splitting an emoji', () => {
+    expect(clip('Boxing Day 🎄🎁', 12)).toEqual({ text: 'Boxing Day 🎄', cut: true });
   });
 
-  it('cuts a title to 255 characters', () => {
-    const result = clip('x'.repeat(300), DECISION_LIMITS.title);
+  it('cuts a long title to 255 characters', () => {
+    const result = clip(TITLE, DECISION_LIMITS.title);
+    expect(charCount(TITLE)).toBeGreaterThan(255);
     expect(charCount(result.text)).toBe(255);
+    expect(result.text).toBe(firstChars(TITLE, 255));
     expect(result.cut).toBe(true);
   });
 });
 
 describe('lengthState / formatCounter', () => {
-  it('hides the counter below the threshold', () => {
-    expect(lengthState('x'.repeat(229), 255, 230)).toMatchObject({ showCounter: false, atLimit: false });
+  it('hides the title counter until 230 characters', () => {
+    expect(lengthState(firstChars(TITLE, 229), 255, 230)).toMatchObject({ showCounter: false, atLimit: false });
+    expect(lengthState(firstChars(TITLE, 230), 255, 230)).toMatchObject({ count: 230, showCounter: true, atLimit: false });
   });
 
-  it('shows the counter from the threshold and flags the limit', () => {
-    expect(lengthState('x'.repeat(230), 255, 230)).toMatchObject({ count: 230, showCounter: true, atLimit: false });
-    expect(lengthState('x'.repeat(255), 255, 230).atLimit).toBe(true);
+  it('flags the limit at exactly 255 characters', () => {
+    expect(lengthState(firstChars(TITLE, 254), 255, 230).atLimit).toBe(false);
+    expect(lengthState(firstChars(TITLE, 255), 255, 230).atLimit).toBe(true);
   });
 
-  it('formats counts with thousands separators', () => {
-    expect(formatCounter(lengthState('x'.repeat(936), 1000, 900))).toBe('936 / 1,000');
+  it('formats the option counter with a thousands separator', () => {
+    expect(formatCounter(lengthState(firstChars(OPTION, 936), 1000, 900))).toBe('936 / 1,000');
     expect(FIELD_MESSAGES.pastedCut(1000)).toBe('Pasted text was cut to fit 1,000 characters.');
   });
 });
 
 describe('isOptionTextBlank / isConfidenceOutOfRange', () => {
-  it('treats whitespace-only option text as blank', () => {
+  it('treats spaces, tabs and line breaks as an empty option', () => {
     expect(isOptionTextBlank('   ')).toBe(true);
+    expect(isOptionTextBlank('\n\t ')).toBe(true);
     expect(isOptionTextBlank(undefined)).toBe(true);
-    expect(isOptionTextBlank(' a ')).toBe(false);
+    expect(isOptionTextBlank('  Use the existing vendor  ')).toBe(false);
   });
 
-  it('flags only stored values outside 1–5', () => {
+  it('flags stored scores outside 1–5, such as 87 from the old free-text field', () => {
     expect(isConfidenceOutOfRange(null)).toBe(false);
     expect(isConfidenceOutOfRange(1)).toBe(false);
     expect(isConfidenceOutOfRange(5)).toBe(false);
     expect(isConfidenceOutOfRange(0)).toBe(true);
+    expect(isConfidenceOutOfRange(6)).toBe(true);
     expect(isConfidenceOutOfRange(87)).toBe(true);
   });
 });
@@ -70,38 +85,96 @@ describe('toTopicKey', () => {
   it.each([
     ['Q4 Budget', 'q4-budget'],
     ['  Launch_plan  2027 ', 'launch-plan-2027'],
-    ['a -- b', 'a-b'],
-    ['--Hello--', 'hello'],
+    ['Click Frenzy -- Mid Year', 'click-frenzy-mid-year'],
+    ['- EOFY Sale -', 'eofy-sale'],
     ['Bad topic!!', 'bad-topic'],
-    ['预算 !!', ''],
+    ['🎄 !!', ''],
   ])('%s → %s', (name, key) => {
     expect(toTopicKey(name)).toBe(key);
   });
 });
 
+// Topics an Australian paid media team already has on its decision map.
+const EXISTING_TOPICS = [{ title: 'EOFY Sale' }, { title: 'Click Frenzy' }, { title: 'Other' }];
+const BACKEND_TOPIC_KEY = /^[a-z0-9_-]{1,64}$/;
+const KEY_WITH_SUFFIX = (prefix: string) => new RegExp(`^${prefix}-[a-z0-9]{5}$`);
+
+describe('generateTopicKey', () => {
+  it('starts the key with a readable version of the name', () => {
+    expect(generateTopicKey('Boxing Day Sales')).toMatch(KEY_WITH_SUFFIX('boxing-day-sales'));
+    expect(generateTopicKey('Q4 Meta → Google Search budget shift (AU)')).toMatch(
+      KEY_WITH_SUFFIX('q4-meta-google-search-budget-shift-au'),
+    );
+  });
+
+  it('keeps giving the same key for a name, so existing keys stay valid after a release', () => {
+    expect(generateTopicKey('Boxing Day Sales')).toBe('boxing-day-sales-epukg');
+    expect(generateTopicKey('EOFY Sale')).toBe('eofy-sale-3xo5f');
+  });
+
+  it('gives the same key when the planner saves the same name again, whatever the case or spacing', () => {
+    expect(generateTopicKey('  boxing  day SALES ')).toBe(generateTopicKey('Boxing Day Sales'));
+  });
+
+  it('keeps different names apart even when they read the same as a slug', () => {
+    expect(generateTopicKey('Click-Frenzy')).not.toBe(generateTopicKey('Click Frenzy'));
+  });
+
+  it('uses "topic" when the name has no a–z or 0–9, and still keeps names apart', () => {
+    expect(generateTopicKey('🎄')).toMatch(KEY_WITH_SUFFIX('topic'));
+    expect(generateTopicKey('🎄')).not.toBe(generateTopicKey('🎁'));
+  });
+
+  it('keeps a long name\'s key within 64 characters', () => {
+    const key = generateTopicKey('Black Friday and Cyber Monday retargeting push for AU NZ and SEA markets');
+    expect(key).toMatch(KEY_WITH_SUFFIX('black-friday-and-cyber-monday-retargeting-push-for-au-nz-a'));
+    expect(key).toHaveLength(64);
+  });
+
+  it('does not leave a double hyphen when the cut lands on a space', () => {
+    const key = generateTopicKey('Black Friday and Cyber Monday retargeting push for AU and NZ SEA');
+    expect(key).toMatch(KEY_WITH_SUFFIX('black-friday-and-cyber-monday-retargeting-push-for-au-and'));
+  });
+
+  it.each(['Boxing Day Sales', '🎄🎁', '!!!', 'Café Relaunch', 'Black Friday / Cyber Monday', 'Christmas and Boxing Day paid social push for AU and NZ, SEA to follow (draft-1)'])(
+    'always gives a key the backend accepts: %s',
+    (name) => {
+      expect(generateTopicKey(name)).toMatch(BACKEND_TOPIC_KEY);
+    },
+  );
+});
+
 describe('validateNewTopicName', () => {
-  it('accepts a valid name', () => {
-    expect(validateNewTopicName('Q4 Budget', ['other'])).toEqual({ key: 'q4-budget', error: null });
+  it('accepts a new topic', () => {
+    expect(validateNewTopicName('Boxing Day Sales', EXISTING_TOPICS)).toBeNull();
+  });
+
+  it('accepts a name that only looks like an existing one', () => {
+    expect(validateNewTopicName('Click Frenzy Mid Year', EXISTING_TOPICS)).toBeNull();
+    expect(validateNewTopicName('🎄', EXISTING_TOPICS)).toBeNull();
+  });
+
+  it('rejects a topic that is already on the map, ignoring case and extra spaces', () => {
+    expect(validateNewTopicName(' eofy  sale ', EXISTING_TOPICS)).toBe('A topic named "eofy  sale" already exists.');
   });
 
   it('rejects an empty name', () => {
-    expect(validateNewTopicName('   ', []).error).toBe('Enter a topic name.');
+    expect(validateNewTopicName('   ', EXISTING_TOPICS)).toBe('Enter a topic name.');
   });
 
-  it('rejects a name with no usable characters', () => {
-    expect(validateNewTopicName('预算 !!', []).error).toBe(FIELD_MESSAGES.topicKeyEmpty);
-  });
-
-  it('rejects a key longer than 64 characters', () => {
-    expect(validateNewTopicName('a'.repeat(72), []).error).toBe(
-      'This name is too long. Use 64 characters or fewer.',
+  it('allows names up to 80 characters', () => {
+    const name = 'Christmas and Boxing Day paid social push for AU and NZ, SEA to follow (draft-1)';
+    expect(name).toHaveLength(80);
+    expect(validateNewTopicName(`  ${name}  `, EXISTING_TOPICS)).toBeNull();
+    expect(validateNewTopicName(name.replace('draft-1', 'draft-12'), EXISTING_TOPICS)).toBe(
+      'Use 80 characters or fewer.',
     );
   });
 
-  it('rejects a duplicate key', () => {
-    expect(validateNewTopicName('Other', ['other']).error).toBe(
-      'A topic with the key other already exists. Choose another name.',
-    );
+  it('counts an emoji as two characters, like the backend', () => {
+    const name = 'Christmas and Boxing Day paid social push for AU and NZ, SEA to follow (draft)🎄🎁';
+    expect(name).toHaveLength(82);
+    expect(validateNewTopicName(name, EXISTING_TOPICS)).toBe('Use 80 characters or fewer.');
   });
 });
 

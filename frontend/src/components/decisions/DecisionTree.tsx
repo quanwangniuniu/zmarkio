@@ -14,7 +14,7 @@ import Link from 'next/link';
 import { nestedProjectPath } from '@/lib/projectNestedRoutes';
 import { useBuildUrl } from '@/lib/buildUrl';
 import dagre from '@dagrejs/dagre';
-import { CheckCircle2, FileText, Link2, PencilLine, Plus, Trash2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, FileText, Link2, PencilLine, Plus, Trash2, X } from 'lucide-react';
 import DecisionStatusPill from '@/components/decisions/DecisionStatusPill';
 import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
 import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
@@ -34,7 +34,7 @@ import {
   type TimelineGranularity,
 } from '@/components/decisions/decisionTreeLayout';
 import type { DecisionGraphEdge, DecisionGraphNode, DecisionGraphTopic, DecisionStatus } from '@/types/decision';
-import { validateNewTopicName } from '@/components/decisions/decisionValidation';
+import { DECISION_LIMITS, FIELD_MESSAGES, validateNewTopicName } from '@/components/decisions/decisionValidation';
 
 export interface DecisionTreeHandle {
   jumpToToday: () => void;
@@ -452,6 +452,7 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
   const [newTopicTitle, setNewTopicTitle] = useState<string | null>(null);
   const [newTopicTouched, setNewTopicTouched] = useState(false);
   const [newTopicServerError, setNewTopicServerError] = useState<string | null>(null);
+  const [newTopicPasteCut, setNewTopicPasteCut] = useState(false);
   const newTopicSavingRef = useRef(false);
   const [expandedTreeGroups, setExpandedTreeGroups] = useState<Set<string>>(new Set());
   const [topicGuideDismissed, setTopicGuideDismissed] = useState(false);
@@ -1045,14 +1046,21 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
     await onRenameTopic(editingTopic.topic, title);
   }, [editingTopic, onRenameTopic]);
 
-  const topicKeys = useMemo(() => (topics ?? []).map((t) => t.topic), [topics]);
-  const newTopicCheck =
-    newTopicTitle == null ? null : validateNewTopicName(newTopicTitle, topicKeys);
-  const newTopicError =
-    newTopicServerError ?? (newTopicTouched ? newTopicCheck?.error ?? null : null);
+  const existingTopics = useMemo(() => topics ?? [], [topics]);
+  const newTopicInvalid =
+    newTopicTitle == null ? null : validateNewTopicName(newTopicTitle, existingTopics);
+  const newTopicError = newTopicServerError ?? (newTopicTouched ? newTopicInvalid : null);
+  // Same unit as maxLength (UTF-16), so the notice shows exactly when typing stops.
+  const newTopicAtLimit = (newTopicTitle?.length ?? 0) >= DECISION_LIMITS.topicName;
+  const newTopicLimitNotice = !newTopicAtLimit
+    ? null
+    : newTopicPasteCut
+      ? FIELD_MESSAGES.pastedCut(DECISION_LIMITS.topicName)
+      : FIELD_MESSAGES.maxCharacters(DECISION_LIMITS.topicName);
 
   const closeNewTopic = useCallback(() => {
     setNewTopicTitle(null);
+    setNewTopicPasteCut(false);
     setNewTopicTouched(false);
     setNewTopicServerError(null);
   }, []);
@@ -1061,7 +1069,7 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
     if (!onCreateTopic || newTopicTitle == null || newTopicSavingRef.current) return;
     const title = (newTopicInputRef.current?.value ?? newTopicTitle).trim();
     setNewTopicTouched(true);
-    if (validateNewTopicName(title, topicKeys).error) return;
+    if (validateNewTopicName(title, existingTopics)) return;
     newTopicSavingRef.current = true;
     try {
       await onCreateTopic(title);
@@ -1071,7 +1079,7 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
     } finally {
       newTopicSavingRef.current = false;
     }
-  }, [newTopicTitle, onCreateTopic, topicKeys, closeNewTopic]);
+  }, [newTopicTitle, onCreateTopic, existingTopics, closeNewTopic]);
 
   useEffect(() => {
     if (!linkDragFrom) return;
@@ -1881,7 +1889,7 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
                   >
                     {newTopicTitle != null ? (
                       <div className="flex w-full flex-col px-3">
-                        <label htmlFor="decision-new-topic" className="mb-1 text-[11px] font-medium text-slate-500">
+                        <label htmlFor="decision-new-topic" className="mb-1.5 text-[11px] font-semibold text-slate-800">
                           New topic name
                         </label>
                         <div className="flex items-center gap-1.5">
@@ -1896,6 +1904,14 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
                               setNewTopicTitle(event.target.value);
                               setNewTopicTouched(true);
                               setNewTopicServerError(null);
+                              if (event.target.value.length < DECISION_LIMITS.topicName) setNewTopicPasteCut(false);
+                            }}
+                            onPaste={(event) => {
+                              // maxLength cuts pasted text silently, so note it here to tell the user.
+                              const el = event.currentTarget;
+                              const selected = (el.selectionEnd ?? 0) - (el.selectionStart ?? 0);
+                              const room = DECISION_LIMITS.topicName - (el.value.length - selected);
+                              setNewTopicPasteCut(event.clipboardData.getData('text').length > room);
                             }}
                             onKeyDown={(event) => {
                               if (event.key === 'Enter') {
@@ -1912,12 +1928,12 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
                             className={`h-7 min-w-0 flex-1 rounded-md border bg-white px-2 text-xs font-medium text-slate-800 outline-none transition ${
                               newTopicError ? 'border-rose-400 focus:border-rose-500' : 'border-slate-200 focus:border-[#3CCED7]'
                             }`}
-                            maxLength={80}
+                            maxLength={DECISION_LIMITS.topicName}
                           />
                           <button
                             data-new-topic-save
                             type="button"
-                            disabled={Boolean(newTopicCheck?.error)}
+                            disabled={Boolean(newTopicInvalid)}
                             onMouseDown={(event) => {
                               event.preventDefault();
                               void saveNewTopic();
@@ -1940,12 +1956,14 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
                         <p
                           id="decision-new-topic-hint"
                           aria-live="polite"
-                          className={`mt-1 line-clamp-2 min-h-[14px] text-[11px] leading-tight ${
-                            newTopicError ? 'text-rose-600' : 'text-slate-400'
-                          }`}
+                          className="mt-1.5 flex min-h-[14px] items-start gap-1 text-[11px] leading-tight text-rose-600"
                         >
-                          {newTopicError ??
-                            (newTopicCheck?.key ? `Saved as ${newTopicCheck.key}` : '')}
+                          {(newTopicError ?? newTopicLimitNotice) && (
+                            <>
+                              <AlertCircle aria-hidden="true" className="mt-px h-3 w-3 shrink-0" />
+                              <span className="line-clamp-2">{newTopicError ?? newTopicLimitNotice}</span>
+                            </>
+                          )}
                         </p>
                       </div>
                     ) : (
