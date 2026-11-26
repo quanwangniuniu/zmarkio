@@ -1,29 +1,38 @@
-# Development stage
-FROM python:3.11-slim
+# Build stage
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
 # Copy requirements
 COPY requirements.txt .
 
-# Copy source code
-COPY . .
+# Install Python dependencies
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# Development stage
+FROM python:3.11-slim
+
+WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     fontconfig \
+    fonts-crosextra-caladea \
+    fonts-crosextra-carlito \
     fonts-dejavu \
-    gcc \
-    libreoffice \
+    fonts-liberation \
+    libreoffice-calc-nogui \
+    libreoffice-impress-nogui \
+    libreoffice-writer-nogui \
     mediainfo \
     poppler-utils \
-    wget \
-    unzip \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy Python dependencies from build stage
+COPY --from=builder /install /usr/local
+
+# Copy source code
+COPY . .
 
 # Install sonar-scanner
 # RUN wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006-linux.zip \
