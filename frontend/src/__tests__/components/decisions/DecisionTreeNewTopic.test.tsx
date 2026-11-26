@@ -1,10 +1,14 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
+import toast from 'react-hot-toast';
 import DecisionTree from '@/components/decisions/DecisionTree';
 import type { DecisionGraphNode, DecisionGraphTopic } from '@/types/decision';
 
 jest.mock('@/lib/buildUrl', () => ({ useBuildUrl: () => (path: string) => path }));
+jest.mock('react-hot-toast', () => ({ __esModule: true, default: { success: jest.fn(), error: jest.fn() } }));
+
+beforeEach(() => jest.clearAllMocks());
 
 beforeAll(() => {
   global.ResizeObserver ??= class {
@@ -79,9 +83,11 @@ describe('Decision map — adding a topic', () => {
     await user.type(input, 'eofy sale');
 
     expect(screen.getByText('A topic named "eofy sale" already exists.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save topic' })).toBeDisabled();
-    await user.keyboard('{Enter}');
+    await user.click(screen.getByRole('button', { name: 'Save topic' }));
+
     expect(onCreateTopic).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('Failed to add topic');
+    expect(screen.getByText('A topic named "eofy sale" already exists.')).toBeInTheDocument();
   });
 
   it('lets the planner fix a duplicate name and save', async () => {
@@ -115,6 +121,7 @@ describe('Decision map — adding a topic', () => {
 
     expect(screen.getByText('Enter a topic name.')).toBeInTheDocument();
     expect(onCreateTopic).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('Failed to add topic');
   });
 
   it('keeps the name and shows the server error when saving fails', async () => {
@@ -143,37 +150,38 @@ describe('Decision map — adding a topic', () => {
     await waitFor(() => expect(screen.queryByLabelText('New topic name')).not.toBeInTheDocument());
   });
 
-  it('stops the name at 80 characters as the planner types', async () => {
-    const { user } = renderMap();
-    const name = 'Christmas and Boxing Day paid social push for AU and NZ, SEA to follow (draft-1)';
-
-    const input = await startNewTopic(user);
-    await user.type(input, name.slice(0, 79));
-    expect(screen.queryByText('Max 80 characters.')).not.toBeInTheDocument();
-
-    await user.type(input, `${name.slice(79)} — final`);
-    expect(input.value).toBe(name);
-    expect(screen.getByText('Max 80 characters.')).toBeInTheDocument();
-
-    await user.keyboard('{Backspace}');
-    expect(screen.queryByText('Max 80 characters.')).not.toBeInTheDocument();
-  });
-
-  it('tells the planner when a pasted name was cut, and stops saying so once they shorten it', async () => {
+  it('keeps a pasted name in full and explains why it can\'t be saved', async () => {
     const { user, onCreateTopic } = renderMap();
     const pasted = 'Christmas and Boxing Day paid social push for AU and NZ, SEA to follow (draft-1) — owner: paid social lead';
 
     const input = await startNewTopic(user);
     await user.paste(pasted);
 
-    expect(input.value).toBe(pasted.slice(0, 80));
-    expect(screen.getByText('Pasted text was cut to fit 80 characters.')).toBeInTheDocument();
-
-    await user.keyboard('{Backspace}');
-    expect(screen.queryByText(/Pasted text was cut/)).not.toBeInTheDocument();
+    expect(input).toHaveValue(pasted);
+    expect(screen.getByText('Use 80 characters or fewer.')).toBeInTheDocument();
 
     await user.keyboard('{Enter}');
-    expect(onCreateTopic).toHaveBeenCalledWith(pasted.slice(0, 79).trim());
+    expect(onCreateTopic).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('Failed to add topic');
+    expect(input).toHaveValue(pasted);
+    expect(screen.getByText('Use 80 characters or fewer.')).toBeInTheDocument();
+  });
+
+  it('saves once the planner shortens a long name to 80 characters', async () => {
+    const { user, onCreateTopic } = renderMap();
+    const name = 'Christmas and Boxing Day paid social push for AU and NZ, SEA to follow (draft-1)';
+
+    const input = await startNewTopic(user);
+    await user.paste(`${name} — final`);
+    expect(screen.getByText('Use 80 characters or fewer.')).toBeInTheDocument();
+
+    await user.clear(input);
+    await user.paste(name);
+    expect(screen.queryByText('Use 80 characters or fewer.')).not.toBeInTheDocument();
+
+    await user.keyboard('{Enter}');
+    expect(onCreateTopic).toHaveBeenCalledWith(name);
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('does not warn when a pasted name fits', async () => {
@@ -183,28 +191,6 @@ describe('Decision map — adding a topic', () => {
     await user.paste('Boxing Day Sales');
 
     expect(input).toHaveValue('Boxing Day Sales');
-    expect(screen.queryByText(/Pasted text was cut|Max 80 characters/)).not.toBeInTheDocument();
-  });
-
-  it('shows the duplicate-name error rather than the limit notice when both apply', async () => {
-    const onCreateTopic = jest.fn();
-    const longExisting = 'Christmas and Boxing Day paid social push for AU and NZ, SEA to follow (draft-1)';
-    const user = userEvent.setup();
-    render(
-      <DecisionTree
-        nodes={NODES}
-        edges={[]}
-        topics={[...TOPICS, { topic: 'christmas-push', title: longExisting }]}
-        projectId={12}
-        viewMode="topics"
-        onCreateTopic={onCreateTopic}
-      />,
-    );
-
-    const input = await startNewTopic(user);
-    await user.type(input, longExisting);
-
-    expect(screen.getByText(`A topic named "${longExisting}" already exists.`)).toBeInTheDocument();
-    expect(screen.queryByText('Max 80 characters.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Use 80 characters or fewer.')).not.toBeInTheDocument();
   });
 });

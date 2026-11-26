@@ -100,7 +100,6 @@ const formatCount = (n: number) => n.toLocaleString('en-US');
 export const FIELD_MESSAGES = {
   limitReached: 'Character limit reached.',
   pastedCut: (max: number) => `Pasted text was cut to fit ${formatCount(max)} characters.`,
-  maxCharacters: (max: number) => `Max ${formatCount(max)} characters.`,
   optionEmpty: 'Enter text, or remove this option.',
   optionsTooFew: "Add at least two options, then choose the one you're committing to.",
   optionNotSelected: "Choose the option you're committing to.",
