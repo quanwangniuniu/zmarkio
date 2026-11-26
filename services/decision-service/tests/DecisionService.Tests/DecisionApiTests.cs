@@ -70,8 +70,11 @@ public sealed class DecisionApiTests
         Assert.Equal("Test decision", node.Title);
     }
 
-    [Fact]
-    public async Task Draft_create_rejects_out_of_range_confidence_score()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(6)]
+    [InlineData(87)]
+    public async Task Draft_create_rejects_out_of_range_confidence_score(int confidenceScore)
     {
         await using var factory = new DecisionApiFactory(authenticated: true);
         using var client = factory.CreateClient();
@@ -81,7 +84,7 @@ public sealed class DecisionApiTests
         var response = await client.PostAsJsonAsync("/api/decisions/drafts", new
         {
             title = "Invalid confidence test",
-            confidenceScore = 87,
+            confidenceScore,
         });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -520,6 +523,104 @@ public sealed class DecisionApiTests
         Assert.NotNull(saved);
         Assert.Equal(originalTopic, saved!.Topic);
     }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    public async Task Draft_create_accepts_confidence_score_at_the_range_edges(int confidenceScore)
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var response = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            title = "Q4 creative vendor",
+            confidenceScore,
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var draft = await response.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal(confidenceScore, draft!.ConfidenceScore);
+    }
+
+    [Fact]
+    public async Task Draft_title_limit_counts_an_emoji_as_one_character()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        // 255 characters, but 257 UTF-16 units: must pass, as the editor counts it as 255.
+        var title = TitleOfLength(253) + "🎄🎁";
+        Assert.Equal(257, title.Length);
+
+        using var accepted = await client.PostAsJsonAsync("/api/decisions/drafts", new { title });
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+        var draft = await accepted.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal(title, draft!.Title);
+
+        using var rejected = await client.PostAsJsonAsync("/api/decisions/drafts", new { title = title + "!" });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal("Title must be 255 characters or fewer.", Assert.Single(errors!["title"]));
+    }
+
+    public static TheoryData<string, string, string> InvalidGeneralPatchFields => new()
+    {
+        { """{"confidenceScore":6}""", "confidenceScore", "Confidence score must be between 1 and 5." },
+        { $$"""{"title":"{{TitleOfLength(256)}}"}""", "title", "Title must be 255 characters or fewer." },
+        { """{"options":[{"text":"   ","isSelected":false,"order":1}]}""", "options", "Option text is required." },
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidGeneralPatchFields))]
+    public async Task General_patch_rejects_invalid_fields_and_preserves_the_draft(
+        string body, string field, string expectedError)
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string originalTitle = "Q4 creative vendor";
+        const string originalOption = "Use the existing vendor for all Q4 creative";
+
+        using var created = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            title = originalTitle,
+            confidenceScore = 3,
+            options = new[] { new { text = originalOption, isSelected = true, order = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var draft = await created.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        var slug = draft!.Slug;
+
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"/api/decisions/{slug}")
+        {
+            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+        };
+        using var rejected = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(expectedError, Assert.Single(errors![field]));
+
+        var saved = await client.GetFromJsonAsync<DecisionDetailDto>($"/api/decisions/drafts/{slug}", JsonOptions);
+        Assert.NotNull(saved);
+        Assert.Equal(originalTitle, saved!.Title);
+        Assert.Equal(3, saved.ConfidenceScore);
+        Assert.Equal(originalOption, Assert.Single(saved.Options).Text);
+    }
+
+    private static string TitleOfLength(int length) =>
+        string.Concat(Enumerable.Repeat("Shift Q4 Meta budget into Google Search. ", 10))[..length];
 
     private sealed class DecisionApiFactory(bool authenticated) : WebApplicationFactory<Program>
     {
