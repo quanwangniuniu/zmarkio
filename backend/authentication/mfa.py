@@ -25,10 +25,8 @@ MFA_ISSUER_NAME = "MediaJira"
 # small clock drift between the server and the authenticator app.
 TOTP_VALID_WINDOW = 1
 RECOVERY_CODE_COUNT = 10
-# Short-lived, signed "password accepted" pass that only the MFA endpoints accept.
 MFA_TOKEN_SALT = "authentication.mfa.login"
 MFA_TOKEN_MAX_AGE_SECONDS = 5 * 60
-# Google sign-in hands the mfa_token over in this cookie instead of the redirect URL.
 MFA_TOKEN_COOKIE = "mfa_token"
 MFA_TOKEN_COOKIE_PATH = "/auth/mfa/"
 # Requests an org admin can still make before passing MFA: the same account
@@ -37,10 +35,24 @@ MFA_EXEMPT_PREFIXES = PasswordRotationMiddleware.EXEMPT_PREFIXES + ("/auth/mfa/"
 
 
 def requires_mfa(user) -> bool:
-    """Anyone with an org-admin record, in any organization, must use MFA."""
-    from core.admin_utils import is_org_admin
+    """Anyone with an org-admin record, in any organization, must use MFA.
 
-    return has_admin_record(user) or is_org_admin(user)
+    Used by login and enrollment. The middleware applies the same rule, with the
+    org-schema check run against the request's active schema.
+    """
+    from access_control.models import UserRole
+    from core.services.tenant import slug_to_schema_name
+    from core.tenant_context import tenant_schema_context
+
+    if has_admin_record(user):
+        return True
+    current_org = getattr(user, "current_organization", None) or getattr(user, "organization", None)
+    if not current_org:
+        return False
+    # Any level-2 role in the org schema, expired or not and whichever org it names,
+    # because the middleware's org-admin bypass does not filter on either.
+    with tenant_schema_context(slug_to_schema_name(current_org.slug)):
+        return UserRole.objects.filter(user=user, role__level=2).exists()
 
 
 def has_admin_record(user) -> bool:
@@ -48,8 +60,7 @@ def has_admin_record(user) -> bool:
 
     Some permission code (get_org_admin_org_ids) honours admin roles outside the
     user's current org, and UserRole can be written to public (e.g. by
-    admin_views.assign_admin without org context). is_org_admin() only covers the
-    current org's own schema, so MFA checks these as well.
+    admin_views.assign_admin without org context).
     """
     from access_control.models import UserRole
     from core.models import OrganizationMembership
@@ -72,7 +83,6 @@ def generate_secret() -> str:
 
 
 def provisioning_uri(user, secret: str) -> str:
-    """The otpauth:// URI an authenticator app reads from the QR code."""
     return pyotp.TOTP(secret).provisioning_uri(name=user.email, issuer_name=MFA_ISSUER_NAME)
 
 
@@ -117,8 +127,7 @@ def consume_recovery_code(user, code) -> bool:
     """Mark a matching unused recovery code as used. Each code works once."""
     if not _normalize_recovery_code(code):
         return False
-    # A single conditional UPDATE, so two concurrent requests cannot both
-    # use the same code.
+    # One conditional UPDATE, so concurrent requests cannot both use the same code.
     updated = RecoveryCode.objects.filter(
         user=user,
         code_hash=hash_recovery_code(code),
@@ -134,7 +143,6 @@ def create_mfa_token(user) -> str:
 
 
 def read_mfa_token(token):
-    """Return the user for a valid, unexpired MFA token, otherwise None."""
     try:
         payload = signing.loads(token, salt=MFA_TOKEN_SALT, max_age=MFA_TOKEN_MAX_AGE_SECONDS)
     except signing.BadSignature:  # also covers SignatureExpired
@@ -168,7 +176,6 @@ def clear_mfa_cookie(response) -> None:
 
 
 def request_has_mfa(request) -> bool:
-    """True when the request's JWT was issued after passing MFA (see build_login_response_data)."""
     token = getattr(request, "auth", None)
     return bool(token is not None and token.get("mfa_verified"))
 

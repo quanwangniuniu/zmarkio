@@ -57,9 +57,8 @@ class AuthorizationMiddleware:
             return None
 
         # MED-326: org-admin privileges need a token that passed MFA this session.
-        # Any admin record counts, expired or not (is_org_admin() ignores expiry
-        # too): an 'admin' membership or a public level-2 role in any org, or a
-        # level-2 role in the current org schema (the active search_path).
+        # Same rule as mfa.requires_mfa(): an admin record in any org, or any
+        # level-2 role (expired or not) in the active org schema.
         mfa_pending = not mfa.request_has_mfa(request) and not mfa.is_mfa_exempt_path(request.path)
         if mfa_pending and (
             mfa.has_admin_record(user) or UserRole.objects.filter(user=user, role__level=2).exists()
