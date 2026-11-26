@@ -1,8 +1,7 @@
 import { type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { waitForTasksPageReady } from '../../tasks/tasks-helpers';
 import { BUDGET_E2E_DEFAULT_PASSWORD, resolveBudgetRbacAuthState, type BudgetE2EFixturePayload } from './budget-e2e-types';
-import { loadBudgetE2EFixtures } from './budget-fixtures';
-import { isMfaChallenge, verifyMfaAfterLogin } from '../../mfa/mfa-api';
+import { loadBudgetE2EFixtures, loginBudgetUser } from './budget-fixtures';
 
 type LoginPayload = {
   token: string;
@@ -24,29 +23,8 @@ export type BudgetUserSession = {
   close: () => Promise<void>;
 };
 
-async function loginRequest(
-  page: Page,
-  email: string,
-  password: string,
-  mfaSecret?: string,
-): Promise<LoginPayload> {
-  const origin = process.env.BASE_URL || 'http://localhost';
-  const response = await page.request.post(`${origin}/auth/login/`, {
-    headers: { 'Content-Type': 'application/json' },
-    data: { email, password },
-  });
-  if (!response.ok()) {
-    throw new Error(`Budget E2E login failed for ${email} (${response.status()}): ${await response.text()}`);
-  }
-  const body = await response.json();
-  // MED-326: org admins finish sign-in with a TOTP code from the fixture secret.
-  if (isMfaChallenge(body)) {
-    if (!mfaSecret) {
-      throw new Error(`Budget E2E login for ${email} requires MFA, but the fixtures have no mfa_secret.`);
-    }
-    return verifyMfaAfterLogin(page.request, body, mfaSecret, origin);
-  }
-  return body as LoginPayload;
+async function loginRequest(page: Page, email: string, password: string): Promise<LoginPayload> {
+  return loginBudgetUser(page.request, email, password);
 }
 
 async function seedAuthStorage(
@@ -123,8 +101,7 @@ export async function openBudgetUserSession(
 
   const context = await browser.newContext();
   const page = await context.newPage();
-  const mfaSecret = Object.values(fixtures.users).find((user) => user.email === email)?.mfa_secret;
-  const auth = await loginRequest(page, email, password, mfaSecret);
+  const auth = await loginRequest(page, email, password);
   const origin = process.env.BASE_URL || 'http://localhost';
   const setActiveKey = project.slug ?? String(project.id);
   const setActiveResp = await page.request.post(
