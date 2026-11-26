@@ -8,7 +8,7 @@ import {
   resolveBudgetRbacHeaders,
   type BudgetE2EFixturePayload,
 } from './budget-e2e-types';
-import { isMfaChallenge, verifyMfaAfterLogin, type MfaSignIn } from '../../mfa/mfa-api';
+import { isMfaChallenge, verifyMfaAfterLogin } from '../../mfa/mfa-api';
 
 const FIXTURE_FILE = path.join(__dirname, 'budget-e2e-fixtures.json');
 
@@ -92,12 +92,11 @@ async function ensureActiveProject(
   );
 }
 
-// MED-326: sign in a fixture user; org admins finish MFA with the fixture's TOTP secret.
-export async function loginBudgetUser(
+export async function apiAuthHeaders(
   request: APIRequestContext,
   email: string,
-  password: string,
-): Promise<MfaSignIn> {
+  password: string = BUDGET_E2E_DEFAULT_PASSWORD,
+): Promise<Record<string, string>> {
   const origin = process.env.BASE_URL || 'http://localhost';
   const loginResp = await request.post(`${origin}/auth/login/`, {
     headers: { 'Content-Type': 'application/json' },
@@ -106,24 +105,15 @@ export async function loginBudgetUser(
   if (!loginResp.ok()) {
     throw new Error(`Login failed for ${email} (${loginResp.status()}): ${await loginResp.text()}`);
   }
-  const body = await loginResp.json();
-  if (!isMfaChallenge(body)) {
-    return body;
+  let body = await loginResp.json();
+  // MED-326: org admins finish sign-in with a TOTP code from the fixture's mfa_secret.
+  if (isMfaChallenge(body)) {
+    const mfaSecret = Object.values(loadBudgetE2EFixtures()?.users ?? {}).find((user) => user.email === email)?.mfa_secret;
+    if (!mfaSecret) {
+      throw new Error(`Budget E2E login for ${email} requires MFA, but the fixtures have no mfa_secret.`);
+    }
+    body = await verifyMfaAfterLogin(request, body, mfaSecret, origin);
   }
-  const users = Object.values(loadBudgetE2EFixtures()?.users ?? {});
-  const mfaSecret = users.find((user) => user.email === email)?.mfa_secret;
-  if (!mfaSecret) {
-    throw new Error(`Budget E2E login for ${email} requires MFA, but the fixtures have no mfa_secret.`);
-  }
-  return verifyMfaAfterLogin(request, body, mfaSecret, origin);
-}
-
-export async function apiAuthHeaders(
-  request: APIRequestContext,
-  email: string,
-  password: string = BUDGET_E2E_DEFAULT_PASSWORD,
-): Promise<Record<string, string>> {
-  const body = await loginBudgetUser(request, email, password);
   const token = body.token as string;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,

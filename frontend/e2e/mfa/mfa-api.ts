@@ -2,7 +2,7 @@ import { expect, type APIRequestContext } from '@playwright/test';
 import { totp } from './totp';
 
 // MED-326: finish an org admin's sign-in through the real MFA API, using a
-// computed TOTP code instead of a phone. Shared by the MFA, budget and ads E2E.
+// computed TOTP code instead of a phone. Shared by the MFA and budget E2E.
 
 type MfaChallenge = { mfa_required: true; mfa_enrollment_required: boolean; mfa_token: string };
 
@@ -18,16 +18,14 @@ export function isMfaChallenge(body: unknown): body is MfaChallenge {
 }
 
 // An org admin who has not set up MFA yet: enroll, then use the issued tokens.
-// origin: '' when the request context has a baseURL, otherwise e.g. 'http://localhost'.
 export async function enrollMfaAfterLogin(
   request: APIRequestContext,
   challenge: MfaChallenge,
-  origin = '',
 ): Promise<MfaSignIn & { secret: string; recovery_codes: string[] }> {
-  const started = await request.post(`${origin}/auth/mfa/enroll/start/`, { data: { mfa_token: challenge.mfa_token } });
+  const started = await request.post('/auth/mfa/enroll/start/', { data: { mfa_token: challenge.mfa_token } });
   expect(started.status(), 'Start MFA setup').toBe(200);
   const { secret } = await started.json();
-  const confirmed = await request.post(`${origin}/auth/mfa/enroll/confirm/`, {
+  const confirmed = await request.post('/auth/mfa/enroll/confirm/', {
     data: { mfa_token: challenge.mfa_token, code: totp(secret) },
   });
   expect(confirmed.status(), 'Confirm MFA setup').toBe(200);
@@ -35,6 +33,7 @@ export async function enrollMfaAfterLogin(
 }
 
 // An org admin who has already set up MFA with a known secret.
+// origin: '' when the request context has a baseURL, otherwise e.g. 'http://localhost'.
 export async function verifyMfaAfterLogin(
   request: APIRequestContext,
   challenge: MfaChallenge,
