@@ -4,8 +4,9 @@ import React from "react";
 import Link from "next/link";
 import type { CalendarViewType } from "@/lib/api/calendarApi";
 import { ChevronLeft, ChevronRight, Link2 } from "lucide-react";
-import { VIEW_LABELS } from "@/components/calendar/utils";
 import { useBuildUrl } from "@/lib/buildUrl";
+import { calendarViewTabs, isCalendarSurfaceEnabled } from "@/lib/calendar/calendarConfig";
+import { useOptionConfigVersion } from "@/lib/orgCustomization/configLoader";
 
 type CalendarToolbarProps = {
   headerTitle: string;
@@ -21,8 +22,6 @@ type CalendarToolbarProps = {
   onShowAllEventsChange?: (checked: boolean) => void;
 };
 
-const VIEW_ORDER: CalendarViewType[] = ["day", "week", "month", "year", "agenda"];
-
 export function CalendarToolbar({
   headerTitle,
   currentView,
@@ -35,6 +34,9 @@ export function CalendarToolbar({
   onShowAllEventsChange,
 }: CalendarToolbarProps) {
   const buildUrl = useBuildUrl();
+  useOptionConfigVersion();
+  const showToday = isCalendarSurfaceEnabled("section.toolbar_today");
+  const showNavigation = isCalendarSurfaceEnabled("section.toolbar_navigation");
 
   return (
     <header
@@ -42,32 +44,36 @@ export function CalendarToolbar({
       data-testid="calendar-toolbar"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap sm:gap-3">
-        <button
-          type="button"
-          onClick={onToday}
-          className="inline-flex shrink-0 items-center rounded-md border border-[#3CCED7] px-3 py-1.5 text-sm font-medium text-[#3CCED7] transition-colors hover:bg-[#3CCED7]/10"
-          data-testid="calendar-today"
-        >
-          Today
-        </button>
-        <div className="flex shrink-0 items-center">
+        {showToday && (
           <button
             type="button"
-            onClick={() => onOffset("prev")}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100"
-            aria-label="Previous period"
+            onClick={onToday}
+            className="inline-flex shrink-0 items-center rounded-md border border-[#3CCED7] px-3 py-1.5 text-sm font-medium text-[#3CCED7] transition-colors hover:bg-[#3CCED7]/10"
+            data-testid="calendar-today"
           >
-            <ChevronLeft className="h-4 w-4" />
+            Today
           </button>
-          <button
-            type="button"
-            onClick={() => onOffset("next")}
-            className="flex h-8 w-8 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100"
-            aria-label="Next period"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
+        )}
+        {showNavigation && (
+          <div className="flex shrink-0 items-center">
+            <button
+              type="button"
+              onClick={() => onOffset("prev")}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100"
+              aria-label="Previous period"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onOffset("next")}
+              className="flex h-8 w-8 items-center justify-center rounded-md text-gray-600 hover:bg-gray-100"
+              aria-label="Next period"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        )}
         <span
           data-testid="calendar-header-title"
           className="min-w-0 flex-1 truncate text-sm font-semibold text-gray-900 sm:text-base"
@@ -77,7 +83,7 @@ export function CalendarToolbar({
       </div>
 
       <div className="flex min-w-0 items-center gap-2 sm:gap-3" ref={viewSwitcherRef}>
-        {onShowAllEventsChange && (
+        {onShowAllEventsChange && isCalendarSurfaceEnabled("section.toolbar_all_events") && (
           <div
             className="inline-flex shrink-0 items-center gap-2 text-xs text-gray-600 sm:text-sm"
             data-testid="calendar-all-events-toggle"
@@ -103,15 +109,17 @@ export function CalendarToolbar({
             </button>
           </div>
         )}
-        <Link
-          href={buildUrl("/calendar/booking-links")}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#3CCED7] bg-[#3CCED7]/10 px-3 py-1.5 text-xs font-medium text-[#0E8A96] transition-colors hover:bg-[#3CCED7]/20 sm:text-sm"
-          data-testid="calendar-create-booking-link"
-        >
-          <Link2 className="h-3.5 w-3.5" />
-          Create Booking link
-        </Link>
-        {onAskAgent && (
+        {isCalendarSurfaceEnabled("nav_item.booking_links") && (
+          <Link
+            href={buildUrl("/calendar/booking-links")}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#3CCED7] bg-[#3CCED7]/10 px-3 py-1.5 text-xs font-medium text-[#0E8A96] transition-colors hover:bg-[#3CCED7]/20 sm:text-sm"
+            data-testid="calendar-create-booking-link"
+          >
+            <Link2 className="h-3.5 w-3.5" />
+            Create Booking link
+          </Link>
+        )}
+        {onAskAgent && isCalendarSurfaceEnabled("section.toolbar_ask_agent") && (
           <button
             type="button"
             onClick={onAskAgent}
@@ -126,7 +134,7 @@ export function CalendarToolbar({
           data-testid="calendar-view-tabs"
           role="tablist"
         >
-          {VIEW_ORDER.map((view) => {
+          {calendarViewTabs().map(({ view, label }) => {
             const isActive = currentView === view;
             return (
               <button
@@ -143,7 +151,7 @@ export function CalendarToolbar({
                     : "text-gray-600 hover:text-gray-900"
                 }`}
               >
-                {VIEW_LABELS[view]}
+                {label}
               </button>
             );
           })}

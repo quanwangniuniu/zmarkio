@@ -29,6 +29,8 @@ import { EventDialogContainer } from "@/components/calendar/EventDialogContainer
 import type { CalendarDialogMode, EventPanelPosition } from "@/components/calendar/types";
 import { List, Loader2, RefreshCw } from "lucide-react";
 import { useProjectStore } from "@/lib/projectStore";
+import { isCalendarSurfaceEnabled, resolveCalendarView } from "@/lib/calendar/calendarConfig";
+import { useOptionConfigVersion } from "@/lib/orgCustomization/configLoader";
 import {
   VIEW_LABELS,
   calendarAllEventsStorageKey,
@@ -46,15 +48,16 @@ import {
 } from "@/hooks/useCalendarSidebarData";
 
 const ACTIVITY_FILTER_STORAGE_KEY = "calendar:activity-filter";
+const DEFAULT_ACTIVITY_TYPES = ["decision", "task"];
 
 function loadActivityFilter(): Set<string> {
   if (typeof window === "undefined") {
-    return new Set(["decision", "task"]);
+    return new Set(DEFAULT_ACTIVITY_TYPES);
   }
   try {
     const raw = window.localStorage.getItem(ACTIVITY_FILTER_STORAGE_KEY);
     if (!raw) {
-      return new Set(["decision", "task"]);
+      return new Set(DEFAULT_ACTIVITY_TYPES);
     }
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
@@ -63,7 +66,7 @@ function loadActivityFilter(): Set<string> {
   } catch {
     // Fall through to default.
   }
-  return new Set(["decision", "task"]);
+  return new Set(DEFAULT_ACTIVITY_TYPES);
 }
 
 export default function CalendarPageContent() {
@@ -72,6 +75,13 @@ export default function CalendarPageContent() {
   const activeProject = useProjectStore((state) => state.activeProject);
   const projectId = activeProject?.id ?? null;
   const [currentView, setCurrentView] = useState<CalendarViewType>("week");
+  const calendarConfigVersion = useOptionConfigVersion();
+  const sidebarEnabled = isCalendarSurfaceEnabled("panel.sidebar");
+
+  // If an admin hides the view the user is on, fall back to an enabled one.
+  useEffect(() => {
+    setCurrentView((view) => resolveCalendarView(view));
+  }, [calendarConfigVersion]);
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [visibleCalendarIds, setVisibleCalendarIds] = useState<string[] | undefined>(undefined);
   const [includeAllEvents, setIncludeAllEvents] = useState(false);
@@ -165,7 +175,7 @@ export default function CalendarPageContent() {
   const handleAskAgentFromCalendar = useCallback(() => {
     const ctx = {
       type: "calendar" as const,
-      calendarIds: visibleCalendarIds ?? [],
+      calendarIds: sidebarEnabled ? visibleCalendarIds ?? [] : [],
       currentView,
       currentDate: format(currentDate, "yyyy-MM-dd"),
       userTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -173,7 +183,7 @@ export default function CalendarPageContent() {
     sessionStorage.setItem("agent-calendar-context", JSON.stringify(ctx));
     sessionStorage.removeItem("agent-session-id");
     openAgentSidePanel();
-  }, [visibleCalendarIds, currentView, currentDate]);
+  }, [sidebarEnabled, visibleCalendarIds, currentView, currentDate]);
 
   const handleAskAgentFromEvent = useCallback(
     (event: EventDTO) => {
@@ -231,13 +241,16 @@ export default function CalendarPageContent() {
     return selected != null && calendarScope(selected) === "personal";
   }, [accessibleCalendars, selectedCalendarId]);
   const showAllEvents = includeAllEvents && isPersonalSelected;
-  const viewCalendarIds = showAllEvents ? undefined : visibleCalendarIds;
+  // The calendar and activity filters live in the sidebar. When it is hidden, use the
+  // defaults so a saved filter cannot be stuck on with no way to change it.
+  const viewCalendarIds = showAllEvents || !sidebarEnabled ? undefined : visibleCalendarIds;
+  const viewEventTypes = sidebarEnabled ? Array.from(activeEventTypes) : DEFAULT_ACTIVITY_TYPES;
 
   const { events, calendars, isLoading, error, refetch } = useCalendarView({
     viewType: currentView,
     currentDate,
     calendarIds: viewCalendarIds,
-    activeEventTypes: Array.from(activeEventTypes),
+    activeEventTypes: viewEventTypes,
     projectId,
   });
 
@@ -552,7 +565,7 @@ export default function CalendarPageContent() {
         onOffset={handleOffset}
         onAskAgent={handleAskAgentFromCalendar}
         showAllEvents={showAllEvents}
-        onShowAllEventsChange={isPersonalSelected ? setIncludeAllEvents : undefined}
+        onShowAllEventsChange={sidebarEnabled && isPersonalSelected ? setIncludeAllEvents : undefined}
       />
 
       {gcalStatus?.connected && (gcalStatus.needs_reconnect || gcalStatus.last_error_message) ? (
@@ -596,15 +609,17 @@ export default function CalendarPageContent() {
       ) : null}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <CalendarSidebarContainer
-          currentDate={currentDate}
-          projectId={projectId}
-          onVisibleCalendarsChange={handleVisibleCalendarsChange}
-          onDateChange={setCurrentDate}
-          selectedCalendarId={selectedCalendarId}
-          activeEventTypes={activeEventTypes}
-          onToggleActivityType={toggleActivityType}
-        />
+        {sidebarEnabled && (
+          <CalendarSidebarContainer
+            currentDate={currentDate}
+            projectId={projectId}
+            onVisibleCalendarsChange={handleVisibleCalendarsChange}
+            onDateChange={setCurrentDate}
+            selectedCalendarId={selectedCalendarId}
+            activeEventTypes={activeEventTypes}
+            onToggleActivityType={toggleActivityType}
+          />
+        )}
 
         <section className="min-w-0 flex-1 overflow-auto bg-white" data-testid="calendar-canvas">
           <CalendarViewRouter

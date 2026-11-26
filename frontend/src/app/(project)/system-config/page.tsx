@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CheckSquare, GitBranch, Headset, LayoutList, Megaphone, PanelLeft, type LucideIcon } from 'lucide-react';
+import { CalendarDays, CheckSquare, GitBranch, Headset, LayoutList, Megaphone, PanelLeft, type LucideIcon } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useDispatch, useSelector } from 'react-redux';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { storeCsmConfig } from '@/lib/csm/csmConfig';
+import { storeCalendarConfig } from '@/lib/calendar/calendarConfig';
 import { storeCampaignConfig } from '@/lib/campaigns/campaignConfig';
 import { storeDecisionConfig } from '@/lib/decisions/decisionConfig';
 import { storeNavigationConfig } from '@/lib/navigation/navigationConfig';
@@ -30,7 +31,7 @@ const sectionTitle = 'text-lg font-semibold text-gray-900 dark:text-gray-100';
 
 type ConfigListKey = 'task_types' | 'task_statuses' | 'task_priorities';
 
-type ModuleKey = 'csm' | 'decisions' | 'campaigns' | 'navigation';
+type ModuleKey = 'csm' | 'decisions' | 'campaigns' | 'navigation' | 'calendar';
 
 const MODULE_SECTIONS: Record<ModuleKey, { title: string; fields: Record<string, string> }> = {
   csm: { title: 'CSM', fields: { ticket_priority: 'Ticket Priorities' } },
@@ -59,6 +60,15 @@ const MODULE_SECTIONS: Record<ModuleKey, { title: string; fields: Record<string,
     title: 'Sidebar Navigation',
     fields: { overview: 'Overview', manage: 'Manage', content: 'Content', collaborate: 'Collaborate', tools: 'Tools' },
   },
+  calendar: {
+    title: 'Calendar',
+    fields: {
+      tab: 'View Tabs',
+      section: 'Sections & Toolbar',
+      panel: 'Panels',
+      nav_item: 'Navigation',
+    },
+  },
 };
 
 const MODULE_KEYS = Object.keys(MODULE_SECTIONS) as ModuleKey[];
@@ -71,6 +81,7 @@ const PAGE_ICONS: Record<ConfigPage, LucideIcon> = {
   decisions: GitBranch,
   campaigns: Megaphone,
   navigation: PanelLeft,
+  calendar: CalendarDays,
 };
 
 const CONFIG_PAGES: { key: ConfigPage; title: string; icon: LucideIcon; items: { id: string; title: string }[] }[] = [
@@ -237,7 +248,7 @@ export default function SystemConfigPage() {
   const [config, setConfig] = useState<TaskConfig | null>(null);
   const [optionRows, setOptionRows] = useState<OptionRow[]>([]);
   const [optionType, setOptionType] = useState('');
-  const [moduleOptions, setModuleOptions] = useState<Record<ModuleKey, OptionConfig[]>>({ csm: [], decisions: [], campaigns: [], navigation: [] });
+  const [moduleOptions, setModuleOptions] = useState<Record<ModuleKey, OptionConfig[]>>({ csm: [], decisions: [], campaigns: [], navigation: [], calendar: [] });
   const [activePage, setActivePage] = useState<ConfigPage | 'all'>('all');
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState('task-types');
@@ -275,7 +286,7 @@ export default function SystemConfigPage() {
   const loadConfig = (next: SystemConfig) => {
     setConfig({ ...next.task, can_edit: next.can_edit });
     setOptionRows(buildOptionRows(next.task.task_field_options));
-    setModuleOptions({ csm: next.csm.options, decisions: next.decisions.options, campaigns: next.campaigns.options, navigation: next.navigation.options });
+    setModuleOptions({ csm: next.csm.options, decisions: next.decisions.options, campaigns: next.campaigns.options, navigation: next.navigation.options, calendar: next.calendar.options });
   };
 
   const dispatch = useDispatch<AppDispatch>();
@@ -343,6 +354,7 @@ export default function SystemConfigPage() {
           decisions: { options: moduleOptions.decisions },
           campaigns: { options: moduleOptions.campaigns },
           navigation: { options: moduleOptions.navigation },
+          calendar: { options: moduleOptions.calendar },
         },
       })).unwrap();
       storeTaskConfig(projectId, { ...saved.task, can_edit: saved.can_edit });
@@ -350,6 +362,7 @@ export default function SystemConfigPage() {
       storeDecisionConfig(projectId, { ...saved.decisions, can_edit: saved.can_edit });
       storeCampaignConfig(projectId, { ...saved.campaigns, can_edit: saved.can_edit });
       storeNavigationConfig(projectId, { ...saved.navigation, can_edit: saved.can_edit });
+      storeCalendarConfig(projectId, { ...saved.calendar, can_edit: saved.can_edit });
       toast.success('System configuration saved');
     } catch (message) {
       toast.error(typeof message === 'string' ? message : 'Failed to save system configuration');
@@ -364,7 +377,7 @@ export default function SystemConfigPage() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">System Configuration</h1>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Choose which task types, CSM, Decisions, Campaigns and sidebar options {activeProject?.name ?? 'this project'} uses, and rename,
+                Choose which task types, CSM, Decisions, Campaigns, Calendar and sidebar options {activeProject?.name ?? 'this project'} uses, and rename,
                 recolor or reorder them.
               </p>
             </div>

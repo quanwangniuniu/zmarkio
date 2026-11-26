@@ -31,6 +31,7 @@ import {
   isNestedProjectNavActive,
 } from '@/lib/projectNestedRoutes';
 import { useBuildUrl } from '@/lib/buildUrl';
+import { loadCalendarConfig } from '@/lib/calendar/calendarConfig';
 import { loadCampaignConfig } from '@/lib/campaigns/campaignConfig';
 import { loadCsmConfig } from '@/lib/csm/csmConfig';
 import { loadDecisionConfig } from '@/lib/decisions/decisionConfig';
@@ -245,6 +246,7 @@ export default function DashboardSidebar() {
     loadCsmConfig(activeProject.id);
     loadDecisionConfig(activeProject.id);
     loadCampaignConfig(activeProject.id);
+    loadCalendarConfig(activeProject.id);
     loadNavigationConfig(activeProject.id);
     loadTaskConfig(activeProject.id).then((config) => {
       if (!cancelled) setCanEditConfig(Boolean(config?.can_edit));
