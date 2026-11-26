@@ -57,11 +57,13 @@ class AuthorizationMiddleware:
             return None
 
         # MED-326: org-admin privileges need a token that passed MFA this session.
-        # Any admin record counts: an 'admin' membership or a public level-2 role
-        # in any org (checked here), or a level-2 role in the org schema (checked
-        # in the bypass below).
+        # Any admin record counts, expired or not (is_org_admin() ignores expiry
+        # too): an 'admin' membership or a public level-2 role in any org, or a
+        # level-2 role in the current org schema (the active search_path).
         mfa_pending = not mfa.request_has_mfa(request) and not mfa.is_mfa_exempt_path(request.path)
-        if mfa_pending and mfa.has_admin_record(user):
+        if mfa_pending and (
+            mfa.has_admin_record(user) or UserRole.objects.filter(user=user, role__level=2).exists()
+        ):
             return JsonResponse(mfa.mfa_required_payload(user), status=403)
 
         # Propagate org-admin role context for downstream permission checks (MED-240).
@@ -81,8 +83,6 @@ class AuthorizationMiddleware:
                 role__level=2,
                 valid_from__lte=_now,
             ).filter(Q(valid_to__gte=_now) | Q(valid_to__isnull=True)).exists():
-                if mfa_pending:
-                    return JsonResponse(mfa.mfa_required_payload(user), status=403)
                 request.is_org_admin = True
                 if has_permission_gate:
                     self._log_override(request, user, 'ORG_ADMIN', module_key, action_key)

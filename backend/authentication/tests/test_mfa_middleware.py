@@ -1,5 +1,7 @@
 """MED-326: AuthorizationMiddleware blocks org-admin privileges until MFA is passed."""
 
+from datetime import timedelta
+
 import pyotp
 import pytest
 from django.core.cache import cache
@@ -182,6 +184,21 @@ def test_every_admin_record_combination_requires_mfa(
         assert response.json()["errorCode"] == "MFA_REQUIRED"
     else:
         assert response.json().get("errorCode") != "MFA_REQUIRED"
+
+
+def test_expired_level2_role_still_requires_mfa(organization):
+    """is_org_admin() ignores expiry, so the MFA gate must too."""
+    user = make_user(organization, "expired@mfa-gate.com")
+    with tenant_schema_context(slug_to_schema_name(organization.slug)):
+        role, _ = Role.objects.get_or_create(
+            organization=organization, name="Organization Admin", defaults={"level": 2}
+        )
+        UserRole.objects.create(user=user, role=role, valid_to=timezone.now() - timedelta(days=1))
+
+    response = client_with(pre_mfa_token(user)).get(ADMIN_API)
+
+    assert response.status_code == 403
+    assert response.json()["errorCode"] == "MFA_REQUIRED"
 
 
 def test_admin_of_another_org_requires_mfa(organization):
