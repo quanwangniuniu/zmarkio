@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 
 namespace DecisionService.Decisions;
@@ -217,7 +218,7 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
     }
 
     [HttpPatch("{lookup}/signals/{signalId:int}")]
-    public async Task<ActionResult<DecisionSignalDto>> UpdateSignal([FromRoute] string lookup, [FromRoute] int signalId, [FromBody] DecisionSignalInput input, CancellationToken cancellationToken)
+    public async Task<ActionResult<DecisionSignalDto>> UpdateSignal([FromRoute] string lookup, [FromRoute] int signalId, [FromBody] JsonElement body, CancellationToken cancellationToken)
     {
         var existing = repository.Get(lookup);
         if (existing is null)
@@ -233,7 +234,11 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         {
             return StatusCode(StatusCodes.Status403Forbidden, new { detail = "Signals can only be changed by the draft owner." });
         }
-        var signal = repository.UpdateSignal(lookup, signalId, input);
+        if (!DecisionSignalPatch.TryParse(body, out var patch, out var error))
+        {
+            return BadRequest(new { detail = error });
+        }
+        var signal = repository.UpdateSignal(lookup, signalId, patch!);
         return signal is null ? NotFound(new { detail = "Not found." }) : Ok(signal);
     }
 

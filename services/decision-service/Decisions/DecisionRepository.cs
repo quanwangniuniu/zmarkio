@@ -12,7 +12,7 @@ public interface IDecisionRepository
     bool Delete(string lookup, int? actorId);
     DecisionSignalListResponse ListSignals(string lookup);
     DecisionSignalDto? CreateSignal(string lookup, int? actorId, DecisionSignalInput input);
-    DecisionSignalDto? UpdateSignal(string lookup, int signalId, DecisionSignalInput input);
+    DecisionSignalDto? UpdateSignal(string lookup, int signalId, DecisionSignalPatch patch);
     bool DeleteSignal(string lookup, int signalId);
     DecisionConnectionsResponse? GetConnections(string lookup);
     DecisionConnectionsResponse? UpdateConnections(string lookup, int? actorId, DecisionConnectionsUpdateRequest request);
@@ -203,39 +203,28 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
         return signal;
     }
 
-    public DecisionSignalDto? UpdateSignal(string lookup, int signalId, DecisionSignalInput input)
+    public DecisionSignalDto? UpdateSignal(string lookup, int signalId, DecisionSignalPatch patch)
     {
-        if (Find(lookup) is not { } existing)
+        while (Find(lookup) is { } existing)
         {
-            return null;
+            var signal = existing.Signals.FirstOrDefault(item => item.Id == signalId);
+            if (signal is null)
+            {
+                return null;
+            }
+
+            var updated = patch.Apply(signal);
+            var decision = existing with
+            {
+                Signals = existing.Signals.Select(item => item.Id == signalId ? updated : item).ToList(),
+            };
+            if (_decisions.TryUpdate(existing.Id, decision, existing))
+            {
+                return updated;
+            }
         }
-        var signal = existing.Signals.FirstOrDefault(item => item.Id == signalId);
-        if (signal is null)
-        {
-            return null;
-        }
-        var now = DateTimeOffset.UtcNow;
-        var displayText = input.DisplayTextOverride
-            ?? string.Join(" ", new[] { input.Metric, input.Movement, input.Period }.Where(value => !string.IsNullOrWhiteSpace(value)));
-        var updated = signal with
-        {
-            UpdatedAt = now,
-            Metric = input.Metric,
-            Movement = input.Movement,
-            Period = input.Period,
-            Comparison = input.Comparison ?? "NONE",
-            ScopeType = input.ScopeType,
-            ScopeValue = input.ScopeValue,
-            DeltaValue = input.DeltaValue,
-            DeltaUnit = input.DeltaUnit,
-            DisplayText = displayText,
-            DisplayTextOverride = input.DisplayTextOverride,
-        };
-        _decisions[existing.Id] = existing with
-        {
-            Signals = existing.Signals.Select(item => item.Id == signalId ? updated : item).ToList(),
-        };
-        return updated;
+
+        return null;
     }
 
     public bool DeleteSignal(string lookup, int signalId)

@@ -72,6 +72,56 @@ public sealed class DecisionApiTests
     }
 
     [Fact]
+    public async Task Signal_patch_merges_fields_clears_values_and_validates_choices()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        var draft = await client.PostAsJsonAsync("/api/decisions/drafts", new { title = "Signal patch" });
+        Assert.Equal(HttpStatusCode.Created, draft.StatusCode);
+        var decision = (await draft.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions))!;
+        var signalsUrl = $"/api/decisions/{decision.Id}/signals";
+        var create = await client.PostAsJsonAsync(signalsUrl, new DecisionSignalInput(
+            "ROAS", "SHARP_DECREASE", "LAST_3_DAYS", "PREVIOUS_PERIOD",
+            "CHANNEL", "Search", 0m, "PERCENT", "Reviewer override"));
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var signal = (await create.Content.ReadFromJsonAsync<DecisionSignalDto>(JsonOptions))!;
+        var signalUrl = $"{signalsUrl}/{signal.Id}";
+
+        var partial = await client.PatchAsJsonAsync(signalUrl, new { period = "LAST_7_DAYS" });
+        Assert.Equal(HttpStatusCode.OK, partial.StatusCode);
+        var updated = (await partial.Content.ReadFromJsonAsync<DecisionSignalDto>(JsonOptions))!;
+        Assert.Equal("Reviewer override", updated.DisplayText);
+        Assert.Equal("ROAS", updated.Metric);
+        Assert.Equal(0m, updated.DeltaValue);
+
+        foreach (var field in new[] { "metric", "movement", "period", "comparison" })
+        {
+            var invalid = await client.PatchAsJsonAsync(signalUrl, new Dictionary<string, string> { [field] = "INVALID" });
+            Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+        }
+
+        var clear = await client.PatchAsJsonAsync(signalUrl, new
+        {
+            scopeType = (string?)null,
+            scopeValue = (string?)null,
+            deltaValue = (decimal?)null,
+            deltaUnit = (string?)null,
+            displayTextOverride = (string?)null,
+        });
+        Assert.Equal(HttpStatusCode.OK, clear.StatusCode);
+        var cleared = (await clear.Content.ReadFromJsonAsync<DecisionSignalDto>(JsonOptions))!;
+        Assert.Null(cleared.ScopeType);
+        Assert.Null(cleared.ScopeValue);
+        Assert.Null(cleared.DeltaValue);
+        Assert.Null(cleared.DeltaUnit);
+        Assert.Null(cleared.DisplayTextOverride);
+        Assert.Equal("ROAS · Sharp decrease · Last 7 days · vs previous period", cleared.DisplayText);
+    }
+
+    [Fact]
     public async Task Draft_create_returns_origin_meeting_when_origin_meeting_id_is_supplied()
     {
         await using var factory = new DecisionApiFactory(authenticated: true);
