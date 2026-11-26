@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Filter } from "lucide-react";
 import type { TaskListFilters } from "@/types/task";
 import { Button } from "@/components/ui/button";
+import { statusFilterOptions, TASKS_FILTER } from "@/lib/tasks/tasksModuleConfig";
 
 type FilterKey =
   | "assignee"
@@ -33,35 +34,12 @@ export interface TaskFilterPanelProps {
   tagOptions?: { name: string; color: string }[];
 }
 
-const STATUS_OPTIONS: SimpleOption[] = [
-  { value: "DRAFT", label: "Draft" },
-  { value: "SUBMITTED", label: "Submitted" },
-  { value: "UNDER_REVIEW", label: "Under Review" },
-  { value: "APPROVED", label: "Approved" },
-  { value: "REJECTED", label: "Rejected" },
-  { value: "LOCKED", label: "Locked" },
-  { value: "CANCELLED", label: "Cancelled" },
-];
-
 const PRIORITY_OPTIONS: SimpleOption[] = [
   { value: "HIGHEST", label: "Highest" },
   { value: "HIGH", label: "High" },
   { value: "MEDIUM", label: "Medium" },
   { value: "LOW", label: "Low" },
   { value: "LOWEST", label: "Lowest" },
-];
-
-const FILTER_LIST: { key: FilterKey; label: string }[] = [
-  { key: "assignee", label: "Assignee" },
-  { key: "owner", label: "Owner" },
-  { key: "type", label: "Work type" },
-  { key: "status", label: "Status" },
-  { key: "priority", label: "Priority" },
-  { key: "tags", label: "Tags" },
-  { key: "project", label: "Project" },
-  { key: "subtasks", label: "Subtasks" },
-  { key: "due_date", label: "Due date" },
-  { key: "created_date", label: "Created date" },
 ];
 
 export function TaskFilterPanel({
@@ -77,6 +55,8 @@ export function TaskFilterPanel({
   const [open, setOpen] = useState(false);
   const [activeKey, setActiveKey] = useState<FilterKey>("assignee");
   const rootRef = useRef<HTMLDivElement>(null);
+  const filterList = TASKS_FILTER.values.map((key) => ({ key: key as FilterKey, label: TASKS_FILTER.labels[key] }));
+  const shownKey = filterList.some((item) => item.key === activeKey) ? activeKey : filterList[0]?.key;
 
   const activeCount = useMemo(() => {
     const keys: (keyof TaskListFilters)[] = [
@@ -164,7 +144,7 @@ export function TaskFilterPanel({
   };
 
   const renderRightPanel = () => {
-    switch (activeKey) {
+    switch (shownKey) {
       case "assignee":
         return (
           <div className="space-y-2">
@@ -301,7 +281,7 @@ export function TaskFilterPanel({
               >
                 Any status
               </button>
-              {STATUS_OPTIONS.map((o) => {
+              {statusFilterOptions().map((o) => {
                 const value = String(o.value);
                 const selected = Array.isArray(filters.status)
                   ? filters.status.includes(value)
@@ -576,13 +556,13 @@ export function TaskFilterPanel({
         <div className="absolute z-50 mt-2 w-[520px] rounded-md border bg-popover shadow-md">
           <div className="flex">
             <div className="w-40 border-r bg-muted/40 py-2">
-              {FILTER_LIST.map((item) => (
+              {filterList.map((item) => (
                 <button
                   key={item.key}
                   type="button"
                   data-testid={`task-filter-tab-${item.key}`}
                   className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-sm ${
-                    activeKey === item.key
+                    shownKey === item.key
                       ? "bg-background font-medium text-foreground"
                       : "text-muted-foreground hover:bg-muted"
                   }`}
@@ -600,7 +580,7 @@ export function TaskFilterPanel({
             <div className="flex-1 p-3">
               <div className="mb-3 flex items-center justify-between">
                 <div className="text-sm font-medium text-foreground">
-                  {FILTER_LIST.find((f) => f.key === activeKey)?.label}
+                  {filterList.find((f) => f.key === shownKey)?.label}
                 </div>
                 <div className="flex gap-2">
                   <Button
