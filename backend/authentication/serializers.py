@@ -200,9 +200,12 @@ class MfaCodeSerializer(serializers.Serializer):
 
 
 class MfaVerifySerializer(serializers.Serializer):
-    """Second login step: the MFA token from /auth/login/ plus a TOTP or recovery code."""
+    """Second login step: the MFA token from /auth/login/ plus a TOTP or recovery code.
 
-    mfa_token = serializers.CharField()
+    After Google sign-in the token arrives in a cookie instead, so it may be omitted here.
+    """
+
+    mfa_token = serializers.CharField(required=False, allow_blank=True)
     code = serializers.CharField(max_length=32, required=False, allow_blank=True, trim_whitespace=True)
     recovery_code = serializers.CharField(max_length=64, required=False, allow_blank=True, trim_whitespace=True)
 

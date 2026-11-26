@@ -24,6 +24,17 @@ function GoogleCallbackContent() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
+        // MED-326: org admins continue with MFA on the login page. The mfa_token
+        // stays in an HttpOnly cookie that the MFA endpoints read, not in the URL.
+        if (searchParams.get('mfa') === 'required') {
+          sessionStorage.setItem(
+            MFA_CHALLENGE_STORAGE_KEY,
+            JSON.stringify({ mfaToken: '', enrollmentRequired: searchParams.get('setup') === '1' }),
+          );
+          router.push('/login');
+          return;
+        }
+
         // Check if we received auth_data directly (from backend redirect for existing user)
         const authDataParam = searchParams.get('auth_data');
         
@@ -32,19 +43,6 @@ function GoogleCallbackContent() {
           try {
             const authDataJson = atob(authDataParam);
             const authData = JSON.parse(authDataJson);
-
-            // MED-326: org admins still need MFA; continue on the login page.
-            if (authData.mfa_required) {
-              sessionStorage.setItem(
-                MFA_CHALLENGE_STORAGE_KEY,
-                JSON.stringify({
-                  mfaToken: authData.mfa_token,
-                  enrollmentRequired: authData.mfa_enrollment_required,
-                }),
-              );
-              router.push('/login');
-              return;
-            }
             
             // Store tokens and user in Zustand
             if (authData.token) {

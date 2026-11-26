@@ -10,6 +10,7 @@ from __future__ import annotations
 import secrets
 
 import pyotp
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core import signing
 from django.db import transaction
@@ -27,6 +28,9 @@ RECOVERY_CODE_COUNT = 10
 # Short-lived, signed "password accepted" pass that only the MFA endpoints accept.
 MFA_TOKEN_SALT = "authentication.mfa.login"
 MFA_TOKEN_MAX_AGE_SECONDS = 5 * 60
+# Google sign-in hands the mfa_token over in this cookie instead of the redirect URL.
+MFA_TOKEN_COOKIE = "mfa_token"
+MFA_TOKEN_COOKIE_PATH = "/auth/mfa/"
 # Requests an org admin can still make before passing MFA: the same account
 # endpoints password rotation leaves open, plus the MFA endpoints themselves.
 MFA_EXEMPT_PREFIXES = PasswordRotationMiddleware.EXEMPT_PREFIXES + ("/auth/mfa/",)
@@ -137,6 +141,27 @@ def read_mfa_token(token):
     if user is None or getattr(user, "auth_token_version", 0) != payload.get("v"):
         return None
     return user
+
+
+def mfa_token_from_request(request) -> str:
+    """The mfa_token from the request body, or from the cookie set after Google sign-in."""
+    return str(request.data.get("mfa_token") or request.COOKIES.get(MFA_TOKEN_COOKIE) or "")
+
+
+def set_mfa_cookie(response, token: str) -> None:
+    response.set_cookie(
+        MFA_TOKEN_COOKIE,
+        token,
+        max_age=MFA_TOKEN_MAX_AGE_SECONDS,
+        path=MFA_TOKEN_COOKIE_PATH,
+        httponly=True,
+        secure=settings.SESSION_COOKIE_SECURE,
+        samesite="Lax",
+    )
+
+
+def clear_mfa_cookie(response) -> None:
+    response.delete_cookie(MFA_TOKEN_COOKIE, path=MFA_TOKEN_COOKIE_PATH, samesite="Lax")
 
 
 def request_has_mfa(request) -> bool:

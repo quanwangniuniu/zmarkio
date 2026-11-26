@@ -9,8 +9,6 @@ from unittest.mock import patch, Mock
 import jwt
 import time
 from urllib.parse import parse_qs, urlencode, urlparse
-import base64
-import json
 
 from django.core import signing
 from authentication import mfa
@@ -232,13 +230,14 @@ class GoogleOAuthCallbackViewTest(TestCase):
         response = self.client.get(self._callback_url(state=self._signed_state()))
 
         self.assertEqual(response.status_code, 302)
-        encoded = parse_qs(urlparse(response.url).query)['auth_data'][0]
-        auth_data = json.loads(base64.urlsafe_b64decode(encoded))
-        self.assertTrue(auth_data['mfa_required'])
-        self.assertTrue(auth_data['mfa_enrollment_required'])
-        self.assertEqual(mfa.read_mfa_token(auth_data['mfa_token']), user)
-        self.assertNotIn('token', auth_data)
-        self.assertNotIn('refresh', auth_data)
+        # No token in the redirect URL; the mfa_token travels in an HttpOnly cookie.
+        self.assertEqual(parse_qs(urlparse(response.url).query), {'mfa': ['required'], 'setup': ['1']})
+        cookie = response.cookies[mfa.MFA_TOKEN_COOKIE]
+        self.assertTrue(cookie['httponly'])
+        self.assertEqual(cookie['path'], mfa.MFA_TOKEN_COOKIE_PATH)
+        self.assertEqual(mfa.read_mfa_token(cookie.value), user)
+        # The cookie alone lets the admin start MFA setup.
+        self.assertEqual(self.client.post('/auth/mfa/enroll/start/').status_code, 200)
     
     @patch('authentication.views.OAuth2Session')
     @patch('authentication.views.jwt.decode')

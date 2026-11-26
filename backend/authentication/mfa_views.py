@@ -16,13 +16,13 @@ from authentication.views import build_login_response_data
 
 class CanEnrollMfa(BasePermission):
     """Org admins may enroll with either a normal JWT (already signed in) or the
-    mfa_token from /auth/login/ (password accepted, MFA not yet set up)."""
+    mfa_token from /auth/login/ or the Google sign-in cookie (MFA not yet set up)."""
 
     def has_permission(self, request, view):
         if request.user and request.user.is_authenticated:
             user = request.user
         else:
-            user = mfa.read_mfa_token(str(request.data.get('mfa_token') or ''))
+            user = mfa.read_mfa_token(mfa.mfa_token_from_request(request))
         if user is None or not mfa.requires_mfa(user):
             return False
         request.mfa_user = user
@@ -98,7 +98,9 @@ class MfaEnrollConfirmView(APIView):
         )
         response_data = build_login_response_data(request, user, mfa_verified=True)
         response_data['recovery_codes'] = recovery_codes
-        return Response(response_data, status=status.HTTP_200_OK)
+        response = Response(response_data, status=status.HTTP_200_OK)
+        mfa.clear_mfa_cookie(response)
+        return response
 
 
 class MfaVerifyView(APIView):
@@ -112,7 +114,7 @@ class MfaVerifyView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        user = mfa.read_mfa_token(data['mfa_token'])
+        user = mfa.read_mfa_token(mfa.mfa_token_from_request(request))
         if user is None:
             return Response(
                 {'error': 'Your sign-in has expired. Please log in again.', 'errorCode': 'MFA_TOKEN_INVALID'},
@@ -147,7 +149,6 @@ class MfaVerifyView(APIView):
             )
 
         LoginSecurityService.clear_successful_login(identifiers)
-        return Response(
-            build_login_response_data(request, user, mfa_verified=True),
-            status=status.HTTP_200_OK,
-        )
+        response = Response(build_login_response_data(request, user, mfa_verified=True), status=status.HTTP_200_OK)
+        mfa.clear_mfa_cookie(response)
+        return response
