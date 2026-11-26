@@ -180,7 +180,7 @@ const SignalsPanel = ({ decisionId, projectId, mode = 'edit' }: SignalsPanelProp
       scopeValue: scopeValue.trim() || emptyValue,
       deltaValue: deltaValue === '' ? emptyValue : Number(deltaValue),
       deltaUnit: deltaUnit || emptyValue,
-      displayTextOverride: overrideText.trim() || emptyValue,
+      displayTextOverride: hasOverride ? (overrideText.trim() || emptyValue) : emptyValue,
     };
 
     try {
@@ -471,6 +471,7 @@ const SignalsPanel = ({ decisionId, projectId, mode = 'edit' }: SignalsPanelProp
           }
         }}
         onOverrideTextChange={(value) => {
+          setHasOverride(value.trim() !== '');
           setOverrideText(value);
           setDescriptionEditable(true);
         }}
