@@ -153,7 +153,7 @@ export async function runCustomGenerate(args: {
   const spec = getPlatformSpec('meta');
   const handler = sourceModeRegistry.get(sourceMode)!;
   const modeResult = await handler.resolve(
-    { schema: args.schema, userId: args.userId, projectId: project.projectId, instruction, spec },
+    { schema: args.schema, userId: args.userId, projectId: project.projectId, count, instruction, spec },
     args.body
   );
 
