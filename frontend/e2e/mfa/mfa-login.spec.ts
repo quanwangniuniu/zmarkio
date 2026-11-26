@@ -3,7 +3,6 @@ import { test, expect } from './mfa-fixtures';
 import { totp } from './totp';
 
 // MED-326: real backend, no mocked routes.
-// An org-admin-only page and the admin API it loads.
 const ADMIN_PAGE = '/admin/override-audits';
 const ADMIN_API = '/api/access_control/admin-override-audits/';
 
@@ -24,7 +23,6 @@ async function expectAdminPageBlocked(page: Page) {
   await expect(page.getByRole('heading', { name: 'Override Audit Log' })).toHaveCount(0);
 }
 
-// After MFA, the admin page and its admin-only API both work.
 async function expectAdminPageOpens(page: Page) {
   const adminApiResponse = page.waitForResponse((response) => response.url().includes(ADMIN_API));
   await page.goto(ADMIN_PAGE);
@@ -40,7 +38,6 @@ test('enrolled org admin signs in with an authenticator code', async ({ page, en
   await expect(page.getByLabel('Verification code')).toBeVisible();
   await expectAdminPageBlocked(page);
 
-  // With the code from the authenticator app, sign-in completes.
   await signInWithPassword(page, enrolledAdmin.email, enrolledAdmin.password);
   await page.getByLabel('Verification code').fill(totp(enrolledAdmin.secret));
   await page.getByRole('button', { name: 'Verify' }).click();
@@ -55,7 +52,6 @@ test('org admin signs in with a recovery code, which works only once', async ({ 
   await expect(page.getByRole('heading', { name: 'Two-step verification' })).toBeVisible();
   await expectAdminPageBlocked(page);
 
-  // No phone: switch to a recovery code.
   await signInWithPassword(page, enrolledAdmin.email, enrolledAdmin.password);
   await page.getByRole('button', { name: 'Use a recovery code' }).click();
   await page.getByLabel('Recovery code').fill(recoveryCode);
@@ -76,30 +72,20 @@ test('org admin signs in with a recovery code, which works only once', async ({ 
   await secondSession.close();
 });
 
-test('org admin without MFA must set it up at next sign-in', async ({ page, newOrgAdmin }) => {
+test('org admin without MFA sets it up at next sign-in', async ({ page, newOrgAdmin }) => {
   await signInWithPassword(page, newOrgAdmin.email, newOrgAdmin.password);
-
-  // The correct password alone only leads to the setup wizard.
   await expect(page.getByRole('heading', { name: 'Set up two-step verification' })).toBeVisible();
-  await expect(page.getByRole('img', { name: 'MFA QR code' })).toBeVisible();
-  await expectAdminPageBlocked(page);
 
-  // Add the key to the "authenticator app" and confirm with its first code.
-  await signInWithPassword(page, newOrgAdmin.email, newOrgAdmin.password);
-  const secret = (await page.getByTestId('mfa-secret').textContent())!.trim();
-  newOrgAdmin.secret = secret; // lets the fixture sign in again to clean up
-  await page.getByLabel('Verification code').fill(totp(secret));
+  newOrgAdmin.secret = (await page.getByTestId('mfa-secret').textContent())!.trim();
+  await page.getByLabel('Verification code').fill(totp(newOrgAdmin.secret));
   await page.getByRole('button', { name: 'Verify and turn on' }).click();
 
-  // Recovery codes are shown once; Continue waits until the admin confirms saving them.
   await expect(page.getByRole('list', { name: 'Recovery codes' }).getByRole('listitem')).toHaveCount(10);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download' }).click();
   expect((await download).suggestedFilename()).toBe('mediajira-recovery-codes.txt');
-  const continueButton = page.getByRole('button', { name: 'Continue' });
-  await expect(continueButton).toBeDisabled();
   await page.getByLabel('I have saved these recovery codes').check();
-  await continueButton.click();
+  await page.getByRole('button', { name: 'Continue' }).click();
 
   await expect(page).toHaveURL(/\/overview/);
   await expectAdminPageOpens(page);

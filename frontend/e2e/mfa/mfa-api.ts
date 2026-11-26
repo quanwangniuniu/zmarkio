@@ -17,7 +17,6 @@ export function isMfaChallenge(body: unknown): body is MfaChallenge {
   return Boolean(body && (body as MfaChallenge).mfa_required);
 }
 
-// An org admin who has not set up MFA yet: enroll, then use the issued tokens.
 export async function enrollMfaAfterLogin(
   request: APIRequestContext,
   challenge: MfaChallenge,
@@ -32,7 +31,6 @@ export async function enrollMfaAfterLogin(
   return { ...(await confirmed.json()), secret };
 }
 
-// An org admin who has already set up MFA with a known secret.
 // origin: '' when the request context has a baseURL, otherwise e.g. 'http://localhost'.
 export async function verifyMfaAfterLogin(
   request: APIRequestContext,
