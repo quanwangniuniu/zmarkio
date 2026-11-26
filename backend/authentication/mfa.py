@@ -2,12 +2,11 @@
 
 Shared by the enrollment endpoints, the login MFA step and the authorization
 middleware. Secrets are stored encrypted (MfaDevice.set_secret); recovery codes
-are stored only as SHA-256 hashes, so the plain codes can be shown once.
+are stored only as keyed HMAC-SHA256 hashes, so the plain codes can be shown once.
 """
 
 from __future__ import annotations
 
-import hashlib
 import secrets
 
 import pyotp
@@ -15,6 +14,7 @@ from django.contrib.auth import get_user_model
 from django.core import signing
 from django.db import transaction
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 
 from authentication.middleware import PasswordRotationMiddleware
 from authentication.models import MfaDevice, RecoveryCode
@@ -64,7 +64,10 @@ def _normalize_recovery_code(code) -> str:
 
 
 def hash_recovery_code(code) -> str:
-    return hashlib.sha256(_normalize_recovery_code(code).encode()).hexdigest()
+    # Keyed with SECRET_KEY, so a leaked database alone is not enough to brute-force the codes.
+    return salted_hmac(
+        "authentication.mfa.recovery_code", _normalize_recovery_code(code), algorithm="sha256"
+    ).hexdigest()
 
 
 @transaction.atomic

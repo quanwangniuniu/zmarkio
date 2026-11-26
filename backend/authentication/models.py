@@ -80,7 +80,7 @@ class MfaDevice(models.Model):
 
 
 class RecoveryCode(models.Model):
-    """A single-use MFA recovery code. Only a SHA-256 hash is stored; the plain
+    """A single-use MFA recovery code. Only a keyed HMAC-SHA256 hash is stored; the plain
     codes are returned to the user once, when they are generated."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timezone as dt_timezone
 
 import pyotp
@@ -146,6 +147,8 @@ def test_recovery_codes_are_returned_once_and_stored_hashed(org_admin):
     for code in codes:
         assert code not in stored
         assert mfa.hash_recovery_code(code) in stored
+        # Keyed hash: a plain SHA-256 of the code does not match what is stored.
+        assert hashlib.sha256(code.replace("-", "").encode()).hexdigest() not in stored
 
 
 def test_recovery_code_works_only_once(org_admin):
