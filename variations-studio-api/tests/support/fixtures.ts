@@ -16,9 +16,9 @@ import {
  * Fixtures for the shared dev/CI Postgres. Every row created here hangs off a
  * project this module just created, so teardown can never touch seed data.
  *
- * Projects are written to both `public` and the org schema: meta_ad_accounts
- * still lives in public and FKs to public.core_project. Variations themselves
- * are tenant-scoped and are written to the org schema only.
+ * Projects are mirrored into `public` and the org schema. Shared ad accounts
+ * store the project ID and its organization ID. Variations are tenant-scoped
+ * and are written to the org schema only.
  * Memberships are written to the org schema ONLY — that is what makes these
  * fixtures a regression test for reading membership out of the wrong schema.
  */
@@ -162,7 +162,7 @@ async function nextPublicId(table: string): Promise<bigint> {
   return rows[0].id;
 }
 
-async function createFacebookConnection(userId: number): Promise<bigint> {
+export async function createFacebookConnection(userId: number): Promise<bigint> {
   const id = await nextPublicId('facebook_connections');
   // encrypted_access_token is NOT NULL; an empty string keeps a credential-shaped
   // value out of the repo and out of the test database.
@@ -179,23 +179,24 @@ async function createFacebookConnection(userId: number): Promise<bigint> {
   return id;
 }
 
-async function createAdAccount(
+export async function createAdAccount(
   connectionId: bigint,
-  projectId: bigint
+  projectId: bigint | null,
+  organizationId: bigint | null
 ): Promise<bigint> {
   const id = await nextPublicId('meta_ad_accounts');
   await prisma.$executeRaw`
     INSERT INTO public.meta_ad_accounts (
       id, meta_account_id, name, currency, timezone_name, business_id,
-      is_owned, created_at, updated_at, connection_id, project_id
+      is_owned, created_at, updated_at, connection_id, project_id, organization_id
     ) VALUES (
       ${id}, ${`act_studio_test_${id}`}, 'Studio test account', 'USD', 'UTC',
-      'studio-test', true, now(), now(), ${connectionId}, ${projectId}
+      'studio-test', true, now(), now(), ${connectionId}, ${projectId}, ${organizationId}
     )`;
   return id;
 }
 
-async function createCreative(adAccountId: bigint): Promise<bigint> {
+export async function createCreative(adAccountId: bigint): Promise<bigint> {
   const id = await nextPublicId('meta_ad_creatives');
   await prisma.$executeRaw`
     INSERT INTO public.meta_ad_creatives (
@@ -268,8 +269,8 @@ export async function setupStudioFixture(): Promise<StudioFixture> {
   // Nobody is a member of projectB, which is what makes it the "other project".
 
   const connectionId = await createFacebookConnection(memberUserId);
-  const accountA = await createAdAccount(connectionId, projectA);
-  const accountB = await createAdAccount(connectionId, projectB);
+  const accountA = await createAdAccount(connectionId, projectA, organization.id);
+  const accountB = await createAdAccount(connectionId, projectB, organization.id);
 
   return {
     schema,

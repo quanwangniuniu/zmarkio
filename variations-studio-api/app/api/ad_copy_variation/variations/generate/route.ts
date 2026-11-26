@@ -19,6 +19,7 @@ export async function POST(request: Request) {
   try {
     const payload = await runCustomGenerate({
       schema: auth.schema,
+      organizationId: auth.organizationId,
       userId: auth.userId,
       body: json.body,
     });

@@ -32,28 +32,20 @@ export function creativeToTemplate(row: {
 
 export async function loadCreativeForProject(
   creativeId: bigint,
-  projectId: bigint
+  projectId: bigint,
+  organizationId: bigint
 ) {
   const creative = await prisma.metaAdCreative.findFirst({
-    where: { id: creativeId },
+    where: { id: creativeId, adAccount: { projectId, organizationId } },
     select: {
       id: true,
       title: true,
       body: true,
       callToActionType: true,
-      adAccountId: true,
     },
   });
   if (!creative) {
     throw new ApiError(404, 'Not found.', 'detail');
-  }
-
-  const account = await prisma.metaAdAccount.findFirst({
-    where: { id: creative.adAccountId },
-    select: { projectId: true },
-  });
-  if (account?.projectId && account.projectId !== projectId) {
-    throw new ApiError(400, 'creative_id does not belong to project_id');
   }
 
   return creative;

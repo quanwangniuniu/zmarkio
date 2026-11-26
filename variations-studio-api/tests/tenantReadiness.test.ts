@@ -114,5 +114,5 @@ it('blocks unready tenant states and recovers after the required migration, incl
     token, body: {},
   }));
   expect(response.status).toBe(200);
-  expect(runCustomGenerate).toHaveBeenCalledWith({ schema, userId: fixture.memberUserId, body: {} });
+  expect(runCustomGenerate).toHaveBeenCalledWith({ schema, organizationId, userId: fixture.memberUserId, body: {} });
 });

@@ -14,7 +14,7 @@ import {
   VARIATION_TABLE,
 } from '@/lib/variationSchema';
 
-export type StudioContext = AccessUser & { schema: string };
+export type StudioContext = AccessUser & { organizationId: bigint; schema: string };
 
 const SCHEMA_NAME = /^(public|org_[A-Za-z0-9_]+)$/;
 
@@ -56,12 +56,12 @@ async function slugForOrgId(orgId: bigint): Promise<string | null> {
   return org?.slug ?? null;
 }
 
-async function isActiveOrgSlug(slug: string): Promise<boolean> {
+async function activeOrgIdForSlug(slug: string): Promise<bigint | null> {
   const org = await prisma.organization.findFirst({
     where: { slug, isActive: true },
     select: { id: true },
   });
-  return Boolean(org);
+  return org?.id ?? null;
 }
 
 /**
@@ -71,16 +71,19 @@ async function isActiveOrgSlug(slug: string): Promise<boolean> {
 async function schemaForUser(
   request: Request,
   user: UserOrgRow
-): Promise<string | null> {
+): Promise<Pick<StudioContext, 'schema' | 'organizationId'> | null> {
   const orgId = user.currentOrganizationId ?? user.organizationId;
   if (orgId) {
     const slug = await slugForOrgId(orgId);
-    if (slug) return assertSchemaName(slugToSchemaName(slug));
+    if (slug) return { schema: assertSchemaName(slugToSchemaName(slug)), organizationId: orgId };
   }
 
   const headerSlug = request.headers.get('x-organization-slug');
-  if (headerSlug && (await isActiveOrgSlug(headerSlug))) {
-    return assertSchemaName(slugToSchemaName(headerSlug));
+  if (headerSlug) {
+    const organizationId = await activeOrgIdForSlug(headerSlug);
+    if (organizationId !== null) {
+      return { schema: assertSchemaName(slugToSchemaName(headerSlug)), organizationId };
+    }
   }
 
   return null;
@@ -135,11 +138,11 @@ export async function resolveStudioContext(
     return { error: 'Invalid or expired token.', status: 401 };
   }
 
-  const schema = await schemaForUser(request, user);
-  if (!schema) {
+  const tenant = await schemaForUser(request, user);
+  if (!tenant) {
     return { error: 'An organization is required to use Studio.', status: 403 };
   }
-  return { userId: auth.userId, schema };
+  return { userId: auth.userId, ...tenant };
 }
 
 export async function requireStudioContext(

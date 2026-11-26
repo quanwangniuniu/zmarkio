@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { Prisma } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 import { isStudioReady, slugToSchemaName, tenantTable } from '@/lib/tenant';
@@ -9,6 +10,7 @@ import {
   insertVariation,
   VARIATION_TABLE,
 } from '@/lib/variationStore';
+import { createAdAccount, createCreative, createFacebookConnection } from './fixtures';
 
 /**
  * Dual-org fixtures for tenant routing / header / cross-tenant write tests.
@@ -87,12 +89,12 @@ async function setUserOrgs(
     WHERE id = ${BigInt(userId)}`;
 }
 
-async function nextProjectId(schema: string): Promise<bigint> {
+async function nextProjectId(...schemas: string[]): Promise<bigint> {
+  const maxima = ['public', ...schemas].map(schema =>
+    Prisma.sql`(SELECT COALESCE(MAX(id), 0) FROM ${tenantTable(schema, 'core_project')})`
+  );
   const rows = await prisma.$queryRaw<{ id: bigint }[]>`
-    SELECT GREATEST(
-      COALESCE((SELECT MAX(id) FROM ${tenantTable('public', 'core_project')}), 0),
-      COALESCE((SELECT MAX(id) FROM ${tenantTable(schema, 'core_project')}), 0)
-    ) + 1 AS id`;
+    SELECT GREATEST(${Prisma.join(maxima)}) + 1 AS id`;
   return rows[0].id;
 }
 
@@ -101,10 +103,12 @@ async function createProject(args: {
   organizationId: bigint;
   ownerId: number;
   label: string;
+  id?: bigint;
+  mirrorPublic?: boolean;
 }): Promise<bigint> {
-  const id = await nextProjectId(args.schema);
+  const id = args.id ?? await nextProjectId(args.schema);
   const slug = `studio-routing-${args.label}-${randomUUID().slice(0, 8)}`;
-  for (const schema of ['public', args.schema]) {
+  for (const schema of args.mirrorPublic === false ? [args.schema] : ['public', args.schema]) {
     await prisma.$executeRaw`
       INSERT INTO ${tenantTable(schema, 'core_project')} (
         id, created_at, updated_at, is_deleted, name, description,
@@ -148,16 +152,19 @@ export async function ensureInactiveOrg(
   return { id: rows[0].id, slug };
 }
 
-export async function setupTenantRoutingFixture(): Promise<TenantRoutingFixture> {
+export async function setupTenantRoutingFixture(
+  { sameProjectId = false } = {}
+): Promise<TenantRoutingFixture> {
   const orgs = await listProvisionedOrgs();
-  if (orgs.length < 2) {
+  const orgA = orgs[0];
+  const orgB = orgs.find(org => org.schema !== orgA.schema);
+  if (!orgA || !orgB) {
     throw new Error(
       'Tenant routing tests need at least two active orgs with provisioned ' +
         `tenant schemas including ${VARIATION_TABLE} at migration ${REQUIRED_STUDIO_MIGRATION}. ` +
         'Prepare two org schemas, then run npm run migrate against this database.'
     );
   }
-  const [orgA, orgB] = orgs;
 
   const pinnedToAUserId = await createUser({
     currentOrganizationId: orgA.id,
@@ -172,17 +179,21 @@ export async function setupTenantRoutingFixture(): Promise<TenantRoutingFixture>
     organizationId: null,
   });
 
+  const commonId = sameProjectId ? await nextProjectId(orgA.schema, orgB.schema) : undefined;
   const projectA = await createProject({
     schema: orgA.schema,
     organizationId: orgA.id,
     ownerId: pinnedToAUserId,
     label: 'a',
+    id: commonId,
   });
   const projectB = await createProject({
     schema: orgB.schema,
     organizationId: orgB.id,
     ownerId: pinnedToAUserId,
     label: 'b',
+    id: commonId,
+    mirrorPublic: !sameProjectId,
   });
 
   await addMember(orgA.schema, projectA, pinnedToAUserId);
@@ -257,6 +268,39 @@ export async function setMultiOrgCurrent(
   });
 }
 
+export async function setupCreativeBindingFixture() {
+  const routing = await setupTenantRoutingFixture({ sameProjectId: true });
+  let connectionId: bigint | undefined;
+  try {
+    const id = await createFacebookConnection(routing.multiOrgUserId);
+    connectionId = id;
+    const creativeFor = async (projectId: bigint | null, organizationId: bigint | null) =>
+      createCreative(await createAdAccount(id, projectId, organizationId));
+
+    const own = await creativeFor(routing.projectA, routing.orgA.id);
+    const unbound = await creativeFor(null, null);
+    const legacy = await creativeFor(routing.projectA, null);
+    await setMultiOrgCurrent(routing, 'B');
+    const otherOrg = await creativeFor(routing.projectB, routing.orgB.id);
+    return {
+      ...routing,
+      connectionId: id,
+      memberUserId: routing.pinnedToAUserId,
+      connectorUserId: routing.multiOrgUserId,
+      creatives: { own, unbound, legacy, otherOrg },
+    };
+  } catch (error) {
+    await teardownTenantRoutingFixture(routing, connectionId);
+    throw error;
+  }
+}
+
+export async function teardownCreativeBindingFixture(
+  fixture: Awaited<ReturnType<typeof setupCreativeBindingFixture>>
+): Promise<void> {
+  await teardownTenantRoutingFixture(fixture, fixture.connectionId);
+}
+
 export async function countInSchema(
   schema: string,
   projectId: bigint
@@ -265,10 +309,21 @@ export async function countInSchema(
 }
 
 export async function teardownTenantRoutingFixture(
-  fixture: TenantRoutingFixture
+  fixture: TenantRoutingFixture,
+  connectionId?: bigint
 ): Promise<void> {
   await deleteVariationsForProjects(fixture.orgA.schema, [fixture.projectA]);
   await deleteVariationsForProjects(fixture.orgB.schema, [fixture.projectB]);
+
+  if (connectionId !== undefined) {
+    await prisma.$executeRaw`
+      DELETE FROM public.meta_ad_creatives WHERE ad_account_id IN
+        (SELECT id FROM public.meta_ad_accounts WHERE connection_id = ${connectionId})`;
+    await prisma.$executeRaw`
+      DELETE FROM public.meta_ad_accounts WHERE connection_id = ${connectionId}`;
+    await prisma.$executeRaw`
+      DELETE FROM public.facebook_connections WHERE id = ${connectionId}`;
+  }
 
   for (const [schema, projectId] of [
     [fixture.orgA.schema, fixture.projectA],
@@ -277,10 +332,11 @@ export async function teardownTenantRoutingFixture(
     await prisma.$executeRaw`
       DELETE FROM ${tenantTable(schema, 'core_projectmember')}
       WHERE project_id = ${projectId}`;
-    for (const s of [schema, 'public']) {
-      await prisma.$executeRaw`
-        DELETE FROM ${tenantTable(s, 'core_project')} WHERE id = ${projectId}`;
-    }
+    await prisma.$executeRaw`
+      DELETE FROM ${tenantTable(schema, 'core_project')} WHERE id = ${projectId}`;
+  }
+  for (const projectId of new Set([fixture.projectA, fixture.projectB])) {
+    await prisma.$executeRaw`DELETE FROM public.core_project WHERE id = ${projectId}`;
   }
 
   for (const userId of [

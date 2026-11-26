@@ -33,4 +33,5 @@ class MetaAdAccountAdmin(admin.ModelAdmin):
     )
     list_filter = ("is_owned", "currency", "account_status")
     search_fields = ("meta_account_id", "name", "business_id")
-    raw_id_fields = ("project",)
+    readonly_fields = ("project_id", "organization")
+    exclude = ("project",)
