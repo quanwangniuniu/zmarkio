@@ -58,11 +58,11 @@ class AuthorizationMiddleware:
             return None
 
         # MED-326: org-admin privileges need a token that passed MFA this session.
-        # Org admins are recognised the same two ways as is_org_admin(): an
-        # 'admin' OrganizationMembership (checked here) or a level-2 role
+        # Any admin record counts: an 'admin' OrganizationMembership or a level-2
+        # role in public (checked here), or a level-2 role in the org schema
         # (checked in the bypass below).
         mfa_pending = not mfa.request_has_mfa(request) and not mfa.is_mfa_exempt_path(request.path)
-        if mfa_pending and has_org_admin_membership(user):
+        if mfa_pending and (has_org_admin_membership(user) or mfa.has_public_level2_role(user)):
             return JsonResponse(mfa.mfa_required_payload(user), status=403)
 
         # Propagate org-admin role context for downstream permission checks (MED-240).

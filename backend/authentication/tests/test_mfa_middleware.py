@@ -9,7 +9,7 @@ from rest_framework.test import APIClient
 from access_control.models import UserRole
 from authentication import mfa
 from authentication.models import MfaDevice
-from core.admin_utils import assign_org_admin, is_org_admin
+from core.admin_utils import assign_org_admin
 from core.models import CustomUser, Organization, OrganizationMembership, Role
 from core.services.auth_tokens import build_user_refresh_token
 from core.services.tenant import slug_to_schema_name
@@ -133,8 +133,7 @@ def test_admin_finishes_setup_from_profile_and_regains_access(org_admin):
 # Admin status lives in two places: A = an 'admin' OrganizationMembership
 # (public schema only) and B = a level-2 UserRole (a tenant table, so it can end
 # up in the org's own schema or in public, depending on the search_path when it
-# was written). The gate must block exactly the users is_org_admin() treats as
-# admins, whichever combination they have.
+# was written). Any admin record must require MFA, whichever combination exists.
 
 def give_membership_admin(user, organization):
     OrganizationMembership.objects.create(user=user, organization=organization, role="admin", is_active=True)
@@ -148,23 +147,23 @@ def give_level2_role(user, organization):
 
 
 ADMIN_RECORD_CASES = {
-    # case id: (has A, where B is, is an admin)
+    # case id: (has A, where B is, needs MFA)
     "A_and_B_in_org_schema": (True, "org", True),
     "A_and_B_in_public": (True, "public", True),
     "A_only": (True, None, True),
     "B_in_org_schema_only": (False, "org", True),
-    "B_in_public_only": (False, "public", False),
+    "B_in_public_only": (False, "public", True),
     "no_admin_records": (False, None, False),
 }
 
 
 @pytest.mark.parametrize(
-    "has_membership, role_schema, is_admin",
+    "has_membership, role_schema, needs_mfa",
     list(ADMIN_RECORD_CASES.values()),
     ids=list(ADMIN_RECORD_CASES),
 )
-def test_mfa_gate_matches_is_org_admin_for_every_record_combination(
-    organization, has_membership, role_schema, is_admin
+def test_every_admin_record_combination_requires_mfa(
+    organization, has_membership, role_schema, needs_mfa
 ):
     user = make_user(organization, "case@mfa-gate.com")
     if has_membership:
@@ -177,8 +176,8 @@ def test_mfa_gate_matches_is_org_admin_for_every_record_combination(
 
     response = client_with(pre_mfa_token(user)).get(ADMIN_API)
 
-    assert is_org_admin(user) is is_admin
-    if is_admin:
+    assert mfa.requires_mfa(user) is needs_mfa
+    if needs_mfa:
         assert response.status_code == 403
         assert response.json()["errorCode"] == "MFA_REQUIRED"
     else:

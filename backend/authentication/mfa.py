@@ -36,7 +36,24 @@ def requires_mfa(user) -> bool:
     """Org admins (level-2) must use MFA. Everyone else is unaffected."""
     from core.admin_utils import is_org_admin
 
-    return is_org_admin(user)
+    return is_org_admin(user) or has_public_level2_role(user)
+
+
+def has_public_level2_role(user) -> bool:
+    """A level-2 role for the user's current org that was written to the public schema.
+
+    UserRole exists in public and in each org schema, and some code writes it to
+    whichever schema is active (e.g. admin_views.assign_admin without org context).
+    is_org_admin() only looks in the org schema, so MFA checks this one as well.
+    """
+    from access_control.models import UserRole
+    from core.tenant_context import tenant_schema_context
+
+    current_org = getattr(user, "current_organization", None) or getattr(user, "organization", None)
+    if not current_org:
+        return False
+    with tenant_schema_context("public"):
+        return UserRole.objects.filter(user=user, role__organization=current_org, role__level=2).exists()
 
 
 def get_confirmed_device(user) -> MfaDevice | None:
