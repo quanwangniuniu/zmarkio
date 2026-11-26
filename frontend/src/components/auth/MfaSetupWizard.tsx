@@ -10,11 +10,8 @@ import { MfaEnrollConfirmResponse, MfaEnrollStartResponse } from '@/types/auth';
 type MfaSetupWizardProps = {
   // From the login step; omit when the admin is already signed in (profile page).
   mfaToken?: string;
-  // Called after the admin has saved the recovery codes. The caller signs them in.
   onComplete: (response: MfaEnrollConfirmResponse) => void;
-  // The mfa_token expired (login page only): go back to the password step.
   onExpired?: () => void;
-  // MFA was already set up for this account (profile page).
   onAlreadyEnrolled?: () => void;
 };
 
@@ -60,10 +57,6 @@ export default function MfaSetupWizard({
 
   const handleConfirm = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!code.trim()) {
-      setError('Enter the 6-digit code.');
-      return;
-    }
     setLoading(true);
     setError(undefined);
     try {
@@ -96,7 +89,6 @@ export default function MfaSetupWizard({
     }
   };
 
-  // Screen 2: recovery codes, shown once.
   if (result) {
     return (
       <div className="space-y-6">
@@ -148,7 +140,6 @@ export default function MfaSetupWizard({
     );
   }
 
-  // Screen 1: scan the QR code (or type the key), then enter the first code.
   return (
     <form onSubmit={handleConfirm} className="space-y-6">
       <p className="text-sm text-gray-600">

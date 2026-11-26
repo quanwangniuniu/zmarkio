@@ -194,7 +194,6 @@ class OrganizationTokenRefreshSerializer(serializers.Serializer):
 
 
 class MfaCodeSerializer(serializers.Serializer):
-    """A 6-digit code from the user's authenticator app."""
 
     code = serializers.CharField(max_length=32, trim_whitespace=True)
 

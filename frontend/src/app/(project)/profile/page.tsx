@@ -35,7 +35,6 @@ const SECTIONS: Array<{ id: SectionKey; label: string }> = [
   { id: 'organization', label: 'Organization' },
   { id: 'privacy', label: 'Privacy' },
   { id: 'sessions', label: 'Active Sessions' },
-  // MED-326: org admins only (filtered below).
   { id: 'security', label: 'Security' },
 ];
 

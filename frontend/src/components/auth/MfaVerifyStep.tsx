@@ -10,7 +10,6 @@ import { useAuthStore } from '@/lib/authStore';
 type MfaVerifyStepProps = {
   mfaToken: string;
   onSuccess: () => void;
-  // Back to the password step (also used when the MFA token has expired).
   onRestart: () => void;
 };
 
@@ -30,11 +29,6 @@ export default function MfaVerifyStep({ mfaToken, onSuccess, onRestart }: MfaVer
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!value.trim()) {
-      setError(useRecoveryCode ? 'Enter a recovery code.' : 'Enter the 6-digit code.');
-      return;
-    }
-
     setLoading(true);
     setError(undefined);
     try {
@@ -47,24 +41,22 @@ export default function MfaVerifyStep({ mfaToken, onSuccess, onRestart }: MfaVer
       onSuccess();
     } catch (err: any) {
       const status = err?.response?.status;
-      const data = err?.response?.data;
       if (status === 401) {
         toast.error('Your sign-in has expired. Please sign in again.', { position: 'top-center' });
         onRestart();
         return;
       }
-      if (status === 429) {
-        const wait = data?.retry_after_seconds ? ` Try again in ${data.retry_after_seconds} seconds.` : '';
-        setError(`Too many incorrect attempts.${wait}`);
-      } else if (data?.errorCode === 'MFA_INVALID_CODE') {
-        setError(
-          useRecoveryCode
-            ? 'That recovery code is not valid or has already been used.'
-            : 'That code is not correct. Check your authenticator app and try again.',
-        );
-      } else {
-        setError('Something went wrong. Please try again.');
-      }
+      const invalid = useRecoveryCode
+        ? 'That recovery code is not valid or has already been used.'
+        : 'That code is not correct. Check your authenticator app and try again.';
+      const wait = err?.response?.data?.retry_after_seconds;
+      setError(
+        status === 429
+          ? `Too many incorrect attempts.${wait ? ` Try again in ${wait} seconds.` : ''}`
+          : err?.response?.data?.errorCode === 'MFA_INVALID_CODE'
+            ? invalid
+            : 'Something went wrong. Please try again.',
+      );
       setValue('');
     } finally {
       setLoading(false);

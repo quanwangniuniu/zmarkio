@@ -55,7 +55,6 @@ class MfaDevice(models.Model):
         on_delete=models.CASCADE,
         related_name='mfa_device',
     )
-    # core.crypto.encrypt_token output; the plain base32 secret is never stored.
     encrypted_secret = models.TextField()
     confirmed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -37,7 +37,6 @@ def _already_enrolled_response():
 
 
 class MfaEnrollStartView(APIView):
-    """Create (or replace) a pending authenticator secret and return it for the QR code."""
 
     permission_classes = [CanEnrollMfa]
 

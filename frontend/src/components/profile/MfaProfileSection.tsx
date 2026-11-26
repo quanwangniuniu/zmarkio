@@ -6,7 +6,6 @@ import MfaSetupWizard from '@/components/auth/MfaSetupWizard';
 import { useAuthStore } from '@/lib/authStore';
 
 type MfaProfileSectionProps = {
-  // Open the wizard straight away (the admin was sent here by MFA_REQUIRED).
   autoStart?: boolean;
 };
 
@@ -38,7 +37,6 @@ export default function MfaProfileSection({ autoStart = false }: MfaProfileSecti
         <div className="max-w-md">
           <MfaSetupWizard
             onComplete={async (response) => {
-              // Swap in the MFA-verified tokens so admin pages work again.
               await completeLogin(response);
               toast.success('Two-step verification is on.');
               setView('enabled');

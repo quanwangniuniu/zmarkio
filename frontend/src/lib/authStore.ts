@@ -52,7 +52,6 @@ interface AuthState {
     // MED-326: password accepted for an org admin; MFA comes next.
     mfa?: MfaChallenge;
   }>;
-  // Store the tokens from a successful login response (password, MFA or Google).
   completeLogin: (response: LoginResponse) => Promise<void>;
   logout: () => Promise<void>;
   getCurrentUser: () => Promise<{ success: boolean; error?: string; retryable?: boolean }>;

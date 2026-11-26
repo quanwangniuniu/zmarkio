@@ -316,7 +316,6 @@ function LoginPageContent() {
           <MfaSetupWizard
             mfaToken={mfaChallenge.mfaToken}
             onComplete={async (response) => {
-              // Only now, after the recovery codes were saved, is the admin signed in.
               await completeLogin(response);
               router.push(buildUrl('/overview'));
             }}

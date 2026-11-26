@@ -62,7 +62,6 @@ export interface MfaChallengeResponse {
   mfa_token: string;
 }
 
-// What the login page needs to continue to the MFA step.
 export interface MfaChallenge {
   mfaToken: string;
   enrollmentRequired: boolean;
@@ -79,8 +78,7 @@ export interface MfaEnrollStartResponse {
   otpauth_uri: string;
 }
 
-// Enrolling also completes sign-in, so this is a full login response plus the
-// recovery codes, which are only ever returned this once.
+// Enrollment also signs the admin in; recovery codes are returned only here.
 export interface MfaEnrollConfirmResponse extends LoginResponse {
   recovery_codes: string[];
 }

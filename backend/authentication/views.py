@@ -252,7 +252,6 @@ def build_login_response_data(request, user, mfa_verified=False):
     """Issue tokens, register the session and build the login response body."""
     refresh = build_user_refresh_token(user)
     if mfa_verified:
-        # Copied by SimpleJWT into every access token derived from this refresh token.
         refresh["mfa_verified"] = True
 
     # Register session in Redis

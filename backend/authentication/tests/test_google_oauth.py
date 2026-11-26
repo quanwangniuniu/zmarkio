@@ -236,7 +236,6 @@ class GoogleOAuthCallbackViewTest(TestCase):
         self.assertTrue(cookie['httponly'])
         self.assertEqual(cookie['path'], mfa.MFA_TOKEN_COOKIE_PATH)
         self.assertEqual(mfa.read_mfa_token(cookie.value), user)
-        # The cookie alone lets the admin start MFA setup.
         self.assertEqual(self.client.post('/auth/mfa/enroll/start/').status_code, 200)
     
     @patch('authentication.views.OAuth2Session')

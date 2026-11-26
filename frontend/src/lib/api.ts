@@ -423,7 +423,6 @@ function notifySessionEvicted() {
 
 // MED-326: sessionStorage keys read by the login page.
 export const MFA_REAUTH_STORAGE_KEY = 'mfa_reauth';
-// Set by the Google callback page when an org admin still needs MFA.
 export const MFA_CHALLENGE_STORAGE_KEY = 'mfa_challenge';
 
 // MED-326: an org admin's token has not passed MFA. Several requests can be
@@ -561,7 +560,6 @@ api.interceptors.response.use(
       responseData?.errorCode === 'MFA_REQUIRED'
     ) {
       handleMfaRequired(Boolean(responseData?.mfa_enrollment_required));
-      // The page is about to change; keep the caller from showing an error.
       return new Promise(() => {});
     }
 
@@ -660,13 +658,11 @@ export const authAPI = {
     return response.data;
   },
 
-  // MED-326: second login step for org admins (TOTP code or recovery code).
   verifyMfa: async (data: MfaVerifyRequest): Promise<LoginResponse> => {
     const response = await api.post('/auth/mfa/verify/', data);
     return response.data;
   },
 
-  // mfaToken comes from the login step; omit it when already signed in (profile page).
   startMfaEnrollment: async (mfaToken?: string): Promise<MfaEnrollStartResponse> => {
     const response = await api.post('/auth/mfa/enroll/start/', mfaToken ? { mfa_token: mfaToken } : {});
     return response.data;
