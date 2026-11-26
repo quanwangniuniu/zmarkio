@@ -184,6 +184,19 @@ def test_every_admin_record_combination_requires_mfa(
         assert response.json().get("errorCode") != "MFA_REQUIRED"
 
 
+def test_admin_of_another_org_requires_mfa(organization):
+    """Admin of org A while org B is selected: admin access to A still needs MFA."""
+    other_org = Organization.objects.create(name="MFA Other Org", email_domain="mfa-other.com")
+    user = make_user(organization, "cross@mfa-gate.com")
+    give_membership_admin(user, other_org)
+
+    response = client_with(pre_mfa_token(user)).get(ADMIN_API)
+
+    assert mfa.requires_mfa(user) is True
+    assert response.status_code == 403
+    assert response.json()["errorCode"] == "MFA_REQUIRED"
+
+
 # --- not affected ------------------------------------------------------------
 
 def test_superuser_is_not_mfa_gated(organization):

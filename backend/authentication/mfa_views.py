@@ -43,14 +43,15 @@ class MfaEnrollStartView(APIView):
 
     def post(self, request):
         user = request.mfa_user
-        if mfa.get_confirmed_device(user):
-            return _already_enrolled_response()
-
         secret = mfa.generate_secret()
-        device, _ = MfaDevice.objects.get_or_create(user=user)
-        device.set_secret(secret)
-        device.confirmed_at = None
-        device.save()
+        with transaction.atomic():
+            # Lock the row so a concurrent confirm cannot be turned back into pending.
+            device, _ = MfaDevice.objects.select_for_update().get_or_create(user=user)
+            if device.is_confirmed:
+                return _already_enrolled_response()
+            device.set_secret(secret)
+            device.confirmed_at = None
+            device.save()
 
         return Response(
             {

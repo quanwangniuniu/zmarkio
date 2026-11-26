@@ -37,27 +37,30 @@ MFA_EXEMPT_PREFIXES = PasswordRotationMiddleware.EXEMPT_PREFIXES + ("/auth/mfa/"
 
 
 def requires_mfa(user) -> bool:
-    """Org admins (level-2) must use MFA. Everyone else is unaffected."""
+    """Anyone with an org-admin record, in any organization, must use MFA."""
     from core.admin_utils import is_org_admin
 
-    return is_org_admin(user) or has_public_level2_role(user)
+    return has_admin_record(user) or is_org_admin(user)
 
 
-def has_public_level2_role(user) -> bool:
-    """A level-2 role for the user's current org that was written to the public schema.
+def has_admin_record(user) -> bool:
+    """An 'admin' membership or a public-schema level-2 role, in ANY organization.
 
-    UserRole exists in public and in each org schema, and some code writes it to
-    whichever schema is active (e.g. admin_views.assign_admin without org context).
-    is_org_admin() only looks in the org schema, so MFA checks this one as well.
+    Some permission code (get_org_admin_org_ids) honours admin roles outside the
+    user's current org, and UserRole can be written to public (e.g. by
+    admin_views.assign_admin without org context). is_org_admin() only covers the
+    current org's own schema, so MFA checks these as well.
     """
     from access_control.models import UserRole
+    from core.models import OrganizationMembership
     from core.tenant_context import tenant_schema_context
 
-    current_org = getattr(user, "current_organization", None) or getattr(user, "organization", None)
-    if not current_org:
+    if not getattr(user, "pk", None):
         return False
+    if OrganizationMembership.objects.filter(user=user, role="admin", is_active=True).exists():
+        return True
     with tenant_schema_context("public"):
-        return UserRole.objects.filter(user=user, role__organization=current_org, role__level=2).exists()
+        return UserRole.objects.filter(user=user, role__level=2).exists()
 
 
 def get_confirmed_device(user) -> MfaDevice | None:
