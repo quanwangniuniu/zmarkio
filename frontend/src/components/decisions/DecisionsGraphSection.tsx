@@ -228,7 +228,7 @@ export default function DecisionsGraphSection({
         const parentErrors = (err as { response?: { data?: { parentDecisionIds?: string[] } } })
           ?.response?.data?.parentDecisionIds;
         const detail =
-          parentErrors?.join(' ') ||
+          (parentErrors?.join(' ') && 'The selected parent decision is no longer available.') ||
           (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
           (err as Error)?.message ||
           'Failed to create child decision';

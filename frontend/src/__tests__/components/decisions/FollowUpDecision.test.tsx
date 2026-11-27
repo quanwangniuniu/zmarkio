@@ -75,7 +75,8 @@ it.each([false, true])('preserves selection/content on 400 and retries (change p
   await waitFor(() => expect(screen.getByRole('button', { name: 'Add follow-up' })).toBeEnabled());
   fireEvent.click(screen.getByRole('button', { name: 'Add follow-up' }));
 
-  expect(await screen.findByRole('alert')).toHaveTextContent('Decision 112 does not exist in this project.');
+  expect(await screen.findByRole('alert')).toHaveTextContent('The selected parent decision is no longer available.');
+  expect(screen.getByRole('alert')).not.toHaveTextContent('112');
   expect(create).toHaveBeenCalledWith(10, { topic: 'pricing', parentDecisionIds: [112] });
   expect(DecisionAPI.patchDraft).not.toHaveBeenCalled();
   expect(mockUpdateMapUrl).not.toHaveBeenCalled();
@@ -94,4 +95,25 @@ it.each([false, true])('preserves selection/content on 400 and retries (change p
   expect(create).toHaveBeenLastCalledWith(10, { topic: 'pricing', parentDecisionIds: [changeParent ? 114 : 112] });
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   expect(mockUpdateMapUrl).toHaveBeenCalledWith({ fullscreen: true, decisionId: 'child' });
+});
+
+it.each([
+  [{ response: { status: 400, data: { detail: 'Invalid topic.' } } }, 'Invalid topic.'],
+  [{ response: { status: 403, data: { detail: 'Permission denied.' } } }, 'Permission denied.'],
+  [{ response: { status: 400, data: { parentDecisionIds: [], detail: 'Invalid topic.' } } }, 'Invalid topic.'],
+  [new Error('Network Error'), 'Network Error'],
+  [{ response: { status: 500 } }, 'Failed to create child decision'],
+])('preserves unrelated API error handling (%s)', async (error, expectedMessage) => {
+  (DecisionAPI.createDraft as jest.Mock).mockRejectedValueOnce(error);
+  render(<DecisionsGraphSection graph={{ nodes: [parent], edges: [] }} projectId={10}
+    canEdit canCreate onEditDecision={jest.fn()} onDecisionUpdated={mockUpdated} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Select Parent decision' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Graph tools' }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Add follow-up' })).toBeEnabled());
+  fireEvent.click(screen.getByRole('button', { name: 'Add follow-up' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(expectedMessage as string);
+  expect(screen.getByRole('button', { name: 'Add follow-up' })).toBeEnabled();
+  expect(toast.error).not.toHaveBeenCalled();
+  expect(toast.success).not.toHaveBeenCalled();
 });
