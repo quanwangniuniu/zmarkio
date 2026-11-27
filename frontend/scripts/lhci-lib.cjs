@@ -142,9 +142,12 @@ async function loginWithApi(baseUrl, email, password) {
     throw new Error(`LHCI login failed ${res.status}: ${text.slice(0, 500)}`);
   }
 
-  /** @type {{ token?: string }} */
+  /** @type {{ token?: string, mfa_required?: boolean }} */
   const data = await res.json();
   if (!data.token) {
+    if (data.mfa_required) {
+      lhciInfo('login: this account is an org admin and must pass MFA; use a regular org member (MED-326)');
+    }
     lhciInfo('login: response OK but missing token field');
     throw new Error('LHCI login response missing token');
   }

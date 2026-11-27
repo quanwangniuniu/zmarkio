@@ -10,6 +10,7 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 
 from access_control.models import UserRole
+from authentication.models import MfaDevice
 from budget_approval.models import BudgetPool
 from core.models import Organization, Project, ProjectMember
 from core.services.tenant import provision_tenant_schema, slug_to_schema_name
@@ -56,6 +57,13 @@ def test_issue_budget_e2e_fixtures_round_trip():
     assert payload["single_approver_project_id"] != project.id
     assert payload["budget_pool_composite"]
     assert payload["single_approver_budget_pool_composite"]
+
+    # MED-326: the org admin is enrolled in MFA and the E2E run gets the secret.
+    org_admin_secret = payload["users"]["org_admin"]["mfa_secret"]
+    device = MfaDevice.objects.get(user__email=payload["users"]["org_admin"]["email"])
+    assert device.is_confirmed
+    assert device.get_secret() == org_admin_secret
+    assert "mfa_secret" not in payload["users"]["requester"]
 
     with tenant_schema_context(tenant_schema):
         chain = ApprovalChain.objects.get(id=payload["approval_chain_id"])

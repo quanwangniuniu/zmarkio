@@ -5,6 +5,8 @@ export type BudgetE2EUserFixture = {
   access_token: string;
   refresh_token: string;
   organization_access_token: string;
+  // MED-326: issued for org admins so the E2E login can pass MFA.
+  mfa_secret?: string;
 };
 
 export type BudgetE2EFixturePayload = {

@@ -1,5 +1,6 @@
 from django.db import connection
 from django.test import TestCase, RequestFactory, override_settings
+from access_control.tests.mfa_request_factory import MfaVerifiedRequestFactory
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
@@ -49,7 +50,7 @@ class AdminOverrideAuditTest(TestCase):
         )
         UserRole.objects.create(user=cls.plain_user, role=cls.role_asset_viewer, valid_from=timezone.now())
 
-        cls.factory = RequestFactory()
+        cls.factory = MfaVerifiedRequestFactory()
         cls.middleware = AuthorizationMiddleware()
 
         with connection.cursor() as cursor:

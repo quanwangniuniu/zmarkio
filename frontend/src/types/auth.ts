@@ -54,6 +54,35 @@ export interface LoginResponse {
   requires_password_setup?: boolean;
 }
 
+// MED-326: an org admin's password was accepted, but MFA must come next.
+export interface MfaChallengeResponse {
+  message: string;
+  mfa_required: true;
+  mfa_enrollment_required: boolean;
+  mfa_token: string;
+}
+
+export interface MfaChallenge {
+  mfaToken: string;
+  enrollmentRequired: boolean;
+}
+
+export interface MfaVerifyRequest {
+  mfa_token: string;
+  code?: string;
+  recovery_code?: string;
+}
+
+export interface MfaEnrollStartResponse {
+  secret: string;
+  otpauth_uri: string;
+}
+
+// Enrollment also signs the admin in; recovery codes are returned only here.
+export interface MfaEnrollConfirmResponse extends LoginResponse {
+  recovery_codes: string[];
+}
+
 export interface ChangePasswordResponse {
   message: string;
   user: User;
@@ -131,6 +160,7 @@ export interface ApiResponse<T> {
   retry_after_seconds?: number;
   requires_captcha?: boolean;
   lockout_until?: string;
+  mfa?: MfaChallenge;
 }
 
 export interface SsoRedirectParams {

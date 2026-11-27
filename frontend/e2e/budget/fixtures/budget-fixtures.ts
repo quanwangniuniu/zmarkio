@@ -8,6 +8,7 @@ import {
   resolveBudgetRbacHeaders,
   type BudgetE2EFixturePayload,
 } from './budget-e2e-types';
+import { isMfaChallenge, verifyMfaAfterLogin } from '../../mfa/mfa-api';
 
 const FIXTURE_FILE = path.join(__dirname, 'budget-e2e-fixtures.json');
 
@@ -104,7 +105,15 @@ export async function apiAuthHeaders(
   if (!loginResp.ok()) {
     throw new Error(`Login failed for ${email} (${loginResp.status()}): ${await loginResp.text()}`);
   }
-  const body = await loginResp.json();
+  let body = await loginResp.json();
+  // MED-326: org admins finish sign-in with a TOTP code from the fixture's mfa_secret.
+  if (isMfaChallenge(body)) {
+    const mfaSecret = Object.values(loadBudgetE2EFixtures()?.users ?? {}).find((user) => user.email === email)?.mfa_secret;
+    if (!mfaSecret) {
+      throw new Error(`Budget E2E login for ${email} requires MFA, but the fixtures have no mfa_secret.`);
+    }
+    body = await verifyMfaAfterLogin(request, body, mfaSecret, origin);
+  }
   const token = body.token as string;
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,

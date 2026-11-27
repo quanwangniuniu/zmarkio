@@ -77,7 +77,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
+      testIgnore: [/e2e[\\/]auth[\\/]/, /e2e[\\/]mfa[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
     },
     {
       name: 'firefox',
@@ -86,7 +86,7 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
+      testIgnore: [/e2e[\\/]auth[\\/]/, /e2e[\\/]mfa[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
     },
     {
       name: 'webkit',
@@ -95,7 +95,14 @@ export default defineConfig({
         storageState: 'e2e/.auth/user.json',
       },
       dependencies: ['setup'],
-      testIgnore: [/e2e[\\/]auth[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
+      testIgnore: [/e2e[\\/]auth[\\/]/, /e2e[\\/]mfa[\\/]/, ...budgetRealE2eSpecs, ...mockOnlyE2eSpecs],
+    },
+    // MED-326: real-backend MFA flows; each test provisions its own org admin.
+    {
+      name: 'mfa-chromium',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /e2e[\\/]mfa[\\/].*\.spec\.ts$/,
+      timeout: 90_000,
     },
     // Ads fixtures provision their own real accounts; no shared login dependency.
     ...(['chromium', 'firefox', 'webkit'] as const).map((browserName) => ({

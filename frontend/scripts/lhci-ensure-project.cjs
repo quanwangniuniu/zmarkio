@@ -19,12 +19,52 @@ const {
   findProjectByName,
   createProject,
 } = require('./lhci-lib.cjs');
+const crypto = require('crypto');
 
 const DEFAULT_PROJECT_NAME = 'LHCI Test Project';
 
 /**
  * @returns {Promise<string | null>} project id as string, or null if skipped
  */
+async function requestJson(method, url, token, body) {
+  const res = await fetch(url, {
+    method,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`LHCI ${method} ${url} failed ${res.status}: ${text.slice(0, 300)}`);
+  return text ? JSON.parse(text) : {};
+}
+
+/**
+ * MED-326: org admins must pass MFA to sign in, and a user's first project
+ * auto-creates an org with that user as admin. So a throwaway account creates
+ * the org and the audited account joins it as a regular member first.
+ */
+async function joinOrganizationAsMember(base, token) {
+  const status = await requestJson('GET', `${base}/api/core/onboarding-status/`, token);
+  if (status.has_org) return;
+
+  const id = crypto.randomUUID();
+  const owner = await requestJson('POST', `${base}/auth/register/`, null, {
+    email: `lhci-org-owner-${id}@example.com`,
+    password: `Lhci!${crypto.randomBytes(18).toString('base64url')}`,
+    username: `lhci-owner-${id.slice(0, 8)}`,
+  });
+  const created = await requestJson('POST', `${base}/api/core/organizations/create/`, owner.token, {
+    name: `LHCI Org ${id.slice(0, 8)}`,
+  });
+  await requestJson('POST', `${base}/api/core/organizations/join/`, token, {
+    slug: created.organization.slug,
+  });
+  process.stderr.write(`[lhci] joined organization ${created.organization.slug} as a regular member\n`);
+}
+
 async function ensureProject() {
   if (process.env.LHCI_ENSURE_PROJECT === '0') {
     return null;
@@ -47,6 +87,7 @@ async function ensureProject() {
 
   await registerUserIfNotExists(base, creds.email, creds.password);
   const token = await loginWithApi(base, creds.email, creds.password);
+  await joinOrganizationAsMember(base, token);
 
   let project = await findProjectByName(base, token, projectName);
   if (!project) {

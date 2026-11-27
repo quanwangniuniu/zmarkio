@@ -1,5 +1,6 @@
 from django.db import connection
 from django.test import TestCase, RequestFactory, override_settings
+from access_control.tests.mfa_request_factory import MfaVerifiedRequestFactory
 from django.contrib.auth import get_user_model
 from django.http import HttpResponse
 from django.utils import timezone
@@ -61,7 +62,7 @@ class AuthorizationMiddlewareTest(TestCase):
             valid_to=now - timedelta(days=1)
         )
 
-        cls.factory = RequestFactory()
+        cls.factory = MfaVerifiedRequestFactory()
         cls.middleware = AuthorizationMiddleware()
 
     def setUp(self):

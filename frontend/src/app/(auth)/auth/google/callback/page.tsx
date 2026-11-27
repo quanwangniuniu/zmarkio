@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import toast from 'react-hot-toast';
-import api from '@/lib/api';
+import api, { MFA_CHALLENGE_STORAGE_KEY } from '@/lib/api';
 import { useAuthStore } from '@/lib/authStore';
 
 function GoogleCallbackContent() {
@@ -24,6 +24,17 @@ function GoogleCallbackContent() {
   useEffect(() => {
     const handleCallback = async () => {
       try {
+        // MED-326: org admins continue with MFA on the login page. The mfa_token
+        // stays in an HttpOnly cookie that the MFA endpoints read, not in the URL.
+        if (searchParams.get('mfa') === 'required') {
+          sessionStorage.setItem(
+            MFA_CHALLENGE_STORAGE_KEY,
+            JSON.stringify({ mfaToken: '', enrollmentRequired: searchParams.get('setup') === '1' }),
+          );
+          router.push('/login');
+          return;
+        }
+
         // Check if we received auth_data directly (from backend redirect for existing user)
         const authDataParam = searchParams.get('auth_data');
         

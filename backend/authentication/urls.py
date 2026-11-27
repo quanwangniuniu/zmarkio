@@ -23,6 +23,7 @@ from .views import (
     SessionRevokeView,
     SessionTokenRefreshView,
 )
+from .mfa_views import MfaEnrollConfirmView, MfaEnrollStartView, MfaVerifyView
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
@@ -54,4 +55,8 @@ urlpatterns = [
     # Session management endpoints
     path('sessions/', SessionListView.as_view(), name='session-list'),
     path('sessions/<str:jti>/', SessionRevokeView.as_view(), name='session-revoke'),
+
+    path('mfa/enroll/start/', MfaEnrollStartView.as_view(), name='mfa-enroll-start'),
+    path('mfa/enroll/confirm/', MfaEnrollConfirmView.as_view(), name='mfa-enroll-confirm'),
+    path('mfa/verify/', MfaVerifyView.as_view(), name='mfa-verify'),
 ]

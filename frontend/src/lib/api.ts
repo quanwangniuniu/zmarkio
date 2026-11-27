@@ -11,6 +11,10 @@ import {
   GoogleAuthResponse,
   SetPasswordRequest,
   ChangePasswordResponse,
+  MfaChallengeResponse,
+  MfaEnrollConfirmResponse,
+  MfaEnrollStartResponse,
+  MfaVerifyRequest,
 } from '../types/auth';
 import { isRetryableAuthError } from './authMessages';
 
@@ -417,6 +421,30 @@ function notifySessionEvicted() {
   window.location.href = '/login';
 }
 
+// MED-326: sessionStorage keys read by the login page.
+export const MFA_REAUTH_STORAGE_KEY = 'mfa_reauth';
+export const MFA_CHALLENGE_STORAGE_KEY = 'mfa_challenge';
+
+// MED-326: an org admin's token has not passed MFA. Several requests can be
+// rejected at once, so only the first one redirects.
+let _mfaRedirectPending = false;
+
+function handleMfaRequired(enrollmentRequired: boolean) {
+  if (_mfaRedirectPending) return;
+  _mfaRedirectPending = true;
+
+  if (enrollmentRequired) {
+    // Not set up yet: the profile page's MFA wizard works with the current token.
+    if (!window.location.pathname.startsWith('/profile')) {
+      window.location.href = '/profile?mfa=setup';
+    }
+  } else {
+    // Already set up elsewhere: sign in again to enter a code.
+    try { sessionStorage.setItem(MFA_REAUTH_STORAGE_KEY, '1'); } catch (_) {}
+    endSession();
+  }
+}
+
 // Request interceptor to add auth token to requests
 api.interceptors.request.use(
   (config) => {
@@ -483,7 +511,9 @@ api.interceptors.response.use(
     const isAuthEndpoint =
       url === '/auth/login/' ||
       url === '/auth/token/refresh/' ||
-      url === '/auth/logout/';
+      url === '/auth/logout/' ||
+      // MED-326: a 401 here means the short-lived mfa_token expired, not the session.
+      url === '/auth/mfa/verify/';
 
     if (status === 401 && !isAuthEndpoint && !shouldBypassGlobalLogout) {
       if (typeof window !== 'undefined' && config && !config._retry) {
@@ -526,6 +556,15 @@ api.interceptors.response.use(
 
     if (
       typeof window !== 'undefined' &&
+      status === 403 &&
+      responseData?.errorCode === 'MFA_REQUIRED'
+    ) {
+      handleMfaRequired(Boolean(responseData?.mfa_enrollment_required));
+      return new Promise(() => {});
+    }
+
+    if (
+      typeof window !== 'undefined' &&
       (status === 402 || status === 409 || status === 422) &&
       (quotaCode === 'TOKEN_QUOTA_EXCEEDED' ||
         quotaCode === 'SINGLE_CALL_TOO_LARGE' ||
@@ -540,7 +579,7 @@ api.interceptors.response.use(
 
 // Authentication API functions - connected to Django backend
 export const authAPI = {
-  login: async (credentials: LoginRequest): Promise<LoginResponse> => {
+  login: async (credentials: LoginRequest): Promise<LoginResponse | MfaChallengeResponse> => {
     const response = await api.post('/auth/login/', credentials);
     return response.data;
   },
@@ -616,6 +655,24 @@ export const authAPI = {
 
   changePassword: async(current_password: string, new_password: string): Promise<ChangePasswordResponse> => {
     const response = await api.post('/auth/change-password/', { current_password, new_password });
+    return response.data;
+  },
+
+  verifyMfa: async (data: MfaVerifyRequest): Promise<LoginResponse> => {
+    const response = await api.post('/auth/mfa/verify/', data);
+    return response.data;
+  },
+
+  startMfaEnrollment: async (mfaToken?: string): Promise<MfaEnrollStartResponse> => {
+    const response = await api.post('/auth/mfa/enroll/start/', mfaToken ? { mfa_token: mfaToken } : {});
+    return response.data;
+  },
+
+  confirmMfaEnrollment: async (code: string, mfaToken?: string): Promise<MfaEnrollConfirmResponse> => {
+    const response = await api.post(
+      '/auth/mfa/enroll/confirm/',
+      mfaToken ? { code, mfa_token: mfaToken } : { code },
+    );
     return response.data;
   },
 

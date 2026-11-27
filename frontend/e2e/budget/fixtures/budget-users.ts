@@ -2,6 +2,7 @@ import { type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { waitForTasksPageReady } from '../../tasks/tasks-helpers';
 import { BUDGET_E2E_DEFAULT_PASSWORD, resolveBudgetRbacAuthState, type BudgetE2EFixturePayload } from './budget-e2e-types';
 import { loadBudgetE2EFixtures } from './budget-fixtures';
+import { isMfaChallenge, verifyMfaAfterLogin } from '../../mfa/mfa-api';
 
 type LoginPayload = {
   token: string;
@@ -36,7 +37,16 @@ async function loginRequest(
   if (!response.ok()) {
     throw new Error(`Budget E2E login failed for ${email} (${response.status()}): ${await response.text()}`);
   }
-  return response.json() as Promise<LoginPayload>;
+  const body = await response.json();
+  // MED-326: org admins finish sign-in with a TOTP code from the fixture's mfa_secret.
+  if (isMfaChallenge(body)) {
+    const mfaSecret = Object.values(loadBudgetE2EFixtures()?.users ?? {}).find((user) => user.email === email)?.mfa_secret;
+    if (!mfaSecret) {
+      throw new Error(`Budget E2E login for ${email} requires MFA, but the fixtures have no mfa_secret.`);
+    }
+    return verifyMfaAfterLogin(page.request, body, mfaSecret, origin);
+  }
+  return body as LoginPayload;
 }
 
 async function seedAuthStorage(
