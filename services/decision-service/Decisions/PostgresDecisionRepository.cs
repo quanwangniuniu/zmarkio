@@ -108,6 +108,11 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             ? await ResolveOriginMeetingAsync(connection, request.OriginMeetingId.Value, projectId.Value, ct)
             : null;
         var transaction = session.Transaction;
+        if (request.ParentDecisionIds is not null)
+        {
+            await LockProjectAsync(connection, transaction, projectId.Value, ct);
+        }
+
         var now = DateTimeOffset.UtcNow;
         var projectSeq = await NextProjectSequenceAsync(connection, projectId.Value, ct);
         var topic = NormalizeTopic(request.Topic);
@@ -238,6 +243,11 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 throw new DecisionValidationException(offendingField,
                     $"Cannot modify {offendingField} because this decision is {existing.Status}.");
             }
+        }
+
+        if (request.ParentDecisionIds is not null && existing.ProjectId is int projectId)
+        {
+            await LockProjectAsync(connection, transaction, projectId, ct);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -496,6 +506,11 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         {
             return false;
         }
+        if (existing.ProjectId is int projectId)
+        {
+            await LockProjectAsync(connection, session.Transaction, projectId, ct);
+        }
+
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE decisions
@@ -1657,6 +1672,22 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         }
     }
 
+    // Acquire the project row before taking decision or edge write locks.
+    private static async Task LockProjectAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, int projectId, CancellationToken ct)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT id
+            FROM core_project
+            WHERE id = @project_id
+            FOR NO KEY UPDATE
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        await command.ExecuteScalarAsync(ct);
+    }
+
     private async Task ReplaceParentEdgesAsync(
         NpgsqlConnection connection,
         NpgsqlTransaction transaction,
@@ -1680,6 +1711,23 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         var candidateParentIds = parentDecisionIds.Distinct().ToArray();
         if (candidateParentIds.Length > 0)
         {
+            using var parentCheck = connection.CreateCommand();
+            parentCheck.Transaction = transaction;
+            parentCheck.CommandText = """
+                SELECT COUNT(*)
+                FROM decisions
+                WHERE id = ANY(@parent_ids)
+                  AND project_id = @project_id
+                  AND is_deleted = false
+                """;
+            parentCheck.Parameters.AddWithValue("parent_ids", candidateParentIds);
+            parentCheck.Parameters.AddWithValue("project_id", projectId);
+            if (Convert.ToInt64(await parentCheck.ExecuteScalarAsync(ct)) != candidateParentIds.Length)
+            {
+                throw new DecisionValidationException(
+                    "parentDecisionIds", "Each parent must be an existing, non-deleted decision in the same project.");
+            }
+
             using var validationCommand = connection.CreateCommand();
             validationCommand.Transaction = transaction;
             validationCommand.CommandText = """
