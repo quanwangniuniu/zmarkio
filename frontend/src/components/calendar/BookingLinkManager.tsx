@@ -43,6 +43,8 @@ import {
 } from '@/lib/bookingLinkList';
 import BookingLinkQuickInvite from './BookingLinkQuickInvite';
 import { CalendarScopeSwitch } from './CalendarScopeSwitch';
+import { isCalendarSurfaceEnabled } from '@/lib/calendar/calendarConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import toast from 'react-hot-toast';
 
 /**
@@ -120,6 +122,7 @@ interface BookingLinkManagerProps {
 
 export default function BookingLinkManager({ orgSlug }: BookingLinkManagerProps) {
   const projectId = useProjectStore((state) => state.activeProject?.id ?? null);
+  useOptionConfigVersion();
   const [links, setLinks] = useState<BookingLinkDTO[]>([]);
   const [calendars, setCalendars] = useState<CalendarDTO[]>([]);
   const [members, setMembers] = useState<ProjectMemberData[]>([]);
@@ -665,24 +668,26 @@ export default function BookingLinkManager({ orgSlug }: BookingLinkManagerProps)
               </div>
             </div>
 
-            <div className="sm:col-span-2">
-              <p className="block text-xs font-medium text-gray-600">Type</p>
-              <div className="mt-1">
-                <CalendarScopeSwitch
-                  scope={form.scope}
-                  onChange={setScope}
-                  testIdPrefix="booking-link-scope"
-                />
+            {isCalendarSurfaceEnabled('section.scope_switch') && (
+              <div className="sm:col-span-2">
+                <p className="block text-xs font-medium text-gray-600">Type</p>
+                <div className="mt-1">
+                  <CalendarScopeSwitch
+                    scope={form.scope}
+                    onChange={setScope}
+                    testIdPrefix="booking-link-scope"
+                  />
+                </div>
+                <p
+                  className="mt-1 text-[11px] text-gray-400"
+                  data-testid="booking-link-scope-caption"
+                >
+                  {form.scope === 'team'
+                    ? 'Slots and bookings use the project calendar.'
+                    : 'Slots and bookings use your personal calendar.'}
+                </p>
               </div>
-              <p
-                className="mt-1 text-[11px] text-gray-400"
-                data-testid="booking-link-scope-caption"
-              >
-                {form.scope === 'team'
-                  ? 'Slots and bookings use the project calendar.'
-                  : 'Slots and bookings use your personal calendar.'}
-              </p>
-            </div>
+            )}
 
             <div className="sm:col-span-2">
               <label htmlFor="bl-calendar" className="block text-xs font-medium text-gray-600">

@@ -54,6 +54,29 @@ NAVIGATION_GROUPS = {
     'tools': (('workflows', 'Workflows'), ('timeline', 'Timeline')),
 }
 
+# Surface keys follow `calendar.<field>.<value>`; `nav_item` maps to `nav.item.calendar.*`.
+# Only in-app pages read this config. The public `/book/[orgSlug]/[linkSlug]` page never does,
+# so booking links already sent out keep working when Calendar surfaces are disabled.
+CALENDAR_SURFACES = {
+    'tab': (('day', 'Day'), ('week', 'Week'), ('month', 'Month'), ('year', 'Year'), ('agenda', 'Agenda')),
+    'section': (
+        ('scope_switch', 'Booking link scope switch'),
+        ('toolbar_today', 'Today button'),
+        ('toolbar_navigation', 'Previous / next buttons'),
+        ('toolbar_all_events', 'All events toggle'),
+        ('toolbar_ask_agent', 'Ask Agent button'),
+    ),
+    'panel': (('sidebar', 'Calendar sidebar'),),
+    'nav_item': (('booking_links', 'Booking links'),),
+}
+
+CALENDAR_SURFACE_ATTRIBUTES = {
+    'tab': LIST_ATTRIBUTES,
+    'section': ('enabled',),
+    'panel': ('enabled',),
+    'nav_item': ('enabled',),
+}
+
 TASK_SURFACES = {
     'tab': (
         ('summary', 'Summary'),
@@ -101,6 +124,11 @@ MODULE_OPTION_FIELDS = {
     'navigation': {
         group: OptionField(None, group, None, LIST_ATTRIBUTES, items, 'overview' if group == 'overview' else None)
         for group, items in NAVIGATION_GROUPS.items()
+    },
+    'calendar': {
+        # Week is the page's default view, so it cannot be disabled.
+        field: OptionField(None, field, None, CALENDAR_SURFACE_ATTRIBUTES[field], items, 'week' if field == 'tab' else None)
+        for field, items in CALENDAR_SURFACES.items()
     },
     'tasks': {
         **{field: OptionField(None, field, None, LIST_ATTRIBUTES, items) for field, items in TASK_SURFACES.items()},
