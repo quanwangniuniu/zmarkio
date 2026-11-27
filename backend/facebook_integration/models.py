@@ -92,6 +92,14 @@ class MetaAdAccount(models.Model):
         related_name="linked_meta_accounts",
         db_constraint=False,  # Project lives in tenant schema; no cross-schema FK constraint
     )
+    # Stored with the project ID to identify its organization at the time of binding.
+    organization = models.ForeignKey(
+        "core.Organization",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

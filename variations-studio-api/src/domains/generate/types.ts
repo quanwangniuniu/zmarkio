@@ -2,6 +2,7 @@ import type { PlatformSpec } from '@/src/platforms';
 
 export type GenerateContext = {
   schema: string;
+  organizationId: bigint;
   userId: number;
   projectId: bigint;
   count: number;

@@ -1,4 +1,4 @@
-"""MED-242: Meta sync failures surface on the linked project's campaigns."""
+"""Meta campaign sync and ad account project binding in tenant schemas."""
 
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -10,7 +10,7 @@ from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.db import connection
 from django.utils import timezone
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APIRequestFactory, force_authenticate
 
 from campaign.models import Campaign
 from campaign.serializers import CampaignCreateSerializer
@@ -19,6 +19,7 @@ from core.services.auth_tokens import build_user_refresh_token
 from core.services.tenant import slug_to_schema_name
 from core.tenant_context import tenant_schema_context
 from facebook_integration.models import FacebookConnection, MetaAdAccount
+from facebook_integration.views import MetaAdAccountLinkProjectView
 from meta_ads.meta_client import MetaApiError
 from meta_ads.services import _classify_sync_error, sync_ad_account
 from meta_ads.tasks import sync_single_ad_account
@@ -29,7 +30,13 @@ pytestmark = pytest.mark.django_db
 EXPIRED = MetaApiError("access_token=secret expired", 400, {"error": {"code": 190, "type": "OAuthException"}})
 
 
-def make_tenant():
+def jwt_client(user):
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {build_user_refresh_token(user).access_token}")
+    return client
+
+
+def make_tenant(project_id=None):
     org = Organization.objects.create(name=f"MED-242 {uuid4().hex[:8]}")
     # TenantSchemaMiddleware caches org id -> slug in Redis, which xdist workers share.
     cache.set(f"tenant:slug:{org.pk}", org.slug, 300)
@@ -39,16 +46,14 @@ def make_tenant():
     )
     schema = slug_to_schema_name(org.slug)
     with tenant_schema_context(schema):
-        project = Project.objects.create(name="Sync project", organization=org, owner=user)
+        project = Project.objects.create(pk=project_id, name="Sync project", organization=org, owner=user)
         ProjectMember.objects.create(project=project, user=user, role="owner")
         campaign = Campaign.objects.create(
             name="Sync campaign", project=project, owner=user, creator=user,
             objective=Campaign.Objective.CONVERSION, platforms=[Campaign.Platform.META],
             start_date=timezone.now().date(),
         )
-    client = APIClient()
-    client.credentials(HTTP_AUTHORIZATION=f"Bearer {build_user_refresh_token(user).access_token}")
-    return SimpleNamespace(org=org, user=user, schema=schema, project=project, campaign=campaign, client=client)
+    return SimpleNamespace(org=org, user=user, schema=schema, project=project, campaign=campaign, client=jwt_client(user))
 
 
 @pytest.fixture
@@ -201,3 +206,112 @@ def test_linking_an_organization_project_passes_database_constraints(tenant, acc
     assert response.status_code == 200, response.data
     account.refresh_from_db()
     assert account.project_id == tenant.project.pk
+    assert account.organization_id == tenant.org.pk
+
+
+def project_member(tenant, role):
+    user = get_user_model().objects.create_user(
+        username=f"member-{uuid4().hex[:8]}", email=f"{uuid4().hex}@example.com", organization=tenant.org,
+    )
+    with tenant_schema_context(tenant.schema):
+        ProjectMember.objects.create(project=tenant.project, user=user, role=role)
+    return user
+
+
+def link_project(client, account, project_id):
+    return client.post(
+        f"/api/facebook_integration/ad_accounts/{account.pk}/link_project/",
+        {"project_id": project_id}, format="json",
+    )
+
+
+def test_project_manager_can_link_shared_account_to_project(tenant, account):
+    account.organization = tenant.org
+    account.save(update_fields=["organization"])
+    manager = project_member(tenant, "Campaign Manager")
+    with tenant_schema_context(tenant.schema):
+        target = Project.objects.create(name="Target project", organization=tenant.org, owner=tenant.user)
+        ProjectMember.objects.create(project=target, user=manager, role="Campaign Manager")
+
+    response = link_project(jwt_client(manager), account, target.pk)
+
+    assert response.status_code == 200, response.data
+    assert response.data["can_manage"] and response.data["can_sync"]
+    account.refresh_from_db()
+    assert (account.project_id, account.organization_id) == (target.pk, tenant.org.pk)
+
+
+def test_ordinary_project_member_cannot_unlink_shared_account(tenant, account):
+    account.organization = tenant.org
+    account.save(update_fields=["organization"])
+    member = project_member(tenant, "member")
+    response = link_project(jwt_client(member), account, None)
+    assert response.status_code == 403
+    assert response.data == {"detail": "You do not have permission to manage this ad account."}
+    account.refresh_from_db()
+    assert (account.project_id, account.organization_id) == (tenant.project.pk, tenant.org.pk)
+
+
+def test_connector_can_confirm_legacy_binding_then_unlink(tenant, account):
+    assert (account.project_id, account.organization_id) == (tenant.project.pk, None)
+    response = link_project(tenant.client, account, tenant.project.pk)
+    assert response.status_code == 200, response.data
+    account.refresh_from_db()
+    assert (account.project_id, account.organization_id) == (tenant.project.pk, tenant.org.pk)
+
+    response = link_project(tenant.client, account, None)
+    assert response.status_code == 200, response.data
+    account.refresh_from_db()
+    assert (account.project_id, account.organization_id) == (None, None)
+
+
+def assert_binding_refused(account, user, schema, target_id, detail):
+    original_binding = (account.project_id, account.organization_id)
+    request = APIRequestFactory().post("/", {"project_id": target_id}, format="json")
+    request.tenant_schema = schema
+    force_authenticate(request, user=user)
+    with tenant_schema_context(schema):
+        response = MetaAdAccountLinkProjectView.as_view()(request, pk=account.pk)
+    assert response.status_code == 403, response.data
+    assert response.data == {"detail": detail}
+    account.refresh_from_db()
+    assert (account.project_id, account.organization_id) == original_binding
+
+
+def test_manager_cannot_change_legacy_binding(tenant, account):
+    manager = project_member(tenant, "Campaign Manager")
+    assert account.organization_id is None
+    assert_binding_refused(
+        account, manager, tenant.schema, tenant.project.pk, "You do not have permission to manage this ad account.",
+    )
+
+
+@pytest.mark.parametrize("operation", ["relink", "unlink"])
+def test_manager_of_same_numbered_project_in_another_org_cannot_change_binding(tenant, account, operation):
+    other = make_tenant(project_id=tenant.project.pk)
+    assert other.schema != tenant.schema
+    assert other.project.pk == account.project_id
+    account.organization = tenant.org
+    account.save(update_fields=["organization"])
+    target_id = other.project.pk if operation == "relink" else None
+    assert_binding_refused(
+        account, other.user, other.schema, target_id, "You do not have permission to manage this ad account.",
+    )
+
+
+@pytest.mark.parametrize("context", ["public", "missing_organization", "other_schema"])
+def test_binding_requires_a_matching_organization_context(tenant, account, context):
+    schema = tenant.schema
+    user = tenant.user
+    if context == "public":
+        schema = "public"
+    elif context == "missing_organization":
+        user.current_organization = user.organization = None
+    else:
+        other = make_tenant()
+        # Only the legacy org matches the request schema. The current org takes precedence.
+        user.organization = other.org
+        schema = other.schema
+    assert_binding_refused(
+        account, user, schema, None, "A valid organization context is required to link an ad account.",
+    )
