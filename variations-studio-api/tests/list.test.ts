@@ -90,6 +90,7 @@ async function list(query: string) {
   expect(response.status).toBe(200);
   const body = await readJson(response);
   const results = body.results as { id: number; slug: string }[];
+  results.forEach((row) => expect(row.slug).toMatch(/\S/));
   return { body, ids: results.map((row) => BigInt(row.id)) };
 }
 

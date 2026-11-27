@@ -505,6 +505,7 @@ components:
       type: object
       required:
         - id
+        - slug
         - project
         - creative
         - source_mode
@@ -527,6 +528,8 @@ components:
           format: int64
         slug:
           type: string
+          minLength: 1
+          pattern: '\S'
         project:
           type: integer
           format: int64

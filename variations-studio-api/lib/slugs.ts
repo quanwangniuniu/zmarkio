@@ -7,6 +7,9 @@ const SLUG_MAX_LENGTH = 200;
 // suffix, so the stored value is always `base` or `base-<n>`.
 const SHORT_SLUG_MAX_LENGTH = SLUG_MAX_LENGTH - 10;
 
+// The fixed /variations/generate/ route takes precedence over draft detail routes.
+const RESERVED_VARIATION_SLUGS = new Set(['generate']);
+
 /** Ignores slugSource.index: copy fields are scalars. */
 export function readSlugSource(copy: Record<string, string>, spec: PlatformSpec): string {
   const field = spec.slugSource.field;
@@ -32,7 +35,7 @@ export function makeSlug(sourceValue: string): string {
 
   if (!base) {
     base = `adcopyvariation-${randomUUID().slice(0, 8)}`;
-  } else if (/^\d+$/.test(base)) {
+  } else if (/^\d+$/.test(base) || RESERVED_VARIATION_SLUGS.has(base)) {
     base = `adcopyvariation-${base}`;
   }
 
