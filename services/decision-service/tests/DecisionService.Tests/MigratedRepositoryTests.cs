@@ -420,12 +420,89 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
         Assert.Equal(0, await database.Count("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'"));
     }
 
+    // MED-553: several rows per call, so a misaligned unnest column would show up.
+    [Fact]
+    public async Task Batch_replace_keeps_each_row_and_rolls_back_together()
+    {
+        var created = await repository.CreateAsync(ProjectId, UserId, Draft("Batch") with
+        {
+            Options = [new("A", false, 2), new("B", true, 0), new("C", false, 1)],
+            Signals =
+            [
+                new("CTR", null, "LAST_7_DAYS", null, null, null, null, null, null),
+                new("CPA", "UP", null, "WOW", "CHANNEL", "Search", 3.5m, "%", "Custom"),
+            ],
+        }, CancellationToken.None);
+        var options = $"SELECT count(*) FROM decision_options WHERE decision_id = {created.Id}";
+        var signals = $"SELECT count(*) FROM decision_signals WHERE decision_id = {created.Id}";
+
+        Assert.Equal(new[] { "B True 0", "C False 1", "A False 2" },
+            created.Options.OrderBy(option => option.Order).Select(option => $"{option.Text} {option.IsSelected} {option.Order}"));
+        Assert.Equal(1, await database.Count($"""
+            {signals} AND author_id = {UserId} AND metric = 'CTR' AND movement IS NULL AND period = 'LAST_7_DAYS'
+              AND comparison = 'NONE' AND scope_type IS NULL AND scope_value IS NULL AND delta_value IS NULL
+              AND delta_unit IS NULL AND display_text = 'CTR LAST_7_DAYS' AND display_text_override IS NULL
+            """));
+        Assert.Equal(1, await database.Count($"""
+            {signals} AND metric = 'CPA' AND movement = 'UP' AND period IS NULL AND comparison = 'WOW'
+              AND scope_type = 'CHANNEL' AND scope_value = 'Search' AND delta_value = 3.5 AND delta_unit = '%'
+              AND display_text = 'Custom' AND display_text_override = 'Custom'
+            """));
+
+        await database.Execute($"""
+            INSERT INTO config."option" (organization_id, project_id, module, field, value, enabled)
+            VALUES (1, {ProjectId}, 'decisions', 'signal_metric', 'BATCH_OFF', false)
+            """);
+        await Assert.ThrowsAsync<DecisionValidationException>(() => repository.UpdateDraftAsync(created.Slug, UserId,
+            Replace(signals: [Signal("BATCH_OFF")], options: [new("Z", true, 0)]), CancellationToken.None));
+        Assert.Equal((3, 2), (await database.Count(options), await database.Count(signals)));
+
+        await repository.UpdateDraftAsync(created.Slug, UserId, Replace(signals: [], options: []), CancellationToken.None);
+        Assert.Equal((0, 0), (await database.Count(options), await database.Count(signals)));
+    }
+
+    [Fact]
+    public async Task Batch_edges_filter_dedupe_and_keep_direction()
+    {
+        var first = await repository.CreateAsync(ProjectId, UserId, Draft("First"), CancellationToken.None);
+        var second = await repository.CreateAsync(ProjectId, UserId, Draft("Second"), CancellationToken.None);
+        var foreign = await repository.CreateAsync(OtherProjectId, UserId, Draft("Foreign"), CancellationToken.None);
+        var deleted = await repository.CreateAsync(ProjectId, UserId, Draft("Deleted"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child"), CancellationToken.None);
+        await database.Execute($"UPDATE decisions SET is_deleted = true WHERE id = {deleted.Id}");
+        var parents = $"SELECT count(*) FROM decision_edges WHERE to_decision_id = {child.Id} AND edge_type = 'FOLLOW_UP'";
+
+        await repository.UpdateDraftAsync(child.Slug, UserId,
+            Replace(parents: [first.Id, first.Id, child.Id, foreign.Id, deleted.Id, 999999, second.Id]), CancellationToken.None);
+        Assert.Equal(2, await database.Count($"{parents} AND from_decision_id IN ({first.Id}, {second.Id})"));
+        Assert.Equal(2, await database.Count(parents));
+        await repository.UpdateDraftAsync(child.Slug, UserId, Replace(), CancellationToken.None);
+        Assert.Equal(2, await database.Count(parents));
+        await repository.UpdateDraftAsync(child.Slug, UserId, Replace(parents: []), CancellationToken.None);
+        Assert.Equal(0, await database.Count(parents));
+
+        await repository.UpdateConnectionsAsync(first.Slug, UserId, new DecisionConnectionsUpdateRequest([second.Id], null), CancellationToken.None);
+        await repository.UpdateConnectionsAsync(child.Slug, UserId,
+            new DecisionConnectionsUpdateRequest([second.Id, first.Id, second.Id, child.Id], null), CancellationToken.None);
+        var related = $"SELECT count(*) FROM decision_edges WHERE edge_type = 'RELATED' AND {child.Id} IN (from_decision_id, to_decision_id)";
+        Assert.Equal(2, await database.Count($"{related} AND from_decision_id < to_decision_id"));
+        Assert.Equal(2, await database.Count(related));
+        Assert.Equal(1, await database.Count(
+            $"SELECT count(*) FROM decision_edges WHERE edge_type = 'RELATED' AND from_decision_id = {first.Id} AND to_decision_id = {second.Id}"));
+    }
+
     private static CreateDecisionDraftRequest Draft(string title, IReadOnlyList<int>? parents = null, int? meetingId = null) =>
         new(title, "Context", DecisionRiskLevel.LOW, 70, "Reasoning", "pricing", false, null,
             [Signal("CTR")], [new DecisionOptionInput("Ship it", true, 0)], parents, meetingId);
 
     private static DecisionSignalInput Signal(string metric) =>
         new(metric, "DOWN", "LAST_7_DAYS", null, null, null, 12.5m, "%", null);
+
+    private static UpdateDecisionDraftRequest Replace(
+        IReadOnlyList<DecisionSignalInput>? signals = null,
+        IReadOnlyList<DecisionOptionInput>? options = null,
+        IReadOnlyList<int>? parents = null) =>
+        new(null, null, null, null, null, null, null, null, signals, options, parents);
 
     private static DecisionReviewInput Review() => new("Hit target", "Would do again", "GOOD");
 }

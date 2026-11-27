@@ -702,31 +702,29 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             await deleteCommand.ExecuteNonQueryAsync(ct);
         }
 
-        foreach (var targetId in targetIds.Where(id => id != decision.Id).Distinct())
-        {
-            var fromId = Math.Min(decision.Id, targetId);
-            var toId = Math.Max(decision.Id, targetId);
-            using var insertCommand = connection.CreateCommand();
-            insertCommand.Transaction = transaction;
-            insertCommand.CommandText = """
-                INSERT INTO decision_edges (
-                    created_at,
-                    updated_at,
-                    is_deleted,
-                    from_decision_id,
-                    to_decision_id,
-                    created_by_id,
-                    edge_type
-                )
-                VALUES (@now, @now, false, @from_id, @to_id, @actor_id, 'RELATED')
-                ON CONFLICT (from_decision_id, to_decision_id) DO UPDATE SET edge_type = 'RELATED', updated_at = EXCLUDED.updated_at
-                """;
-            insertCommand.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
-            insertCommand.Parameters.AddWithValue("from_id", fromId);
-            insertCommand.Parameters.AddWithValue("to_id", toId);
-            AddNullableInteger(insertCommand, "actor_id", actorId);
-            await insertCommand.ExecuteNonQueryAsync(ct);
-        }
+        // MED-553: one INSERT for all connections; the smaller id is still stored as from_decision_id.
+        var targets = targetIds.Where(id => id != decision.Id).Distinct().ToArray();
+        using var insertCommand = connection.CreateCommand();
+        insertCommand.Transaction = transaction;
+        insertCommand.CommandText = """
+            INSERT INTO decision_edges (
+                created_at,
+                updated_at,
+                is_deleted,
+                from_decision_id,
+                to_decision_id,
+                created_by_id,
+                edge_type
+            )
+            SELECT @now, @now, false, edge.from_id, edge.to_id, @actor_id, 'RELATED'
+            FROM unnest(@from_ids::integer[], @to_ids::integer[]) AS edge(from_id, to_id)
+            ON CONFLICT (from_decision_id, to_decision_id) DO UPDATE SET edge_type = 'RELATED', updated_at = EXCLUDED.updated_at
+            """;
+        insertCommand.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
+        insertCommand.Parameters.AddWithValue("from_ids", targets.Select(targetId => Math.Min(decision.Id, targetId)).ToArray());
+        insertCommand.Parameters.AddWithValue("to_ids", targets.Select(targetId => Math.Max(decision.Id, targetId)).ToArray());
+        AddNullableInteger(insertCommand, "actor_id", actorId);
+        await insertCommand.ExecuteNonQueryAsync(ct);
 
         var payload = await BuildConnectionsPayloadAsync(connection, decision.Id, decision.ProjectId, decision.ProjectSeq, ct);
         await session.CommitAsync();
@@ -1538,29 +1536,29 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             await deleteCommand.ExecuteNonQueryAsync(ct);
         }
 
-        foreach (var option in options ?? Array.Empty<DecisionOptionInput>())
-        {
-            using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO decision_options (
-                    created_at,
-                    updated_at,
-                    is_deleted,
-                    decision_id,
-                    text,
-                    is_selected,
-                    "order"
-                )
-                VALUES (@now, @now, false, @decision_id, @text, @is_selected, @order)
-                """;
-            command.Parameters.AddWithValue("now", now);
-            command.Parameters.AddWithValue("decision_id", decisionId);
-            command.Parameters.AddWithValue("text", option.Text);
-            command.Parameters.AddWithValue("is_selected", option.IsSelected);
-            command.Parameters.AddWithValue("order", option.Order);
-            await command.ExecuteNonQueryAsync(ct);
-        }
+        // MED-553: one INSERT for all options; unnest turns the column arrays back into rows.
+        var rows = options ?? Array.Empty<DecisionOptionInput>();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO decision_options (
+                created_at,
+                updated_at,
+                is_deleted,
+                decision_id,
+                text,
+                is_selected,
+                "order"
+            )
+            SELECT @now, @now, false, @decision_id, item.text, item.is_selected, item."order"
+            FROM unnest(@texts::text[], @selected::boolean[], @orders::integer[]) AS item(text, is_selected, "order")
+            """;
+        command.Parameters.AddWithValue("now", now);
+        command.Parameters.AddWithValue("decision_id", decisionId);
+        command.Parameters.AddWithValue("texts", rows.Select(option => option.Text).ToArray());
+        command.Parameters.AddWithValue("selected", rows.Select(option => option.IsSelected).ToArray());
+        command.Parameters.AddWithValue("orders", rows.Select(option => option.Order).ToArray());
+        await command.ExecuteNonQueryAsync(ct);
     }
 
     private async Task ReplaceSignalsAsync(
@@ -1582,63 +1580,50 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             await deleteCommand.ExecuteNonQueryAsync(ct);
         }
 
-        foreach (var signal in signals ?? Array.Empty<DecisionSignalInput>())
-        {
-            var displayText = signal.DisplayTextOverride
-                ?? string.Join(" ", new[] { signal.Metric, signal.Movement, signal.Period }.Where(value => !string.IsNullOrWhiteSpace(value)));
-            using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO decision_signals (
-                    created_at,
-                    updated_at,
-                    is_deleted,
-                    decision_id,
-                    author_id,
-                    metric,
-                    movement,
-                    period,
-                    comparison,
-                    scope_type,
-                    scope_value,
-                    delta_value,
-                    delta_unit,
-                    display_text,
-                    display_text_override
-                )
-                VALUES (
-                    @now,
-                    @now,
-                    false,
-                    @decision_id,
-                    @actor_id,
-                    @metric,
-                    @movement,
-                    @period,
-                    @comparison,
-                    @scope_type,
-                    @scope_value,
-                    @delta_value,
-                    @delta_unit,
-                    @display_text,
-                    @display_text_override
-                )
-                """;
-            command.Parameters.AddWithValue("now", now);
-            command.Parameters.AddWithValue("decision_id", decisionId);
-            AddNullableInteger(command, "actor_id", actorId);
-            AddNullableText(command, "metric", signal.Metric);
-            AddNullableText(command, "movement", signal.Movement);
-            AddNullableText(command, "period", signal.Period);
-            command.Parameters.AddWithValue("comparison", signal.Comparison ?? "NONE");
-            AddNullableText(command, "scope_type", signal.ScopeType);
-            AddNullableText(command, "scope_value", signal.ScopeValue);
-            AddNullableDecimal(command, "delta_value", signal.DeltaValue);
-            AddNullableText(command, "delta_unit", signal.DeltaUnit);
-            command.Parameters.AddWithValue("display_text", displayText);
-            AddNullableText(command, "display_text_override", signal.DisplayTextOverride);
-            await command.ExecuteNonQueryAsync(ct);
-        }
+        // MED-553: one INSERT for all signals; every array is built from the same rows in the same order.
+        var rows = signals ?? Array.Empty<DecisionSignalInput>();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO decision_signals (
+                created_at,
+                updated_at,
+                is_deleted,
+                decision_id,
+                author_id,
+                metric,
+                movement,
+                period,
+                comparison,
+                scope_type,
+                scope_value,
+                delta_value,
+                delta_unit,
+                display_text,
+                display_text_override
+            )
+            SELECT @now, @now, false, @decision_id, @actor_id, item.metric, item.movement, item.period, item.comparison,
+                item.scope_type, item.scope_value, item.delta_value, item.delta_unit, item.display_text, item.display_text_override
+            FROM unnest(
+                @metrics::text[], @movements::text[], @periods::text[], @comparisons::text[], @scope_types::text[],
+                @scope_values::text[], @delta_values::numeric[], @delta_units::text[], @display_texts::text[], @display_text_overrides::text[]
+            ) AS item(metric, movement, period, comparison, scope_type, scope_value, delta_value, delta_unit, display_text, display_text_override)
+            """;
+        command.Parameters.AddWithValue("now", now);
+        command.Parameters.AddWithValue("decision_id", decisionId);
+        AddNullableInteger(command, "actor_id", actorId);
+        command.Parameters.AddWithValue("metrics", rows.Select(signal => signal.Metric).ToArray());
+        command.Parameters.AddWithValue("movements", rows.Select(signal => signal.Movement).ToArray());
+        command.Parameters.AddWithValue("periods", rows.Select(signal => signal.Period).ToArray());
+        command.Parameters.AddWithValue("comparisons", rows.Select(signal => signal.Comparison ?? "NONE").ToArray());
+        command.Parameters.AddWithValue("scope_types", rows.Select(signal => signal.ScopeType).ToArray());
+        command.Parameters.AddWithValue("scope_values", rows.Select(signal => signal.ScopeValue).ToArray());
+        command.Parameters.AddWithValue("delta_values", rows.Select(signal => signal.DeltaValue).ToArray());
+        command.Parameters.AddWithValue("delta_units", rows.Select(signal => signal.DeltaUnit).ToArray());
+        command.Parameters.AddWithValue("display_texts", rows.Select(signal => signal.DisplayTextOverride
+            ?? string.Join(" ", new[] { signal.Metric, signal.Movement, signal.Period }.Where(value => !string.IsNullOrWhiteSpace(value)))).ToArray());
+        command.Parameters.AddWithValue("display_text_overrides", rows.Select(signal => signal.DisplayTextOverride).ToArray());
+        await command.ExecuteNonQueryAsync(ct);
     }
 
     private async Task ReplaceParentEdgesAsync(
@@ -1664,34 +1649,33 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             await deleteCommand.ExecuteNonQueryAsync(ct);
         }
 
-        foreach (var parentId in parentDecisionIds.Distinct().Where(parentId => parentId != decisionId))
-        {
-            using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO decision_edges (
-                    created_at,
-                    updated_at,
-                    is_deleted,
-                    from_decision_id,
-                    to_decision_id,
-                    edge_type,
-                    created_by_id
-                )
-                SELECT @now, @now, false, @from_decision_id, @to_decision_id, 'FOLLOW_UP', @created_by_id
-                WHERE EXISTS (
-                    SELECT 1 FROM decisions
-                    WHERE id = @from_decision_id AND project_id = @project_id AND is_deleted = false
-                )
-                ON CONFLICT DO NOTHING
-                """;
-            command.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
-            command.Parameters.AddWithValue("from_decision_id", parentId);
-            command.Parameters.AddWithValue("to_decision_id", decisionId);
-            command.Parameters.AddWithValue("project_id", projectId);
-            AddNullableInteger(command, "created_by_id", actorId);
-            await command.ExecuteNonQueryAsync(ct);
-        }
+        // MED-553: one INSERT for all parents; WHERE EXISTS still drops missing, deleted or other-project parents.
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO decision_edges (
+                created_at,
+                updated_at,
+                is_deleted,
+                from_decision_id,
+                to_decision_id,
+                edge_type,
+                created_by_id
+            )
+            SELECT @now, @now, false, parent.id, @to_decision_id, 'FOLLOW_UP', @created_by_id
+            FROM unnest(@from_decision_ids::integer[]) AS parent(id)
+            WHERE EXISTS (
+                SELECT 1 FROM decisions
+                WHERE id = parent.id AND project_id = @project_id AND is_deleted = false
+            )
+            ON CONFLICT DO NOTHING
+            """;
+        command.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
+        command.Parameters.AddWithValue("from_decision_ids", parentDecisionIds.Distinct().Where(parentId => parentId != decisionId).ToArray());
+        command.Parameters.AddWithValue("to_decision_id", decisionId);
+        command.Parameters.AddWithValue("project_id", projectId);
+        AddNullableInteger(command, "created_by_id", actorId);
+        await command.ExecuteNonQueryAsync(ct);
     }
 
     private async Task RecordTransitionAsync(

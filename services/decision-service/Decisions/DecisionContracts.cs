@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
 namespace DecisionService.Decisions;
@@ -114,31 +115,31 @@ public sealed record DecisionListResponse(
 
 public sealed record CreateDecisionDraftRequest(
     string? Title,
-    string? ContextSummary,
+    [MaxLength(20000)] string? ContextSummary,
     DecisionRiskLevel? RiskLevel,
     int? ConfidenceScore,
-    string? Reasoning,
+    [MaxLength(20000)] string? Reasoning,
     string? Topic,
     bool IsReferenceCase,
     DateTimeOffset? PlannedDecisionDate,
-    IReadOnlyList<DecisionSignalInput>? Signals,
-    IReadOnlyList<DecisionOptionInput>? Options,
-    IReadOnlyList<int>? ParentDecisionIds,
+    [MaxLength(50)] IReadOnlyList<DecisionSignalInput>? Signals,
+    [MaxLength(20)] IReadOnlyList<DecisionOptionInput>? Options,
+    [MaxLength(100)] IReadOnlyList<int>? ParentDecisionIds,
     [property: JsonPropertyName("origin_meeting_id")] int? OriginMeetingId = null
 );
 
 public sealed record UpdateDecisionDraftRequest(
     string? Title,
-    string? ContextSummary,
+    [MaxLength(20000)] string? ContextSummary,
     DecisionRiskLevel? RiskLevel,
     int? ConfidenceScore,
-    string? Reasoning,
+    [MaxLength(20000)] string? Reasoning,
     string? Topic,
     bool? IsReferenceCase,
     DateTimeOffset? PlannedDecisionDate,
-    IReadOnlyList<DecisionSignalInput>? Signals,
-    IReadOnlyList<DecisionOptionInput>? Options,
-    IReadOnlyList<int>? ParentDecisionIds,
+    [MaxLength(50)] IReadOnlyList<DecisionSignalInput>? Signals,
+    [MaxLength(20)] IReadOnlyList<DecisionOptionInput>? Options,
+    [MaxLength(100)] IReadOnlyList<int>? ParentDecisionIds,
     [property: JsonPropertyName("origin_meeting_id")] int? OriginMeetingId = null
 );
 
@@ -230,8 +231,8 @@ public sealed record DecisionTopicLabelResponse(
 );
 
 public sealed record DecisionConnectionsUpdateRequest(
-    IReadOnlyList<int>? ConnectedDecisionIds,
-    IReadOnlyList<int>? ConnectedDecisionSeqs
+    [MaxLength(100)] IReadOnlyList<int>? ConnectedDecisionIds,
+    [MaxLength(100)] IReadOnlyList<int>? ConnectedDecisionSeqs
 );
 
 public sealed record DecisionReviewDto(
