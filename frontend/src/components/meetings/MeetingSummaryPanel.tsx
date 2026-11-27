@@ -18,6 +18,8 @@ import { MeetingSummaryKnowledgeNav } from '@/components/meetings/MeetingSummary
 import { MeetingSummaryRelatedArtifacts } from '@/components/meetings/MeetingSummaryRelatedArtifacts';
 import { ZoomPostMeetingSection } from '@/components/meetings/ZoomPostMeetingSection';
 import { MeetingActionItemsSection } from '@/components/meetings/MeetingActionItemsSection';
+import { isMeetingSurfaceEnabled } from '@/lib/meetings/meetingsConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { ProjectMemberPicker } from '@/components/meetings/ProjectMemberPicker';
 import { formatProjectMemberLabel } from '@/components/meetings/projectMemberLabel';
 import { ProjectAPI, type ProjectMemberData } from '@/lib/api/projectApi';
@@ -81,6 +83,7 @@ export function MeetingSummaryPanel({
   onMeetingUpdated,
   onMeetingDeleted,
 }: MeetingSummaryPanelProps) {
+  useOptionConfigVersion();
   const buildUrl = useBuildUrl();
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [loading, setLoading] = useState(true);
@@ -587,29 +590,33 @@ export function MeetingSummaryPanel({
               )}
             </PanelSection>
 
-            <PanelSection
-              title="Action items"
-              description="Capture follow-ups from this meeting and convert them into project tasks in one step. Lineage is stored on the task."
-            >
-              <MeetingActionItemsSection
-                projectId={projectId}
-                meetingId={meetingId}
-                projectMembers={projectMembers}
-                onChanged={() => void loadMeeting()}
-              />
-            </PanelSection>
+            {isMeetingSurfaceEnabled('section.action_items') && (
+              <PanelSection
+                title="Action items"
+                description="Capture follow-ups from this meeting and convert them into project tasks in one step. Lineage is stored on the task."
+              >
+                <MeetingActionItemsSection
+                  projectId={projectId}
+                  meetingId={meetingId}
+                  projectMembers={projectMembers}
+                  onChanged={() => void loadMeeting()}
+                />
+              </PanelSection>
+            )}
 
-            <PanelSection
-              title="Contextual knowledge"
-              description="Meeting → tasks and decisions (origin links). Use this to reconstruct reasoning and execution chains."
-            >
-              <MeetingSummaryKnowledgeNav
-                projectId={projectId}
-                meetingId={meetingId}
-                generatedDecisions={meeting.generated_decisions ?? []}
-                generatedTasks={meeting.generated_tasks ?? []}
-              />
-            </PanelSection>
+            {isMeetingSurfaceEnabled('panel.knowledge_nav') && (
+              <PanelSection
+                title="Contextual knowledge"
+                description="Meeting → tasks and decisions (origin links). Use this to reconstruct reasoning and execution chains."
+              >
+                <MeetingSummaryKnowledgeNav
+                  projectId={projectId}
+                  meetingId={meetingId}
+                  generatedDecisions={meeting.generated_decisions ?? []}
+                  generatedTasks={meeting.generated_tasks ?? []}
+                />
+              </PanelSection>
+            )}
 
             <PanelSection title="Related artifacts" description="Other linked workspace items.">
               <MeetingSummaryRelatedArtifacts

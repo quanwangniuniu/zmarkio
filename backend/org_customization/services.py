@@ -1,3 +1,4 @@
+import zlib
 from dataclasses import dataclass
 from operator import attrgetter
 
@@ -54,6 +55,34 @@ NAVIGATION_GROUPS = {
     'tools': (('workflows', 'Workflows'), ('timeline', 'Timeline')),
 }
 
+# Surface keys follow `meetings.<field>.<value>`; `filter_type` maps to `meetings.filter.type.*`.
+# The dashboard `UpcomingMeetingsPanel` is owned by D1 (`overview.panel.upcoming_meetings`), not registered here.
+MEETING_SURFACES = {
+    'filter': (
+        ('date_from', 'Date from'),
+        ('date_to', 'Date to'),
+        ('has_generated_decisions', 'Has generated decisions'),
+        ('has_generated_tasks', 'Has generated tasks'),
+        ('is_archived', 'Archived'),
+    ),
+    'filter_type': (
+        ('planning', 'Planning'),
+        ('client-meeting', 'Client Meeting'),
+        ('stand-up', 'Stand-up'),
+        ('review-retrospective', 'Review & Retrospective'),
+        ('deployment-sync', 'Deployment Sync'),
+    ),
+    'section': (('action_items', 'Action items'),),
+    'panel': (('knowledge_nav', 'Contextual knowledge'),),
+}
+
+MEETING_SURFACE_ATTRIBUTES = {
+    'filter': ('enabled',),
+    'filter_type': LIST_ATTRIBUTES,
+    'section': ('enabled',),
+    'panel': ('enabled',),
+}
+
 TASK_SURFACES = {
     'tab': (
         ('summary', 'Summary'),
@@ -102,6 +131,10 @@ MODULE_OPTION_FIELDS = {
         group: OptionField(None, group, None, LIST_ATTRIBUTES, items, 'overview' if group == 'overview' else None)
         for group, items in NAVIGATION_GROUPS.items()
     },
+    'meetings': {
+        field: OptionField(None, field, None, MEETING_SURFACE_ATTRIBUTES[field], items)
+        for field, items in MEETING_SURFACES.items()
+    },
     'tasks': {
         **{field: OptionField(None, field, None, LIST_ATTRIBUTES, items) for field, items in TASK_SURFACES.items()},
         'filter_status': OptionField(None, 'filter_status', None, ('enabled', 'order'), tuple(Task.Status.choices)),
@@ -135,8 +168,15 @@ def _project_rows(model, project):
     return model.objects.filter(organization_id=project.organization_id, project_id=project.id)
 
 
+def _config_schema_version():
+    # Changes whenever a module or field is added or removed, so a config cached by the
+    # previous deploy (which would be missing the new module) is never read back.
+    schema = sorted((module, sorted(fields)) for module, fields in MODULE_OPTION_FIELDS.items())
+    return format(zlib.crc32(repr(schema).encode()), 'x')
+
+
 def _config_cache_key(project):
-    return f'orgcfg:{project.organization_id}:{project.id}'
+    return f'orgcfg:{project.organization_id}:{project.id}:{_config_schema_version()}'
 
 
 def clear_config_cache(project):

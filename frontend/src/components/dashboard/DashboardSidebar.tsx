@@ -32,6 +32,7 @@ import {
 } from '@/lib/projectNestedRoutes';
 import { useBuildUrl } from '@/lib/buildUrl';
 import { loadCampaignConfig } from '@/lib/campaigns/campaignConfig';
+import { loadMeetingsConfig } from '@/lib/meetings/meetingsConfig';
 import { loadCsmConfig } from '@/lib/csm/csmConfig';
 import { loadDecisionConfig } from '@/lib/decisions/decisionConfig';
 import {
@@ -246,6 +247,7 @@ export default function DashboardSidebar() {
     loadCsmConfig(activeProject.id);
     loadDecisionConfig(activeProject.id);
     loadCampaignConfig(activeProject.id);
+    loadMeetingsConfig(activeProject.id);
     loadNavigationConfig(activeProject.id);
     loadTasksModuleConfig(activeProject.id);
     loadTaskConfig(activeProject.id).then((config) => {

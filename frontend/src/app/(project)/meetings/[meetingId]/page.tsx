@@ -29,6 +29,8 @@ import AgendaSection from '@/components/meetings/detail/AgendaSection';
 import ActionItemsSection from '@/components/meetings/detail/ActionItemsSection';
 import ContextualKnowledgeSection from '@/components/meetings/detail/ContextualKnowledgeSection';
 import RelatedArtifactsSection from '@/components/meetings/detail/RelatedArtifactsSection';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { isMeetingSurfaceEnabled } from '@/lib/meetings/meetingsConfig';
 
 interface Member {
   id: number;
@@ -73,6 +75,7 @@ export default function MeetingDetailPage() {
   const params = useParams<{ meetingId: string }>();
   const { projectId } = useActiveProjectForFlatRoute();
   const meetingId = String(params.meetingId);
+  useOptionConfigVersion();
 
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [availableTransitions, setAvailableTransitions] = useState<string[]>([]);
@@ -276,25 +279,29 @@ export default function MeetingDetailPage() {
                   onItemsChange={setAgenda}
                 />
 
-                <ActionItemsSection
-                  projectId={projectId}
-                  meetingId={meeting.id}
-                  items={actionItems}
-                  members={members}
-                  readOnly={readOnly}
-                  onItemsChange={setActionItems}
-                  onTaskCreated={() => bumpRefresh()}
-                />
+                {isMeetingSurfaceEnabled('section.action_items') && (
+                  <ActionItemsSection
+                    projectId={projectId}
+                    meetingId={meeting.id}
+                    items={actionItems}
+                    members={members}
+                    readOnly={readOnly}
+                    onItemsChange={setActionItems}
+                    onTaskCreated={() => bumpRefresh()}
+                  />
+                )}
 
-                <ContextualKnowledgeSection
-                  projectId={projectId}
-                  meetingId={meeting.id}
-                  meetingTitle={meeting.title}
-                  generatedDecisions={meeting.generated_decisions || []}
-                  generatedTasks={meeting.generated_tasks || []}
-                  readOnly={readOnly}
-                  onMutated={bumpRefresh}
-                />
+                {isMeetingSurfaceEnabled('panel.knowledge_nav') && (
+                  <ContextualKnowledgeSection
+                    projectId={projectId}
+                    meetingId={meeting.id}
+                    meetingTitle={meeting.title}
+                    generatedDecisions={meeting.generated_decisions || []}
+                    generatedTasks={meeting.generated_tasks || []}
+                    readOnly={readOnly}
+                    onMutated={bumpRefresh}
+                  />
+                )}
 
                 <RelatedArtifactsSection
                   projectId={projectId}

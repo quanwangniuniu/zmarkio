@@ -7,6 +7,8 @@ import AdvancedFilterDialog, {
   type AdvancedFilterState,
   countActiveAdvancedFilters,
 } from './AdvancedFilterDialog';
+import { configureMeetingTypeOptions } from '@/lib/meetings/meetingsConfig';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 
 const ALL_TYPES_VALUE = '__all__';
 const ALL_TAGS_VALUE = '__all__';
@@ -36,15 +38,13 @@ export default function MeetingsFilterBar({
   advanced,
   onAdvancedChange,
 }: Props) {
+  useOptionConfigVersion();
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  const typeSelectOptions: InlineSelectOption[] = useMemo(
-    () => [
-      { value: ALL_TYPES_VALUE, label: 'All types' },
-      ...typeOptions.map((t) => ({ value: t.slug, label: t.label })),
-    ],
-    [typeOptions],
-  );
+  const typeSelectOptions: InlineSelectOption[] = [
+    { value: ALL_TYPES_VALUE, label: 'All types' },
+    ...configureMeetingTypeOptions(typeOptions).map((t) => ({ value: t.slug, label: t.label })),
+  ];
 
   const tagSelectOptions: InlineSelectOption[] = useMemo(
     () => [
