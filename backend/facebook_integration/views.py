@@ -25,6 +25,7 @@ from rest_framework.views import APIView
 
 from core.models import Project, ProjectMember
 from core.services.oauth_state import OAuthStateExpired, OAuthStateInvalid
+from core.services.tenant import slug_to_schema_name
 
 from .access import (
     get_accessible_meta_ad_account_or_404,
@@ -293,6 +294,14 @@ class MetaAdAccountLinkProjectView(APIView):
     def post(self, request, pk: int):
         serializer = LinkProjectSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        organization = request.user.current_organization or request.user.organization
+        tenant_schema = getattr(request, "tenant_schema", None)
+        if organization is None or slug_to_schema_name(organization.slug) != tenant_schema:
+            return Response(
+                {"detail": "A valid organization context is required to link an ad account."},
+                status=drf_status.HTTP_403_FORBIDDEN,
+            )
+
         account = get_accessible_meta_ad_account_or_404(request.user, pk)
 
         target_project = None
@@ -318,7 +327,10 @@ class MetaAdAccountLinkProjectView(APIView):
                     status=drf_status.HTTP_403_FORBIDDEN,
                 )
 
-        if not user_can_manage_meta_ad_account(
+        connector_or_same_org = (
+            account.connection.user_id == request.user.pk or account.organization_id == organization.pk
+        )
+        if not connector_or_same_org or not user_can_manage_meta_ad_account(
             request.user,
             account,
             target_project=target_project,
@@ -329,7 +341,8 @@ class MetaAdAccountLinkProjectView(APIView):
             )
 
         account.project = target_project
-        account.save(update_fields=["project", "updated_at"])
+        account.organization = organization if target_project is not None else None
+        account.save(update_fields=["project", "organization", "updated_at"])
         return Response(
             MetaAdAccountSerializer(
                 account,

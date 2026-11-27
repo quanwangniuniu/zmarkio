@@ -96,10 +96,8 @@ describe('POST /variations/', () => {
   it('rejects a creative owned by another project', async () => {
     const response = await create(payload({ creative: Number(fixture.creativeB) }));
 
-    expect(response.status).toBe(400);
-    await expect(readJson(response)).resolves.toEqual({
-      error: 'creative does not belong to project',
-    });
+    expect(response.status).toBe(404);
+    await expect(readJson(response)).resolves.toEqual({ detail: 'Not found.' });
   });
 
   it('accepts a creative reachable from the project', async () => {

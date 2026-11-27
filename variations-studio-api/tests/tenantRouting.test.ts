@@ -12,7 +12,6 @@ import { GET as getVariation } from '@/app/api/ad_copy_variation/variations/[id]
 import { PATCH as patchVariation } from '@/app/api/ad_copy_variation/variations/[id]/route';
 import { POST as createVariation } from '@/app/api/ad_copy_variation/variations/route';
 import { POST as bulkDelete } from '@/app/api/ad_copy_variation/variations/bulk_delete/route';
-import { isAuthFailure } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { requireStudioContext } from '@/lib/tenant';
 import { findVariationById } from '@/lib/variationStore';
@@ -44,25 +43,22 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-async function resolvedSchema(
+async function expectResolvedOrganization(
   token: string,
+  organization: { id: bigint; schema: string },
   headers?: Record<string, string>
-): Promise<string> {
-  const auth = await requireStudioContext(
+): Promise<void> {
+  const context = await requireStudioContext(
     studioRequest('/api/me', { token, headers })
   );
-  if (isAuthFailure(auth)) {
-    throw new Error(`auth failed: ${auth.error}`);
-  }
-  return auth.schema;
+  expect(context).toMatchObject({ organizationId: organization.id, schema: organization.schema });
 }
 
 describe('1) forged X-Organization-Slug cannot override current_organization', () => {
   it('keeps schema A when pinned user sends org-B header', async () => {
-    const schema = await resolvedSchema(tokenPinnedA, {
+    await expectResolvedOrganization(tokenPinnedA, fixture.orgA, {
       'X-Organization-Slug': fixture.orgB.slug,
     });
-    expect(schema).toBe(fixture.orgA.schema);
   });
 });
 
@@ -161,31 +157,39 @@ describe('3) multi-org: current_organization wins deterministically', () => {
   it('resolves to A when current_organization is A (organization_id may be B)', async () => {
     await setMultiOrgCurrent(fixture, 'A');
     tokenMulti = await accessToken(fixture.multiOrgUserId);
-    await expect(resolvedSchema(tokenMulti)).resolves.toBe(fixture.orgA.schema);
+    await expectResolvedOrganization(tokenMulti, fixture.orgA);
   });
 
   it('resolves to B after switching current_organization to B', async () => {
     await setMultiOrgCurrent(fixture, 'B');
     tokenMulti = await accessToken(fixture.multiOrgUserId);
-    await expect(resolvedSchema(tokenMulti)).resolves.toBe(fixture.orgB.schema);
+    await expectResolvedOrganization(tokenMulti, fixture.orgB);
+  });
+
+  it('uses organization_id when current_organization is unset', async () => {
+    await prisma.customUser.update({
+      where: { id: BigInt(fixture.multiOrgUserId) },
+      data: { currentOrganizationId: null },
+    });
+    await expectResolvedOrganization(tokenMulti, fixture.orgB, {
+      'X-Organization-Slug': fixture.orgA.slug,
+    });
   });
 
   it('ignores forged header while current_organization is set', async () => {
     await setMultiOrgCurrent(fixture, 'A');
     tokenMulti = await accessToken(fixture.multiOrgUserId);
-    const schema = await resolvedSchema(tokenMulti, {
+    await expectResolvedOrganization(tokenMulti, fixture.orgA, {
       'X-Organization-Slug': fixture.orgB.slug,
     });
-    expect(schema).toBe(fixture.orgA.schema);
   });
 });
 
 describe('4) header fallback only when both org FKs are null', () => {
   it('uses X-Organization-Slug when user has no organization FKs', async () => {
-    const schema = await resolvedSchema(tokenHeaderOnly, {
+    await expectResolvedOrganization(tokenHeaderOnly, fixture.orgA, {
       'X-Organization-Slug': fixture.orgA.slug,
     });
-    expect(schema).toBe(fixture.orgA.schema);
   });
 
   it('requires an organization when header-only user omits the header', async () => {
@@ -194,10 +198,9 @@ describe('4) header fallback only when both org FKs are null', () => {
   });
 
   it('does not use header when current_organization is already set', async () => {
-    const schema = await resolvedSchema(tokenPinnedA, {
+    await expectResolvedOrganization(tokenPinnedA, fixture.orgA, {
       'X-Organization-Slug': fixture.orgA.slug,
     });
-    expect(schema).toBe(fixture.orgA.schema);
   });
 });
 
@@ -219,9 +222,8 @@ describe('5) unknown / inactive org header behavior', () => {
   });
 
   it('pinned user still stays on A if they send unknown header', async () => {
-    const schema = await resolvedSchema(tokenPinnedA, {
+    await expectResolvedOrganization(tokenPinnedA, fixture.orgA, {
       'X-Organization-Slug': 'no-such-org-studio-routing',
     });
-    expect(schema).toBe(fixture.orgA.schema);
   });
 });

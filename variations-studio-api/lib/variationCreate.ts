@@ -1,5 +1,5 @@
 import { ApiError } from '@/lib/bulk';
-import { prisma } from '@/lib/prisma';
+import { loadCreativeForProject } from '@/lib/creatives';
 import { MODEL_NAME } from '@/lib/prompts';
 import { allocateSlugs, readSlugSource } from '@/lib/slugs';
 import { insertVariation } from '@/lib/variationStore';
@@ -54,7 +54,8 @@ function optionalBatchPosition(raw: unknown): number | null {
 
 async function resolveCreativeId(
   raw: unknown,
-  projectId: bigint
+  projectId: bigint,
+  organizationId: bigint
 ): Promise<bigint | null> {
   if (raw === undefined || raw === null || raw === '') return null;
 
@@ -68,27 +69,13 @@ async function resolveCreativeId(
     throw new ApiError(404, 'Not found.', 'detail');
   }
 
-  const creative = await prisma.metaAdCreative.findFirst({
-    where: { id: value },
-    select: { id: true, adAccountId: true },
-  });
-  if (!creative) {
-    throw new ApiError(404, 'Not found.', 'detail');
-  }
-
-  const account = await prisma.metaAdAccount.findFirst({
-    where: { id: creative.adAccountId },
-    select: { projectId: true },
-  });
-  if (account?.projectId && account.projectId !== projectId) {
-    throw new ApiError(400, 'creative does not belong to project');
-  }
-
+  const creative = await loadCreativeForProject(value, projectId, organizationId);
   return creative.id;
 }
 
 export async function createVariation(args: {
   schema: string;
+  organizationId: bigint;
   projectId: bigint;
   userId: number;
   body: Record<string, unknown>;
@@ -110,7 +97,7 @@ export async function createVariation(args: {
     TEXT_FIELDS.map((field) => [field, optionalText(args.body, field)])
   ) as Record<(typeof TEXT_FIELDS)[number], string>;
 
-  const creativeId = await resolveCreativeId(args.body.creative, args.projectId);
+  const creativeId = await resolveCreativeId(args.body.creative, args.projectId, args.organizationId);
   const spec = getPlatformSpec('meta');
   const [slug] = allocateSlugs([readSlugSource(text, spec)]);
 

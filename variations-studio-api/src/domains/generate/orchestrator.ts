@@ -151,6 +151,7 @@ async function persistBatch(args: {
 
 export async function runCustomGenerate(args: {
   schema: string;
+  organizationId: bigint;
   userId: number;
   body: Record<string, unknown>;
   /** Optional inject for tests / alternate providers. Defaults to Ollama. */
@@ -182,7 +183,15 @@ export async function runCustomGenerate(args: {
   const spec = getPlatformSpec('meta');
   const handler = sourceModeRegistry.get(sourceMode)!;
   const modeResult = await handler.resolve(
-    { schema: args.schema, userId: args.userId, projectId: project.projectId, count, instruction, spec },
+    {
+      schema: args.schema,
+      organizationId: args.organizationId,
+      userId: args.userId,
+      projectId: project.projectId,
+      count,
+      instruction,
+      spec,
+    },
     args.body
   );
 
