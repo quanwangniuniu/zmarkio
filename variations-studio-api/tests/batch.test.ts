@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
+import { setImmediate } from 'node:timers/promises';
 import { POST as generate } from '@/app/api/ad_copy_variation/variations/generate/route';
 import { callOllamaJson, getOllamaErrorMessage, } from '@/src/ai/providers/ollama';
+import type { CopyJson } from '@/src/ai/types';
 import { prisma } from '@/lib/prisma';
 import {
   countVariations,
@@ -55,6 +57,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  ollamaMock.mockReset();
   errorMessageMock.mockImplementation((error) =>
     error instanceof Error ? error.message : null
   );
@@ -67,6 +70,17 @@ function copy(label: string) {
     description: `${label} description`,
     cta: 'LEARN_MORE',
   };
+}
+
+// Workers send first attempts in request order with the same user prompt.
+// Retries append field feedback to that prompt, so their responses can be matched in any order.
+function mockBatchReplies(firstPass: CopyJson[], retry: (feedback: string) => CopyJson | Promise<CopyJson>) {
+  let nextItem = 0;
+  ollamaMock.mockImplementation(async (_system, prompt) => {
+    const original = ollamaMock.mock.calls[0][1];
+    if (prompt === original) return firstPass[nextItem++];
+    return retry(prompt.slice(original.length));
+  });
 }
 
 function generateBatch(count: number) {
@@ -85,8 +99,7 @@ function generateBatch(count: number) {
 
 describe('batch generate failure handling', () => {
   it('reports a partial failure as 200 and persists only what succeeded', async () => {
-    // Concurrency means call order does not map to a fixed index, so this
-    // asserts on the tallies rather than on which positions failed.
+    // This case checks provider failure counts regardless of which item succeeds.
     let call = 0;
     ollamaMock.mockImplementation(async () => {
       call += 1;
@@ -105,6 +118,7 @@ describe('batch generate failure handling', () => {
     });
     expect(body.results).toHaveLength(1);
     expect(body.failed_indices).toHaveLength(3);
+    expect(body).not.toHaveProperty('field_failures');
 
     const results = body.results as { id: number }[];
     const persisted = await findVariationsByIdsAnyProject(
@@ -112,6 +126,96 @@ describe('batch generate failure handling', () => {
       results.map((row) => BigInt(row.id))
     );
     expect(persisted).toHaveLength(1);
+  });
+
+  it('retries only over-limit items and saves the two compliant copies', async () => {
+    const direct = copy('Direct');
+    const corrected = copy('Corrected');
+    mockBatchReplies([
+      direct,
+      { ...copy('Rejected'), hook: Array(11).fill('a').join(' ') },
+      { ...copy('First draft'), headline: 'x'.repeat(41) },
+    ], feedback => feedback.includes('hook:')
+      ? { ...copy('Rejected again'), description: 'x'.repeat(126) }
+      : corrected);
+
+    const response = await generateBatch(3);
+    expect(response.status).toBe(200);
+    const body = await readJson(response);
+    expect(body).toMatchObject({
+      count_succeeded: 2, count_failed: 1, failed_indices: [1],
+      field_failures: [
+        { index: 1, violations: [{ field: 'description', rule: 'max_chars', actual: 126, limit: 125 }] },
+      ],
+    });
+    expect(ollamaMock).toHaveBeenCalledTimes(5);
+    const [system, original] = ollamaMock.mock.calls[0];
+    const retries = ollamaMock.mock.calls.filter(([, prompt]) => prompt !== original);
+    const feedback = retries.map(([systemPrompt, prompt]) => {
+      expect(systemPrompt).toBe(system);
+      expect(prompt.startsWith(original)).toBe(true);
+      return prompt.slice(original.length);
+    });
+    const hookFeedback = feedback.find(text => text.includes('hook:'));
+    const headlineFeedback = feedback.find(text => text.includes('headline:'));
+    expect(hookFeedback).toContain('hook: 11 words (maximum 10)');
+    expect(hookFeedback).not.toMatch(/headline|description|cta/);
+    expect(headlineFeedback).toContain('headline: 41 characters (maximum 40)');
+    expect(headlineFeedback).not.toMatch(/hook|description|cta/);
+
+    const rows = await findBatchVariations(fixture.schema, fixture.projectA, String(body.batch_id));
+    expect(rows).toMatchObject([{ ...direct, batchPosition: 0 }, { ...corrected, batchPosition: 1 }]);
+  });
+
+  it('returns 502 with both hook violations when only length checks fail', async () => {
+    ollamaMock.mockResolvedValue({ ...copy('Long'), hook: Array(11).fill('word').join(' ') });
+    const response = await generateBatch(1);
+    expect(response.status).toBe(502);
+    const body = await readJson(response);
+    expect(body).toMatchObject({
+      count_succeeded: 0, count_failed: 1, results: [], failed_indices: [0],
+      field_failures: [{ index: 0, violations: [
+        { field: 'hook', rule: 'max_words', actual: 11, limit: 10 },
+        { field: 'hook', rule: 'max_chars', actual: 54, limit: 50 },
+      ] }],
+    });
+    expect(body).not.toHaveProperty('error');
+    expect(ollamaMock).toHaveBeenCalledTimes(2);
+    await expect(findBatchVariations(fixture.schema, fixture.projectA, String(body.batch_id)))
+      .resolves.toHaveLength(0);
+  });
+
+  it('returns 502 with sorted failures and saves no drafts after mixed retry failures', async () => {
+    const longHeadline = { ...copy('First'), headline: 'a'.repeat(41) };
+    const longDescription = { ...copy('Third'), description: 'b'.repeat(127) };
+    mockBatchReplies([
+      longHeadline,
+      { ...copy('Second'), hook: Array(11).fill('a').join(' ') },
+      longDescription,
+    ], async feedback => {
+      if (feedback.includes('headline:')) {
+        // Let the other retries finish before item 0 returns its headline.
+        await setImmediate();
+        return longHeadline;
+      }
+      if (feedback.includes('description:')) return longDescription;
+      throw new Error('Ollama disconnected on retry');
+    });
+
+    const response = await generateBatch(3);
+    expect(response.status).toBe(502);
+    const body = await readJson(response);
+    expect(body).toMatchObject({
+      count_succeeded: 0, count_failed: 3, results: [], failed_indices: [0, 1, 2],
+      field_failures: [
+        { index: 0, violations: [{ field: 'headline', rule: 'max_chars', actual: 41, limit: 40 }] },
+        { index: 2, violations: [{ field: 'description', rule: 'max_chars', actual: 127, limit: 125 }] },
+      ],
+      error: 'Ollama disconnected on retry',
+    });
+    expect(ollamaMock).toHaveBeenCalledTimes(6);
+    await expect(findBatchVariations(fixture.schema, fixture.projectA, String(body.batch_id)))
+      .resolves.toHaveLength(0);
   });
 
   it('returns 502 and persists nothing when the whole batch fails', async () => {

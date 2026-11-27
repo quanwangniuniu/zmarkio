@@ -7,10 +7,11 @@ import {
   type CopyGenerator,
   type CopyJson,
 } from '@/src/ai';
-import { buildSystemPrompt } from '@/src/ai/prompts';
+import { buildRetryPrompt, buildSystemPrompt } from '@/src/ai/prompts';
 import { ApiError, projectIdParam } from '@/src/platform/http';
 import { getPlatformSpec, type PlatformSpec } from '@/src/platforms';
 import { applyCtaPolicy } from '@/src/platforms/cta';
+import { validateCopy, type CopyViolation } from '@/src/platforms/validateCopy';
 import { requireProjectForUser } from '@/lib/projects';
 import { allocateSlugs, readSlugSource } from '@/lib/slugs';
 import { insertVariations } from '@/src/repo';
@@ -19,6 +20,8 @@ import { serializeVariation } from '@/lib/variations';
 import { isEarlyReturn } from './types';
 import { sourceModeRegistry } from './modes';
 
+type FieldFailure = { index: number; violations: CopyViolation[] };
+
 export type GenerateBatchResponse = {
   batch_id: string;
   count_requested: number;
@@ -26,6 +29,7 @@ export type GenerateBatchResponse = {
   count_failed: number;
   results: ReturnType<typeof serializeVariation>[];
   failed_indices: number[];
+  field_failures?: FieldFailure[];
   error?: string;
 };
 
@@ -39,33 +43,56 @@ function parseCount(raw: unknown): number {
 }
 
 async function generateCopies(
-  systemPrompt: string,
+  spec: PlatformSpec,
   userPrompt: string,
   count: number,
   generator: CopyGenerator
 ): Promise<{
   copies: CopyJson[];
   failedIndices: number[];
+  fieldFailures: FieldFailure[];
   providerError?: string;
 }> {
+  const systemPrompt = buildSystemPrompt(spec);
   const ordered: Array<CopyJson | null> = Array.from({ length: count }, () => null);
   const failedIndices: number[] = [];
+  const fieldFailures: FieldFailure[] = [];
   let providerError: string | undefined;
   let next = 0;
+
+  async function requestCopy(index: number, prompt: string): Promise<CopyJson | null> {
+    try {
+      return await generator.generateCopy(systemPrompt, prompt);
+    } catch (err) {
+      const message = generator.getErrorMessage(err);
+      if (!providerError && message) providerError = message;
+      failedIndices.push(index);
+      return null;
+    }
+  }
 
   async function worker() {
     for (;;) {
       const index = next;
       next += 1;
       if (index >= count) return;
-      try {
-        ordered[index] = await generator.generateCopy(systemPrompt, userPrompt);
-      } catch (err) {
-        const message = generator.getErrorMessage(err);
-        if (!providerError && message) {
-          providerError = message;
-        }
+      const first = await requestCopy(index, userPrompt);
+      if (!first) continue;
+      // Keep validateCopy outside requestCopy so an invalid platform spec stops the batch before saving.
+      const violations = validateCopy(spec, first);
+      if (violations.length === 0) {
+        ordered[index] = first;
+        continue;
+      }
+
+      const retry = await requestCopy(index, buildRetryPrompt(userPrompt, violations));
+      if (!retry) continue;
+      const finalViolations = validateCopy(spec, retry);
+      if (finalViolations.length > 0) {
         failedIndices.push(index);
+        fieldFailures.push({ index, violations: finalViolations });
+      } else {
+        ordered[index] = retry;
       }
     }
   }
@@ -73,9 +100,11 @@ async function generateCopies(
   const workers = Math.min(BATCH_CONCURRENCY, count);
   await Promise.all(Array.from({ length: workers }, () => worker()));
   failedIndices.sort((a, b) => a - b);
+  fieldFailures.sort((a, b) => a.index - b.index);
   return {
     copies: ordered.filter((row): row is CopyJson => row !== null),
     failedIndices,
+    fieldFailures,
     providerError,
   };
 }
@@ -153,15 +182,15 @@ export async function runCustomGenerate(args: {
   const spec = getPlatformSpec('meta');
   const handler = sourceModeRegistry.get(sourceMode)!;
   const modeResult = await handler.resolve(
-    { schema: args.schema, userId: args.userId, projectId: project.projectId, instruction, spec },
+    { schema: args.schema, userId: args.userId, projectId: project.projectId, count, instruction, spec },
     args.body
   );
 
   if (isEarlyReturn(modeResult)) return modeResult.response;
 
   const batchId = randomUUID();
-  const { copies, failedIndices, providerError } = await generateCopies(
-    buildSystemPrompt(spec),
+  const { copies, failedIndices, fieldFailures, providerError } = await generateCopies(
+    spec,
     modeResult.userPrompt,
     count,
     generator
@@ -191,6 +220,7 @@ export async function runCustomGenerate(args: {
     results: saved.map(serializeVariation),
     failed_indices: failedIndices,
   };
+  if (fieldFailures.length > 0) payload.field_failures = fieldFailures;
   if (failedIndices.length > 0 && providerError) {
     payload.error = providerError;
   }

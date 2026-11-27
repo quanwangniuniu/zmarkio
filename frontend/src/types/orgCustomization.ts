@@ -73,6 +73,7 @@ export interface SystemConfig {
   campaigns: Omit<OptionModuleConfig, 'can_edit'>;
   navigation: Omit<OptionModuleConfig, 'can_edit'>;
   calendar: Omit<OptionModuleConfig, 'can_edit'>;
+  tasks: Omit<OptionModuleConfig, 'can_edit'>;
   can_edit: boolean;
 }
 
@@ -83,4 +84,5 @@ export interface SystemConfigUpdate {
   campaigns?: { options: OptionConfig[] };
   navigation?: { options: OptionConfig[] };
   calendar?: { options: OptionConfig[] };
+  tasks?: { options: OptionConfig[] };
 }

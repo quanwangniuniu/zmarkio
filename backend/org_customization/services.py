@@ -77,6 +77,31 @@ CALENDAR_SURFACE_ATTRIBUTES = {
     'nav_item': ('enabled',),
 }
 
+TASK_SURFACES = {
+    'tab': (
+        ('summary', 'Summary'),
+        ('tasks', 'Tasks'),
+        ('board', 'Board'),
+        ('gantt', 'Gantt'),
+        ('insights', 'Insights'),
+        ('my_actions', 'My Actions'),
+        ('planning', 'Planning'),
+        ('status_reports', 'Status Reports'),
+    ),
+    'filter': (
+        ('assignee', 'Assignee'),
+        ('owner', 'Owner'),
+        ('type', 'Work type'),
+        ('status', 'Status'),
+        ('priority', 'Priority'),
+        ('tags', 'Tags'),
+        ('project', 'Project'),
+        ('subtasks', 'Subtasks'),
+        ('due_date', 'Due date'),
+        ('created_date', 'Created date'),
+    ),
+}
+
 MODULE_OPTION_FIELDS = {
     'csm': {
         'ticket_priority': OptionField(Ticket, 'priority', 'queue.project'),
@@ -104,6 +129,10 @@ MODULE_OPTION_FIELDS = {
         # Week is the page's default view, so it cannot be disabled.
         field: OptionField(None, field, None, CALENDAR_SURFACE_ATTRIBUTES[field], items, 'week' if field == 'tab' else None)
         for field, items in CALENDAR_SURFACES.items()
+    },
+    'tasks': {
+        **{field: OptionField(None, field, None, LIST_ATTRIBUTES, items) for field, items in TASK_SURFACES.items()},
+        'filter_status': OptionField(None, 'filter_status', None, ('enabled', 'order'), tuple(Task.Status.choices)),
     },
 }
 

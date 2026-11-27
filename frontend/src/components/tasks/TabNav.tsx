@@ -1,24 +1,9 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { tasksTabLabel, visibleTasksTabs } from '@/lib/tasks/tasksModuleConfig';
 
 export type TasksTab = 'summary' | 'tasks' | 'board' | 'gantt' | 'insights' | 'my-actions' | 'planning' | 'status-reports';
-
-interface TabConfig {
-  id: TasksTab;
-  label: string;
-}
-
-const TABS: TabConfig[] = [
-  { id: 'summary',        label: 'Summary' },
-  { id: 'tasks',          label: 'Tasks' },
-  { id: 'board',          label: 'Board' },
-  { id: 'gantt',          label: 'Gantt' },
-  { id: 'insights',       label: 'Insights' },
-  { id: 'my-actions',     label: 'My Actions' },
-  { id: 'planning',       label: 'Planning' },
-  { id: 'status-reports', label: 'Status Reports' },
-];
 
 interface TabNavProps {
   active: TasksTab;
@@ -30,14 +15,14 @@ export default function TabNav({ active, onChange, trailing }: TabNavProps) {
   return (
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 pb-3">
       <nav className="flex min-w-0 flex-wrap items-center gap-1">
-        {TABS.map((tab) => {
-          const isActive = tab.id === active;
+        {visibleTasksTabs().map((tab) => {
+          const isActive = tab === active;
           return (
             <button
-              key={tab.id}
+              key={tab}
               type="button"
-              data-testid={`tab-${tab.id}`}
-              onClick={() => onChange(tab.id)}
+              data-testid={`tab-${tab}`}
+              onClick={() => onChange(tab)}
               className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-[13px] font-medium transition ${
                 isActive
                   ? 'bg-gray-100 text-gray-900'
@@ -50,7 +35,7 @@ export default function TabNav({ active, onChange, trailing }: TabNavProps) {
                 }`}
                 aria-hidden
               />
-              {tab.label}
+              {tasksTabLabel(tab)}
             </button>
           );
         })}

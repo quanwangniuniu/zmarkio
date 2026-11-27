@@ -5,6 +5,7 @@ import type {
   AdCopyVariationCopy,
   AdCopyVariationSourceMode,
   AdCopyVariationStatus,
+  BatchFieldFailure,
   BatchGenerateResponse,
   GenerateVariationRequest,
   SaveVariationRequest,
@@ -15,6 +16,18 @@ const BASE = '/api/ad_copy_variation/variations';
 /** Generate waits on the Ollama model; the shared axios client is 10s and is too short. */
 const GENERATE_TIMEOUT_MS = LLM_BATCH_TIMEOUT_MS;
 
+function parseBatchFieldFailure(value: unknown): BatchFieldFailure | null {
+  if (!value || typeof value !== 'object') return null;
+  const { index, violations } = value as Partial<BatchFieldFailure>;
+  if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || !Array.isArray(violations)) return null;
+
+  const validViolations = violations.filter(v =>
+    v && typeof v.field === 'string' && typeof v.rule === 'string' &&
+    typeof v.actual === 'number' && typeof v.limit === 'number'
+  );
+  return validViolations.length > 0 ? { index, violations: validViolations } : null;
+}
+
 function parseBatchGenerateResponse(data: unknown): BatchGenerateResponse | null {
   if (!data || typeof data !== 'object') return null;
   const candidate = data as {
@@ -24,6 +37,7 @@ function parseBatchGenerateResponse(data: unknown): BatchGenerateResponse | null
     count_failed?: unknown;
     results?: unknown;
     failed_indices?: unknown;
+    field_failures?: unknown;
     error?: unknown;
   };
   if (typeof candidate.batch_id !== 'string') return null;
@@ -41,7 +55,14 @@ function parseBatchGenerateResponse(data: unknown): BatchGenerateResponse | null
   ) {
     return null;
   }
-  return data as BatchGenerateResponse;
+  const batch = data as BatchGenerateResponse;
+  if (candidate.field_failures === undefined) return batch;
+  return {
+    ...batch,
+    field_failures: Array.isArray(candidate.field_failures)
+      ? candidate.field_failures.map(parseBatchFieldFailure).filter(failure => failure !== null)
+      : [],
+  };
 }
 
 export async function initializeStudio(projectId: number | string): Promise<void> {
