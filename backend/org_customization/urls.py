@@ -9,5 +9,6 @@ urlpatterns = [
     path('campaigns-config/', OptionConfigView.as_view(module='campaigns'), name='org-customization-campaigns-config'),
     path('navigation-config/', OptionConfigView.as_view(module='navigation'), name='org-customization-navigation-config'),
     path('meetings-config/', OptionConfigView.as_view(module='meetings'), name='org-customization-meetings-config'),
+    path('tasks-config/', OptionConfigView.as_view(module='tasks'), name='org-customization-tasks-config'),
     path('system-config/', SystemConfigView.as_view(), name='org-customization-system-config'),
 ]

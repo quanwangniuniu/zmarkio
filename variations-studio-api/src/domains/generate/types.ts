@@ -4,6 +4,7 @@ export type GenerateContext = {
   schema: string;
   userId: number;
   projectId: bigint;
+  count: number;
   instruction: string;
   spec: PlatformSpec;
 };

@@ -83,6 +83,31 @@ MEETING_SURFACE_ATTRIBUTES = {
     'panel': ('enabled',),
 }
 
+TASK_SURFACES = {
+    'tab': (
+        ('summary', 'Summary'),
+        ('tasks', 'Tasks'),
+        ('board', 'Board'),
+        ('gantt', 'Gantt'),
+        ('insights', 'Insights'),
+        ('my_actions', 'My Actions'),
+        ('planning', 'Planning'),
+        ('status_reports', 'Status Reports'),
+    ),
+    'filter': (
+        ('assignee', 'Assignee'),
+        ('owner', 'Owner'),
+        ('type', 'Work type'),
+        ('status', 'Status'),
+        ('priority', 'Priority'),
+        ('tags', 'Tags'),
+        ('project', 'Project'),
+        ('subtasks', 'Subtasks'),
+        ('due_date', 'Due date'),
+        ('created_date', 'Created date'),
+    ),
+}
+
 MODULE_OPTION_FIELDS = {
     'csm': {
         'ticket_priority': OptionField(Ticket, 'priority', 'queue.project'),
@@ -109,6 +134,10 @@ MODULE_OPTION_FIELDS = {
     'meetings': {
         field: OptionField(None, field, None, MEETING_SURFACE_ATTRIBUTES[field], items)
         for field, items in MEETING_SURFACES.items()
+    },
+    'tasks': {
+        **{field: OptionField(None, field, None, LIST_ATTRIBUTES, items) for field, items in TASK_SURFACES.items()},
+        'filter_status': OptionField(None, 'filter_status', None, ('enabled', 'order'), tuple(Task.Status.choices)),
     },
 }
 
