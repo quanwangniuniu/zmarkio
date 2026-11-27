@@ -69,6 +69,7 @@ export default function DecisionsGraphSection({
 
   const [collapsed, setCollapsed] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [followUpError, setFollowUpError] = useState<{ parentId: number; message: string } | null>(null);
   const [startInEditMode, setStartInEditMode] = useState(false);
   const [provisionalDecisionId, setProvisionalDecisionId] = useState<number | null>(null);
   const [focusDateKey, setFocusDateKey] = useState<string | null>(null);
@@ -208,21 +209,15 @@ export default function DecisionsGraphSection({
     async (parentNode: DecisionGraphNode) => {
       if (!projectId || creating || !canCreate) return;
       setCreating(true);
+      setFollowUpError(null);
       try {
-        const draft = await DecisionAPI.createDraft(projectId);
+        const draft = await DecisionAPI.createDraft(projectId, {
+          ...(parentNode.topic ? { topic: parentNode.topic } : {}),
+          parentDecisionIds: [parentNode.id],
+        });
         if (draft.id == null) {
           throw new Error('Draft created without id');
         }
-
-        const parentTopic = parentNode.topic || null;
-        await DecisionAPI.patchDraft(
-          draft.slug ?? draft.id,
-          {
-            ...(parentTopic ? { topic: parentTopic } : {}),
-            parentDecisionIds: [parentNode.id],
-          },
-          projectId,
-        );
 
         toast.success('Follow-up decision added');
         await onDecisionUpdated?.({ fullReload: true });
@@ -230,11 +225,14 @@ export default function DecisionsGraphSection({
         setProvisionalDecisionId(draft.id);
         setStartInEditMode(true);
       } catch (err) {
+        const parentErrors = (err as { response?: { data?: { parentDecisionIds?: string[] } } })
+          ?.response?.data?.parentDecisionIds;
         const detail =
+          (parentErrors?.join(' ') && 'The selected parent decision is no longer available.') ||
           (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
           (err as Error)?.message ||
           'Failed to create child decision';
-        toast.error(detail);
+        setFollowUpError({ parentId: parentNode.id, message: detail });
       } finally {
         setCreating(false);
       }
@@ -438,6 +436,7 @@ export default function DecisionsGraphSection({
       linkingDisabled={links.linkingDisabled}
       onCreateDecision={canCreate ? handleTreeCreateDecision : undefined}
       onCreateChildDecision={canCreate ? handleTreeCreateChildDecision : undefined}
+      followUpError={followUpError}
       onEditDecision={handleEditNodeInTree}
       onDeleteDecision={handleDeleteNodeInTree}
       onCreateTopic={canEdit ? handleCreateTopic : undefined}
@@ -475,6 +474,7 @@ export default function DecisionsGraphSection({
       linkingDisabled={links.linkingDisabled}
       onCreateDecision={canCreate ? handleTreeCreateDecision : undefined}
       onCreateChildDecision={canCreate ? handleTreeCreateChildDecision : undefined}
+      followUpError={followUpError}
       onEditDecision={handleEditNodeInTree}
       onDeleteDecision={handleDeleteNodeInTree}
       onCreateTopic={canEdit ? handleCreateTopic : undefined}

@@ -1656,6 +1656,38 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             return;
         }
 
+        var parentIds = parentDecisionIds.Distinct().ToArray();
+        if (parentIds.Length > 0)
+        {
+            using var validationCommand = connection.CreateCommand();
+            validationCommand.Transaction = transaction;
+            validationCommand.CommandText = """
+                SELECT id FROM decisions
+                WHERE id = ANY(@parent_ids) AND project_id = @project_id AND is_deleted = false
+                ORDER BY id
+                FOR SHARE
+                """;
+            validationCommand.Parameters.AddWithValue("parent_ids", parentIds);
+            validationCommand.Parameters.AddWithValue("project_id", projectId);
+            var validIds = new HashSet<int>();
+            // Keep parents valid until the transaction has finished writing their edges.
+            await using (var reader = await validationCommand.ExecuteReaderAsync(ct))
+            {
+                while (await reader.ReadAsync(ct))
+                {
+                    validIds.Add(reader.GetInt32(0));
+                }
+            }
+            foreach (var parentId in parentIds)
+            {
+                if (!validIds.Contains(parentId))
+                {
+                    throw new DecisionValidationException("parentDecisionIds",
+                        $"Decision {parentId} does not exist in this project.");
+                }
+            }
+        }
+
         using (var deleteCommand = connection.CreateCommand())
         {
             deleteCommand.Transaction = transaction;
@@ -1664,7 +1696,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             await deleteCommand.ExecuteNonQueryAsync(ct);
         }
 
-        foreach (var parentId in parentDecisionIds.Distinct().Where(parentId => parentId != decisionId))
+        foreach (var parentId in parentIds.Where(parentId => parentId != decisionId))
         {
             using var command = connection.CreateCommand();
             command.Transaction = transaction;

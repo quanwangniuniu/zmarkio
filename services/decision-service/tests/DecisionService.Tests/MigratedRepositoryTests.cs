@@ -420,6 +420,90 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
         Assert.Equal(0, await database.Count("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'"));
     }
 
+    [Theory]
+    [InlineData("missing", false)]
+    [InlineData("deleted", false)]
+    [InlineData("other-project", false)]
+    [InlineData("missing", true)]
+    [InlineData("deleted", true)]
+    [InlineData("other-project", true)]
+    public async Task Invalid_parents_roll_back_the_entire_write(string kind, bool patch)
+    {
+        var parent = await repository.CreateAsync(ProjectId, UserId, Draft("Original parent"), CancellationToken.None);
+        var replacement = await repository.CreateAsync(ProjectId, UserId, Draft("Replacement parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Unchanged child", [parent.Id]), CancellationToken.None);
+        var badId = int.MaxValue;
+        if (kind != "missing")
+        {
+            var invalid = await repository.CreateAsync(kind == "other-project" ? OtherProjectId : ProjectId,
+                UserId, Draft("Invalid parent"), CancellationToken.None);
+            badId = invalid.Id;
+            if (kind == "deleted")
+            {
+                await repository.DeleteAsync(invalid.Slug, UserId, CancellationToken.None);
+            }
+        }
+        var before = await SnapshotDecisionTables();
+        var error = await Assert.ThrowsAsync<DecisionValidationException>(async () =>
+        {
+            if (patch)
+            {
+                await repository.UpdateDraftAsync(child.Slug, UserId, new UpdateDecisionDraftRequest(
+                    "Must roll back", "Changed context", null, null, null, "changed-topic", null, null,
+                    [Signal("Changed")], [new DecisionOptionInput("Changed", true, 0)], [replacement.Id, badId]),
+                    CancellationToken.None);
+            }
+            else
+            {
+                await repository.CreateAsync(ProjectId, UserId, Draft("Must not exist", [replacement.Id, badId]), CancellationToken.None);
+            }
+        });
+        Assert.Equal("parentDecisionIds", error.Field);
+        Assert.Equal($"Decision {badId} does not exist in this project.", error.Message);
+        Assert.Equal(before, await SnapshotDecisionTables());
+    }
+
+    [Fact]
+    public async Task Valid_parents_and_topic_save_and_null_preserves_while_empty_clears_edges()
+    {
+        var first = await repository.CreateAsync(ProjectId, UserId, Draft("First"), CancellationToken.None);
+        var second = await repository.CreateAsync(ProjectId, UserId, Draft("Second"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [first.Id]), CancellationToken.None);
+        Assert.Equal("pricing", child.Topic);
+        Assert.Equal(first.Id, Assert.Single((await repository.GetConnectionsAsync(child.Slug, CancellationToken.None))!.Connected).Id);
+
+        foreach (var parents in new IReadOnlyList<int>?[] { [second.Id], null, Array.Empty<int>() })
+        {
+            await repository.UpdateDraftAsync(child.Slug, UserId, new UpdateDecisionDraftRequest(
+                null, null, null, null, null, null, null, null, null, null, parents), CancellationToken.None);
+            var connected = (await repository.GetConnectionsAsync(child.Slug, CancellationToken.None))!.Connected;
+            if (parents is { Count: 0 }) Assert.Empty(connected);
+            else Assert.Equal(second.Id, Assert.Single(connected).Id);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Create_accepts_null_or_empty_parents(bool empty)
+    {
+        var child = await repository.CreateAsync(ProjectId, UserId,
+            Draft("No parents", empty ? Array.Empty<int>() : null), CancellationToken.None);
+        Assert.Empty((await repository.GetConnectionsAsync(child.Slug, CancellationToken.None))!.Connected);
+    }
+
+    private async Task<string[]> SnapshotDecisionTables()
+    {
+        var snapshots = new List<string>();
+        foreach (var table in new[] { "decisions", "decision_options", "decision_signals", "decision_edges" })
+        {
+            await using var command = database.DataSource.CreateCommand(
+                $"SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY id), '[]'::jsonb)::text FROM {table} t");
+            snapshots.Add((string)(await command.ExecuteScalarAsync())!);
+        }
+        return snapshots.ToArray();
+    }
+
     private static CreateDecisionDraftRequest Draft(string title, IReadOnlyList<int>? parents = null, int? meetingId = null) =>
         new(title, "Context", DecisionRiskLevel.LOW, 70, "Reasoning", "pricing", false, null,
             [Signal("CTR")], [new DecisionOptionInput("Ship it", true, 0)], parents, meetingId);
