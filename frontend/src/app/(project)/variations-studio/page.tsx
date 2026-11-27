@@ -29,6 +29,7 @@ import type {
   AdCopyVariationCopy,
   AdCopyVariationSourceMode,
   AdCopyVariationStatus,
+  BatchFieldFailure,
 } from "@/types/adCopyVariation";
 
 const externalUrlSchema = yup
@@ -82,6 +83,10 @@ const STUDIO_TAB_INACTIVE =
 
 const COUNT_PILL_PRESETS = [5, 10, 20] as const;
 const MAX_COUNT = 50;
+const COPY_LIMIT_UNITS = new Map([
+  ["max_words", "words"],
+  ["max_chars", "characters"],
+]);
 
 const EMPTY_COPY: AdCopyVariationCopy = {
   hook: "",
@@ -186,6 +191,7 @@ function VariationsStudioContent() {
     succeeded: number;
     failed: number;
     error?: string;
+    fieldFailures: BatchFieldFailure[];
   } | null>(null);
   const [cards, setCards] = useState<CardState[]>([]);
   const [activeBatchId, setActiveBatchId] = useState<string>("");
@@ -303,6 +309,7 @@ function VariationsStudioContent() {
         succeeded: res.count_succeeded,
         failed: res.count_failed,
         error: res.error,
+        fieldFailures: res.field_failures ?? [],
       });
       if (res.error) {
         toast.error(res.error);
@@ -716,12 +723,34 @@ function VariationsStudioContent() {
           </div>
         )}
 
-        {lastBatchSummary && lastBatchSummary.failed > 0 && !lastBatchSummary.error && (
+        {lastBatchSummary && lastBatchSummary.failed > 0 &&
+          (!lastBatchSummary.error || lastBatchSummary.fieldFailures.length > 0) && (
           <div className="rounded-md border border-yellow-200 bg-yellow-50 px-3 py-2 text-[13px] text-yellow-800">
             {lastBatchSummary.succeeded} of {lastBatchSummary.requested}
             {" succeeded. "}
-            {lastBatchSummary.failed} failed. Click &ldquo;Generate{" "}
-            {count} more&rdquo; to retry.
+            {lastBatchSummary.failed} failed.
+            {!lastBatchSummary.error && (lastBatchSummary.fieldFailures.length === 0 || cards.length > 0) && (
+              <> Click &ldquo;Generate {count} more&rdquo; to retry.</>
+            )}
+            {lastBatchSummary.fieldFailures.length > 0 && (
+              <ul aria-label="Copy limit violations" className="mt-2 space-y-1">
+                {lastBatchSummary.fieldFailures.map(({ index, violations }) => (
+                  <li key={index}>
+                    <span className="font-medium">Item {index + 1} in this batch was not saved</span>
+                    <ul className="ml-5 list-disc">
+                      {violations.map(({ field, rule, actual, limit }) => {
+                        const unit = COPY_LIMIT_UNITS.get(rule);
+                        return (
+                          <li key={`${field}-${rule}`}>
+                            {field}: {actual}{unit && ` ${unit}`} (maximum {limit})
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

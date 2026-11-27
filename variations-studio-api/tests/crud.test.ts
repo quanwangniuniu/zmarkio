@@ -190,6 +190,74 @@ describe('PATCH /variations/{slug}/ copy storage', () => {
     await expect(readJson(response)).resolves.toMatchObject({ platform: 'google_rsa' });
     expect(await storedFields(row.id)).toEqual(fields);
   });
+
+  it.each([
+    { name: 'a status-only edit', edit: { status: 'reviewed' } },
+    { name: 'an edit to another copy field', edit: { description: 'Updated description' } },
+    { name: 'a corrected headline and exact CTA', edit: { headline: 'New headline', cta: 'SIGN_UP' } },
+  ])('accepts $name on a draft with a legacy over-limit headline', async ({ edit }) => {
+    const row = await newVariation();
+    const headline = 'H'.repeat(41);
+    await prisma.$executeRaw`
+      UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+      SET headline = ${headline}, fields = ${JSON.stringify({ headline })}::jsonb WHERE id = ${row.id}`;
+
+    const response = await patch(row.slug, edit);
+
+    expect(response.status).toBe(200);
+    const { status = 'draft', ...copyEdit } = edit;
+    const expectedCopy = { headline, ...copyEdit };
+    expect(await findVariationById(fixture.schema, row.id)).toMatchObject({ status, ...expectedCopy });
+    expect(await storedFields(row.id)).toMatchObject(expectedCopy);
+  });
+
+  it('accepts edits beyond the Meta hook limit on an unregistered platform', async () => {
+    const row = await newVariation();
+    await prisma.$executeRaw`
+      UPDATE ${tenantTable(fixture.schema, VARIATION_TABLE)}
+      SET platform = 'legacy_unregistered' WHERE id = ${row.id}`;
+
+    const hook = 'h'.repeat(51); // One character over the Meta hook limit.
+    const response = await patch(row.slug, { hook });
+
+    expect(response.status).toBe(200);
+    expect(await findVariationById(fixture.schema, row.id)).toMatchObject({ platform: 'legacy_unregistered', hook });
+  });
+
+  it.each([
+    {
+      name: 'an over-limit headline',
+      body: { headline: 'H'.repeat(41) },
+      details: [/headline/i, /40/, /character/i],
+    },
+    {
+      name: 'a noncanonical CTA',
+      body: { cta: 'learn more' },
+      details: [/cta/i, /\bLEARN_MORE\b/],
+    },
+    {
+      name: 'an over-limit hook and invalid CTA alongside valid headline and status edits',
+      body: {
+        hook: Array(11).fill('a').join(' '),
+        cta: 'unknown action',
+        headline: 'New headline',
+        status: 'reviewed',
+      },
+      details: [/hook/i, /10/, /word/i, /cta/i, /\bSHOP_NOW\b/],
+    },
+  ])('rejects $name with a field error and preserves the entire row', async ({ body, details }) => {
+    const row = await newVariation();
+    const before = await findVariationById(fixture.schema, row.id);
+    const fields = await storedFields(row.id);
+
+    const response = await patch(row.slug, body);
+
+    expect(response.status).toBe(400);
+    const { error } = await readJson(response);
+    for (const detail of details) expect(error).toMatch(detail);
+    expect(await findVariationById(fixture.schema, row.id)).toEqual(before);
+    expect(await storedFields(row.id)).toEqual(fields);
+  });
 });
 
 describe('DELETE /variations/{slug}/', () => {

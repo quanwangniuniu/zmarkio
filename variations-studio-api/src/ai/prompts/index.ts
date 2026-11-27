@@ -1,4 +1,5 @@
 import type { PlatformSpec } from '@/src/platforms/types';
+import { formatCopyViolation, type CopyViolation } from '@/src/platforms/validateCopy';
 
 export const MAX_BATCH = 50;
 export const BATCH_CONCURRENCY = 5;
@@ -21,6 +22,12 @@ export function buildJsonShapePrompt(fieldKeys: readonly string[]): string {
     + `Return strict JSON with exactly these ${countWord(fieldKeys.length)} keys: ${fieldKeys.join(', ')}. `
     + 'No prose, no explanation, no fences.\n\n'
   );
+}
+
+export function buildRetryPrompt(userPrompt: string, violations: readonly CopyViolation[]): string {
+  const limits = violations.map((violation) => `- ${formatCopyViolation(violation)}`);
+  return `${userPrompt}\n\nThe previous variation exceeded these limits:\n${limits.join('\n')}`
+    + '\nReturn a complete JSON variation that meets the limits.';
 }
 
 const DIVERSITY_AND_VOICE = (
