@@ -45,6 +45,7 @@ from .serializers import (
     AddReactionSerializer,
     ScheduledMessageSerializer,
     ScheduledMessageCreateSerializer,
+    current_reaction_version,
 )
 from .services import (
     ChatService,
@@ -1343,11 +1344,13 @@ class MessageViewSet(viewsets.ModelViewSet):
             ))
 
         # Return updated reactions
+        reactions_version = current_reaction_version()
         message.refresh_from_db()
         response_serializer = MessageWithAttachmentsSerializer(message, context={'request': request})
         return Response({
             'status': action_taken,
-            'message': response_serializer.data
+            'message': response_serializer.data,
+            'reactions_version': reactions_version,
         })
 
     @action(detail=True, methods=['delete'], url_path='react/(?P<emoji>[^/.]+)')
@@ -1401,11 +1404,13 @@ class MessageViewSet(viewsets.ModelViewSet):
         )
 
         # Return updated reactions
+        reactions_version = current_reaction_version()
         message.refresh_from_db()
         response_serializer = MessageWithAttachmentsSerializer(message, context={'request': request})
         return Response({
             'status': 'removed',
-            'message': response_serializer.data
+            'message': response_serializer.data,
+            'reactions_version': reactions_version,
         })
 
     @action(detail=True, methods=['post'])

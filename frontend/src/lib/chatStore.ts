@@ -795,6 +795,50 @@ export const useChatStore = create<ChatState>()(
         });
       },
 
+      applyReactionSnapshot: (messageId, reactions, version, currentUserId) => {
+        set(state => {
+          const currentId = currentUserId !== null ? Number(currentUserId) : null;
+
+          const applyToMessage = (msg: Message): Message => {
+            if (msg.id !== messageId) return msg;
+            // Snapshots can arrive out of order; never let an older one overwrite a newer one.
+            if (
+              version !== undefined &&
+              msg.reactions_version !== undefined &&
+              version < msg.reactions_version
+            ) {
+              return msg;
+            }
+            return {
+              ...msg,
+              // The broadcast is shared by everyone, so work out reacted_by_me locally.
+              reactions: reactions.map(r => ({
+                ...r,
+                reacted_by_me: currentId !== null && r.users.some(u => Number(u.id) === currentId),
+              })),
+              reactions_version: version ?? msg.reactions_version,
+            };
+          };
+
+          const newMessages = { ...state.messages };
+          Object.keys(newMessages).forEach(chatIdStr => {
+            const chatId = parseInt(chatIdStr);
+            newMessages[chatId] = newMessages[chatId].map(applyToMessage);
+          });
+
+          const newThreadReplies = { ...state.threadReplies };
+          Object.keys(newThreadReplies).forEach(rootIdStr => {
+            const rootId = parseInt(rootIdStr);
+            const replies = newThreadReplies[rootId];
+            if (replies.some(r => r.id === messageId)) {
+              newThreadReplies[rootId] = replies.map(applyToMessage);
+            }
+          });
+
+          return { messages: newMessages, threadReplies: newThreadReplies };
+        });
+      },
+
       applyLinkPreview: (messageId, preview) => {
         set(state => {
           // Attach a preview that finished fetching after the message arrived, so

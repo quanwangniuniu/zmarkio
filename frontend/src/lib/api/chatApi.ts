@@ -578,7 +578,7 @@ export const getUnreadCount = async (chatId?: number): Promise<number> => {
 export const addReaction = async (
   messageId: number,
   emoji: string
-): Promise<{ status: 'added' | 'removed'; message: Message }> => {
+): Promise<{ status: 'added' | 'removed'; message: Message; reactions_version?: number }> => {
   const response = await api.post(`/api/chat/messages/${messageId}/react/`, {
     emoji,
   });
@@ -591,7 +591,7 @@ export const addReaction = async (
 export const removeReaction = async (
   messageId: number,
   emoji: string
-): Promise<{ status: 'removed'; message: Message }> => {
+): Promise<{ status: 'removed'; message: Message; reactions_version?: number }> => {
   const response = await api.delete(
     `/api/chat/messages/${messageId}/react/${encodeURIComponent(emoji)}/`
   );

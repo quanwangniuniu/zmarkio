@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from django.core.files import File
-from django.db import transaction
+from django.db import transaction, connection
 from django.utils import timezone
 from django.conf import settings
 import logging
@@ -161,6 +161,38 @@ class MessageStatusSerializer(serializers.ModelSerializer):
             'delivered_at', 'read_at', 'created_at'
         ]
         read_only_fields = fields
+
+
+def aggregate_reactions(reactions, current_user_id=None):
+    """Group reaction rows by emoji: [{emoji, count, users, reacted_by_me}]."""
+    emoji_groups = {}
+    for reaction in reactions:
+        emoji = reaction.emoji
+        if emoji not in emoji_groups:
+            emoji_groups[emoji] = {
+                'emoji': emoji,
+                'count': 0,
+                'users': [],
+                'reacted_by_me': False,
+            }
+        emoji_groups[emoji]['count'] += 1
+        emoji_groups[emoji]['users'].append({
+            'id': reaction.user.id,
+            'username': reaction.user.username,
+        })
+        if current_user_id and reaction.user.id == current_user_id:
+            emoji_groups[emoji]['reacted_by_me'] = True
+
+    return list(emoji_groups.values())
+
+
+def current_reaction_version():
+    """Version for a reactions snapshot: the DB clock in microseconds.
+    A later snapshot always gets a bigger number, so clients can drop older ones."""
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT clock_timestamp()")
+        read_at = cursor.fetchone()[0]
+    return int(read_at.timestamp() * 1_000_000)
 
 
 class ReactionSerializer(serializers.Serializer):
@@ -532,26 +564,7 @@ class MessageSerializer(MessageContentValidationMixin, serializers.ModelSerializ
         if reactions is None:
             reactions = MessageReaction.objects.filter(message=obj).select_related('user')
 
-        # Group by emoji
-        emoji_groups = {}
-        for reaction in reactions:
-            emoji = reaction.emoji
-            if emoji not in emoji_groups:
-                emoji_groups[emoji] = {
-                    'emoji': emoji,
-                    'count': 0,
-                    'users': [],
-                    'reacted_by_me': False,
-                }
-            emoji_groups[emoji]['count'] += 1
-            emoji_groups[emoji]['users'].append({
-                'id': reaction.user.id,
-                'username': reaction.user.username,
-            })
-            if current_user_id and reaction.user.id == current_user_id:
-                emoji_groups[emoji]['reacted_by_me'] = True
-
-        return list(emoji_groups.values())
+        return aggregate_reactions(reactions, current_user_id)
 
     def get_can_revoke(self, obj):
         """
