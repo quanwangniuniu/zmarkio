@@ -234,6 +234,7 @@ export default function ThreadPanel({
   const repliesEndRef = useRef<HTMLDivElement>(null);
   const updateThreadReply = useChatStore((s) => s.updateThreadReply);
   const updateMessage = useChatStore((s) => s.updateMessage);
+  const applyReactionSnapshot = useChatStore((s) => s.applyReactionSnapshot);
 
   // Subscribe directly to threadReplies so this component re-renders on every edit/reaction.
   const threadReplies = useChatStore((s) => s.threadReplies);
@@ -303,20 +304,20 @@ export default function ThreadPanel({
   const handleReactionAdd = useCallback(async (messageId: number, emoji: string) => {
     try {
       const result = await addReaction(messageId, emoji);
-      updateThreadReply(messageId, { reactions: result.message.reactions });
+      applyReactionSnapshot(messageId, result.message.reactions ?? [], result.reactions_version, currentUserId ?? null);
     } catch {
       // silently fail
     }
-  }, [updateThreadReply]);
+  }, [applyReactionSnapshot, currentUserId]);
 
   const handleReactionRemove = useCallback(async (messageId: number, emoji: string) => {
     try {
       const result = await removeReaction(messageId, emoji);
-      updateThreadReply(messageId, { reactions: result.message.reactions });
+      applyReactionSnapshot(messageId, result.message.reactions ?? [], result.reactions_version, currentUserId ?? null);
     } catch {
       // silently fail
     }
-  }, [updateThreadReply]);
+  }, [applyReactionSnapshot, currentUserId]);
 
   // ── Root message handlers (main messages store) ──────────────────────────
 
@@ -346,20 +347,20 @@ export default function ThreadPanel({
   const handleReactionAddRoot = useCallback(async (emoji: string) => {
     try {
       const result = await addReaction(rootMessage.id, emoji);
-      updateMessage(rootMessage.id, { reactions: result.message.reactions });
+      applyReactionSnapshot(rootMessage.id, result.message.reactions ?? [], result.reactions_version, currentUserId ?? null);
     } catch {
       // silently fail
     }
-  }, [rootMessage.id, updateMessage]);
+  }, [rootMessage.id, applyReactionSnapshot, currentUserId]);
 
   const handleReactionRemoveRoot = useCallback(async (emoji: string) => {
     try {
       const result = await removeReaction(rootMessage.id, emoji);
-      updateMessage(rootMessage.id, { reactions: result.message.reactions });
+      applyReactionSnapshot(rootMessage.id, result.message.reactions ?? [], result.reactions_version, currentUserId ?? null);
     } catch {
       // silently fail
     }
-  }, [rootMessage.id, updateMessage]);
+  }, [rootMessage.id, applyReactionSnapshot, currentUserId]);
 
   return (
     <div
