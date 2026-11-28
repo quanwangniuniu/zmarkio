@@ -9,6 +9,9 @@ import {
   type VariationRow,
 } from '@/lib/variationStore';
 import { findVariationBySlug, serializeVariation } from '@/lib/variations';
+import { getPlatformSpec, listPlatformIds, type PlatformSpec } from '@/src/platforms';
+import { applyCtaPolicy } from '@/src/platforms/cta';
+import { formatCopyViolation, validateCopy } from '@/src/platforms/validateCopy';
 
 export const dynamic = 'force-dynamic';
 
@@ -68,6 +71,19 @@ export async function GET(request: Request, context: RouteContext) {
   return NextResponse.json(serializeVariation(loaded.row));
 }
 
+function copyEditErrors(spec: PlatformSpec, copy: Readonly<Record<string, string | undefined>>): string[] {
+  const errors = validateCopy(spec, copy).map(formatCopyViolation);
+  const { cta } = spec;
+  if (cta.kind === 'enum') {
+    const value = copy[cta.field];
+    if (value !== undefined && !cta.values.includes(value)) {
+      const example = applyCtaPolicy(cta, value);
+      errors.push(`${cta.field} must exactly match an allowed value (for example, ${example})`);
+    }
+  }
+  return errors;
+}
+
 export async function PATCH(request: Request, context: RouteContext) {
   const loaded = await loadOwnedVariation(request, context.params.id);
   if (!loaded.ok) return loaded.response;
@@ -114,6 +130,13 @@ export async function PATCH(request: Request, context: RouteContext) {
       );
     }
     data.status = body.status;
+  }
+
+  if (listPlatformIds().includes(loaded.row.platform)) {
+    const errors = copyEditErrors(getPlatformSpec(loaded.row.platform), data);
+    if (errors.length) {
+      return NextResponse.json({ error: errors.join('. ') }, { status: 400 });
+    }
   }
 
   const updated = await updateVariationFields(loaded.schema, loaded.row.id, data);

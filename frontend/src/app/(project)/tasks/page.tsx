@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus } from 'lucide-react';
 import DashboardLayout from '@/components/dashboard/DashboardLayout';
@@ -20,8 +20,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import LinearImportModal from '@/components/linear/LinearImportModal';
 import { useActiveProjectForFlatRoute } from '@/lib/useActiveProjectForFlatRoute';
 import { useBuildUrl } from '@/lib/buildUrl';
+import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
+import { defaultTasksTab, visibleTasksTabs } from '@/lib/tasks/tasksModuleConfig';
 
-const VALID_TABS: TasksTab[] = ['summary', 'tasks', 'board', 'gantt', 'insights', 'my-actions', 'planning', 'status-reports'];
 const SLIM_SCROLLBAR_TABS = new Set<TasksTab>(['insights', 'my-actions', 'planning', 'status-reports']);
 const FLAT_TASKS_BASE = '/tasks';
 
@@ -33,10 +34,9 @@ export default function TasksV2Page() {
   const drawerTaskFromQuery = searchParams?.get('drawerTask')?.trim() || null;
   const { projectId, activeProject, projectContextLoading } = useActiveProjectForFlatRoute();
 
-  const tab: TasksTab = useMemo(
-    () => (tabParam && VALID_TABS.includes(tabParam) ? tabParam : 'tasks'),
-    [tabParam]
-  );
+  useOptionConfigVersion();
+  const defaultTab = defaultTasksTab();
+  const tab: TasksTab = tabParam && visibleTasksTabs().includes(tabParam) ? tabParam : defaultTab;
 
   const { tasks, loading, error, fetchTasks } = useTaskData();
   const [linearImportOpen, setLinearImportOpen] = useState(false);
@@ -81,12 +81,12 @@ export default function TasksV2Page() {
     (next: TasksTab) => {
       const params = new URLSearchParams(searchParams?.toString() || '');
       params.delete('project_id');
-      if (next === 'tasks') params.delete('tab');
+      if (next === defaultTab) params.delete('tab');
       else params.set('tab', next);
       const qs = params.toString();
       router.replace(qs ? buildUrl(`${FLAT_TASKS_BASE}?${qs}`) : buildUrl(FLAT_TASKS_BASE));
     },
-    [router, searchParams, buildUrl]
+    [router, searchParams, buildUrl, defaultTab]
   );
 
   const refreshTasks = async () => {

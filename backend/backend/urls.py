@@ -78,7 +78,6 @@ urlpatterns = [
     path('api/chat/', include('chat.urls')),
     path('api/experiment/', include('experiment.urls')),
     path('api/', include('calendars.urls')),
-    path('api/ad_copy_variation/', include('ad_copy_variation.urls')),
     path('api/', include('campaign.urls')),
     path('api/slack/', include('slack_integration.urls')),
     path('api/agent/', include('agent.urls')),

@@ -112,7 +112,6 @@ INSTALLED_APPS = [
     'comments.apps.CommentsConfig',
     'calendars.apps.CalendarConfig',
     'miro.apps.MiroConfig',
-    'ad_copy_variation',
     'policy.apps.PolicyConfig',
     'campaign.apps.CampaignConfig',
     'slack_integration.apps.SlackIntegrationConfig',

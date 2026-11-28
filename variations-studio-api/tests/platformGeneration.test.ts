@@ -47,6 +47,7 @@ describe('platform configuration in generation and creation', () => {
 
     const result = await runCustomGenerate({
       schema: 'test_tenant',
+      organizationId: BigInt(3),
       userId: 7,
       body: { project_id: '12', source_mode: 'custom', base_copy: baseCopy, instruction: 'Focus on value' },
       generator,
@@ -57,6 +58,31 @@ describe('platform configuration in generation and creation', () => {
     expect(result.results[0]).toMatchObject({
       cta: 'SKIP', prompt_version: 'alternate-v2', slug: 'hook-for-the-slug',
     });
+  });
+
+  it('propagates unsupported validation rules before saving any item', async () => {
+    jest.mocked(getPlatformSpec).mockReturnValue({
+      ...metaSpec,
+      fields: [...metaSpec.fields, {
+        key: 'wide_title', label: 'Wide title', type: 'string', required: false,
+        limits: { maxChars: 30, characterCounting: 'double-width' },
+      }],
+    });
+    jest.mocked(requireProjectForUser).mockResolvedValue({ ok: true, projectId: BigInt(12) });
+    jest.mocked(insertVariations).mockClear();
+    const copy = { hook: 'Hook', headline: 'Headline', description: 'Description', cta: 'SHOP_NOW' };
+    const generateCopy = jest.fn()
+      .mockResolvedValueOnce(copy)
+      .mockResolvedValueOnce({ ...copy, wide_title: 'Offer' });
+    const getErrorMessage = jest.fn(() => null);
+
+    await expect(runCustomGenerate({
+      schema: 'test_tenant', organizationId: BigInt(3), userId: 7,
+      body: { project_id: '12', source_mode: 'custom', count: 2, base_copy: copy },
+      generator: { modelName: 'test-model', generateCopy, getErrorMessage },
+    })).rejects.toThrow('Unsupported copy validation rules for meta.wide_title');
+    expect(getErrorMessage).not.toHaveBeenCalled();
+    expect(insertVariations).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -71,6 +97,7 @@ describe('platform configuration in generation and creation', () => {
 
     await createVariation({
       schema: 'test_tenant',
+      organizationId: BigInt(3),
       projectId: BigInt(12),
       userId: 7,
       body: { source_mode: 'custom', hook: 'Hook for manual slug', headline: 'Unused headline', ...input },

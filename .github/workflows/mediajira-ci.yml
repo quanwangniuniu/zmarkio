@@ -168,6 +168,18 @@ jobs:
             exit 1
           fi
 
+      - name: Check backend dev image size
+        env:
+          MAX_SIZE_MB: 1600
+        run: |
+          docker build -f backend/Dockerfile.dev -t backend-dev:ci backend
+          SIZE_MB=$(( $(docker image inspect backend-dev:ci --format '{{.Size}}') / 1000000 ))
+          echo "backend dev image: ${SIZE_MB} MB (limit ${MAX_SIZE_MB} MB)"
+          if [ "$SIZE_MB" -gt "$MAX_SIZE_MB" ]; then
+            echo "backend dev image exceeds ${MAX_SIZE_MB} MB"
+            exit 1
+          fi
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:

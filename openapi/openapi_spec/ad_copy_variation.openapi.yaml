@@ -154,6 +154,10 @@ paths:
       description: |
         Manual create (not LLM generate). Body field for the project is
         `project` (not `project_id`), matching Django.
+        Omit `creative` or pass null to save a draft without a creative. In any
+        source mode, a supplied creative ID must belong to an ad account linked
+        to this project in the caller's current organization. An unavailable
+        creative returns 404.
       requestBody:
         required: true
         content:
@@ -206,6 +210,11 @@ paths:
       summary: Update writable copy fields or status
       description: |
         Writable fields: `hook`, `headline`, `description`, `cta`, `status`.
+        For a registered platform, only copy fields included in the request are checked
+        against that platform's limits. An enumerated CTA must match an allowed value
+        exactly (for example, `LEARN_MORE` on Meta).
+        If any submitted field fails validation, the server returns 400 with an `error`
+        message identifying the field and reason. No changes are saved, including `status`.
         Sending `project` returns 400 (`project cannot be modified`).
       requestBody:
         required: true
@@ -255,7 +264,14 @@ paths:
         succeeded drafts with a shared `batch_id`. Returns 200 when at least one
         draft was saved; 502 when every attempt failed (including Browserless /
         model / quota failures). Partial failure stays 200 with
-        `failed_indices` populated.
+        `failed_indices` populated. An item over a platform text limit is retried
+        once. If it still exceeds a limit, it is skipped and its final violations
+        appear in `field_failures`.
+
+        In `source_mode=existing`, omitting `creative_id` returns 400. The
+        creative's ad account must be linked to `project_id` in the caller's
+        current organization. An unavailable creative returns 404 before any
+        model call or draft creation.
       requestBody:
         required: true
         content:
@@ -457,11 +473,18 @@ components:
           example:
             detail: Studio is being initialized or upgraded. Please try again shortly.
     NotFound:
-      description: Resource not found (unknown slug, unknown numeric project_id, missing creative)
+      description: |
+        The requested slug or numeric project ID was not found, or the creative
+        is unavailable. A creative is unavailable if it or its ad account is
+        missing, the account has no linked project or recorded organization,
+        or the link belongs to a different project or organization. This includes
+        projects with the same numeric ID in different organizations.
       content:
         application/json:
           schema:
             $ref: '#/components/schemas/DetailError'
+          example:
+            detail: Not found.
     Error:
       description: Validation or business-rule error
       content:
@@ -482,6 +505,7 @@ components:
       type: object
       required:
         - id
+        - slug
         - project
         - creative
         - source_mode
@@ -504,6 +528,8 @@ components:
           format: int64
         slug:
           type: string
+          minLength: 1
+          pattern: '\S'
         project:
           type: integer
           format: int64
@@ -697,11 +723,51 @@ components:
             $ref: '#/components/schemas/AdCopyVariation'
         failed_indices:
           type: array
+          description: Zero-based indices of all failed items in the original request, in ascending order.
           items:
             type: integer
+        field_failures:
+          type: array
+          minItems: 1
+          description: Present only for items whose retry returned over-limit text, in ascending request-index order.
+          items:
+            type: object
+            required: [index, violations]
+            properties:
+              index:
+                type: integer
+                minimum: 0
+                description: Original request index, also listed in `failed_indices`.
+              violations:
+                type: array
+                minItems: 1
+                items:
+                  $ref: '#/components/schemas/CopyFieldViolation'
+          example:
+            - index: 1
+              violations:
+                - { field: headline, rule: max_chars, actual: 43, limit: 40 }
         error:
           type: string
-          description: Present on total failure (e.g. quota message)
+          description: An optional error message from model generation or URL fetching. It can appear alongside `field_failures` on partial or total failure.
+
+    CopyFieldViolation:
+      type: object
+      required: [field, rule, actual, limit]
+      properties:
+        field:
+          type: string
+          description: Field key from the platform specification.
+        rule:
+          type: string
+          enum: [max_words, max_chars]
+          description: Counts whitespace-delimited words for `max_words` and Unicode code points for `max_chars` on Meta.
+        actual:
+          type: integer
+          description: Measured count in the units of the rule.
+        limit:
+          type: integer
+          description: Maximum allowed count in the same units.
 
     LatestBatchResponse:
       type: object

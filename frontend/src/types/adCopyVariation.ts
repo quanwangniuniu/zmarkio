@@ -10,10 +10,9 @@ export interface AdCopyVariationCopy {
 
 export interface AdCopyVariation extends AdCopyVariationCopy {
   id: number;
-  slug?: string;
+  slug: string;
   project: number | null;
   creative: number | null;
-  creative_slug?: string | null;
   source_mode: AdCopyVariationSourceMode;
   source_ref: string;
   instruction: string;
@@ -37,6 +36,16 @@ export interface GenerateVariationRequest {
   instruction?: string;
 }
 
+export interface BatchFieldFailure {
+  index: number;
+  violations: {
+    field: string;
+    rule: string;
+    actual: number;
+    limit: number;
+  }[];
+}
+
 export interface BatchGenerateResponse {
   batch_id: string;
   count_requested: number;
@@ -44,6 +53,7 @@ export interface BatchGenerateResponse {
   count_failed: number;
   results: AdCopyVariation[];
   failed_indices: number[];
+  field_failures?: BatchFieldFailure[];
   error?: string;
 }
 

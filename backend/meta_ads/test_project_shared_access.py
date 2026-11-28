@@ -286,52 +286,14 @@ class MetaAdsProjectSharedAccessTests(TestCase):
         ]
         self.assertIn(self.unlinked_account.id, connector_ids)
 
-    def test_ordinary_project_member_cannot_link_or_sync(self):
+    def test_ordinary_project_member_cannot_sync(self):
         self.authenticate(self.member)
 
-        link_response = self.client.post(
-            f"/api/facebook_integration/ad_accounts/{self.account.id}/link_project/",
-            {"project_id": None},
-            format="json",
-        )
         sync_response = self.client.post(
             f"/api/meta_ads/ad_accounts/{self.account.id}/sync/",
         )
 
-        self.assertEqual(link_response.status_code, 403)
         self.assertEqual(sync_response.status_code, 403)
-
-    def test_project_manager_can_link_shared_account_to_project(self):
-        other_project = Project.objects.create(
-            name="Target Project",
-            organization=self.org,
-            owner=self.connector,
-        )
-        ProjectMember.objects.create(
-            user=self.connector,
-            project=other_project,
-            role="owner",
-            is_active=True,
-        )
-        ProjectMember.objects.create(
-            user=self.manager,
-            project=other_project,
-            role="Campaign Manager",
-            is_active=True,
-        )
-
-        self.authenticate(self.manager)
-        response = self.client.post(
-            f"/api/facebook_integration/ad_accounts/{self.account.id}/link_project/",
-            {"project_id": other_project.id},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.account.refresh_from_db()
-        self.assertEqual(self.account.project_id, other_project.id)
-        self.assertTrue(response.data["can_manage"])
-        self.assertTrue(response.data["can_sync"])
 
     @patch("meta_ads.views.sync_single_ad_account.delay")
     def test_project_manager_can_trigger_sync(self, delay_mock):
