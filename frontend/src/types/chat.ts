@@ -159,6 +159,7 @@ export interface Message {
     }>;
   } | null;
   reactions?: Reaction[];
+  reactions_version?: number;
   created_at: string;
   updated_at: string;
   statuses?: MessageStatus[];
@@ -355,6 +356,10 @@ export interface WebSocketReactionPayload {
   user: ReactionUser;
   emoji: string;
   action: 'added' | 'removed';
+  // Full snapshot of the message's reactions after this change. reacted_by_me is
+  // omitted on purpose: the broadcast is shared, so each client computes it from users.
+  reactions?: Omit<Reaction, 'reacted_by_me'>[];
+  reactions_version?: number;
 }
 
 export interface WebSocketMessage {
@@ -432,6 +437,7 @@ export interface ChatState {
   removePendingAttachment: (chatId: number, attachmentId: string) => void;
   clearPendingAttachments: (chatId: number) => void;
   applyReactionUpdate: (messageId: number, emoji: string, action: 'added' | 'removed', user: ReactionUser, currentUserId: number | null) => void;
+  applyReactionSnapshot: (messageId: number, reactions: Omit<Reaction, 'reacted_by_me'>[], version: number | undefined, currentUserId: number | null) => void;
   applyLinkPreview: (messageId: number, preview: MessageLinkPreview) => void;
   clearLinkPreview: (messageId: number) => void;
   updateUserPresence: (userId: number, isOnline: boolean, version?: number | null) => void;

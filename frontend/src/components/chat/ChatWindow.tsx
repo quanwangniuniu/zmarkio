@@ -274,7 +274,11 @@ export default function ChatWindow({ chat, onBack, roleByUserId, routeChatSlug, 
   const handleSocketReactionUpdate = useCallback((event: ChatWsEvent) => {
     const r = event.reaction;
     if (!r) return;
-    useChatStore.getState().applyReactionUpdate(r.message_id, r.emoji, r.action, r.user, currentUserId);
+    if (Array.isArray(r.reactions)) {
+      useChatStore.getState().applyReactionSnapshot(r.message_id, r.reactions, r.reactions_version, currentUserId);
+    } else {
+      useChatStore.getState().applyReactionUpdate(r.message_id, r.emoji, r.action, r.user, currentUserId);
+    }
   }, [currentUserId]);
 
   const handleSocketPinUpdate = useCallback((event: ChatWsEvent) => {
@@ -759,12 +763,12 @@ export default function ChatWindow({ chat, onBack, roleByUserId, routeChatSlug, 
 
   const handleReactionAdd = useCallback(async (messageId: number, emoji: string) => {
     if (!currentUserId) return;
-    const { applyReactionUpdate, updateMessage } = useChatStore.getState();
+    const { applyReactionUpdate, applyReactionSnapshot } = useChatStore.getState();
     const actor = { id: currentUserId, username: user?.username ?? '' };
     applyReactionUpdate(messageId, emoji, 'added', actor, currentUserId);
     try {
       const response = await addReaction(messageId, emoji);
-      updateMessage(messageId, { reactions: response.message.reactions ?? [] });
+      applyReactionSnapshot(messageId, response.message.reactions ?? [], response.reactions_version, currentUserId);
     } catch {
       applyReactionUpdate(messageId, emoji, 'removed', actor, currentUserId);
     }
@@ -772,12 +776,12 @@ export default function ChatWindow({ chat, onBack, roleByUserId, routeChatSlug, 
 
   const handleReactionRemove = useCallback(async (messageId: number, emoji: string) => {
     if (!currentUserId) return;
-    const { applyReactionUpdate, updateMessage } = useChatStore.getState();
+    const { applyReactionUpdate, applyReactionSnapshot } = useChatStore.getState();
     const actor = { id: currentUserId, username: user?.username ?? '' };
     applyReactionUpdate(messageId, emoji, 'removed', actor, currentUserId);
     try {
       const response = await removeReaction(messageId, emoji);
-      updateMessage(messageId, { reactions: response.message.reactions ?? [] });
+      applyReactionSnapshot(messageId, response.message.reactions ?? [], response.reactions_version, currentUserId);
     } catch {
       applyReactionUpdate(messageId, emoji, 'added', actor, currentUserId);
     }

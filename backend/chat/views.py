@@ -45,6 +45,7 @@ from .serializers import (
     AddReactionSerializer,
     ScheduledMessageSerializer,
     ScheduledMessageCreateSerializer,
+    current_reaction_version,
 )
 from .services import (
     ChatService,
@@ -1305,42 +1306,51 @@ class MessageViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         emoji = serializer.validated_data['emoji']
 
-        # Check if reaction already exists
-        existing = MessageReaction.objects.filter(
-            message=message,
-            user=request.user,
-            emoji=emoji
-        ).first()
+        # Serialize concurrent toggles on the same message: lock the message row
+        # so a second request waits until the first one commits, then sees its
+        # reaction instead of trying to insert a duplicate (which would 500).
+        from .tasks import notify_reaction_update
+        with transaction.atomic():
+            Message.objects.select_for_update().get(pk=message.pk)
 
-        if existing:
-            # Toggle off - remove reaction
-            existing.delete()
-            action_taken = 'removed'
-        else:
-            # Add new reaction
-            MessageReaction.objects.create(
+            # Check if reaction already exists
+            existing = MessageReaction.objects.filter(
                 message=message,
                 user=request.user,
                 emoji=emoji
-            )
-            action_taken = 'added'
+            ).first()
 
-        # Notify via WebSocket
-        from .tasks import notify_reaction_update
-        notify_reaction_update.delay(
-            message.id,
-            request.user.id,
-            emoji,
-            action_taken,
-            tenant_schema=current_tenant_schema(),
-        )
+            if existing:
+                # Toggle off - remove reaction
+                existing.delete()
+                action_taken = 'removed'
+            else:
+                # Add new reaction
+                MessageReaction.objects.create(
+                    message=message,
+                    user=request.user,
+                    emoji=emoji
+                )
+                action_taken = 'added'
+
+            # Broadcast only after the change is committed
+            tenant_schema = current_tenant_schema()
+            transaction.on_commit(lambda: notify_reaction_update.delay(
+                message.id,
+                request.user.id,
+                emoji,
+                action_taken,
+                tenant_schema=tenant_schema,
+            ))
 
         # Return updated reactions
+        reactions_version = current_reaction_version()
         message.refresh_from_db()
         response_serializer = MessageWithAttachmentsSerializer(message, context={'request': request})
         return Response({
             'status': action_taken,
-            'message': response_serializer.data
+            'message': response_serializer.data,
+            'reactions_version': reactions_version,
         })
 
     @action(detail=True, methods=['delete'], url_path='react/(?P<emoji>[^/.]+)')
@@ -1394,11 +1404,13 @@ class MessageViewSet(viewsets.ModelViewSet):
         )
 
         # Return updated reactions
+        reactions_version = current_reaction_version()
         message.refresh_from_db()
         response_serializer = MessageWithAttachmentsSerializer(message, context={'request': request})
         return Response({
             'status': 'removed',
-            'message': response_serializer.data
+            'message': response_serializer.data,
+            'reactions_version': reactions_version,
         })
 
     @action(detail=True, methods=['post'])

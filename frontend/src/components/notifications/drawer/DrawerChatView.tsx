@@ -204,16 +204,17 @@ export default function DrawerChatView({
     if (!chatId) return;
     try {
       const result = await addReaction(messageId, emoji);
-      // Update message in store with new reactions
+      // Apply the server snapshot; its version stops it overwriting a newer broadcast
       if (result.message) {
-        const { updateMessage } = useChatStore.getState();
-        updateMessage(messageId, { reactions: result.message.reactions });
+        useChatStore.getState().applyReactionSnapshot(
+          messageId, result.message.reactions ?? [], result.reactions_version, currentUserId ?? null,
+        );
       }
     } catch (err: any) {
       console.error('Failed to add reaction:', err);
       toast.error('Failed to add reaction');
     }
-  }, [chatId]);
+  }, [chatId, currentUserId]);
 
   // Handle clicking on existing reaction (toggle)
   const handleReactionClick = useCallback(async (

@@ -15,7 +15,8 @@ from django.utils import timezone
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from core.tenant_context import tenant_schema_context
-from .models import ChatOutboxEvent, LinkPreview, Message, MessageStatus, ChatParticipant, ScheduledMessage, MessageAttachment
+from .models import ChatOutboxEvent, LinkPreview, Message, MessageStatus, ChatParticipant, ScheduledMessage, MessageAttachment, MessageReaction
+from .serializers import aggregate_reactions, current_reaction_version
 from .metrics import (
     chat_broadcast_publish_failures_total,
     chat_link_preview_create_races_total,
@@ -939,6 +940,10 @@ def notify_reaction_update(
     try:
         message = Message.objects.select_related('chat', 'sender').get(id=message_id)
         user = User.objects.get(id=user_id)
+        # Take the version BEFORE reading reactions, so the data is always at least
+        # as new as its version. Reversing the order can let a stale snapshot win.
+        reactions_version = current_reaction_version()
+        reactions = aggregate_reactions(MessageReaction.objects.filter(message_id=message_id).select_related('user'))
 
         # Build reaction update payload
         reaction_payload = {
@@ -950,6 +955,8 @@ def notify_reaction_update(
             },
             'emoji': emoji,
             'action': action,
+            'reactions': reactions,
+            'reactions_version': reactions_version,
         }
 
         # Get all active participants

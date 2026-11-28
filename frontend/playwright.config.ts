@@ -147,6 +147,7 @@ export default defineConfig({
         /e2e[\\/]messages[\\/]messages-link-preview\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-ordering-jitter\.spec\.ts$/,
         /e2e[\\/]messages[\\/]messages-participant-removal\.spec\.ts$/,
+        /e2e[\\/]messages[\\/]messages-reaction-sync\.spec\.ts$/,
       ],
     },
     {
