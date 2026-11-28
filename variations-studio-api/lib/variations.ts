@@ -11,6 +11,7 @@ export function serializeVariation(row: VariationRow) {
     source_mode: row.sourceMode,
     source_ref: row.sourceRef,
     platform: row.platform,
+    fields: row.fields,
     hook: row.hook,
     headline: row.headline,
     description: row.description,

@@ -1,9 +1,11 @@
 import { AI_QUOTA_MESSAGE } from '@/src/ai/prompts';
+import { metaSpec } from '@/src/platforms/meta';
 import {
     callOllamaJson,
     getOllamaConfig,
     getOllamaErrorMessage,
 } from '@/src/ai/providers/ollama';
+import { testTextSpec } from './support/textPlatform';
 
 const originalEnv = process.env;
 const originalFetch = global.fetch;
@@ -86,7 +88,7 @@ describe('Ollama provider', () => {
             })
         );
 
-        const result = await callOllamaJson('system prompt', 'user prompt');
+        const result = await callOllamaJson('system prompt', 'user prompt', metaSpec);
 
         expect(result).toEqual({
             hook: 'A useful hook',
@@ -109,7 +111,7 @@ describe('Ollama provider', () => {
         const request = fetchMock.mock.calls[0][1] as RequestInit;
         const body = JSON.parse(request.body as string);
 
-        expect(body).toMatchObject({
+        expect(body).toEqual({
             model: 'test-model',
             messages: [
                 { role: 'system', content: 'system prompt' },
@@ -118,25 +120,58 @@ describe('Ollama provider', () => {
             stream: false,
             think: false,
             keep_alive: '30m',
+            format: {
+                type: 'object',
+                properties: {
+                    hook: { type: 'string' },
+                    headline: { type: 'string' },
+                    description: { type: 'string' },
+                    cta: { type: 'string' },
+                },
+                required: ['hook', 'headline', 'description', 'cta'],
+                additionalProperties: false,
+            },
             options: {
                 temperature: 0.7,
                 num_ctx: 8192,
             },
         });
+    });
 
-        expect(body.format.required).toEqual([
-            'hook',
-            'headline',
-            'description',
-            'cta',
-        ]);
+    it('requests all platform fields and accepts a missing optional string', async () => {
+        const copy = { ad_text: 'Discover the collection', action: 'JOIN_US' };
+        fetchMock.mockResolvedValueOnce(jsonResponse({ message: { content: JSON.stringify(copy) } }));
+
+        await expect(callOllamaJson('system', 'user', testTextSpec)).resolves.toEqual(copy);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const request = fetchMock.mock.calls[0][1] as RequestInit;
+        expect(JSON.parse(request.body as string).format).toEqual({
+            type: 'object',
+            properties: {
+                ad_text: { type: 'string' },
+                action: { type: 'string' },
+                tagline: { type: 'string' },
+            },
+            required: ['ad_text', 'action'],
+            additionalProperties: false,
+        });
+    });
+
+    it('rejects a supplied optional field of the wrong type', async () => {
+        const copy = { ad_text: 'Discover the collection', action: 'JOIN_US', tagline: null };
+        fetchMock.mockImplementation(async () => jsonResponse({ message: { content: JSON.stringify(copy) } }));
+
+        await expect(callOllamaJson('system', 'user', testTextSpec)).rejects.toMatchObject({
+            code: 'invalid_output',
+            message: 'Ollama output field "tagline" must be a string.',
+        });
     });
 
     it('returns a connection error when Ollama is unavailable', async () => {
         fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
 
         await expect(
-            callOllamaJson('system', 'user')
+            callOllamaJson('system', 'user', metaSpec)
         ).rejects.toMatchObject({
             code: 'connection',
             message: 'Unable to connect to Ollama at http://ollama.test:11434.',
@@ -149,7 +184,7 @@ describe('Ollama provider', () => {
         fetchMock.mockRejectedValueOnce(timeoutError);
 
         await expect(
-            callOllamaJson('system', 'user')
+            callOllamaJson('system', 'user', metaSpec)
         ).rejects.toMatchObject({
             code: 'timeout',
             message: 'Ollama request timed out after 5000 ms.',
@@ -167,7 +202,7 @@ describe('Ollama provider', () => {
         );
 
         await expect(
-            callOllamaJson('system', 'user')
+            callOllamaJson('system', 'user', metaSpec)
         ).rejects.toMatchObject({
             code: 'model_not_found',
             status: 404,
@@ -186,7 +221,7 @@ describe('Ollama provider', () => {
         );
 
         await expect(
-            callOllamaJson('system', 'user')
+            callOllamaJson('system', 'user', metaSpec)
         ).rejects.toMatchObject({
             code: 'request_failed',
             status: 500,
@@ -205,7 +240,7 @@ describe('Ollama provider', () => {
         );
 
         await expect(
-            callOllamaJson('system', 'user')
+            callOllamaJson('system', 'user', metaSpec)
         ).rejects.toMatchObject({
             code: 'invalid_output',
             message: 'Ollama returned malformed copy JSON.',
@@ -226,7 +261,7 @@ describe('Ollama provider', () => {
         );
 
         await expect(
-            callOllamaJson('system', 'user')
+            callOllamaJson('system', 'user', metaSpec)
         ).rejects.toMatchObject({
             code: 'invalid_output',
             message: 'Ollama output is missing the required "cta" field.',
@@ -243,7 +278,7 @@ describe('Ollama provider', () => {
         );
 
         await expect(
-            callOllamaJson('system', 'user')
+            callOllamaJson('system', 'user', metaSpec)
         ).rejects.toMatchObject({
             code: 'invalid_output',
             message: 'Ollama returned an empty response.',
@@ -251,27 +286,27 @@ describe('Ollama provider', () => {
     });
 
     it('retries malformed JSON once', async () => {
-        const copy = { hook: 'H', headline: 'HL', description: 'D', cta: 'LEARN_MORE' };
+        const copy = { ad_text: 'Discover the collection', action: 'JOIN_US', tagline: 'Today only' };
         fetchMock
             .mockResolvedValueOnce(jsonResponse({ message: { content: 'not-json' } }))
             .mockResolvedValueOnce(jsonResponse({ message: { content: JSON.stringify(copy) } }));
 
-        await expect(callOllamaJson('system', 'user')).resolves.toEqual(copy);
+        await expect(callOllamaJson('system', 'user', testTextSpec)).resolves.toEqual(copy);
     });
 
     it('retries a busy Ollama before succeeding', async () => {
-        const copy = { hook: 'H', headline: 'HL', description: 'D', cta: 'LEARN_MORE' };
+        const copy = { ad_text: 'Discover the collection', action: 'JOIN_US' };
         fetchMock
             .mockResolvedValueOnce(jsonResponse({ error: 'server busy' }, 503))
             .mockResolvedValueOnce(jsonResponse({ message: { content: JSON.stringify(copy) } }));
 
-        await expect(callOllamaJson('system', 'user')).resolves.toEqual(copy);
+        await expect(callOllamaJson('system', 'user', testTextSpec)).resolves.toEqual(copy);
     });
 
     it('returns the quota message when Ollama stays busy', async () => {
         fetchMock.mockImplementation(async () => jsonResponse({ error: 'rate limited' }, 429));
 
-        const error = await callOllamaJson('system', 'user').catch((err: unknown) => err);
+        const error = await callOllamaJson('system', 'user', metaSpec).catch((err: unknown) => err);
 
         expect(fetchMock).toHaveBeenCalledTimes(3);
         expect(getOllamaErrorMessage(error)).toBe(AI_QUOTA_MESSAGE);

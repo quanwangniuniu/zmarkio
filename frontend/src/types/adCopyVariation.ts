@@ -1,16 +1,45 @@
 export type AdCopyVariationSourceMode = 'existing' | 'custom' | 'external_url';
 export type AdCopyVariationStatus = 'draft' | 'reviewed';
 
-export interface AdCopyVariationCopy {
+export type AdCopyVariationCopy = Record<string, string>;
+
+interface StudioTextLimits {
+  max_chars?: number;
+  max_words?: number;
+  character_counting?: 'unicode-code-points' | 'double-width';
+}
+
+export type StudioPlatformField = {
+  key: string;
+  label: string;
+  required: boolean;
+} & (
+  | { type: 'string'; limits: StudioTextLimits }
+  | { type: 'string[]'; min_items: number; max_items: number; item_limits: StudioTextLimits }
+);
+
+export interface StudioPlatformSpec {
+  id: string;
+  display_name: string;
+  fields: StudioPlatformField[];
+  cta:
+    | { kind: 'none' }
+    | { kind: 'freeText'; field: string }
+    | { kind: 'enum'; field: string; values: string[] };
+}
+
+interface LegacyMetaCopy {
   hook: string;
   headline: string;
   description: string;
   cta: string;
 }
 
-export interface AdCopyVariation extends AdCopyVariationCopy {
+export interface AdCopyVariation extends LegacyMetaCopy {
   id: number;
   slug: string;
+  platform: string;
+  fields: Record<string, string | string[]>;
   project: number | null;
   creative: number | null;
   source_mode: AdCopyVariationSourceMode;
@@ -28,6 +57,7 @@ export interface AdCopyVariation extends AdCopyVariationCopy {
 
 export interface GenerateVariationRequest {
   project_id: number | string;
+  platform?: string | null;
   source_mode: AdCopyVariationSourceMode;
   count?: number;
   creative_id?: number;
@@ -57,7 +87,7 @@ export interface BatchGenerateResponse {
   error?: string;
 }
 
-export interface SaveVariationRequest extends AdCopyVariationCopy {
+export interface SaveVariationRequest extends LegacyMetaCopy {
   project?: number | string | null;
   source_mode: AdCopyVariationSourceMode;
   creative?: number | null;

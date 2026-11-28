@@ -29,8 +29,7 @@ export function createCopyGenerator(): CopyGenerator {
     get modelName() {
       return getOllamaConfig().model;
     },
-    generateCopy: (systemPrompt, userPrompt) =>
-      callOllamaJson(systemPrompt, userPrompt),
+    generateCopy: callOllamaJson,
     getErrorMessage: getOllamaErrorMessage,
   };
 }

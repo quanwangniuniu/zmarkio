@@ -1,6 +1,7 @@
 import { AI_QUOTA_MESSAGE } from '@/src/ai/prompts';
 import type { CopyJson } from '@/src/ai/types';
 import { fitExternalUrlPromptToContext } from '@/lib/pageTextBudget';
+import type { PlatformSpec } from '@/src/platforms/types';
 
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 const DEFAULT_TIMEOUT_MS = 60_000;
@@ -10,17 +11,18 @@ const DEFAULT_NUM_CTX = 8192;
 // 429 is a rate limit; Ollama answers 503 when its request queue is full.
 const BUSY_STATUSES = [429, 503];
 
-const COPY_SCHEMA = {
-    type: 'object',
-    properties: {
-        hook: { type: 'string' },
-        headline: { type: 'string' },
-        description: { type: 'string' },
-        cta: { type: 'string' },
-    },
-    required: ['hook', 'headline', 'description', 'cta'],
-    additionalProperties: false,
-};
+function buildCopySchema(spec: PlatformSpec) {
+    const properties = Object.fromEntries(spec.fields.map(({ key, type }) => {
+        if (type !== 'string') throw new Error(`Unsupported copy field type for ${spec.id}.${key}`);
+        return [key, { type }];
+    }));
+    return {
+        type: 'object',
+        properties,
+        required: spec.fields.filter(field => field.required).map(field => field.key),
+        additionalProperties: false,
+    };
+}
 
 export type OllamaErrorCode =
     | 'configuration'
@@ -106,7 +108,7 @@ export function getOllamaConfig(): OllamaConfig {
     };
 }
 
-function asCopy(raw: unknown): CopyJson {
+function asCopy(raw: unknown, spec: PlatformSpec): CopyJson {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
         throw new OllamaError(
             'Ollama returned invalid copy JSON.',
@@ -115,23 +117,22 @@ function asCopy(raw: unknown): CopyJson {
     }
 
     const row = raw as Record<string, unknown>;
-    const fields = ['hook', 'headline', 'description', 'cta'] as const;
-
-    for (const field of fields) {
-        if (typeof row[field] !== 'string') {
+    const entries: [string, string][] = [];
+    for (const { key, required } of spec.fields) {
+        if (!Object.prototype.hasOwnProperty.call(row, key)) {
+            if (!required) continue;
             throw new OllamaError(
-                `Ollama output is missing the required "${field}" field.`,
+                `Ollama output is missing the required "${key}" field.`,
                 'invalid_output'
             );
         }
+        const value = row[key];
+        if (typeof value !== 'string') {
+            throw new OllamaError(`Ollama output field "${key}" must be a string.`, 'invalid_output');
+        }
+        entries.push([key, value]);
     }
-
-    return {
-        hook: row.hook as string,
-        headline: row.headline as string,
-        description: row.description as string,
-        cta: row.cta as string,
-    };
+    return Object.fromEntries(entries);
 }
 
 async function readErrorMessage(response: Response): Promise<string | null> {
@@ -146,11 +147,13 @@ async function readErrorMessage(response: Response): Promise<string | null> {
 export async function callOllamaJson(
     systemPrompt: string,
     userPrompt: string,
+    spec: PlatformSpec,
     retryParse = true,
     busyAttempt = 0
 ): Promise<CopyJson> {
     const config = getOllamaConfig();
     const budgetedUserPrompt = fitExternalUrlPromptToContext(systemPrompt, userPrompt, config.numCtx);
+    const format = buildCopySchema(spec);
 
     let response: Response;
 
@@ -169,7 +172,7 @@ export async function callOllamaJson(
                 stream: false,
                 think: false,
                 keep_alive: config.keepAlive,
-                format: COPY_SCHEMA,
+                format,
                 options: {
                     temperature: 0.7,
                     num_ctx: config.numCtx,
@@ -201,7 +204,7 @@ export async function callOllamaJson(
         await new Promise((resolve) => {
             setTimeout(resolve, config.retryDelaysMs[busyAttempt]);
         });
-        return callOllamaJson(systemPrompt, userPrompt, retryParse, busyAttempt + 1);
+        return callOllamaJson(systemPrompt, userPrompt, spec, retryParse, busyAttempt + 1);
     }
 
     if (!response.ok) {
@@ -257,10 +260,10 @@ export async function callOllamaJson(
             );
         }
 
-        return asCopy(JSON.parse(content));
+        return asCopy(JSON.parse(content), spec);
     } catch (error) {
         if (retryParse) {
-            return callOllamaJson(systemPrompt, userPrompt, false);
+            return callOllamaJson(systemPrompt, userPrompt, spec, false);
         }
 
         if (error instanceof OllamaError) {

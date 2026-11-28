@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 import { tenantTable } from '@/lib/tenant';
-import { VARIATION_TABLE } from '@/lib/variationSchema';
+import { LEGACY_COPY_PLATFORM_ID, VARIATION_TABLE } from '@/lib/variationSchema';
 
 export { VARIATION_TABLE };
 
@@ -21,6 +21,7 @@ export type VariationRow = {
   sourceMode: string;
   sourceRef: string;
   platform: string;
+  fields: Record<string, string | string[]>;
   hook: string;
   headline: string;
   description: string;
@@ -40,10 +41,8 @@ export type VariationRow = {
 export type VariationInsert = {
   sourceMode: string;
   sourceRef: string;
-  hook: string;
-  headline: string;
-  description: string;
-  cta: string;
+  platform: string;
+  fields: Record<string, string>;
   instruction: string;
   modelName: string;
   promptVersion: string;
@@ -56,7 +55,10 @@ export type VariationInsert = {
   slug: string;
 };
 
-export const COLUMNS = Prisma.raw(`
+export const META_COLUMN_FIELDS = Prisma.sql`jsonb_build_object(
+  'hook', hook, 'headline', headline, 'description', description, 'cta', cta)`;
+
+export const COLUMNS = Prisma.sql`
   id,
   created_at AS "createdAt",
   updated_at AS "updatedAt",
@@ -64,6 +66,8 @@ export const COLUMNS = Prisma.raw(`
   source_mode AS "sourceMode",
   source_ref AS "sourceRef",
   platform,
+  CASE WHEN platform = ${LEGACY_COPY_PLATFORM_ID} THEN ${META_COLUMN_FIELDS}
+       ELSE COALESCE(fields, '{}'::jsonb) END AS fields,
   hook,
   headline,
   description,
@@ -78,7 +82,7 @@ export const COLUMNS = Prisma.raw(`
   creative_id AS "creativeId",
   project_id AS "projectId",
   slug
-`);
+`;
 
 export function table(schema: string): Prisma.Sql {
   return tenantTable(schema, VARIATION_TABLE);

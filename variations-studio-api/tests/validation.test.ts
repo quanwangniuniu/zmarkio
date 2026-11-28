@@ -3,6 +3,7 @@ import { POST as generate } from '@/app/api/ad_copy_variation/variations/generat
 import { prisma } from '@/lib/prisma';
 import { MAX_BATCH } from '@/lib/prompts';
 import { findVariationById, findVariationsByIdsAnyProject } from '@/lib/variationStore';
+import { existingMode } from '@/src/domains/generate/modes/existing';
 
 import {
   setupStudioFixture,
@@ -10,6 +11,7 @@ import {
   type StudioFixture,
 } from './support/fixtures';
 import { readJson, studioRequest } from './support/requests';
+import { testTextSpec } from './support/textPlatform';
 import { accessToken } from './support/tokens';
 
 jest.mock('@/src/ai/providers/ollama', () => {
@@ -111,6 +113,16 @@ describe('generate input validation', () => {
 });
 
 describe('generate creative ownership', () => {
+  it('uses the Meta creative as the source for a target with different field keys', async () => {
+    const result = await existingMode.resolve({
+      schema: fixture.schema, organizationId: fixture.organizationId, projectId: fixture.projectA,
+      userId: fixture.memberUserId, count: 1, instruction: '', spec: testTextSpec,
+    }, { creative_id: Number(fixture.creativeA) });
+
+    expect(result).toHaveProperty('userPrompt', expect.stringContaining('- Headline: Fixture creative title'));
+    expect(result).toHaveProperty('userPrompt', expect.stringContaining('ad_text'));
+  });
+
   it('rejects a creative owned by a different project', async () => {
     const response = await generateRequest(
       customBody({ source_mode: 'existing', creative_id: Number(fixture.creativeB) })

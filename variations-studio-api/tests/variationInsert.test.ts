@@ -4,7 +4,9 @@ import { prisma } from '@/lib/prisma';
 import { slugWithSuffix } from '@/lib/slugs';
 import { tenantTable } from '@/lib/tenant';
 import {
+  findVariationById,
   insertVariations,
+  updateVariationFields,
   VARIATION_TABLE,
   type SqlClient,
   type VariationInsert,
@@ -45,10 +47,8 @@ function variation(slug: string, batchId: string, batchPosition: number): Variat
   return {
     sourceMode: 'custom',
     sourceRef: '',
-    hook: 'hook',
-    headline: 'headline',
-    description: 'description',
-    cta: 'LEARN_MORE',
+    platform: 'meta',
+    fields: { hook: 'hook', headline: 'headline', description: 'description', cta: 'LEARN_MORE' },
     instruction: '',
     modelName: 'fixture',
     promptVersion: 'fixture',
@@ -129,6 +129,28 @@ describe('insertVariations', () => {
 
     expect(saved.map((row) => row.slug)).toEqual([slugWithSuffix(longBase, 2)]);
     expect(counter.queries()).toBe(2);
+  });
+
+  it('keeps platform fields and merges concurrent edits to distinct keys', async () => {
+    const batchId = randomUUID();
+    const meta = variation(`meta-${batchId}`, batchId, 0);
+    const alternate = {
+      ...variation(`alt-${batchId}`, batchId, 1),
+      platform: 'test_platform',
+      fields: { text: 'Original', cta: 'READ', footer: 'Footer' },
+    };
+    const [metaRow, alternateRow] = await insertVariations(fixture.schema, [meta, alternate]);
+    expect(metaRow).toMatchObject({ platform: 'meta', fields: meta.fields, ...meta.fields });
+    const legacy = { hook: '', headline: '', description: '', cta: '' };
+    expect(alternateRow).toMatchObject({ platform: alternate.platform, fields: alternate.fields, ...legacy });
+
+    await Promise.all([
+      updateVariationFields(fixture.schema, alternateRow, { fields: { text: 'Edited' } }),
+      updateVariationFields(fixture.schema, alternateRow, { fields: { cta: 'JOIN' } }),
+    ]);
+    await expect(findVariationById(fixture.schema, alternateRow.id)).resolves.toMatchObject({
+      fields: { text: 'Edited', cta: 'JOIN', footer: 'Footer' }, ...legacy,
+    });
   });
 
   it('rolls back the batch when the transaction throws', async () => {

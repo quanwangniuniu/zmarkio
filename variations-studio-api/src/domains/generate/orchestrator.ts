@@ -9,11 +9,13 @@ import {
 } from '@/src/ai';
 import { buildRetryPrompt, buildSystemPrompt } from '@/src/ai/prompts';
 import { ApiError, projectIdParam } from '@/src/platform/http';
-import { getPlatformSpec, type PlatformSpec } from '@/src/platforms';
+import type { PlatformSpec } from '@/src/platforms';
 import { applyCtaPolicy } from '@/src/platforms/cta';
 import { validateCopy, type CopyViolation } from '@/src/platforms/validateCopy';
+import { resolveRequestPlatform } from '@/lib/platforms';
 import { requireProjectForUser } from '@/lib/projects';
-import { allocateSlugs, readSlugSource } from '@/lib/slugs';
+import { makeSlug, readSlugSource } from '@/lib/slugs';
+import { completeDraftFields } from '@/lib/variationCopy';
 import { insertVariations } from '@/src/repo';
 import { serializeVariation } from '@/lib/variations';
 
@@ -62,7 +64,7 @@ async function generateCopies(
 
   async function requestCopy(index: number, prompt: string): Promise<CopyJson | null> {
     try {
-      return await generator.generateCopy(systemPrompt, prompt);
+      return await generator.generateCopy(systemPrompt, prompt, spec);
     } catch (err) {
       const message = generator.getErrorMessage(err);
       if (!providerError && message) providerError = message;
@@ -123,27 +125,28 @@ async function persistBatch(args: {
   modelName: string;
 }) {
   const { spec } = args;
-  const slugs = allocateSlugs(
-    args.copies.map((copy) => readSlugSource(copy, spec))
-  );
-  const rows = args.copies.map((copy, index) => ({
-    sourceMode: args.sourceMode,
-    sourceRef: args.sourceRef,
-    hook: copy.hook,
-    headline: copy.headline,
-    description: copy.description,
-    cta: applyCtaPolicy(spec.cta, copy.cta),
-    instruction: args.instruction,
-    modelName: args.modelName,
-    promptVersion: spec.promptVersion,
-    batchId: args.batchId,
-    batchPosition: index,
-    status: 'draft',
-    createdById: BigInt(args.userId),
-    creativeId: args.creativeId,
-    projectId: args.projectId,
-    slug: slugs[index],
-  }));
+  const rows = args.copies.map((copy, index) => {
+    const fields = completeDraftFields(spec, copy);
+    if (spec.cta.kind !== 'none') {
+      fields[spec.cta.field] = applyCtaPolicy(spec.cta, fields[spec.cta.field]);
+    }
+    return {
+      sourceMode: args.sourceMode,
+      sourceRef: args.sourceRef,
+      platform: spec.id,
+      fields,
+      instruction: args.instruction,
+      modelName: args.modelName,
+      promptVersion: spec.promptVersion,
+      batchId: args.batchId,
+      batchPosition: index,
+      status: 'draft',
+      createdById: BigInt(args.userId),
+      creativeId: args.creativeId,
+      projectId: args.projectId,
+      slug: makeSlug(readSlugSource(fields, spec)),
+    };
+  });
 
   // insertVariations opens the transaction itself when no client is passed.
   return insertVariations(args.schema, rows);
@@ -180,7 +183,7 @@ export async function runCustomGenerate(args: {
   const instruction =
     typeof args.body.instruction === 'string' ? args.body.instruction : '';
 
-  const spec = getPlatformSpec('meta');
+  const spec = resolveRequestPlatform(args.body.platform);
   const handler = sourceModeRegistry.get(sourceMode)!;
   const modeResult = await handler.resolve(
     {

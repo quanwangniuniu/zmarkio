@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server';
 
 import { isAuthFailure } from '@/lib/auth';
+import { readJsonBody, responseFromUnknown } from '@/lib/bulk';
 import { isActiveProjectMember } from '@/lib/projects';
 import { requireStudioContext } from '@/lib/tenant';
+import { readDraftFields } from '@/lib/variationCopy';
 import {
   deleteVariationById,
   updateVariationFields,
@@ -15,7 +17,6 @@ import { formatCopyViolation, validateCopy } from '@/src/platforms/validateCopy'
 
 export const dynamic = 'force-dynamic';
 
-const WRITABLE_STRING_FIELDS = ['hook', 'headline', 'description', 'cta'] as const;
 const WRITABLE_STATUSES = new Set(['draft', 'reviewed']);
 
 // The path segment is a slug; the param stays named `id` to keep the Django URL.
@@ -88,12 +89,9 @@ export async function PATCH(request: Request, context: RouteContext) {
   const loaded = await loadOwnedVariation(request, context.params.id);
   if (!loaded.ok) return loaded.response;
 
-  let body: Record<string, unknown>;
-  try {
-    body = (await request.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
-  }
+  const json = await readJsonBody(request);
+  if (!json.ok) return json.response;
+  const { body } = json;
 
   if ('project' in body) {
     return NextResponse.json(
@@ -102,45 +100,28 @@ export async function PATCH(request: Request, context: RouteContext) {
     );
   }
 
-  const data: {
-    hook?: string;
-    headline?: string;
-    description?: string;
-    cta?: string;
-    status?: string;
-  } = {};
+  const status = body.status;
+  if (status !== undefined && (typeof status !== 'string' || !WRITABLE_STATUSES.has(status))) {
+    return NextResponse.json({ error: 'status must be draft or reviewed' }, { status: 400 });
+  }
 
-  for (const field of WRITABLE_STRING_FIELDS) {
-    if (field in body) {
-      if (typeof body[field] !== 'string') {
-        return NextResponse.json(
-          { error: `${field} must be a string` },
-          { status: 400 }
-        );
+  try {
+    const { platform } = loaded.row;
+    const spec = listPlatformIds().includes(platform) ? getPlatformSpec(platform) : undefined;
+    const fields = readDraftFields(body, spec, 'patch');
+    if (spec) {
+      const errors = copyEditErrors(spec, fields);
+      if (errors.length) {
+        return NextResponse.json({ error: errors.join('. ') }, { status: 400 });
       }
-      data[field] = body[field];
     }
+    // Unregistered historical platforms can still edit their legacy text columns.
+    const patch = spec ? { fields, status } : { ...fields, status };
+    const updated = await updateVariationFields(loaded.schema, loaded.row, patch);
+    return NextResponse.json(serializeVariation(updated));
+  } catch (error) {
+    return responseFromUnknown(error);
   }
-
-  if ('status' in body) {
-    if (typeof body.status !== 'string' || !WRITABLE_STATUSES.has(body.status)) {
-      return NextResponse.json(
-        { error: 'status must be draft or reviewed' },
-        { status: 400 }
-      );
-    }
-    data.status = body.status;
-  }
-
-  if (listPlatformIds().includes(loaded.row.platform)) {
-    const errors = copyEditErrors(getPlatformSpec(loaded.row.platform), data);
-    if (errors.length) {
-      return NextResponse.json({ error: errors.join('. ') }, { status: 400 });
-    }
-  }
-
-  const updated = await updateVariationFields(loaded.schema, loaded.row.id, data);
-  return NextResponse.json(serializeVariation(updated));
 }
 
 export async function DELETE(request: Request, context: RouteContext) {

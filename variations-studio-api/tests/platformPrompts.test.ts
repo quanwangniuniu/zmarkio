@@ -1,4 +1,5 @@
 import { buildExternalUrlPrompt, buildSystemPrompt, buildUserPrompt } from '@/src/ai/prompts';
+import { metaSpec } from '@/src/platforms/meta';
 import type { PlatformSpec } from '@/src/platforms/types';
 
 const freeTextSpec: PlatformSpec = {
@@ -32,6 +33,36 @@ describe('platform-aware prompts', () => {
 
   it('builds the free-text platform template user prompt', () => {
     expect(buildUserPrompt(source, '', freeTextSpec)).toMatchSnapshot();
+  });
+
+  it('reads an existing Meta creative by its own fields while requesting the target fields', () => {
+    const template = {
+      hook: 'Travel light', headline: 'Weekend essentials', description: 'Pack one bag.', cta: 'SHOP_NOW',
+    };
+    const prompt = buildUserPrompt(template, '', freeTextSpec, metaSpec.fields);
+
+    expect(prompt).toContain([
+      '- Hook: Travel light', '- Headline: Weekend essentials', '- Description: Pack one bag.', '- CTA: SHOP_NOW',
+    ].join('\n'));
+    expect(prompt).toContain('The title, body and action must each differ from the source.');
+    expect(prompt).not.toContain('undefined');
+  });
+
+  it('allows optional fields to be omitted in the system, template and URL prompts', () => {
+    const spec = {
+      ...freeTextSpec,
+      fields: freeTextSpec.fields.map(field => field.key === 'body' ? { ...field, required: false } : field),
+    };
+    const keyRule = 'using only these keys: title, body, action. Optional keys: body. All other keys are required.';
+    const templatePrompt = buildUserPrompt({ title: source.title, action: source.action }, '', spec);
+    const urlPrompt = buildExternalUrlPrompt(pageText, '', spec);
+
+    expect(buildSystemPrompt(spec)).toContain(keyRule);
+    expect(templatePrompt).toContain('Rewrite each field you return');
+    expect(templatePrompt).toContain('The title and action must each differ from the source.');
+    expect(templatePrompt).not.toContain('undefined');
+    expect(urlPrompt).toContain(keyRule);
+    expect(urlPrompt).toContain('Rewrite each field you return');
   });
 
   it('builds the free-text platform external URL user prompt', () => {

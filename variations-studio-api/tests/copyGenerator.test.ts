@@ -1,6 +1,8 @@
 import { createCopyGenerator } from '@/src/ai';
 import { callOllamaJson, getOllamaConfig, } from '@/src/ai/providers/ollama';
 import type { CopyGenerator, CopyJson, } from '@/src/ai/types';
+import { metaSpec } from '@/src/platforms/meta';
+import { testTextSpec } from './support/textPlatform';
 
 jest.mock('@/src/ai/providers/ollama', () => ({
   callOllamaJson: jest.fn(),
@@ -33,21 +35,16 @@ describe('CopyGenerator', () => {
   });
 
   it('delegates to the Ollama provider', async () => {
-    const copy: CopyJson = {
-      hook: 'h',
-      headline: 'headline',
-      description: 'desc',
-      cta: 'LEARN_MORE',
-    };
+    const copy: CopyJson = { ad_text: 'New arrivals', action: 'JOIN_US' };
 
     ollamaMock.mockResolvedValueOnce(copy);
 
     const generator = createCopyGenerator();
-    const result = await generator.generateCopy('system', 'user');
+    const result = await generator.generateCopy('system', 'user', testTextSpec);
 
     expect(result).toEqual(copy);
     expect(generator.modelName).toBe('test-model');
-    expect(ollamaMock).toHaveBeenCalledWith('system', 'user');
+    expect(ollamaMock).toHaveBeenCalledWith('system', 'user', testTextSpec);
   });
 
   it('accepts an injected mock generator without touching Ollama', async () => {
@@ -62,7 +59,7 @@ describe('CopyGenerator', () => {
       getErrorMessage: () => null,
     };
 
-    const result = await injected.generateCopy('sys', 'usr');
+    const result = await injected.generateCopy('sys', 'usr', metaSpec);
 
     expect(result.hook).toBe('injected');
     expect(ollamaMock).not.toHaveBeenCalled();

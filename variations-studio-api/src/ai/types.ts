@@ -1,9 +1,6 @@
-export type CopyJson = {
-  hook: string;
-  headline: string;
-  description: string;
-  cta: string;
-};
+import type { PlatformSpec } from '@/src/platforms/types';
+
+export type CopyJson = Record<string, string>;
 
 /**
  * Pluggable AI copy provider. Domain code depends on this interface only —
@@ -12,6 +9,6 @@ export type CopyJson = {
  */
 export interface CopyGenerator {
   readonly modelName: string;
-  generateCopy(systemPrompt: string, userPrompt: string): Promise<CopyJson>;
+  generateCopy(systemPrompt: string, userPrompt: string, spec: PlatformSpec): Promise<CopyJson>;
   getErrorMessage(err: unknown): string | null;
 }

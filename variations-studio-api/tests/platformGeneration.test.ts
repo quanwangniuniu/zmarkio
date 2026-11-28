@@ -3,9 +3,10 @@ import { createVariation } from '@/lib/variationCreate';
 import { buildSystemPrompt, buildUserPrompt } from '@/src/ai/prompts';
 import type { CopyGenerator, CopyJson } from '@/src/ai/types';
 import { runCustomGenerate } from '@/src/domains/generate/orchestrator';
-import { getPlatformSpec, type PlatformSpec } from '@/src/platforms';
+import { createPlatformRegistry, getPlatformSpec, listPlatformIds, type PlatformSpec } from '@/src/platforms';
 import { metaSpec } from '@/src/platforms/meta';
 import { insertVariation, insertVariations } from '@/src/repo';
+import { testTextSpec } from './support/textPlatform';
 
 jest.mock('@/lib/projects', () => ({
   ...jest.requireActual('@/lib/projects'),
@@ -14,10 +15,18 @@ jest.mock('@/lib/projects', () => ({
 jest.mock('@/src/platforms', () => ({
   ...jest.requireActual('@/src/platforms'),
   getPlatformSpec: jest.fn(),
+  listPlatformIds: jest.fn(),
 }));
 jest.mock('@/src/repo', () => ({ insertVariation: jest.fn(), insertVariations: jest.fn() }));
 
 describe('platform configuration in generation and creation', () => {
+  const registry = createPlatformRegistry([metaSpec, testTextSpec]);
+  beforeEach(() => {
+    jest.mocked(listPlatformIds).mockImplementation(registry.listPlatformIds);
+    jest.mocked(getPlatformSpec).mockImplementation(registry.getPlatformSpec);
+    jest.mocked(requireProjectForUser).mockResolvedValue({ ok: true, projectId: BigInt(12) });
+  });
+
   it('takes the prompt, version, CTA policy and slug source from the platform spec', async () => {
     const spec: PlatformSpec = {
       ...metaSpec,
@@ -30,19 +39,21 @@ describe('platform configuration in generation and creation', () => {
     const baseCopy: CopyJson = {
       hook: 'Source hook', headline: 'Source headline', description: 'Source description', cta: 'SHOP_NOW',
     };
-    const generateCopy = jest.fn<Promise<CopyJson>, [string, string]>()
+    const generateCopy = jest.fn<Promise<CopyJson>, Parameters<CopyGenerator['generateCopy']>>()
       .mockResolvedValue({ ...baseCopy, hook: 'Hook for the slug', cta: 'join us' });
     const generator: CopyGenerator = { modelName: 'test-model', generateCopy, getErrorMessage: () => null };
 
     jest.mocked(getPlatformSpec).mockReturnValue(spec);
-    jest.mocked(requireProjectForUser).mockResolvedValue({ ok: true, projectId: BigInt(12) });
     jest.mocked(insertVariations).mockImplementation(async (_schema, rows) => rows.map((row, index) => ({
       ...row,
+      hook: row.fields.hook,
+      headline: row.fields.headline,
+      description: row.fields.description,
+      cta: row.fields.cta,
       id: BigInt(index + 1),
       createdAt: new Date('2026-01-01T00:00:00Z'),
       updatedAt: new Date('2026-01-01T00:00:00Z'),
       isDeleted: false,
-      platform: 'meta',
     })));
 
     const result = await runCustomGenerate({
@@ -54,10 +65,39 @@ describe('platform configuration in generation and creation', () => {
     });
 
     expect(getPlatformSpec).toHaveBeenCalledWith('meta');
-    expect(generateCopy).toHaveBeenCalledWith(buildSystemPrompt(spec), buildUserPrompt(baseCopy, 'Focus on value', spec));
+    expect(generateCopy).toHaveBeenCalledWith(
+      buildSystemPrompt(spec), buildUserPrompt(baseCopy, 'Focus on value', spec), spec
+    );
     expect(result.results[0]).toMatchObject({
-      cta: 'SKIP', prompt_version: 'alternate-v2', slug: 'hook-for-the-slug',
+      fields: { cta: 'SKIP' }, prompt_version: 'alternate-v2', slug: 'hook-for-the-slug',
     });
+  });
+
+  it('uses the requested platform for custom source fields, retry feedback and the saved draft', async () => {
+    const baseCopy = { ad_text: 'Source ad', action: 'JOIN_US', tagline: 'Source tagline' };
+    const generateCopy = jest.fn<Promise<CopyJson>, Parameters<CopyGenerator['generateCopy']>>()
+      .mockResolvedValueOnce({ ad_text: 'a'.repeat(31), action: 'JOIN_US' })
+      .mockResolvedValueOnce({ ad_text: 'A shorter offer', action: 'Unknown action' });
+    jest.mocked(insertVariations).mockResolvedValueOnce([]);
+
+    await runCustomGenerate({
+      schema: 'test_tenant', organizationId: BigInt(3), userId: 7,
+      body: { project_id: '12', platform: testTextSpec.id, source_mode: 'custom', base_copy: baseCopy },
+      generator: { modelName: 'test-model', generateCopy, getErrorMessage: () => null },
+    });
+
+    const [system, prompt, spec] = generateCopy.mock.calls[0];
+    expect(spec).toEqual(testTextSpec);
+    expect(system).toBe(buildSystemPrompt(testTextSpec));
+    expect(prompt).toContain('- Ad text: Source ad');
+    expect(prompt).toContain('- Tagline: Source tagline');
+    expect(generateCopy).toHaveBeenNthCalledWith(
+      2, system, expect.stringContaining('ad_text: 31 characters (maximum 30)'), testTextSpec
+    );
+    expect(insertVariations).toHaveBeenLastCalledWith('test_tenant', [expect.objectContaining({
+      platform: testTextSpec.id, slug: 'a-shorter-offer', promptVersion: testTextSpec.promptVersion,
+      fields: { ad_text: 'A shorter offer', action: 'SKIP', tagline: '' },
+    })]);
   });
 
   it('propagates unsupported validation rules before saving any item', async () => {
@@ -68,7 +108,6 @@ describe('platform configuration in generation and creation', () => {
         limits: { maxChars: 30, characterCounting: 'double-width' },
       }],
     });
-    jest.mocked(requireProjectForUser).mockResolvedValue({ ok: true, projectId: BigInt(12) });
     jest.mocked(insertVariations).mockClear();
     const copy = { hook: 'Hook', headline: 'Headline', description: 'Description', cta: 'SHOP_NOW' };
     const generateCopy = jest.fn()

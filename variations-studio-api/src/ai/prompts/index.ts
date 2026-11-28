@@ -16,11 +16,23 @@ function countWord(count: number): string {
   return COUNT_WORDS[count] ?? String(count);
 }
 
-export function buildJsonShapePrompt(fieldKeys: readonly string[]): string {
+function optionalKeys(spec: PlatformSpec): string[] {
+  return spec.fields.filter(field => !field.required).map(field => field.key);
+}
+
+function jsonKeysInstruction(keys: readonly string[], optional: readonly string[], requiredPhrase: string): string {
+  if (optional.length) {
+    return `Return strict JSON using only these keys: ${keys.join(', ')}. `
+      + `Optional keys: ${optional.join(', ')}. All other keys are required.`;
+  }
+  return `Return strict JSON ${requiredPhrase}: ${keys.join(', ')}.`;
+}
+
+export function buildJsonShapePrompt(fieldKeys: readonly string[], optional: readonly string[] = []): string {
   return (
     'OUTPUT JSON SHAPE\n'
-    + `Return strict JSON with exactly these ${countWord(fieldKeys.length)} keys: ${fieldKeys.join(', ')}. `
-    + 'No prose, no explanation, no fences.\n\n'
+    + jsonKeysInstruction(fieldKeys, optional, `with exactly these ${countWord(fieldKeys.length)} keys`)
+    + ' No prose, no explanation, no fences.\n\n'
   );
 }
 
@@ -53,7 +65,7 @@ export function buildSystemPrompt(spec: PlatformSpec): string {
     : '';
   return (
     spec.promptIntro
-    + buildJsonShapePrompt(spec.fields.map((field) => field.key))
+    + buildJsonShapePrompt(spec.fields.map((field) => field.key), optionalKeys(spec))
     + spec.promptFragment
     + 'OUTPUT LANGUAGE\n'
     + 'Detect the language of the source ad copy. Output every text field in '
@@ -68,7 +80,10 @@ export function buildSystemPrompt(spec: PlatformSpec): string {
 export type { CopyJson } from '@/src/ai/types';
 
 function defaultInstruction(spec: PlatformSpec, source: 'template' | 'url'): string {
-  const target = spec.fields.length === 1 ? 'the field' : `all ${countWord(spec.fields.length)} fields`;
+  const count = spec.fields.length;
+  const target = spec.fields.some(field => !field.required)
+    ? 'each field you return'
+    : count === 1 ? 'the field' : `all ${countWord(count)} fields`;
   const enumLock = spec.cta.kind === 'enum' ? ` and the ${spec.cta.field} enum lock` : '';
   return `Rewrite ${target} with fresh phrasing, exploring a different angle than a literal rewrite.`
     + (source === 'url' ? ' Preserve the source language.' : '')
@@ -100,24 +115,30 @@ export function buildExternalUrlPrompt(pageText: string, instruction: string, sp
     + 'must be the NEW VARIATION, not the extracted source.\n\n'
     + `Page text:\n---\n${pageText}\n---\n\n`
     + `Instruction: ${focus}\n\n`
-    + `Return strict JSON with keys: ${spec.fields.map((field) => field.key).join(', ')}. `
-    + 'No prose, no fences.'
+    + jsonKeysInstruction(spec.fields.map((field) => field.key), optionalKeys(spec), 'with keys')
+    + ' No prose, no fences.'
   );
 }
 
 function rewriteRequirement({ fields, cta }: PlatformSpec): string {
-  const keys = fields.map((field) => field.key).filter((key) => cta.kind !== 'enum' || key !== cta.field);
+  const keys = fields.filter(field => field.required && (cta.kind !== 'enum' || field.key !== cta.field))
+    .map(field => field.key);
   if (keys.length === 0) return '';
   if (keys.length === 1) return ` The ${keys[0]} must differ from the source.`;
   const list = `${keys.slice(0, -1).join(', ')} and ${keys[keys.length - 1]}`;
   return ` The ${list} must each differ from the source.`;
 }
 
-export function buildUserPrompt(template: Record<string, string>, instruction: string, spec: PlatformSpec): string {
+export function buildUserPrompt(
+  template: Record<string, string>,
+  instruction: string,
+  spec: PlatformSpec,
+  sourceFields = spec.fields
+): string {
   const focus = instruction.trim() || defaultInstruction(spec, 'template');
   return (
     'Source ad (reference only; every text field you return must use NEW wording):\n'
-    + spec.fields.map(({ key, label }) => `- ${label}: ${template[key]}`).join('\n')
+    + sourceFields.map(({ key, label }) => `- ${label}: ${template[key] ?? ''}`).join('\n')
     + '\n\n'
     + `Instruction: ${focus}\n\n`
     + 'Write one new variation of the source ad.'
