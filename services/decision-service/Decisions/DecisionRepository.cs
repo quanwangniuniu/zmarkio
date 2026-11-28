@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using DecisionService.Decisions.Relationships;
 
 namespace DecisionService.Decisions;
 
@@ -53,7 +54,7 @@ public sealed class DecisionSelfApprovalException()
 {
 }
 
-public sealed class InMemoryDecisionRepository : IDecisionRepository
+public sealed class InMemoryDecisionRepository : IDecisionRepository, IDecisionConnectionsOperations
 {
     private readonly ConcurrentDictionary<int, DecisionRecord> _decisions = new();
     private int _nextDecisionId = 1;

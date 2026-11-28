@@ -3,12 +3,14 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using DecisionService.Decisions;
+using DecisionService.Decisions.Relationships;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 
 namespace DecisionService.Tests;
@@ -145,8 +147,37 @@ public sealed class DecisionApiTests
         Assert.Equal(HttpStatusCode.BadRequest, patchResponse.StatusCode);
     }
 
+    [Fact]
+    public async Task In_memory_connections_route_shares_the_decision_repository_instance()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+        var repository = factory.Services.GetRequiredService<IDecisionRepository>();
+        Assert.Same(repository, factory.Services.GetRequiredService<IDecisionConnectionsOperations>());
+        var draft = await repository.CreateAsync(12, 1,
+            new CreateDecisionDraftRequest("Connection source", null, null, null, null, null,
+                false, null, null, null, null), CancellationToken.None);
+
+        using var response = await client.GetAsync($"/api/decisions/{draft.Slug}/connections");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var payload = await response.Content.ReadFromJsonAsync<DecisionConnectionsResponse>();
+        Assert.NotNull(payload);
+        Assert.Equal(draft.Id, payload.Self.Id);
+        Assert.Empty(payload.Connected);
+        Assert.Empty(payload.Edges);
+    }
+
     private sealed class DecisionApiFactory(bool authenticated) : WebApplicationFactory<Program>
     {
+        protected override IHost CreateHost(IHostBuilder builder)
+        {
+            builder.ConfigureHostConfiguration(config => config.AddInMemoryCollection(
+                new Dictionary<string, string?> { ["DECISION_SERVICE_STORAGE"] = "in-memory" }));
+            return base.CreateHost(builder);
+        }
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.ConfigureAppConfiguration((context, config) =>

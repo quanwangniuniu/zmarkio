@@ -1,4 +1,5 @@
 using DecisionService.Decisions;
+using DecisionService.Decisions.Relationships;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -1359,7 +1360,11 @@ public sealed class DecisionCommitIntegrityTests : IAsyncLifetime
             Assert.Equal("title", error.Field);
         }
     }
-    private PostgresDecisionRepository Repository(int userId) => new(Connections(userId));
+    private PostgresDecisionRepository Repository(int userId)
+    {
+        var connections = Connections(userId);
+        return new PostgresDecisionRepository(connections, MigratedDatabase.Relationships(connections));
+    }
     private TenantConnectionFactory Connections(int userId) =>
         new(dataSource, Validator(), new HttpContextAccessor { HttpContext = Request(userId).HttpContext });
 

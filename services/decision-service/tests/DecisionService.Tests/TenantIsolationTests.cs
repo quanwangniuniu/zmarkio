@@ -1,7 +1,13 @@
+using System.Net;
+using System.Net.Http.Json;
 using DecisionService.Decisions;
+using DecisionService.Decisions.Relationships;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Testcontainers.PostgreSql;
@@ -107,6 +113,51 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         Assert.Equal("Globex secret", await Scalar<string>($"SELECT title FROM org_globex.decisions WHERE slug = '{GlobexSlug}'"));
     }
 
+    [Fact]
+    public async Task Connections_http_routes_keep_response_and_permissions_with_postgres_di()
+    {
+        await SeedConnectionsAsync("org_acme");
+        await Execute($"""
+            UPDATE org_acme.core_projectmember SET role = 'owner' WHERE user_id = {AcmeUser} AND project_id = 20;
+            INSERT INTO org_acme.decisions (id, slug, title, status, project_id, project_seq, is_deleted)
+            VALUES (105, 'deleted-node', 'Deleted node', 'DRAFT', 20, 4, true);
+            INSERT INTO org_acme.decision_edges (created_at, updated_at, edge_type, from_decision_id, to_decision_id)
+            VALUES (now(), now(), 'FOLLOW_UP', 101, 105);
+            """);
+        await using var factory = new PostgresApiFactory(postgres.GetConnectionString());
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", JwtTestTokenFactory.CreateValidToken(AcmeUser));
+        using (var scope = factory.Services.CreateScope())
+        {
+            Assert.Same(scope.ServiceProvider.GetRequiredService<DecisionRelationshipService>(),
+                scope.ServiceProvider.GetRequiredService<IDecisionConnectionsOperations>());
+        }
+
+        using var edit = await client.PutAsJsonAsync("/api/decisions/source/connections",
+            new DecisionConnectionsUpdateRequest([104, 103, 102], null));
+        Assert.Equal(HttpStatusCode.OK, edit.StatusCode);
+        var payload = await edit.Content.ReadFromJsonAsync<DecisionConnectionsResponse>();
+        Assert.NotNull(payload);
+        Assert.Equal(new DecisionConnectionSelfDto(101, 1), payload.Self);
+        Assert.Equal(new[] { 102, 103 }, payload.Connected.Select(node => node.Id));
+        Assert.Equal(new[] { 102, 103 }, payload.Edges.Select(edge => edge.ToId));
+        Assert.Equal(1, await Scalar("SELECT count(*) FROM org_acme.decision_edges WHERE from_decision_id = 101 AND to_decision_id = 104"));
+
+        using var read = await client.GetAsync("/api/decisions/101/connections");
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        Assert.Equal(await edit.Content.ReadAsStringAsync(), await read.Content.ReadAsStringAsync());
+
+        await Execute($"UPDATE org_acme.core_projectmember SET is_active = false WHERE user_id = {AcmeUser} AND project_id = 21");
+        const string snapshot = "SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id)::text FROM org_acme.decision_edges e";
+        var before = await Scalar<string>(snapshot);
+        using var rejected = await client.PutAsJsonAsync("/api/decisions/101/connections",
+            new DecisionConnectionsUpdateRequest([104], null));
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Equal("Connections could not be updated.",
+            (await rejected.Content.ReadFromJsonAsync<Dictionary<string, string>>())!["detail"]);
+        Assert.Equal(before, await Scalar<string>(snapshot));
+    }
+
     [Theory]
     [InlineData(false, 103, StatusCodes.Status401Unauthorized, true, false)]
     [InlineData(true, 103, StatusCodes.Status403Forbidden, true, false)]
@@ -204,7 +255,9 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         {
             access = new AfterAuthorization(access, afterAuthorization);
         }
-        var controller = new DecisionsController(new PostgresDecisionRepository(connections), access)
+        var relationships = MigratedDatabase.Relationships(connections);
+        var controller = new DecisionConnectionsController(
+            new PostgresDecisionRepository(connections, relationships), access, relationships)
         {
             ControllerContext = new ControllerContext { HttpContext = context },
         };
@@ -253,7 +306,27 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         Assert.Equal(2, access.OrganizationId);
     }
 
-    private PostgresDecisionRepository Repository(int userId) => new(Connections(userId));
+    private sealed class PostgresApiFactory(string connectionString) : WebApplicationFactory<Program>
+    {
+        protected override IHost CreateHost(IHostBuilder builder)
+        {
+            // The storage branch is selected before WebApplicationBuilder.Build().
+            builder.ConfigureHostConfiguration(config => config.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["DECISION_SERVICE_STORAGE"] = "postgres",
+                    ["DJANGO_JWT_SIGNING_KEY"] = SigningKey,
+                    ["ConnectionStrings:DecisionDb"] = connectionString,
+                }));
+            return base.CreateHost(builder);
+        }
+    }
+
+    private PostgresDecisionRepository Repository(int userId)
+    {
+        var connections = Connections(userId);
+        return new PostgresDecisionRepository(connections, MigratedDatabase.Relationships(connections));
+    }
 
     private JwtDecisionAccessService Access(int userId) => new(Connections(userId), Validator());
 

@@ -284,40 +284,6 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
         return await repository.DeleteSignalAsync(lookup, signalId, cancellationToken) ? NoContent() : NotFound(new { detail = "Not found." });
     }
 
-    [HttpGet("{lookup}/connections")]
-    public async Task<ActionResult<DecisionConnectionsResponse>> GetConnections([FromRoute] string lookup, CancellationToken cancellationToken)
-    {
-        var existing = await repository.GetAsync(lookup, cancellationToken);
-        if (existing is null)
-        {
-            return NotFound(new { detail = "Not found." });
-        }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.View, cancellationToken);
-        if (access is not { Allowed: true })
-        {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
-        }
-        var connections = await repository.GetConnectionsAsync(lookup, cancellationToken);
-        return connections is null ? NotFound(new { detail = "Not found." }) : Ok(connections);
-    }
-
-    [HttpPut("{lookup}/connections")]
-    public async Task<ActionResult<DecisionConnectionsResponse>> UpdateConnections([FromRoute] string lookup, [FromBody] DecisionConnectionsUpdateRequest request, CancellationToken cancellationToken)
-    {
-        var existing = await repository.GetAsync(lookup, cancellationToken);
-        if (existing is null)
-        {
-            return NotFound(new { detail = "Not found." });
-        }
-        var access = await accessService.AuthorizeAsync(Request, existing.ProjectId ?? ProjectId(), DecisionAccessAction.Edit, cancellationToken);
-        if (access is not { Allowed: true })
-        {
-            return DecisionAccessResponses.UnauthorizedOrForbidden(access);
-        }
-        var connections = await repository.UpdateConnectionsAsync(lookup, access.UserId, access.IsSuperuser, request, cancellationToken);
-        return connections is null ? BadRequest(new { detail = "Connections could not be updated." }) : Ok(connections);
-    }
-
     [HttpGet("{lookup}/reviews")]
     public async Task<ActionResult<IReadOnlyList<DecisionReviewDto>>> ListReviews([FromRoute] string lookup, CancellationToken cancellationToken)
     {

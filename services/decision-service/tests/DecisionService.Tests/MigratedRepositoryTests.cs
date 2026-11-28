@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using DecisionService.Decisions;
+using DecisionService.Decisions.Relationships;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -72,11 +73,20 @@ public sealed class MigratedDatabase : IAsyncLifetime
         await postgres.DisposeAsync();
     }
 
-    public PostgresDecisionRepository Repository() =>
-        new(new TenantConnectionFactory(
+    public PostgresDecisionRepository Repository() => Repository(out _);
+
+    public PostgresDecisionRepository Repository(out DecisionRelationshipService relationships)
+    {
+        var connections = new TenantConnectionFactory(
             DataSource,
             new DjangoJwtValidator(Options.Create(new DjangoJwtOptions { SigningKey = "test-signing-key" })),
-            new HttpContextAccessor()));
+            new HttpContextAccessor());
+        relationships = Relationships(connections);
+        return new PostgresDecisionRepository(connections, relationships);
+    }
+
+    public static DecisionRelationshipService Relationships(TenantConnectionFactory connections) =>
+        new(connections, new PostgresDecisionRelationshipRepository());
 
     public async Task Execute(string sql)
     {
@@ -839,9 +849,10 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
 
     private static DecisionReviewInput Review() => new("Hit target", "Would do again", "GOOD");
 
-    private DecisionsController Controller(bool isSuperuser)
+    private DecisionConnectionsController Controller(bool isSuperuser)
     {
-        var controller = new DecisionsController(repository, new AllowedAccessService(isSuperuser));
+        var decisionRepository = database.Repository(out var relationships);
+        var controller = new DecisionConnectionsController(decisionRepository, new AllowedAccessService(isSuperuser), relationships);
         controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
         return controller;
     }
