@@ -20,8 +20,10 @@ datasource db {
 // Reach them through lib/projects.ts raw SQL instead.
 
 model MetaAdAccount {
-  id        BigInt  @id
-  projectId BigInt? @map("project_id")
+  id             BigInt  @id
+  projectId      BigInt? @map("project_id")
+  organizationId BigInt? @map("organization_id")
+  creatives      MetaAdCreative[]
 
   @@map("meta_ad_accounts")
 }
@@ -29,6 +31,7 @@ model MetaAdAccount {
 model MetaAdCreative {
   id                 BigInt @id
   adAccountId        BigInt @map("ad_account_id")
+  adAccount          MetaAdAccount @relation(fields: [adAccountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   title              String
   body               String
   callToActionType   String @map("call_to_action_type") @db.VarChar(64)

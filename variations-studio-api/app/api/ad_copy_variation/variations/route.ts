@@ -63,6 +63,7 @@ export async function POST(request: Request) {
   try {
     const row = await createVariation({
       schema: auth.schema,
+      organizationId: auth.organizationId,
       projectId: project.projectId,
       userId: auth.userId,
       body: json.body,

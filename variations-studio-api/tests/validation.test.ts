@@ -116,10 +116,8 @@ describe('generate creative ownership', () => {
       customBody({ source_mode: 'existing', creative_id: Number(fixture.creativeB) })
     );
 
-    expect(response.status).toBe(400);
-    await expect(readJson(response)).resolves.toEqual({
-      error: 'creative_id does not belong to project_id',
-    });
+    expect(response.status).toBe(404);
+    await expect(readJson(response)).resolves.toEqual({ detail: 'Not found.' });
   });
 
   it('requires a creative_id when source_mode is existing', async () => {

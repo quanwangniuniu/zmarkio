@@ -47,6 +47,7 @@ describe('platform configuration in generation and creation', () => {
 
     const result = await runCustomGenerate({
       schema: 'test_tenant',
+      organizationId: BigInt(3),
       userId: 7,
       body: { project_id: '12', source_mode: 'custom', base_copy: baseCopy, instruction: 'Focus on value' },
       generator,
@@ -76,7 +77,7 @@ describe('platform configuration in generation and creation', () => {
     const getErrorMessage = jest.fn(() => null);
 
     await expect(runCustomGenerate({
-      schema: 'test_tenant', userId: 7,
+      schema: 'test_tenant', organizationId: BigInt(3), userId: 7,
       body: { project_id: '12', source_mode: 'custom', count: 2, base_copy: copy },
       generator: { modelName: 'test-model', generateCopy, getErrorMessage },
     })).rejects.toThrow('Unsupported copy validation rules for meta.wide_title');
@@ -96,6 +97,7 @@ describe('platform configuration in generation and creation', () => {
 
     await createVariation({
       schema: 'test_tenant',
+      organizationId: BigInt(3),
       projectId: BigInt(12),
       userId: 7,
       body: { source_mode: 'custom', hook: 'Hook for manual slug', headline: 'Unused headline', ...input },
