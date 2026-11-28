@@ -1,4 +1,5 @@
 using DecisionService.Decisions;
+using DecisionService.Decisions.Relationships;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Npgsql;
@@ -50,11 +51,17 @@ if (string.Equals(storage, "postgres", StringComparison.OrdinalIgnoreCase))
     }, tags: ["ready"], timeout: TimeSpan.FromSeconds(3));
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddScoped<TenantConnectionFactory>();
+    builder.Services.AddScoped<PostgresDecisionRelationshipRepository>();
+    builder.Services.AddScoped<DecisionRelationshipService>();
+    builder.Services.AddScoped<IDecisionConnectionsOperations>(service =>
+        service.GetRequiredService<DecisionRelationshipService>());
     builder.Services.AddScoped<IDecisionRepository, PostgresDecisionRepository>();
 }
 else
 {
     builder.Services.AddSingleton<IDecisionRepository, InMemoryDecisionRepository>();
+    builder.Services.AddSingleton<IDecisionConnectionsOperations>(service =>
+        (IDecisionConnectionsOperations)service.GetRequiredService<IDecisionRepository>());
 }
 
 var app = builder.Build();

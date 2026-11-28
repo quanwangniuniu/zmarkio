@@ -1,10 +1,12 @@
 using System.Text.Json;
+using DecisionService.Decisions.Relationships;
 using Npgsql;
 using NpgsqlTypes;
 
 namespace DecisionService.Decisions;
 
-public sealed class PostgresDecisionRepository(TenantConnectionFactory connections) : IDecisionRepository
+public sealed class PostgresDecisionRepository(
+    TenantConnectionFactory connections, DecisionRelationshipService relationships) : IDecisionRepository
 {
     public async Task<DecisionListResponse> ListAsync(int? projectId, DecisionStatus? status, int pageSize, int pageToken, CancellationToken ct)
     {
@@ -108,6 +110,11 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             ? await ResolveOriginMeetingAsync(connection, request.OriginMeetingId.Value, projectId.Value, ct)
             : null;
         var transaction = session.Transaction;
+        if (request.ParentDecisionIds is not null)
+        {
+            await LockProjectAsync(connection, transaction, projectId.Value, ct);
+        }
+
         var now = DateTimeOffset.UtcNow;
         var projectSeq = await NextProjectSequenceAsync(connection, projectId.Value, ct);
         var topic = NormalizeTopic(request.Topic);
@@ -188,7 +195,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         var id = Convert.ToInt32(await command.ExecuteScalarAsync(ct));
         await ReplaceOptionsAsync(connection, transaction, id, now, request.Options, ct);
         await ReplaceSignalsAsync(connection, transaction, id, actorId, now, request.Signals, ct);
-        await ReplaceParentEdgesAsync(connection, transaction, id, projectId.Value, actorId, request.ParentDecisionIds, ct);
+        await relationships.ReplaceParentEdgesAsync(session, id, projectId.Value, actorId, request.ParentDecisionIds, ct);
         if (originMeeting is not null)
         {
             await CreateMeetingDecisionOriginAsync(connection, transaction, originMeeting.Id, id, actorId, now, ct);
@@ -238,6 +245,11 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 throw new DecisionValidationException(offendingField,
                     $"Cannot modify {offendingField} because this decision is {existing.Status}.");
             }
+        }
+
+        if (request.ParentDecisionIds is not null && existing.ProjectId is int projectId)
+        {
+            await LockProjectAsync(connection, transaction, projectId, ct);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -311,7 +323,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             }
             if (request.ParentDecisionIds is not null && existing.ProjectId is not null)
             {
-                await ReplaceParentEdgesAsync(connection, transaction, existing.Id, existing.ProjectId.Value, actorId, request.ParentDecisionIds, ct);
+                await relationships.ReplaceParentEdgesAsync(session, existing.Id, existing.ProjectId.Value, actorId, request.ParentDecisionIds, ct);
             }
         }
 
@@ -496,6 +508,11 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         {
             return false;
         }
+        if (existing.ProjectId is int projectId)
+        {
+            await LockProjectAsync(connection, session.Transaction, projectId, ct);
+        }
+
         using var command = connection.CreateCommand();
         command.CommandText = """
             UPDATE decisions
@@ -665,73 +682,12 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return deleted;
     }
 
-    public async Task<DecisionConnectionsResponse?> GetConnectionsAsync(string lookup, CancellationToken ct)
-    {
-        await using var session = await connections.OpenAsync(ct);
-        var connection = session.Connection;
-        var decision = await GetAsync(connection, lookup, ct);
-        return decision is null ? null : await BuildConnectionsPayloadAsync(connection, decision.Id, decision.ProjectId, decision.ProjectSeq, ct);
-    }
+    public Task<DecisionConnectionsResponse?> GetConnectionsAsync(string lookup, CancellationToken ct) =>
+        relationships.GetConnectionsAsync(lookup, ct);
 
-    public async Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, DecisionConnectionsUpdateRequest request, CancellationToken ct)
-    {
-        await using var session = await connections.OpenAsync(ct);
-        var connection = session.Connection;
-        var transaction = session.Transaction;
-        var decision = await GetAsync(connection, lookup, ct);
-        if (decision is null || decision.ProjectId is null)
-        {
-            return null;
-        }
-
-        var targetIds = await ResolveConnectionTargetIdsAsync(connection, decision, request, ct);
-        if (targetIds is null)
-        {
-            return null;
-        }
-
-        using (var deleteCommand = connection.CreateCommand())
-        {
-            deleteCommand.Transaction = transaction;
-            deleteCommand.CommandText = """
-                DELETE FROM decision_edges
-                WHERE edge_type = 'RELATED'
-                  AND (from_decision_id = @decision_id OR to_decision_id = @decision_id)
-                """;
-            deleteCommand.Parameters.AddWithValue("decision_id", decision.Id);
-            await deleteCommand.ExecuteNonQueryAsync(ct);
-        }
-
-        foreach (var targetId in targetIds.Where(id => id != decision.Id).Distinct())
-        {
-            var fromId = Math.Min(decision.Id, targetId);
-            var toId = Math.Max(decision.Id, targetId);
-            using var insertCommand = connection.CreateCommand();
-            insertCommand.Transaction = transaction;
-            insertCommand.CommandText = """
-                INSERT INTO decision_edges (
-                    created_at,
-                    updated_at,
-                    is_deleted,
-                    from_decision_id,
-                    to_decision_id,
-                    created_by_id,
-                    edge_type
-                )
-                VALUES (@now, @now, false, @from_id, @to_id, @actor_id, 'RELATED')
-                ON CONFLICT (from_decision_id, to_decision_id) DO UPDATE SET edge_type = 'RELATED', updated_at = EXCLUDED.updated_at
-                """;
-            insertCommand.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
-            insertCommand.Parameters.AddWithValue("from_id", fromId);
-            insertCommand.Parameters.AddWithValue("to_id", toId);
-            AddNullableInteger(insertCommand, "actor_id", actorId);
-            await insertCommand.ExecuteNonQueryAsync(ct);
-        }
-
-        var payload = await BuildConnectionsPayloadAsync(connection, decision.Id, decision.ProjectId, decision.ProjectSeq, ct);
-        await session.CommitAsync();
-        return payload;
-    }
+    public Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(
+        string lookup, int? actorId, bool isSuperuser, DecisionConnectionsUpdateRequest request, CancellationToken ct) =>
+        relationships.UpdateConnectionsAsync(lookup, actorId, isSuperuser, request, ct);
 
     public async Task<DecisionGraphResponse> GetGraphAsync(int projectId, bool allProjects, int userId, bool isSuperuser, CancellationToken ct)
     {
@@ -1229,142 +1185,6 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         await command.ExecuteNonQueryAsync(ct);
     }
 
-    private async Task<DecisionConnectionsResponse> BuildConnectionsPayloadAsync(NpgsqlConnection connection, int decisionId, int? projectId, int projectSeq, CancellationToken ct)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT
-                e.from_decision_id,
-                e.to_decision_id,
-                fd.project_seq AS from_seq,
-                td.project_seq AS to_seq,
-                other_d.id AS other_id,
-                other_d.slug AS other_slug,
-                other_d.project_seq AS other_seq,
-                other_d.title AS other_title
-            FROM decision_edges e
-            JOIN decisions fd ON fd.id = e.from_decision_id
-            JOIN decisions td ON td.id = e.to_decision_id
-            JOIN decisions other_d ON other_d.id = CASE
-                WHEN e.from_decision_id = @decision_id THEN e.to_decision_id
-                ELSE e.from_decision_id
-            END
-            WHERE (e.from_decision_id = @decision_id OR e.to_decision_id = @decision_id)
-              AND e.is_deleted = false
-              AND fd.is_deleted = false
-              AND td.is_deleted = false
-              AND (@project_id IS NULL OR (fd.project_id = @project_id AND td.project_id = @project_id))
-            ORDER BY other_d.project_seq, other_d.id
-            """;
-        command.Parameters.AddWithValue("decision_id", decisionId);
-        AddNullableInteger(command, "project_id", projectId);
-
-        var connected = new Dictionary<int, DecisionConnectionNodeDto>();
-        var edges = new List<DecisionConnectionEdgeDto>();
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
-        {
-            var otherId = reader.GetInt32(reader.GetOrdinal("other_id"));
-            connected[otherId] = new DecisionConnectionNodeDto(
-                otherId,
-                GetNullableString(reader, "other_slug") ?? Slug(otherId),
-                reader.GetInt32(reader.GetOrdinal("other_seq")),
-                GetNullableString(reader, "other_title")
-            );
-            edges.Add(new DecisionConnectionEdgeDto(
-                reader.GetInt32(reader.GetOrdinal("from_decision_id")),
-                reader.GetInt32(reader.GetOrdinal("to_decision_id")),
-                reader.GetInt32(reader.GetOrdinal("from_seq")),
-                reader.GetInt32(reader.GetOrdinal("to_seq"))
-            ));
-        }
-
-        return new DecisionConnectionsResponse(
-            new DecisionConnectionSelfDto(decisionId, projectSeq),
-            connected.Values.OrderBy(node => node.ProjectSeq).ThenBy(node => node.Id).ToList(),
-            edges
-        );
-    }
-
-    private async Task<IReadOnlyList<int>?> ResolveConnectionTargetIdsAsync(
-        NpgsqlConnection connection,
-        DecisionDetailDto decision,
-        DecisionConnectionsUpdateRequest request,
-        CancellationToken ct
-    )
-    {
-        if (request.ConnectedDecisionIds is { Count: > 0 } && request.ConnectedDecisionSeqs is { Count: > 0 })
-        {
-            return null;
-        }
-        if (request.ConnectedDecisionIds is { } ids)
-        {
-            var requestedIds = ids.Where(id => id != decision.Id).Distinct().ToList();
-            if (requestedIds.Count == 0)
-            {
-                return Array.Empty<int>();
-            }
-            if (decision.ProjectId is null)
-            {
-                return null;
-            }
-
-            using var byIdCommand = connection.CreateCommand();
-            byIdCommand.CommandText = """
-                SELECT target.id
-                FROM decisions target
-                JOIN core_project target_project ON target_project.id = target.project_id
-                JOIN core_project current_project ON current_project.id = @project_id
-                WHERE target.id = ANY(@ids)
-                  AND target.is_deleted = false
-                  AND target_project.is_deleted = false
-                  AND current_project.is_deleted = false
-                  AND target_project.organization_id = current_project.organization_id
-                """;
-            byIdCommand.Parameters.AddWithValue("project_id", decision.ProjectId.Value);
-            byIdCommand.Parameters.AddWithValue("ids", requestedIds.ToArray());
-
-            var byIdResult = new List<int>();
-            await using var byIdReader = await byIdCommand.ExecuteReaderAsync(ct);
-            while (await byIdReader.ReadAsync(ct))
-            {
-                byIdResult.Add(byIdReader.GetInt32(0));
-            }
-            return byIdResult.Count == requestedIds.Count ? byIdResult : null;
-        }
-        if (decision.ProjectId is null)
-        {
-            return Array.Empty<int>();
-        }
-
-        var seqs = (request.ConnectedDecisionSeqs ?? Array.Empty<int>())
-            .Where(seq => seq != decision.ProjectSeq)
-            .Distinct()
-            .ToList();
-        if (seqs.Count == 0)
-        {
-            return Array.Empty<int>();
-        }
-
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            SELECT id
-            FROM decisions
-            WHERE project_id = @project_id
-              AND project_seq = ANY(@seqs)
-              AND is_deleted = false
-            """;
-        command.Parameters.AddWithValue("project_id", decision.ProjectId.Value);
-        command.Parameters.AddWithValue("seqs", seqs.ToArray());
-        var result = new List<int>();
-        await using var reader = await command.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
-        {
-            result.Add(reader.GetInt32(0));
-        }
-        return result.Count == seqs.Count ? result : null;
-    }
-
     private async Task<IReadOnlyList<int>> ResolveGraphProjectIdsAsync(NpgsqlConnection connection, int projectId, bool allProjects, int userId, bool isSuperuser, CancellationToken ct)
     {
         if (!allProjects)
@@ -1641,57 +1461,20 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         }
     }
 
-    private async Task ReplaceParentEdgesAsync(
-        NpgsqlConnection connection,
-        NpgsqlTransaction transaction,
-        int decisionId,
-        int projectId,
-        int? actorId,
-        IReadOnlyList<int>? parentDecisionIds,
-        CancellationToken ct
-    )
+    // Acquire the project row before taking decision or edge write locks.
+    private static async Task LockProjectAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, int projectId, CancellationToken ct)
     {
-        if (parentDecisionIds is null)
-        {
-            return;
-        }
-
-        using (var deleteCommand = connection.CreateCommand())
-        {
-            deleteCommand.Transaction = transaction;
-            deleteCommand.CommandText = "DELETE FROM decision_edges WHERE to_decision_id = @decision_id AND edge_type = 'FOLLOW_UP'";
-            deleteCommand.Parameters.AddWithValue("decision_id", decisionId);
-            await deleteCommand.ExecuteNonQueryAsync(ct);
-        }
-
-        foreach (var parentId in parentDecisionIds.Distinct().Where(parentId => parentId != decisionId))
-        {
-            using var command = connection.CreateCommand();
-            command.Transaction = transaction;
-            command.CommandText = """
-                INSERT INTO decision_edges (
-                    created_at,
-                    updated_at,
-                    is_deleted,
-                    from_decision_id,
-                    to_decision_id,
-                    edge_type,
-                    created_by_id
-                )
-                SELECT @now, @now, false, @from_decision_id, @to_decision_id, 'FOLLOW_UP', @created_by_id
-                WHERE EXISTS (
-                    SELECT 1 FROM decisions
-                    WHERE id = @from_decision_id AND project_id = @project_id AND is_deleted = false
-                )
-                ON CONFLICT DO NOTHING
-                """;
-            command.Parameters.AddWithValue("now", DateTimeOffset.UtcNow);
-            command.Parameters.AddWithValue("from_decision_id", parentId);
-            command.Parameters.AddWithValue("to_decision_id", decisionId);
-            command.Parameters.AddWithValue("project_id", projectId);
-            AddNullableInteger(command, "created_by_id", actorId);
-            await command.ExecuteNonQueryAsync(ct);
-        }
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT id
+            FROM core_project
+            WHERE id = @project_id
+            FOR NO KEY UPDATE
+            """;
+        command.Parameters.AddWithValue("project_id", projectId);
+        await command.ExecuteScalarAsync(ct);
     }
 
     private async Task RecordTransitionAsync(

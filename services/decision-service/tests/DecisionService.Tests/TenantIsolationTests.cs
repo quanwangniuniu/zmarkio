@@ -1,6 +1,13 @@
+using System.Net;
+using System.Net.Http.Json;
 using DecisionService.Decisions;
+using DecisionService.Decisions.Relationships;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Testcontainers.PostgreSql;
@@ -94,10 +101,186 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         Assert.Null(await repository.GetAsync(GlobexSlug, CancellationToken.None));
         Assert.Null(await repository.UpdateDraftAsync(GlobexSlug, AcmeUser, new UpdateDecisionDraftRequest(
             "hijacked", null, null, null, null, null, null, null, null, null, null), CancellationToken.None));
-        Assert.Null(await repository.UpdateConnectionsAsync(own.Slug, AcmeUser, new DecisionConnectionsUpdateRequest([500], null), CancellationToken.None));
+        Assert.Null(await repository.UpdateConnectionsAsync(own.Slug, AcmeUser, false, new DecisionConnectionsUpdateRequest([500], null), CancellationToken.None));
+        await Execute($"UPDATE public.core_customuser SET is_superuser = true WHERE id = {AcmeUser}");
+        var superuser = await Access(AcmeUser).AuthorizeAsync(
+            Request(AcmeUser), SharedProject, DecisionAccessAction.Edit, CancellationToken.None);
+        Assert.True(superuser is { Allowed: true, IsSuperuser: true });
+        Assert.Null(await repository.UpdateConnectionsAsync(
+            own.Slug, AcmeUser, superuser!.IsSuperuser, new DecisionConnectionsUpdateRequest([500], null), CancellationToken.None));
         Assert.Equal(0, await Scalar("SELECT count(*) FROM org_acme.decision_edges"));
         Assert.Equal(0, await Scalar("SELECT count(*) FROM org_globex.decision_edges"));
         Assert.Equal("Globex secret", await Scalar<string>($"SELECT title FROM org_globex.decisions WHERE slug = '{GlobexSlug}'"));
+    }
+
+    [Fact]
+    public async Task Connections_http_routes_keep_response_and_permissions_with_postgres_di()
+    {
+        await SeedConnectionsAsync("org_acme");
+        await Execute($"""
+            UPDATE org_acme.core_projectmember SET role = 'owner' WHERE user_id = {AcmeUser} AND project_id = 20;
+            INSERT INTO org_acme.decisions (id, slug, title, status, project_id, project_seq, is_deleted)
+            VALUES (105, 'deleted-node', 'Deleted node', 'DRAFT', 20, 4, true);
+            INSERT INTO org_acme.decision_edges (created_at, updated_at, edge_type, from_decision_id, to_decision_id)
+            VALUES (now(), now(), 'FOLLOW_UP', 101, 105);
+            """);
+        await using var factory = new PostgresApiFactory(postgres.GetConnectionString());
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", JwtTestTokenFactory.CreateValidToken(AcmeUser));
+        using (var scope = factory.Services.CreateScope())
+        {
+            Assert.Same(scope.ServiceProvider.GetRequiredService<DecisionRelationshipService>(),
+                scope.ServiceProvider.GetRequiredService<IDecisionConnectionsOperations>());
+        }
+
+        using var edit = await client.PutAsJsonAsync("/api/decisions/source/connections",
+            new DecisionConnectionsUpdateRequest([104, 103, 102], null));
+        Assert.Equal(HttpStatusCode.OK, edit.StatusCode);
+        var payload = await edit.Content.ReadFromJsonAsync<DecisionConnectionsResponse>();
+        Assert.NotNull(payload);
+        Assert.Equal(new DecisionConnectionSelfDto(101, 1), payload.Self);
+        Assert.Equal(new[] { 102, 103 }, payload.Connected.Select(node => node.Id));
+        Assert.Equal(new[] { 102, 103 }, payload.Edges.Select(edge => edge.ToId));
+        Assert.Equal(1, await Scalar("SELECT count(*) FROM org_acme.decision_edges WHERE from_decision_id = 101 AND to_decision_id = 104"));
+
+        using var read = await client.GetAsync("/api/decisions/101/connections");
+        Assert.Equal(HttpStatusCode.OK, read.StatusCode);
+        Assert.Equal(await edit.Content.ReadAsStringAsync(), await read.Content.ReadAsStringAsync());
+
+        await Execute($"UPDATE org_acme.core_projectmember SET is_active = false WHERE user_id = {AcmeUser} AND project_id = 21");
+        const string snapshot = "SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id)::text FROM org_acme.decision_edges e";
+        var before = await Scalar<string>(snapshot);
+        using var rejected = await client.PutAsJsonAsync("/api/decisions/101/connections",
+            new DecisionConnectionsUpdateRequest([104], null));
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        Assert.Equal("Connections could not be updated.",
+            (await rejected.Content.ReadFromJsonAsync<Dictionary<string, string>>())!["detail"]);
+        Assert.Equal(before, await Scalar<string>(snapshot));
+    }
+
+    [Theory]
+    [InlineData(false, 103, StatusCodes.Status401Unauthorized, true, false)]
+    [InlineData(true, 103, StatusCodes.Status403Forbidden, true, false)]
+    [InlineData(true, 104, StatusCodes.Status403Forbidden, true, false)]
+    [InlineData(true, null, StatusCodes.Status403Forbidden, true, false)]
+    [InlineData(true, 103, StatusCodes.Status403Forbidden, false, false)]
+    [InlineData(true, 103, StatusCodes.Status403Forbidden, true, true)]
+    public async Task Connections_require_source_project_edit_access(
+        bool authenticated, int? targetId, int expectedStatus, bool sourceActive, bool sourceDeleted)
+    {
+        // Anonymous requests resolve public; a signed-in user resolves org_acme.
+        var schema = authenticated ? "org_acme" : "public";
+        await SeedConnectionsAsync(schema);
+        if (!sourceActive || sourceDeleted)
+        {
+            await Execute($"""
+                UPDATE org_acme.core_projectmember
+                SET role = 'owner', is_active = {sourceActive}, is_deleted = {sourceDeleted}
+                WHERE user_id = {AcmeUser} AND project_id = 20
+                """);
+        }
+
+        await AssertConnectionUpdateRejectedAsync(schema, authenticated, "source",
+            new DecisionConnectionsUpdateRequest(targetId is int id ? [id] : [], null), expectedStatus);
+    }
+
+    [Theory]
+    [InlineData(true, 1, false)]
+    [InlineData(false, 2, false)]
+    [InlineData(false, 2, true)]
+    public async Task Connections_reject_deleted_or_other_organization_targets_in_same_schema(
+        bool targetDeleted, int targetOrganization, bool isSuperuser)
+    {
+        await SeedConnectionsAsync("org_acme");
+        await Execute($"""
+            UPDATE org_acme.core_projectmember SET role = 'owner' WHERE user_id = {AcmeUser} AND project_id = 20;
+            UPDATE org_acme.core_project SET is_deleted = {targetDeleted}, organization_id = {targetOrganization} WHERE id = 21;
+            UPDATE public.core_customuser SET is_superuser = {isSuperuser} WHERE id = {AcmeUser};
+            """);
+
+        await AssertConnectionUpdateRejectedAsync("org_acme", true, "source",
+            new DecisionConnectionsUpdateRequest([104], null), StatusCodes.Status400BadRequest);
+    }
+
+    [Fact]
+    public async Task Connections_reject_membership_revoked_after_source_authorization()
+    {
+        await SeedConnectionsAsync("org_acme");
+        await Execute($"UPDATE org_acme.core_projectmember SET role = 'owner' WHERE user_id = {AcmeUser} AND project_id = 20");
+
+        await AssertConnectionUpdateRejectedAsync("org_acme", true, "source",
+            new DecisionConnectionsUpdateRequest([104], null), StatusCodes.Status400BadRequest,
+            afterAuthorization: () => Execute($"""
+                UPDATE org_acme.core_projectmember SET is_active = false
+                WHERE user_id = {AcmeUser} AND project_id = 21
+                """));
+    }
+
+    [Theory]
+    [InlineData("stale-source")]
+    [InlineData("2147483647")]
+    public async Task Connections_return_not_found_for_unknown_source_lookup(string lookup)
+    {
+        await SeedConnectionsAsync("org_acme");
+
+        await AssertConnectionUpdateRejectedAsync("org_acme", true, lookup,
+            new DecisionConnectionsUpdateRequest([103], null), StatusCodes.Status404NotFound);
+    }
+
+    private Task SeedConnectionsAsync(string schema) => Execute($"""
+        INSERT INTO {schema}.core_project (id, name, organization_id)
+        VALUES (20, 'Source project', 1), (21, 'Target project', 1);
+        INSERT INTO {schema}.core_projectmember (user_id, project_id, role)
+        VALUES ({AcmeUser}, 20, 'viewer'), ({AcmeUser}, 21, 'owner');
+        INSERT INTO {schema}.decisions (id, slug, title, status, project_id, project_seq)
+        VALUES (101, 'source', 'Source', 'DRAFT', 20, 1),
+               (102, 'original', 'Original connection', 'DRAFT', 20, 2),
+               (103, 'local-target', 'Same project target', 'DRAFT', 20, 3),
+               (104, 'remote-target', 'Other project target', 'DRAFT', 21, 1);
+        INSERT INTO {schema}.decision_edges
+            (created_at, updated_at, edge_type, from_decision_id, to_decision_id, created_by_id)
+        VALUES (now(), now(), 'RELATED', 101, 102, {AcmeUser});
+        """);
+
+    private async Task AssertConnectionUpdateRejectedAsync(
+        string schema, bool authenticated, string lookup, DecisionConnectionsUpdateRequest request,
+        int expectedStatus, Func<Task>? afterAuthorization = null)
+    {
+        var context = authenticated ? Request(AcmeUser).HttpContext : new DefaultHttpContext();
+        var validator = Validator();
+        var connections = new TenantConnectionFactory(
+            dataSource, validator, new HttpContextAccessor { HttpContext = context });
+        IDecisionAccessService access = new JwtDecisionAccessService(connections, validator);
+        if (afterAuthorization is not null)
+        {
+            access = new AfterAuthorization(access, afterAuthorization);
+        }
+        var relationships = MigratedDatabase.Relationships(connections);
+        var controller = new DecisionConnectionsController(
+            new PostgresDecisionRepository(connections, relationships), access, relationships)
+        {
+            ControllerContext = new ControllerContext { HttpContext = context },
+        };
+        var edgeSnapshot = $"SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id)::text FROM {schema}.decision_edges e";
+        var before = await Scalar<string>(edgeSnapshot);
+        Assert.NotNull(before);
+
+        var result = await controller.UpdateConnections(lookup, request, CancellationToken.None);
+
+        Assert.Equal(expectedStatus, Assert.IsAssignableFrom<ObjectResult>(result.Result).StatusCode);
+        Assert.Equal(before, await Scalar<string>(edgeSnapshot));
+    }
+
+    private sealed class AfterAuthorization(IDecisionAccessService access, Func<Task> callback) : IDecisionAccessService
+    {
+        public async Task<DecisionAccessContext?> AuthorizeAsync(
+            HttpRequest request, int? projectId, DecisionAccessAction action, CancellationToken cancellationToken)
+        {
+            var result = await access.AuthorizeAsync(request, projectId, action, cancellationToken);
+            Assert.True(result is { Allowed: true });
+            await callback();
+            return result;
+        }
     }
 
     [Fact]
@@ -123,7 +306,27 @@ public sealed class TenantIsolationTests : IAsyncLifetime
         Assert.Equal(2, access.OrganizationId);
     }
 
-    private PostgresDecisionRepository Repository(int userId) => new(Connections(userId));
+    private sealed class PostgresApiFactory(string connectionString) : WebApplicationFactory<Program>
+    {
+        protected override IHost CreateHost(IHostBuilder builder)
+        {
+            // The storage branch is selected before WebApplicationBuilder.Build().
+            builder.ConfigureHostConfiguration(config => config.AddInMemoryCollection(
+                new Dictionary<string, string?>
+                {
+                    ["DECISION_SERVICE_STORAGE"] = "postgres",
+                    ["DJANGO_JWT_SIGNING_KEY"] = SigningKey,
+                    ["ConnectionStrings:DecisionDb"] = connectionString,
+                }));
+            return base.CreateHost(builder);
+        }
+    }
+
+    private PostgresDecisionRepository Repository(int userId)
+    {
+        var connections = Connections(userId);
+        return new PostgresDecisionRepository(connections, MigratedDatabase.Relationships(connections));
+    }
 
     private JwtDecisionAccessService Access(int userId) => new(Connections(userId), Validator());
 

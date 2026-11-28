@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using System.Text.Json;
 using DecisionService.Decisions;
+using DecisionService.Decisions.Relationships;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Testcontainers.PostgreSql;
@@ -14,6 +17,9 @@ public sealed class MigratedDatabase : IAsyncLifetime
     public const int ProjectId = 10;
     public const int OtherProjectId = 11;
     public const int ConfiguredProjectId = 12;
+    public const int UnauthorizedProjectId = 13;
+    public const int InactiveMembershipProjectId = 14;
+    public const int DeletedMembershipProjectId = 15;
     public const int MeetingId = 20;
 
     private readonly PostgreSqlContainer postgres = new PostgreSqlBuilder("postgres:16-alpine").Build();
@@ -44,6 +50,13 @@ public sealed class MigratedDatabase : IAsyncLifetime
             INSERT INTO core_project (id, name, organization_id) VALUES ({ProjectId}, 'Launch', 1), ({OtherProjectId}, 'Retention', 1), ({ConfiguredProjectId}, 'Configured', 1);
             INSERT INTO core_projectmember (user_id, project_id)
             VALUES ({UserId}, {ProjectId}), ({UserId}, {OtherProjectId}), ({UserId}, {ConfiguredProjectId});
+            INSERT INTO core_project (id, name, organization_id) VALUES
+                ({UnauthorizedProjectId}, 'Restricted', 1),
+                ({InactiveMembershipProjectId}, 'Inactive membership', 1),
+                ({DeletedMembershipProjectId}, 'Deleted membership', 1);
+            INSERT INTO core_projectmember (user_id, project_id, is_active, is_deleted) VALUES
+                ({UserId}, {InactiveMembershipProjectId}, false, false),
+                ({UserId}, {DeletedMembershipProjectId}, true, true);
             INSERT INTO meetings_meetingtypedefinition VALUES (1, 'weekly');
             INSERT INTO meetings_meeting (id, title, slug, project_id, type_definition_id, scheduled_date)
             VALUES ({MeetingId}, 'Weekly sync', 'weekly-sync', {ProjectId}, 1, '2026-11-02');
@@ -60,11 +73,20 @@ public sealed class MigratedDatabase : IAsyncLifetime
         await postgres.DisposeAsync();
     }
 
-    public PostgresDecisionRepository Repository() =>
-        new(new TenantConnectionFactory(
+    public PostgresDecisionRepository Repository() => Repository(out _);
+
+    public PostgresDecisionRepository Repository(out DecisionRelationshipService relationships)
+    {
+        var connections = new TenantConnectionFactory(
             DataSource,
             new DjangoJwtValidator(Options.Create(new DjangoJwtOptions { SigningKey = "test-signing-key" })),
-            new HttpContextAccessor()));
+            new HttpContextAccessor());
+        relationships = Relationships(connections);
+        return new PostgresDecisionRepository(connections, relationships);
+    }
+
+    public static DecisionRelationshipService Relationships(TenantConnectionFactory connections) =>
+        new(connections, new PostgresDecisionRelationshipRepository());
 
     public async Task Execute(string sql)
     {
@@ -100,6 +122,9 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
     private const int OtherProjectId = MigratedDatabase.OtherProjectId;
     private const int MeetingId = MigratedDatabase.MeetingId;
     private const int ConfiguredProjectId = MigratedDatabase.ConfiguredProjectId;
+    private const int UnauthorizedProjectId = MigratedDatabase.UnauthorizedProjectId;
+    private const int InactiveMembershipProjectId = MigratedDatabase.InactiveMembershipProjectId;
+    private const int DeletedMembershipProjectId = MigratedDatabase.DeletedMembershipProjectId;
 
     private readonly PostgresDecisionRepository repository = database.Repository();
 
@@ -316,11 +341,380 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
         var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [parent.Id]), CancellationToken.None);
         var other = await repository.CreateAsync(ProjectId, UserId, Draft("Other"), CancellationToken.None);
 
-        var linked = await repository.UpdateConnectionsAsync(child.Slug, UserId, new DecisionConnectionsUpdateRequest([parent.Id], null), CancellationToken.None);
-        var relinked = await repository.UpdateConnectionsAsync(child.Slug, UserId, new DecisionConnectionsUpdateRequest([other.Id], null), CancellationToken.None);
+        var linked = await repository.UpdateConnectionsAsync(child.Slug, UserId, false, new DecisionConnectionsUpdateRequest([parent.Id], null), CancellationToken.None);
+        var relinked = await repository.UpdateConnectionsAsync(child.Slug, UserId, false, new DecisionConnectionsUpdateRequest([other.Id], null), CancellationToken.None);
 
         Assert.Equal(parent.Id, Assert.Single(linked!.Connected).Id);
         Assert.Equal(other.Id, Assert.Single(relinked!.Connected).Id);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Direct_parent_cycle_is_rejected_and_original_data_is_preserved(bool duplicate)
+    {
+        var originalParent = await repository.CreateAsync(ProjectId, UserId, Draft("Original"), CancellationToken.None);
+        var first = await repository.CreateAsync(ProjectId, UserId, Draft("First", [originalParent.Id]), CancellationToken.None);
+        var second = await repository.CreateAsync(ProjectId, UserId, Draft("Second", [first.Id]), CancellationToken.None);
+
+        var before = await FollowUpSnapshotAsync(originalParent.Id, first.Id, second.Id);
+        var result = await DraftController().Patch(
+            first.Slug,
+            new UpdateDecisionDraftRequest(
+                "Changed", null, null, null, null, null, null, null,
+                [Signal("ROAS")], [new DecisionOptionInput("Hold", true, 0)], duplicate ? [second.Id, second.Id] : [second.Id]),
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var errors = Assert.IsType<Dictionary<string, string[]>>(badRequest.Value);
+        Assert.Equal(
+            "Adding this parent introduces a cycle.",
+            Assert.Single(errors["parentDecisionIds"]));
+        var unchanged = await repository.GetAsync(first.Slug, CancellationToken.None);
+        Assert.NotNull(unchanged);
+        Assert.Equal("First", unchanged.Title);
+        Assert.Equal(first.Options.ToArray(), unchanged.Options.ToArray());
+        Assert.Equal(first.Signals.ToArray(), unchanged.Signals.ToArray());
+        Assert.Equal(1, await database.Count($"""
+            SELECT count(*) FROM decision_edges
+            WHERE edge_type = 'FOLLOW_UP'
+              AND from_decision_id = {originalParent.Id}
+              AND to_decision_id = {first.Id}
+            """));
+        Assert.Equal(0, await database.Count($"""
+            SELECT count(*) FROM decision_edges
+            WHERE edge_type = 'FOLLOW_UP'
+              AND from_decision_id = {second.Id}
+              AND to_decision_id = {first.Id}
+            """));
+        Assert.Equal(before, await FollowUpSnapshotAsync(originalParent.Id, first.Id, second.Id));
+    }
+
+    [Fact]
+    public async Task Concurrent_reciprocal_parent_updates_allow_only_one_edge()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var ct = timeout.Token;
+        var first = await repository.CreateAsync(ProjectId, UserId, Draft("A"), ct);
+        var second = await repository.CreateAsync(ProjectId, UserId, Draft("B"), ct);
+        var third = await repository.CreateAsync(ProjectId, UserId, Draft("C"), ct);
+        var otherParent = await repository.CreateAsync(OtherProjectId, UserId, Draft("Other parent"), ct);
+        var otherChild = await repository.CreateAsync(OtherProjectId, UserId, Draft("Other child"), ct);
+
+        await using var blocker = await database.DataSource.OpenConnectionAsync(ct);
+        await using var transaction = await blocker.BeginTransactionAsync(ct);
+        await HoldProjectLockAsync(blocker, transaction, ct);
+
+        var setFirstParent = DraftController().Patch(first.Slug, ReplaceParents(second.Id), ct);
+        var setSecondParent = DraftController().Patch(second.Slug, ReplaceParents(first.Id), ct);
+        await WaitForProjectLockWaitersAsync(2, ct);
+
+        var otherProject = await DraftController().Patch(otherChild.Slug, ReplaceParents(otherParent.Id), ct);
+        Assert.IsType<OkObjectResult>(otherProject.Result);
+        Assert.False(setFirstParent.IsCompleted);
+        Assert.False(setSecondParent.IsCompleted);
+        await transaction.CommitAsync(ct);
+
+        var results = await Task.WhenAll(setFirstParent, setSecondParent).WaitAsync(ct);
+        var success = Assert.Single(results.Select(result => result.Result).OfType<OkObjectResult>());
+        var rejection = Assert.Single(results.Select(result => result.Result).OfType<BadRequestObjectResult>());
+        var errors = Assert.IsType<Dictionary<string, string[]>>(rejection.Value);
+        Assert.Equal("Adding this parent introduces a cycle.", Assert.Single(errors["parentDecisionIds"]));
+
+        var winner = Assert.IsType<DecisionDetailDto>(success.Value);
+        var parent = winner.Id == first.Id ? second : first;
+        await AssertFollowUpParentsAsync(winner.Id, parent.Id);
+        await AssertFollowUpParentsAsync(parent.Id);
+
+        var afterBothTransactions = await DraftController().Patch(third.Slug, ReplaceParents(winner.Id), ct);
+        Assert.IsType<OkObjectResult>(afterBothTransactions.Result);
+        await AssertFollowUpParentsAsync(third.Id, winner.Id);
+    }
+
+    [Fact]
+    public async Task Project_lock_blocks_parent_deletion_but_allows_creation_without_parents()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var ct = timeout.Token;
+        var parent = await repository.CreateAsync(ProjectId, UserId, Draft("Parent"), ct);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [parent.Id]), ct);
+
+        await using var blocker = await database.DataSource.OpenConnectionAsync(ct);
+        await using var transaction = await blocker.BeginTransactionAsync(ct);
+        await HoldProjectLockAsync(blocker, transaction, ct);
+
+        var deleteParent = repository.DeleteAsync(parent.Slug, UserId, ct);
+        await WaitForProjectLockWaitersAsync(1, ct);
+
+        // CreateAsync commits the deferred project foreign key while the project row is locked.
+        var independent = await repository.CreateAsync(ProjectId, UserId, Draft("No parents"), ct);
+        Assert.Equal(ProjectId, independent.ProjectId);
+        Assert.False(deleteParent.IsCompleted);
+        Assert.NotNull(await repository.GetAsync(parent.Slug, ct));
+        await AssertFollowUpParentsAsync(child.Id, parent.Id);
+
+        await transaction.RollbackAsync(ct);
+        Assert.True(await deleteParent.WaitAsync(ct));
+        Assert.Null(await repository.GetAsync(parent.Slug, ct));
+    }
+
+    private static async Task HoldProjectLockAsync(
+        NpgsqlConnection connection, NpgsqlTransaction transaction, CancellationToken ct)
+    {
+        await using var command = new NpgsqlCommand(
+            "SELECT id FROM core_project WHERE id = @project_id FOR NO KEY UPDATE", connection, transaction);
+        command.Parameters.AddWithValue("project_id", ProjectId);
+        Assert.NotNull(await command.ExecuteScalarAsync(ct));
+    }
+
+    private async Task WaitForProjectLockWaitersAsync(int count, CancellationToken ct)
+    {
+        await using var waiting = database.DataSource.CreateCommand("""
+            SELECT count(*)
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND wait_event_type = 'Lock'
+              AND query LIKE '%FROM core_project%FOR NO KEY UPDATE%'
+              AND cardinality(pg_blocking_pids(pid)) > 0
+            """);
+        while ((long)(await waiting.ExecuteScalarAsync(ct))! != count)
+        {
+            await Task.Delay(20, ct);
+        }
+    }
+
+    private static UpdateDecisionDraftRequest ReplaceParents(params int[] parentIds) =>
+        new(null, null, null, null, null, null, null, null, null, null, parentIds);
+
+    [Fact]
+    public async Task Invalid_parent_is_rejected_and_prevents_partial_replacement()
+    {
+        var original = await repository.CreateAsync(ProjectId, UserId, Draft("Original parent"), CancellationToken.None);
+        var candidate = await repository.CreateAsync(ProjectId, UserId, Draft("New parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [original.Id]), CancellationToken.None);
+
+        var result = await DraftController().Patch(
+            child.Slug,
+            new UpdateDecisionDraftRequest(
+                null, null, null, null, null, null, null, null, null, null, [candidate.Id, int.MaxValue]),
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var errors = Assert.IsType<Dictionary<string, string[]>>(badRequest.Value);
+        Assert.Single(errors["parentDecisionIds"]);
+        await AssertFollowUpParentsAsync(child.Id, original.Id);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData(OtherProjectId, false)]
+    [InlineData(ProjectId, true)]
+    public async Task Invalid_parent_is_rejected_and_existing_parent_is_preserved(
+        int? candidateProjectId, bool softDeleted)
+    {
+        var original = await repository.CreateAsync(ProjectId, UserId, Draft("Original parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [original.Id]), CancellationToken.None);
+        var candidateId = int.MaxValue;
+        if (candidateProjectId is int projectId)
+        {
+            var candidate = await repository.CreateAsync(projectId, UserId, Draft("Invalid parent"), CancellationToken.None);
+            candidateId = candidate.Id;
+            if (softDeleted)
+            {
+                Assert.True(await repository.DeleteAsync(candidate.Slug, UserId, CancellationToken.None));
+            }
+        }
+
+        var result = await DraftController().Patch(
+            child.Slug,
+            new UpdateDecisionDraftRequest(
+                null, null, null, null, null, null, null, null, null, null, [candidateId]),
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var errors = Assert.IsType<Dictionary<string, string[]>>(badRequest.Value);
+        Assert.Single(errors["parentDecisionIds"]);
+        await AssertFollowUpParentsAsync(child.Id, original.Id);
+    }
+
+    [Fact]
+    public async Task Parent_insert_failure_rolls_back_deleted_follow_up_edges()
+    {
+        var original = await repository.CreateAsync(ProjectId, UserId, Draft("Original parent"), CancellationToken.None);
+        var replacement = await repository.CreateAsync(ProjectId, UserId, Draft("Replacement parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [original.Id]), CancellationToken.None);
+        var before = await FollowUpSnapshotAsync(original.Id, replacement.Id, child.Id);
+        await database.Execute($"""
+            ALTER TABLE decision_edges ADD CONSTRAINT test_reject_replacement_parent
+            CHECK (edge_type <> 'FOLLOW_UP' OR from_decision_id <> {replacement.Id} OR to_decision_id <> {child.Id})
+            """);
+
+        try
+        {
+            var error = await Assert.ThrowsAsync<PostgresException>(() =>
+                repository.UpdateDraftAsync(child.Slug, UserId, ReplaceParents(replacement.Id), CancellationToken.None));
+
+            Assert.Equal(PostgresErrorCodes.CheckViolation, error.SqlState);
+            Assert.Equal("test_reject_replacement_parent", error.ConstraintName);
+            await AssertFollowUpParentsAsync(child.Id, original.Id);
+            Assert.Equal(before, await FollowUpSnapshotAsync(original.Id, replacement.Id, child.Id));
+        }
+        finally
+        {
+            await database.Execute("ALTER TABLE decision_edges DROP CONSTRAINT test_reject_replacement_parent");
+        }
+    }
+
+    [Fact]
+    public async Task Duplicate_valid_parent_ids_are_saved_once()
+    {
+        var parent = await repository.CreateAsync(ProjectId, UserId, Draft("Parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child"), CancellationToken.None);
+
+        var result = await DraftController().Patch(
+            child.Slug,
+            new UpdateDecisionDraftRequest(
+                null, null, null, null, null, null, null, null, null, null, [parent.Id, parent.Id]),
+            CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        await AssertFollowUpParentsAsync(child.Id, parent.Id);
+    }
+
+    [Fact]
+    public async Task Multiple_valid_parent_ids_replace_existing_parents()
+    {
+        var original = await repository.CreateAsync(ProjectId, UserId, Draft("Original parent"), CancellationToken.None);
+        var first = await repository.CreateAsync(ProjectId, UserId, Draft("First new parent"), CancellationToken.None);
+        var second = await repository.CreateAsync(ProjectId, UserId, Draft("Second new parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [original.Id]), CancellationToken.None);
+
+        var result = await DraftController().Patch(
+            child.Slug,
+            new UpdateDecisionDraftRequest(
+                null, null, null, null, null, null, null, null, null, null, [first.Id, second.Id]),
+            CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        await AssertFollowUpParentsAsync(child.Id, first.Id, second.Id);
+    }
+
+    [Theory]
+    [InlineData("""{"title":"Updated","parentDecisionIds":[]}""", false)]
+    [InlineData("""{"title":"Updated"}""", true)]
+    public async Task Empty_parent_list_clears_edges_and_omitted_list_preserves_them(
+        string payload, bool preserveParents)
+    {
+        var parent = await repository.CreateAsync(ProjectId, UserId, Draft("Parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [parent.Id]), CancellationToken.None);
+        var request = JsonSerializer.Deserialize<UpdateDecisionDraftRequest>(
+            payload, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+        var result = await DraftController().Patch(child.Slug, request, CancellationToken.None);
+
+        var ok = Assert.IsType<OkObjectResult>(result.Result);
+        Assert.Equal("Updated", Assert.IsType<DecisionDetailDto>(ok.Value).Title);
+        await AssertFollowUpParentsAsync(child.Id, preserveParents ? [parent.Id] : []);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Self_parent_is_rejected_and_does_not_clear_existing_parents(bool duplicate)
+    {
+        var parent = await repository.CreateAsync(ProjectId, UserId, Draft("Parent"), CancellationToken.None);
+        var child = await repository.CreateAsync(ProjectId, UserId, Draft("Child", [parent.Id]), CancellationToken.None);
+
+        var before = await FollowUpSnapshotAsync(parent.Id, child.Id);
+        var result = await DraftController().Patch(
+            child.Slug,
+            new UpdateDecisionDraftRequest(
+                null, null, null, null, null, null, null, null, null, null, duplicate ? [child.Id, child.Id] : [child.Id]),
+            CancellationToken.None);
+
+        var badRequest = Assert.IsType<BadRequestObjectResult>(result.Result);
+        var errors = Assert.IsType<Dictionary<string, string[]>>(badRequest.Value);
+        Assert.Equal("Decision cannot reference itself.", Assert.Single(errors["parentDecisionIds"]));
+        var connections = await repository.GetConnectionsAsync(child.Slug, CancellationToken.None);
+        Assert.Equal(parent.Id, Assert.Single(connections!.Connected).Id);
+        Assert.Equal(before, await FollowUpSnapshotAsync(parent.Id, child.Id));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Indirect_parent_cycle_is_rejected(bool duplicate)
+    {
+        var first = await repository.CreateAsync(ProjectId, UserId, Draft("Chain first"), CancellationToken.None);
+        var second = await repository.CreateAsync(ProjectId, UserId, Draft("Chain second", [first.Id]), CancellationToken.None);
+        var third = await repository.CreateAsync(ProjectId, UserId, Draft("Chain third", [second.Id]), CancellationToken.None);
+
+        var before = await FollowUpSnapshotAsync(first.Id, second.Id, third.Id);
+        var error = await Assert.ThrowsAsync<DecisionValidationException>(() => repository.UpdateDraftAsync(
+            first.Slug,
+            UserId,
+            new UpdateDecisionDraftRequest(
+                null, null, null, null, null, null, null, null, null, null, duplicate ? [third.Id, third.Id] : [third.Id]),
+            CancellationToken.None));
+
+        Assert.Equal("Adding this parent introduces a cycle.", error.Message);
+        await AssertFollowUpParentsAsync(first.Id);
+        await AssertFollowUpParentsAsync(second.Id, first.Id);
+        await AssertFollowUpParentsAsync(third.Id, second.Id);
+        Assert.Equal(before, await FollowUpSnapshotAsync(first.Id, second.Id, third.Id));
+    }
+
+    [Theory]
+    [InlineData(UnauthorizedProjectId)]
+    [InlineData(InactiveMembershipProjectId)]
+    [InlineData(DeletedMembershipProjectId)]
+    public async Task Connections_reject_targets_without_active_project_membership(int targetProjectId)
+    {
+        var source = await repository.CreateAsync(ProjectId, UserId, Draft("Restricted source"), CancellationToken.None);
+        var original = await repository.CreateAsync(ProjectId, UserId, Draft("Original connection"), CancellationToken.None);
+        var forbidden = await repository.CreateAsync(targetProjectId, UserId, Draft("Forbidden connection"), CancellationToken.None);
+        await repository.UpdateConnectionsAsync(
+            source.Slug, UserId, false, new DecisionConnectionsUpdateRequest([original.Id], null), CancellationToken.None);
+        var controller = Controller(isSuperuser: false);
+
+        var result = await controller.UpdateConnections(
+            source.Slug, new DecisionConnectionsUpdateRequest([forbidden.Id], null), CancellationToken.None);
+
+        Assert.IsType<BadRequestObjectResult>(result.Result);
+        var connected = (await repository.GetConnectionsAsync(source.Slug, CancellationToken.None))!.Connected;
+        Assert.Equal(original.Id, Assert.Single(connected).Id);
+    }
+
+    [Fact]
+    public async Task Connections_allow_authorized_cross_project_target()
+    {
+        var source = await repository.CreateAsync(ProjectId, UserId, Draft("Cross-project source"), CancellationToken.None);
+        var target = await repository.CreateAsync(OtherProjectId, UserId, Draft("Cross-project target"), CancellationToken.None);
+
+        var result = await Controller(isSuperuser: false).UpdateConnections(
+            source.Slug, new DecisionConnectionsUpdateRequest([target.Id], null), CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        var graph = await repository.GetGraphAsync(ProjectId, true, UserId, false, CancellationToken.None);
+        Assert.Contains(graph.Edges, edge => edge.From == source.Id && edge.To == target.Id);
+    }
+
+    [Fact]
+    public async Task Connections_allow_superuser_target_without_project_membership()
+    {
+        var source = await repository.CreateAsync(ProjectId, UserId, Draft("Superuser source"), CancellationToken.None);
+        var target = await repository.CreateAsync(
+            UnauthorizedProjectId, UserId, Draft("Superuser target"), CancellationToken.None);
+        var controller = Controller(isSuperuser: true);
+
+        var result = await controller.UpdateConnections(
+            source.Slug, new DecisionConnectionsUpdateRequest([target.Id], null), CancellationToken.None);
+
+        Assert.IsType<OkObjectResult>(result.Result);
+        var graph = await repository.GetGraphAsync(ProjectId, true, UserId, true, CancellationToken.None);
+        Assert.Contains(graph.Edges, edge => edge.From == source.Id && edge.To == target.Id);
+        var memberGraph = await repository.GetGraphAsync(ProjectId, true, UserId, false, CancellationToken.None);
+        Assert.DoesNotContain(memberGraph.Nodes, node => node.Id == target.Id);
     }
 
     [Fact]
@@ -420,6 +814,32 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
         Assert.Equal(0, await database.Count("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'"));
     }
 
+    private async Task<string> FollowUpSnapshotAsync(params int[] decisionIds)
+    {
+        await using var command = database.DataSource.CreateCommand("""
+            SELECT COALESCE(jsonb_agg(to_jsonb(edge) ORDER BY edge.id)::text, '[]')
+            FROM decision_edges edge
+            WHERE edge.edge_type = 'FOLLOW_UP'
+              AND (edge.from_decision_id = ANY(@decision_ids) OR edge.to_decision_id = ANY(@decision_ids))
+            """);
+        command.Parameters.AddWithValue("decision_ids", decisionIds);
+        return (string)(await command.ExecuteScalarAsync())!;
+    }
+
+    private async Task AssertFollowUpParentsAsync(int decisionId, params int[] expectedParentIds)
+    {
+        await using var command = database.DataSource.CreateCommand("""
+            SELECT ARRAY(
+                SELECT from_decision_id FROM decision_edges
+                WHERE to_decision_id = @decision_id AND edge_type = 'FOLLOW_UP' AND is_deleted = false
+                ORDER BY from_decision_id
+            )
+            """);
+        command.Parameters.AddWithValue("decision_id", decisionId);
+        var actualParentIds = (int[])(await command.ExecuteScalarAsync())!;
+        Assert.Equal(expectedParentIds.Order().ToArray(), actualParentIds);
+    }
+
     private static CreateDecisionDraftRequest Draft(string title, IReadOnlyList<int>? parents = null, int? meetingId = null) =>
         new(title, "Context", DecisionRiskLevel.LOW, 70, "Reasoning", "pricing", false, null,
             [Signal("CTR")], [new DecisionOptionInput("Ship it", true, 0)], parents, meetingId);
@@ -428,4 +848,29 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
         new(metric, "DOWN", "LAST_7_DAYS", null, null, null, 12.5m, "%", null);
 
     private static DecisionReviewInput Review() => new("Hit target", "Would do again", "GOOD");
+
+    private DecisionConnectionsController Controller(bool isSuperuser)
+    {
+        var decisionRepository = database.Repository(out var relationships);
+        var controller = new DecisionConnectionsController(decisionRepository, new AllowedAccessService(isSuperuser), relationships);
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        return controller;
+    }
+
+    private DecisionDraftsController DraftController()
+    {
+        var controller = new DecisionDraftsController(repository, new AllowedAccessService(isSuperuser: false));
+        controller.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() };
+        return controller;
+    }
+
+    private sealed class AllowedAccessService(bool isSuperuser) : IDecisionAccessService
+    {
+        public Task<DecisionAccessContext?> AuthorizeAsync(
+            HttpRequest request,
+            int? projectId,
+            DecisionAccessAction action,
+            CancellationToken cancellationToken) => Task.FromResult<DecisionAccessContext?>(new(
+                true, UserId, "user@example.test", isSuperuser, projectId, 1, "owner", 1));
+    }
 }
