@@ -51,7 +51,7 @@ it('shows the original failed item number beside a saved card on partial success
   const container = await generate(200, {
     ...failedBatch, count_succeeded: 1, count_failed: 1, failed_indices: [1],
     results: [{
-      id: 7, status: 'draft', source_mode: 'custom', batch_id: 'batch-1',
+      id: 7, slug: 'saved-headline', status: 'draft', source_mode: 'custom', batch_id: 'batch-1',
       hook: 'Saved hook', headline: 'Saved headline', description: 'Saved description', cta: 'SHOP_NOW',
     }],
     field_failures: [headlineFailure],

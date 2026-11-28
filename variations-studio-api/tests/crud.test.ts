@@ -145,6 +145,20 @@ describe('PATCH /variations/{slug}/ copy storage', () => {
     });
   }
 
+  it.each([
+    { headline: '!!!', expectedSlug: /\S/ },
+    { headline: 'Generate', expectedSlug: /^adcopyvariation-generate(?:-[1-9]\d*)?$/ },
+  ])('updates a draft titled $headline by its returned slug', async ({ headline, expectedSlug }) => {
+    const created = await create(payload({ headline }));
+    expect(created.status).toBe(201);
+    const { id, slug } = await readJson(created);
+    expect(slug).toMatch(expectedSlug);
+
+    const updated = await patch(slug as string, { headline: 'Edited headline' });
+    expect(updated.status).toBe(200);
+    await expect(readJson(updated)).resolves.toMatchObject({ id, slug, headline: 'Edited headline' });
+  });
+
   it.each([null, { hook: 'Stale hook' }])('rebuilds legacy Meta fields (%p) after a partial edit', async fields => {
     const row = await newVariation();
     // A legacy writer may change an unpatched column without keeping JSON in sync.
