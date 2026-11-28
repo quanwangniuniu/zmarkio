@@ -589,7 +589,7 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return created;
     }
 
-    public async Task<DecisionSignalDto?> UpdateSignalAsync(string lookup, int signalId, DecisionSignalInput input, CancellationToken ct)
+    public async Task<DecisionSignalDto?> UpdateSignalAsync(string lookup, int signalId, DecisionSignalPatch patch, CancellationToken ct)
     {
         await using var session = await connections.OpenAsync(ct);
         var connection = session.Connection;
@@ -599,47 +599,52 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
             return null;
         }
 
-        await EnsureSignalOptionsEnabledAsync(connection, session.Transaction, decision.Id, [input], ct);
-        var now = DateTimeOffset.UtcNow;
-        var displayText = input.DisplayTextOverride
-            ?? string.Join(" ", new[] { input.Metric, input.Movement, input.Period }.Where(value => !string.IsNullOrWhiteSpace(value)));
+        var existing = (await ListSignalsAsync(connection, decision.Id, ct, signalId, session.Transaction)).SingleOrDefault();
+        if (existing is null)
+        {
+            return null;
+        }
+
+        await EnsureSignalOptionsEnabledAsync(connection, session.Transaction, decision.Id, [patch.Input], ct);
+        var updated = patch.Apply(existing);
         using var command = connection.CreateCommand();
+        command.Transaction = session.Transaction;
         command.CommandText = """
             UPDATE decision_signals
             SET
                 updated_at = @now,
-                metric = COALESCE(@metric, metric),
-                movement = COALESCE(@movement, movement),
-                period = COALESCE(@period, period),
-                comparison = COALESCE(@comparison, comparison),
-                scope_type = COALESCE(@scope_type, scope_type),
-                scope_value = COALESCE(@scope_value, scope_value),
-                delta_value = COALESCE(@delta_value, delta_value),
-                delta_unit = COALESCE(@delta_unit, delta_unit),
-                display_text = COALESCE(@display_text, display_text),
-                display_text_override = COALESCE(@display_text_override, display_text_override)
+                metric = @metric,
+                movement = @movement,
+                period = @period,
+                comparison = @comparison,
+                scope_type = @scope_type,
+                scope_value = @scope_value,
+                delta_value = @delta_value,
+                delta_unit = @delta_unit,
+                display_text = @display_text,
+                display_text_override = @display_text_override
             WHERE id = @signal_id AND decision_id = @decision_id AND is_deleted = false
             """;
-        command.Parameters.AddWithValue("now", now);
+        command.Parameters.AddWithValue("now", updated.UpdatedAt);
         command.Parameters.AddWithValue("signal_id", signalId);
         command.Parameters.AddWithValue("decision_id", decision.Id);
-        AddNullableText(command, "metric", input.Metric);
-        AddNullableText(command, "movement", input.Movement);
-        AddNullableText(command, "period", input.Period);
-        AddNullableText(command, "comparison", input.Comparison);
-        AddNullableText(command, "scope_type", input.ScopeType);
-        AddNullableText(command, "scope_value", input.ScopeValue);
-        AddNullableDecimal(command, "delta_value", input.DeltaValue);
-        AddNullableText(command, "delta_unit", input.DeltaUnit);
-        AddNullableText(command, "display_text", string.IsNullOrWhiteSpace(displayText) ? null : displayText);
-        AddNullableText(command, "display_text_override", input.DisplayTextOverride);
+        AddNullableText(command, "metric", updated.Metric);
+        AddNullableText(command, "movement", updated.Movement);
+        AddNullableText(command, "period", updated.Period);
+        AddNullableText(command, "comparison", updated.Comparison);
+        AddNullableText(command, "scope_type", updated.ScopeType);
+        AddNullableText(command, "scope_value", updated.ScopeValue);
+        AddNullableDecimal(command, "delta_value", updated.DeltaValue);
+        AddNullableText(command, "delta_unit", updated.DeltaUnit);
+        AddNullableText(command, "display_text", updated.DisplayText);
+        AddNullableText(command, "display_text_override", updated.DisplayTextOverride);
         if (await command.ExecuteNonQueryAsync(ct) == 0)
         {
             return null;
         }
-        var updated = (await ListSignalsAsync(connection, decision.Id, ct)).FirstOrDefault(signal => signal.Id == signalId);
+        var saved = (await ListSignalsAsync(connection, decision.Id, ct, signalId, session.Transaction)).Single();
         await session.CommitAsync();
-        return updated;
+        return saved;
     }
 
     public async Task<bool> DeleteSignalAsync(string lookup, int signalId, CancellationToken ct)
@@ -1442,9 +1447,10 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
         return Convert.ToInt32(await command.ExecuteScalarAsync(ct));
     }
 
-    private async Task<IReadOnlyList<DecisionSignalDto>> ListSignalsAsync(NpgsqlConnection connection, int decisionId, CancellationToken ct)
+    private async Task<IReadOnlyList<DecisionSignalDto>> ListSignalsAsync(NpgsqlConnection connection, int decisionId, CancellationToken ct, int? signalId = null, NpgsqlTransaction? transaction = null)
     {
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             SELECT
                 id,
@@ -1464,9 +1470,15 @@ public sealed class PostgresDecisionRepository(TenantConnectionFactory connectio
                 display_text_override
             FROM decision_signals
             WHERE decision_id = @decision_id AND is_deleted = false
+            AND (@signal_id IS NULL OR id = @signal_id)
             ORDER BY created_at DESC, id DESC
             """;
+        if (transaction is not null)
+        {
+            command.CommandText += " FOR UPDATE";
+        }
         command.Parameters.AddWithValue("decision_id", decisionId);
+        AddNullableInteger(command, "signal_id", signalId);
 
         var items = new List<DecisionSignalDto>();
         await using var reader = await command.ExecuteReaderAsync(ct);

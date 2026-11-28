@@ -56,6 +56,7 @@ export interface SignalFormPayload {
 interface Props {
   open: boolean;
   mode: 'create' | 'edit';
+  elevated?: boolean;
   initial?: DecisionSignal | null;
   onOpenChange: (open: boolean) => void;
   onSubmit: (payload: SignalFormPayload) => Promise<void>;
@@ -65,6 +66,7 @@ export default function DecisionSignalDialog({
   open,
   mode,
   initial,
+  elevated = false,
   onOpenChange,
   onSubmit,
 }: Props) {
@@ -163,6 +165,7 @@ export default function DecisionSignalDialog({
       title={mode === 'create' ? 'Add signal' : 'Edit signal'}
       subtitle="Signals are structured evidence behind the decision."
       width="max-w-xl"
+      elevated={elevated}
     >
       {error && (
         <div className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">
@@ -173,6 +176,7 @@ export default function DecisionSignalDialog({
       <div className="grid grid-cols-2 gap-3">
         <Field label="Metric">
           <InlineSelect
+            elevated={elevated}
             ariaLabel="Metric"
             value={metric}
             onValueChange={(v) => setMetric(v as SignalMetric)}
@@ -181,6 +185,7 @@ export default function DecisionSignalDialog({
         </Field>
         <Field label="Movement">
           <InlineSelect
+            elevated={elevated}
             ariaLabel="Movement"
             value={movement}
             onValueChange={(v) => setMovement(v as SignalMovement)}
@@ -189,6 +194,7 @@ export default function DecisionSignalDialog({
         </Field>
         <Field label="Period">
           <InlineSelect
+            elevated={elevated}
             ariaLabel="Period"
             value={period}
             onValueChange={(v) => setPeriod(v as SignalPeriod)}
@@ -197,6 +203,7 @@ export default function DecisionSignalDialog({
         </Field>
         <Field label="Comparison">
           <InlineSelect
+            elevated={elevated}
             ariaLabel="Comparison"
             value={comparison}
             onValueChange={(v) => setComparison(v as SignalComparison)}
@@ -205,6 +212,7 @@ export default function DecisionSignalDialog({
         </Field>
         <Field label="Scope type">
           <InlineSelect
+            elevated={elevated}
             ariaLabel="Scope type"
             value={scopeType}
             onValueChange={setScopeType}
@@ -232,6 +240,7 @@ export default function DecisionSignalDialog({
         </Field>
         <Field label="Delta unit">
           <InlineSelect
+            elevated={elevated}
             ariaLabel="Delta unit"
             value={deltaUnit}
             onValueChange={setDeltaUnit}
