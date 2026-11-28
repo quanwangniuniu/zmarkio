@@ -4,7 +4,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type {
   ChangeEvent,
   ClipboardEvent,
-  CompositionEvent,
   KeyboardEvent,
 } from 'react';
 import {
@@ -33,11 +32,8 @@ export const isComposingKey = (e: KeyboardEvent) =>
 export function useLimitedText({ value, onChange, max, counterFrom, singleLine, maxHeight }: Options) {
   const elementRef = useRef<HTMLTextAreaElement | null>(null);
   const [pastedCut, setPastedCut] = useState(false);
-  // Firefox fires an input event after compositionend, before the parent
-  // re-renders; compare against this so it can't undo the clip.
+  // The value prop can lag a render behind fast input; compare against this.
   const latestRef = useRef(value);
-  const composingRef = useRef(false);
-  const compositionStartRef = useRef<{ value: string; start: number; end: number } | null>(null);
   const pendingCaretRef = useRef<number | null>(null);
 
   const normalize = (text: string) => (singleLine ? toSingleLine(text) : text);
@@ -92,10 +88,6 @@ export function useLimitedText({ value, onChange, max, counterFrom, singleLine, 
   const onChangeHandler = (e: ChangeEvent<HTMLTextAreaElement>) => {
     const next = normalize(e.target.value);
     setPastedCut(false);
-    if (composingRef.current || (e.nativeEvent as InputEvent).isComposing) {
-      emit(next); // don't clip mid-composition; done in compositionend
-      return;
-    }
     const prev = latestRef.current;
     if (charCount(next) > max && charCount(next) > charCount(prev)) return;
     emit(next);
@@ -107,30 +99,6 @@ export function useLimitedText({ value, onChange, max, counterFrom, singleLine, 
     const start = el.selectionStart ?? el.value.length;
     const end = el.selectionEnd ?? start;
     setPastedCut(insertClipped(el.value, start, end, normalize(e.clipboardData.getData('text'))));
-  };
-
-  const onCompositionStart = (e: CompositionEvent<HTMLTextAreaElement>) => {
-    composingRef.current = true;
-    const el = e.currentTarget;
-    compositionStartRef.current = {
-      value: el.value,
-      start: el.selectionStart ?? el.value.length,
-      end: el.selectionEnd ?? el.value.length,
-    };
-  };
-
-  const onCompositionEnd = (e: CompositionEvent<HTMLTextAreaElement>) => {
-    composingRef.current = false;
-    const startState = compositionStartRef.current;
-    compositionStartRef.current = null;
-    const finalValue = normalize(e.currentTarget.value);
-    if (!startState || charCount(finalValue) <= max) {
-      emit(finalValue);
-      return;
-    }
-    const { value: base, start, end } = startState;
-    const composed = finalValue.slice(start, finalValue.length - (base.length - end));
-    insertClipped(base, start, end, composed);
   };
 
   const length = lengthState(value, max, counterFrom);
@@ -147,8 +115,6 @@ export function useLimitedText({ value, onChange, max, counterFrom, singleLine, 
       rows: 1,
       onChange: onChangeHandler,
       onPaste,
-      onCompositionStart,
-      onCompositionEnd,
     },
     elementRef,
     length,
