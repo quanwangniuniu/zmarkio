@@ -1,6 +1,16 @@
-import { assignUniqueSlugs, slugLookup, slugWithSuffix } from '@/lib/slugs';
+import { assignUniqueSlugs, makeSlug, slugLookup, slugWithSuffix } from '@/lib/slugs';
 
 const longBase = 'a'.repeat(200);
+
+describe('makeSlug', () => {
+  it.each(['Generate', 'Generate!'])('keeps %p clear of the generation route', (headline) => {
+    expect(makeSlug(headline)).toBe('adcopyvariation-generate');
+  });
+
+  it('prefixes a numeric headline', () => {
+    expect(makeSlug('2024')).toBe('adcopyvariation-2024');
+  });
+});
 
 describe('slugWithSuffix', () => {
   it('keeps a 200-character base when no suffix is needed', () => {

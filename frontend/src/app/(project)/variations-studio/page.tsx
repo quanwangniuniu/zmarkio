@@ -98,7 +98,7 @@ const EMPTY_COPY: AdCopyVariationCopy = {
 interface CardState {
   key: string;
   id: number;
-  slug?: string;
+  slug: string;
   batch_id: string;
   source_mode: AdCopyVariationSourceMode;
   source_ref: string;
@@ -351,7 +351,7 @@ function VariationsStudioContent() {
     if (!card) return;
     updateCard(key, { saving: true });
     try {
-      const updated = await updateVariation(card.slug ?? card.id, card.draft);
+      const updated = await updateVariation(card.slug, card.draft);
       const copy = copyFromVariation(updated);
       setCards((prev) =>
         prev.map((c) =>
@@ -1212,11 +1212,11 @@ function AiDraftsTab({
   };
 
   const saveRowEdit = async () => {
-    if (!editingRowId) return;
-    setSavingEditId(editingRowId);
+    const editingRow = rows.find((row) => row.id === editingRowId);
+    if (!editingRow) return;
+    setSavingEditId(editingRow.id);
     try {
-      const editingRow = rows.find((r) => r.id === editingRowId);
-      const updated = await updateVariation(editingRow?.slug ?? editingRowId, editingDraft);
+      const updated = await updateVariation(editingRow.slug, editingDraft);
       setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
       setEditingRowId(null);
       setEditingDraft(EMPTY_COPY);
@@ -1512,7 +1512,7 @@ function AiDraftsTab({
                     )}
                     {creativeId !== null ? (
                       <Link
-                        href={buildUrl(`/meta-ads/creatives/${row.creative_slug ?? creativeId}`)}
+                        href={buildUrl(`/meta-ads/creatives/${creativeId}`)}
                         className="rounded-lg px-3 py-1.5 text-[12px] font-medium text-gray-700 ring-1 ring-gray-200 transition hover:text-[#1a9ba3] hover:ring-[#3CCED7]"
                       >
                         Creative detail

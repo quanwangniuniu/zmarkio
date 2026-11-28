@@ -311,6 +311,7 @@ describe('batch slug allocation', () => {
     ];
 
     expect(results).toHaveLength(100);
+    results.forEach((row) => expect(row.slug).toMatch(/\S/));
     expect(new Set(results.map((row) => row.slug)).size).toBe(100);
   });
 });

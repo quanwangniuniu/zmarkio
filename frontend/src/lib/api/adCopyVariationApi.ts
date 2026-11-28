@@ -218,10 +218,13 @@ export async function getVariation(idOrSlug: number | string): Promise<AdCopyVar
 }
 
 export async function updateVariation(
-  id: number | string,
+  slug: string,
   fields: Partial<AdCopyVariationCopy & Pick<AdCopyVariation, 'status'>>
 ): Promise<AdCopyVariation> {
-  const { data } = await api.patch<AdCopyVariation>(`${BASE}/${id}/`, fields);
+  if (!slug?.trim()) {
+    throw new Error('Cannot save this draft because its slug is missing.');
+  }
+  const { data } = await api.patch<AdCopyVariation>(`${BASE}/${slug}/`, fields);
   return data;
 }
 
