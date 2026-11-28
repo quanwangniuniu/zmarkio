@@ -2,12 +2,15 @@
 
 import Link from 'next/link';
 import { useBuildUrl } from '@/lib/buildUrl';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { ArrowLeft, Sparkles } from 'lucide-react';
 import DecisionStatusPill from '@/components/decisions/DecisionStatusPill';
 import DecisionRiskPill from '@/components/decisions/DecisionRiskPill';
+import TextLimitHint from '@/components/decisions/detail/TextLimitHint';
+import { isComposingKey, useLimitedText } from '@/components/decisions/detail/hooks/useLimitedText';
+import { COUNTER_THRESHOLDS, DECISION_LIMITS } from '@/components/decisions/decisionValidation';
 import type { DecisionRiskLevel, DecisionStatus } from '@/types/decision';
-import type { ReactNode } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 
 interface Props {
   projectId: number | string | null;
@@ -19,6 +22,8 @@ interface Props {
   createdByAgent?: boolean;
   editable: boolean;
   onTitleSave: (next: string) => void | Promise<void>;
+  error?: string | null;
+  onErrorDismiss?: () => void;
   actionBar?: ReactNode;
 }
 
@@ -32,10 +37,26 @@ export default function DecisionDetailHeader({
   createdByAgent,
   editable,
   onTitleSave,
+  error,
+  onErrorDismiss,
   actionBar,
 }: Props) {
   const [local, setLocal] = useState(title ?? '');
   const [saving, setSaving] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const skipNextSaveRef = useRef(false);
+  const hintId = useId();
+
+  const text = useLimitedText({
+    value: local,
+    onChange: (next) => {
+      setLocal(next);
+      if (error) onErrorDismiss?.();
+    },
+    max: DECISION_LIMITS.title,
+    counterFrom: COUNTER_THRESHOLDS.title,
+    singleLine: true,
+  });
 
   useEffect(() => {
     setLocal(title ?? '');
@@ -44,16 +65,40 @@ export default function DecisionDetailHeader({
   const buildUrl = useBuildUrl();
   const backHref = buildUrl('/decisions');
 
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isComposingKey(e)) return;
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      e.currentTarget.blur();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      skipNextSaveRef.current = true;
+      setLocal(title ?? '');
+      e.currentTarget.blur();
+    }
+  };
+
   const handleBlur = async () => {
+    setFocused(false);
+    text.clearNotice();
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return;
+    }
     const normalized = local.trim();
     if (!editable || normalized === (title ?? '').trim()) return;
     setSaving(true);
     try {
       await onTitleSave(normalized);
+    } catch {
+      // patchDraft already showed a toast; keep the text for a retry.
     } finally {
       setSaving(false);
     }
   };
+
+  const showHint =
+    editable && (!!error || (focused && (text.length.showCounter || text.message != null)));
 
   return (
     <section className="overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-100 sm:rounded-xl">
@@ -80,15 +125,24 @@ export default function DecisionDetailHeader({
 
       <div className="px-3 py-4 sm:px-6 sm:py-5">
         {editable ? (
-          <input
-            type="text"
-            value={local}
-            onChange={(e) => setLocal(e.target.value)}
-            onBlur={handleBlur}
-            placeholder="Untitled decision"
-            aria-label="Decision title"
-            className="w-full border-0 border-b-2 border-transparent bg-transparent py-1 text-xl font-semibold text-gray-900 placeholder:text-gray-300 outline-none transition focus:border-[#3CCED7] sm:text-[22px]"
-          />
+          <>
+            <textarea
+              {...text.textareaProps}
+              onKeyDown={handleKeyDown}
+              onFocus={() => setFocused(true)}
+              onBlur={handleBlur}
+              placeholder="Untitled decision"
+              aria-label="Decision title"
+              aria-describedby={showHint ? hintId : undefined}
+              aria-invalid={error ? true : undefined}
+              className={`block w-full resize-none break-words border-0 border-b-2 bg-transparent py-1 text-xl font-semibold leading-snug text-gray-900 placeholder:text-gray-300 outline-none transition sm:text-[22px] ${
+                error ? 'border-rose-400' : 'border-transparent focus:border-[#3CCED7]'
+              }`}
+            />
+            {showHint && (
+              <TextLimitHint id={hintId} length={text.length} message={text.message} error={error} />
+            )}
+          </>
         ) : (
           <h1 className="break-words text-xl font-semibold text-gray-900 sm:text-[22px]">
             {title?.trim() || <span className="text-gray-300">Untitled decision</span>}

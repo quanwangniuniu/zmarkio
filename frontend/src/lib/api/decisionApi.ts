@@ -262,10 +262,11 @@ export const DecisionAPI = {
   },
   createDecisionTopic: async (
     projectId: number | string,
+    key: string,
     title: string,
   ) => {
     const response = await api.post<DecisionTopicLabelResponse>(
-      `/api/decisions/topic-labels/${encodeURIComponent(title)}`,
+      `/api/decisions/topic-labels/${encodeURIComponent(key)}`,
       { title },
       withProject(projectId),
     );

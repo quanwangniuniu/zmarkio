@@ -57,3 +57,140 @@ export function validateDecisionDraft(
     errors.confidenceScore = 'Confidence must be between 1 and 5.';
   return errors;
 }
+
+// Mirrors decision-service limits. Counted in code points like the backend,
+// not UTF-16, so don't use the HTML maxLength attribute.
+export const DECISION_LIMITS = {
+  title: 255,
+  optionText: 1000,
+  topicName: 80,
+  topicKey: 64,
+} as const;
+
+export const COUNTER_THRESHOLDS = {
+  title: 230,
+  optionText: 900,
+} as const;
+
+export function charCount(text: string | null | undefined): number {
+  return Array.from(text ?? '').length;
+}
+
+export function clip(text: string, max: number): { text: string; cut: boolean } {
+  const chars = Array.from(text);
+  return chars.length > max
+    ? { text: chars.slice(0, max).join(''), cut: true }
+    : { text, cut: false };
+}
+
+export interface LengthState {
+  count: number;
+  max: number;
+  showCounter: boolean;
+  atLimit: boolean;
+}
+
+export function lengthState(text: string | null | undefined, max: number, showAt: number): LengthState {
+  const count = charCount(text);
+  return { count, max, showCounter: count >= showAt, atLimit: count >= max };
+}
+
+const formatCount = (n: number) => n.toLocaleString('en-US');
+
+export const FIELD_MESSAGES = {
+  limitReached: 'Character limit reached.',
+  pastedCut: (max: number) => `Pasted text was cut to fit ${formatCount(max)} characters.`,
+  optionEmpty: 'Enter text, or remove this option.',
+  optionsTooFew: "Add at least two options, then choose the one you're committing to.",
+  optionNotSelected: "Choose the option you're committing to.",
+  confidenceOutOfRange: (value: number) => `Saved value ${value} is out of range. Choose 1–5.`,
+  topicNameEmpty: 'Enter a topic name.',
+  topicNameTooLong: `Use ${DECISION_LIMITS.topicName} characters or fewer.`,
+  topicNameExists: (name: string) => `A topic named "${name}" already exists.`,
+} as const;
+
+export function formatCounter(state: LengthState): string {
+  return `${formatCount(state.count)} / ${formatCount(state.max)}`;
+}
+
+export function isOptionTextBlank(text: string | null | undefined): boolean {
+  return (text ?? '').trim().length === 0;
+}
+
+export function isConfidenceOutOfRange(value: number | null | undefined): value is number {
+  return value != null && (value < 1 || value > 5);
+}
+
+/** trim → lowercase → spaces/underscores to "-" → drop non [a-z0-9-] → collapse "-" → trim "-" */
+export function toTopicKey(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+const sameName = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase();
+
+const KEY_SUFFIX_LENGTH = 5;
+
+// FNV-1a: a short, stable hash, so the same name always gives the same key.
+function nameHash(name: string): string {
+  let hash = 0x811c9dc5;
+  for (const ch of sameName(name)) {
+    hash ^= ch.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36).padStart(KEY_SUFFIX_LENGTH, '0').slice(-KEY_SUFFIX_LENGTH);
+}
+
+// The map's topic list leaves out topics with no decisions, and the API upserts by key. A suffix
+// from the name keeps different names apart, and sends a retried name to the same row.
+export function generateTopicKey(name: string): string {
+  const maxSlug = DECISION_LIMITS.topicKey - KEY_SUFFIX_LENGTH - 1;
+  const slug = toTopicKey(name).slice(0, maxSlug).replace(/-+$/, '');
+  return `${slug || 'topic'}-${nameHash(name)}`;
+}
+
+/** Returns the error to show for a new topic name, or null if it can be saved. */
+export function validateNewTopicName(name: string, topics: Iterable<{ title?: string | null }>): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return FIELD_MESSAGES.topicNameEmpty;
+  // decision-service counts the name in UTF-16 units (String.Length), unlike title and option text.
+  if (trimmed.length > DECISION_LIMITS.topicName) return FIELD_MESSAGES.topicNameTooLong;
+  const target = sameName(trimmed);
+  for (const topic of topics) {
+    if (sameName(topic.title ?? '') === target) return FIELD_MESSAGES.topicNameExists(trimmed);
+  }
+  return null;
+}
+
+const snakeToCamel = (field: string) => field.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+
+/** Maps a failed request to `{ field: message }`; handles flat 400s and the commit format. */
+export function extractFieldErrors(err: unknown): Record<string, string> {
+  const data = (err as { response?: { data?: unknown } })?.response?.data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+
+  const result: Record<string, string> = {};
+  const nested = (data as { error?: { details?: { fieldErrors?: unknown } } }).error?.details?.fieldErrors;
+  if (Array.isArray(nested)) {
+    for (const item of nested) {
+      const field = (item as { field?: unknown })?.field;
+      const message = (item as { message?: unknown })?.message;
+      if (typeof field === 'string' && typeof message === 'string') {
+        result[snakeToCamel(field)] ??= message;
+      }
+    }
+    return result;
+  }
+
+  for (const [field, value] of Object.entries(data as Record<string, unknown>)) {
+    if (field === 'detail' || field === 'error' || field === 'message') continue;
+    const message = Array.isArray(value) ? value.find((v) => typeof v === 'string') : value;
+    if (typeof message === 'string') result[snakeToCamel(field)] = message;
+  }
+  return result;
+}

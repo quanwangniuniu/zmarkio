@@ -1,8 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import InlineSelect from '@/components/tasks/detail/InlineSelect';
 import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
+import { FIELD_MESSAGES, isConfidenceOutOfRange } from '@/components/decisions/decisionValidation';
 import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
 import { optionChoices, optionLabel } from '@/lib/orgCustomization/optionConfig';
 import type { DecisionRiskLevel, DecisionStatus } from '@/types/decision';
@@ -27,6 +29,15 @@ interface Props {
   onConfidenceChange?: (next: number | null) => void | Promise<void>;
   onPlannedDateChange?: (next: string | null) => void | Promise<void>;
 }
+
+const UNASSIGNED = '__unassigned__';
+// Above the full-screen decision map (z-200).
+const MENU_ABOVE_MAP = 'z-[1000]';
+
+const CONFIDENCE_OPTIONS = [
+  { value: UNASSIGNED, label: 'Unassigned' },
+  ...['1', '2', '3', '4', '5'].map((n) => ({ value: n, label: n })),
+];
 
 const LABEL =
   'text-[11px] font-medium uppercase tracking-wide text-gray-500';
@@ -71,23 +82,23 @@ export default function DecisionPropertiesAside({
   onPlannedDateChange,
 }: Props) {
   useOptionConfigVersion();
-  const [confLocal, setConfLocal] = useState<string>(
-    confidenceScore != null ? String(confidenceScore) : ''
-  );
   const [plannedLocal, setPlannedLocal] = useState(formatDateInput(plannedDecisionDate));
-
-  useEffect(() => {
-    setConfLocal(confidenceScore != null ? String(confidenceScore) : '');
-  }, [confidenceScore]);
 
   useEffect(() => {
     setPlannedLocal(formatDateInput(plannedDecisionDate));
   }, [plannedDecisionDate]);
 
-  const commitConfidence = async () => {
-    const n = confLocal === '' ? null : Number(confLocal);
-    if (n != null && (Number.isNaN(n) || n < 1 || n > 5)) return;
-    await onConfidenceChange?.(n);
+  const confidenceOutOfRange = isConfidenceOutOfRange(confidenceScore);
+  const confidenceError =
+    errors?.confidence ||
+    (confidenceOutOfRange ? FIELD_MESSAGES.confidenceOutOfRange(confidenceScore) : null);
+
+  const handleConfidenceChange = async (v: string) => {
+    try {
+      await onConfidenceChange?.(v === UNASSIGNED ? null : Number(v));
+    } catch {
+      // patchDraft already showed a toast.
+    }
   };
 
   const commitPlanned = async () => {
@@ -95,8 +106,12 @@ export default function DecisionPropertiesAside({
     await onPlannedDateChange?.(next);
   };
 
-  const handleRiskChange = (v: string) => {
-    onRiskChange?.(v === '__unassigned__' ? null : (v as DecisionRiskLevel));
+  const handleRiskChange = async (v: string) => {
+    try {
+      await onRiskChange?.(v === UNASSIGNED ? null : (v as DecisionRiskLevel));
+    } catch {
+      // patchDraft already showed a toast.
+    }
   };
 
   return (
@@ -111,9 +126,10 @@ export default function DecisionPropertiesAside({
             <div id="decision-field-risk" className="rounded-md transition">
               <InlineSelect
                 ariaLabel="Risk level"
-                value={riskLevel ?? '__unassigned__'}
+                value={riskLevel ?? UNASSIGNED}
                 onValueChange={handleRiskChange}
-                options={[{ value: '__unassigned__', label: 'Unassigned' }, ...optionChoices(DECISION_RISK)]}
+                menuZIndexClassName={MENU_ABOVE_MAP}
+                options={[{ value: UNASSIGNED, label: 'Unassigned' }, ...optionChoices(DECISION_RISK)]}
               />
             </div>
             {errors?.risk && (
@@ -128,20 +144,28 @@ export default function DecisionPropertiesAside({
       <Row label="Confidence">
         {editable ? (
           <div>
-            <input
-              id="decision-field-confidence"
-              type="number"
-              min={1}
-              max={5}
-              step={1}
-              value={confLocal}
-              onChange={(e) => setConfLocal(e.target.value)}
-              onBlur={commitConfidence}
-              placeholder="1–5"
-              className="w-20 rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 outline-none transition focus:border-[#3CCED7] focus:ring-2 focus:ring-[#3CCED7]/30"
-            />
-            {errors?.confidence && (
-              <div className="mt-1 text-[11px] text-rose-600">{errors.confidence}</div>
+            <div id="decision-field-confidence" className="rounded-md transition">
+              <InlineSelect
+                ariaLabel="Confidence score"
+                value={
+                  confidenceOutOfRange ? '' : confidenceScore != null ? String(confidenceScore) : UNASSIGNED
+                }
+                onValueChange={handleConfidenceChange}
+                menuZIndexClassName={MENU_ABOVE_MAP}
+                options={CONFIDENCE_OPTIONS}
+                placeholder="Choose 1–5"
+                invalid={!!confidenceError}
+                ariaDescribedBy={confidenceError ? 'decision-field-confidence-error' : undefined}
+              />
+            </div>
+            {confidenceError && (
+              <p
+                id="decision-field-confidence-error"
+                className="mt-1 flex items-start gap-1 text-[11px] text-rose-600"
+              >
+                <AlertCircle aria-hidden="true" className="mt-px h-3 w-3 shrink-0" />
+                {confidenceError}
+              </p>
             )}
           </div>
         ) : (

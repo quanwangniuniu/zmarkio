@@ -11,10 +11,11 @@ import {
   useState,
 } from 'react';
 import Link from 'next/link';
+import toast from 'react-hot-toast';
 import { nestedProjectPath } from '@/lib/projectNestedRoutes';
 import { useBuildUrl } from '@/lib/buildUrl';
 import dagre from '@dagrejs/dagre';
-import { CheckCircle2, FileText, Link2, PencilLine, Plus, Trash2, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, FileText, Link2, PencilLine, Plus, Trash2, X } from 'lucide-react';
 import DecisionStatusPill from '@/components/decisions/DecisionStatusPill';
 import { DECISION_RISK } from '@/lib/decisions/decisionConfig';
 import { useOptionConfigVersion } from '@/lib/orgCustomization/configLoader';
@@ -34,6 +35,7 @@ import {
   type TimelineGranularity,
 } from '@/components/decisions/decisionTreeLayout';
 import type { DecisionGraphEdge, DecisionGraphNode, DecisionGraphTopic, DecisionStatus } from '@/types/decision';
+import { validateNewTopicName } from '@/components/decisions/decisionValidation';
 
 export interface DecisionTreeHandle {
   jumpToToday: () => void;
@@ -449,6 +451,9 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
   const [moveHoverTopic, setMoveHoverTopic] = useState<string | null>(null);
   const [editingTopic, setEditingTopic] = useState<{ topic: string; value: string } | null>(null);
   const [newTopicTitle, setNewTopicTitle] = useState<string | null>(null);
+  const [newTopicTouched, setNewTopicTouched] = useState(false);
+  const [newTopicServerError, setNewTopicServerError] = useState<string | null>(null);
+  const newTopicSavingRef = useRef(false);
   const [expandedTreeGroups, setExpandedTreeGroups] = useState<Set<string>>(new Set());
   const [topicGuideDismissed, setTopicGuideDismissed] = useState(false);
   const [topicGuidePage, setTopicGuidePage] = useState<0 | 1 | 2>(0);
@@ -1036,18 +1041,40 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
   const saveTopicTitle = useCallback(async () => {
     if (!editingTopic || !onRenameTopic) return;
     const title = editingTopic.value.trim();
-    setEditingTopic(null);
     if (!title) return;
+    setEditingTopic(null);
     await onRenameTopic(editingTopic.topic, title);
   }, [editingTopic, onRenameTopic]);
 
-  const saveNewTopic = useCallback(async () => {
-    if (!onCreateTopic || newTopicTitle == null) return;
-    const title = (newTopicInputRef.current?.value ?? newTopicTitle).trim();
+  const existingTopics = useMemo(() => topics ?? [], [topics]);
+  const newTopicInvalid =
+    newTopicTitle == null ? null : validateNewTopicName(newTopicTitle, existingTopics);
+  const newTopicError = newTopicServerError ?? (newTopicTouched ? newTopicInvalid : null);
+
+  const closeNewTopic = useCallback(() => {
     setNewTopicTitle(null);
-    if (!title) return;
-    await onCreateTopic(title);
-  }, [newTopicTitle, onCreateTopic]);
+    setNewTopicTouched(false);
+    setNewTopicServerError(null);
+  }, []);
+
+  const saveNewTopic = useCallback(async () => {
+    if (!onCreateTopic || newTopicTitle == null || newTopicSavingRef.current) return;
+    const title = (newTopicInputRef.current?.value ?? newTopicTitle).trim();
+    setNewTopicTouched(true);
+    if (validateNewTopicName(title, existingTopics)) {
+      toast.error('Failed to add topic');
+      return;
+    }
+    newTopicSavingRef.current = true;
+    try {
+      await onCreateTopic(title);
+      closeNewTopic();
+    } catch (err) {
+      setNewTopicServerError((err as Error)?.message || 'Failed to add topic');
+    } finally {
+      newTopicSavingRef.current = false;
+    }
+  }, [newTopicTitle, onCreateTopic, existingTopics, closeNewTopic]);
 
   useEffect(() => {
     if (!linkDragFrom) return;
@@ -1856,48 +1883,71 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
                     }}
                   >
                     {newTopicTitle != null ? (
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          data-new-topic-input
-                          ref={newTopicInputRef}
-                          autoFocus
-                          value={newTopicTitle}
-                          onChange={(event) => setNewTopicTitle(event.target.value)}
-                          onInput={(event) => setNewTopicTitle(event.currentTarget.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') {
-                              event.preventDefault();
-                              void saveNewTopic();
-                            }
-                            if (event.key === 'Escape') {
-                              event.preventDefault();
-                              setNewTopicTitle(null);
-                            }
-                          }}
-                          className="h-7 w-40 rounded-md border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 outline-none transition focus:border-[#3CCED7]"
-                          maxLength={80}
-                        />
-                        <button
-                          data-new-topic-save
-                          type="button"
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            void saveNewTopic();
-                          }}
-                          onClick={() => void saveNewTopic()}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-emerald-600 transition hover:bg-emerald-50"
-                          aria-label="Save topic"
+                      <div className="flex w-full flex-col px-3">
+                        <label htmlFor="decision-new-topic" className="mb-1.5 text-[11px] font-semibold text-slate-800">
+                          New topic name
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            id="decision-new-topic"
+                            data-new-topic-input
+                            ref={newTopicInputRef}
+                            autoFocus
+                            value={newTopicTitle}
+                            placeholder="e.g. Q4 Budget"
+                            onChange={(event) => {
+                              setNewTopicTitle(event.target.value);
+                              setNewTopicTouched(true);
+                              setNewTopicServerError(null);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                void saveNewTopic();
+                              }
+                              if (event.key === 'Escape') {
+                                event.preventDefault();
+                                closeNewTopic();
+                              }
+                            }}
+                            aria-invalid={newTopicError ? true : undefined}
+                            aria-describedby="decision-new-topic-hint"
+                            className={`h-7 min-w-0 flex-1 rounded-md border bg-white px-2 text-xs font-medium text-slate-800 outline-none transition ${
+                              newTopicError ? 'border-rose-400 focus:border-rose-500' : 'border-slate-200 focus:border-[#3CCED7]'
+                            }`}
+                          />
+                          <button
+                            data-new-topic-save
+                            type="button"
+                            // Keep focus in the input; saving happens once, on click.
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => void saveNewTopic()}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-emerald-600 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-transparent"
+                            aria-label="Save topic"
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={closeNewTopic}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                            aria-label="Cancel topic"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                        <p
+                          id="decision-new-topic-hint"
+                          aria-live="polite"
+                          className="mt-1.5 flex min-h-[14px] items-start gap-1 text-[11px] leading-tight text-rose-600"
                         >
-                          <CheckCircle2 className="h-4 w-4" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNewTopicTitle(null)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-                          aria-label="Cancel topic"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
+                          {newTopicError && (
+                            <>
+                              <AlertCircle aria-hidden="true" className="mt-px h-3 w-3 shrink-0" />
+                              <span className="line-clamp-2">{newTopicError}</span>
+                            </>
+                          )}
+                        </p>
                       </div>
                     ) : (
                       <button
@@ -2171,7 +2221,10 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
                           current ? { ...current, value: event.target.value } : current,
                         )
                       }
-                      onBlur={() => void saveTopicTitle()}
+                      onBlur={() => {
+                        if (editingTopic?.value.trim()) void saveTopicTitle();
+                        else setEditingTopic(null);
+                      }}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') {
                           event.preventDefault();
@@ -2183,7 +2236,11 @@ const DecisionTree = forwardRef<DecisionTreeHandle, DecisionTreeProps>(function 
                         }
                       }}
                       onClick={(event) => event.stopPropagation()}
-                      className="h-8 min-w-0 flex-1 rounded border border-[#3CCED7]/50 bg-white px-2 text-center text-[14px] font-semibold text-slate-900 outline-none"
+                      aria-label="Topic name"
+                      aria-invalid={!editingTopic?.value.trim() || undefined}
+                      className={`h-8 min-w-0 flex-1 rounded border bg-white px-2 text-center text-[14px] font-semibold text-slate-900 outline-none ${
+                        editingTopic?.value.trim() ? 'border-[#3CCED7]/50' : 'border-rose-400'
+                      }`}
                       maxLength={80}
                     />
                   ) : isTopicColumn ? (

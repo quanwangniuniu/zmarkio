@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { DecisionAPI, type DecisionDraftPayload } from '@/lib/api/decisionApi';
+import { extractFieldErrors } from '@/components/decisions/decisionValidation';
 import type {
   DecisionCommittedResponse,
   DecisionDraftResponse,
@@ -29,9 +30,16 @@ export function extractError(err: any, fallback: string): string {
     err?.response?.data?.detail ||
     err?.response?.data?.error?.message ||
     err?.response?.data?.message ||
+    Object.values(extractFieldErrors(err))[0] ||
     (err as Error)?.message ||
     fallback
   );
+}
+
+function saveErrorMessage(err: any): string {
+  return err?.request && !err?.response
+    ? "Couldn't save — check your connection."
+    : extractError(err, 'Failed to save');
 }
 
 export function useDecisionDetail(decisionId: number | string | null, projectId: number | string | null) {
@@ -98,7 +106,7 @@ export function useDecisionDetail(decisionId: number | string | null, projectId:
         setState((s) => ({ ...s, draft: next, kind: 'draft' }));
         return next;
       } catch (err) {
-        toast.error(extractError(err, 'Failed to save'));
+        toast.error(saveErrorMessage(err));
         throw err;
       }
     },
@@ -127,7 +135,7 @@ export function useDecisionDetail(decisionId: number | string | null, projectId:
         toast.error('This decision cannot be edited.');
         return null;
       } catch (err) {
-        toast.error(extractError(err, 'Failed to save'));
+        toast.error(saveErrorMessage(err));
         throw err;
       }
     },

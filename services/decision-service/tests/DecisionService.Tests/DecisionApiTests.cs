@@ -43,7 +43,7 @@ public sealed class DecisionApiTests
             "Test decision",
             "Move decision API to .NET",
             DecisionRiskLevel.MEDIUM,
-            80,
+            5,
             "Keeps frontend behavior stable while moving ownership.",
             "general",
             false,
@@ -68,6 +68,32 @@ public sealed class DecisionApiTests
         var node = Assert.Single(graphResponse!.Nodes);
         Assert.Equal(item.Id, node.Id);
         Assert.Equal("Test decision", node.Title);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(6)]
+    [InlineData(87)]
+    public async Task Draft_create_rejects_out_of_range_confidence_score(int confidenceScore)
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        var response = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            title = "Invalid confidence test",
+            confidenceScore,
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(
+            "Confidence score must be between 1 and 5.",
+            Assert.Single(errors!["confidenceScore"]));
     }
 
     [Fact]
@@ -144,6 +170,457 @@ public sealed class DecisionApiTests
 
         Assert.Equal(HttpStatusCode.BadRequest, patchResponse.StatusCode);
     }
+
+    [Fact]
+    public async Task Draft_patch_rejects_out_of_range_confidence_and_preserves_existing_score()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var createResponse = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            title = "Confidence update test",
+            confidenceScore = 5,
+        });
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var draft = await createResponse.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        var draftUrl = $"/api/decisions/drafts/{draft!.Slug}";
+
+        using var patchResponse = await client.PatchAsJsonAsync(draftUrl, new
+        {
+            confidenceScore = 87,
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, patchResponse.StatusCode);
+
+        var errors = await patchResponse.Content
+            .ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(
+            "Confidence score must be between 1 and 5.",
+            Assert.Single(errors!["confidenceScore"]));
+
+        var savedDraft = await client.GetFromJsonAsync<DecisionDetailDto>(draftUrl, JsonOptions);
+        Assert.NotNull(savedDraft);
+        Assert.Equal(5, savedDraft!.ConfidenceScore);
+    }
+
+    [Fact]
+    public async Task Draft_title_length_is_validated_on_create_and_patch()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string draftsUrl = "/api/decisions/drafts";
+        const string expectedError = "Title must be 255 characters or fewer.";
+        var validTitle = new string('A', 255);
+        var invalidTitle = new string('A', 256);
+
+        using var createResponse = await client.PostAsJsonAsync(draftsUrl, new { title = validTitle });
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+
+        var draft = await createResponse.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal(validTitle, draft!.Title);
+        var draftUrl = $"{draftsUrl}/{draft.Slug}";
+
+        using var rejectedCreate = await client.PostAsJsonAsync(draftsUrl, new { title = invalidTitle });
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedCreate.StatusCode);
+        var createErrors = await rejectedCreate.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(createErrors);
+        Assert.Equal(expectedError, Assert.Single(createErrors!["title"]));
+
+        using var rejectedPatch = await client.PatchAsJsonAsync(draftUrl, new { title = invalidTitle });
+        Assert.Equal(HttpStatusCode.BadRequest, rejectedPatch.StatusCode);
+        var patchErrors = await rejectedPatch.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(patchErrors);
+        Assert.Equal(expectedError, Assert.Single(patchErrors!["title"]));
+
+        var savedDraft = await client.GetFromJsonAsync<DecisionDetailDto>(draftUrl, JsonOptions);
+        Assert.NotNull(savedDraft);
+        Assert.Equal(validTitle, savedDraft!.Title);
+    }
+
+    [Fact]
+    public async Task Draft_create_normalizes_valid_topic()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/decisions/drafts", new { topic = " Paid_Social-1 " });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var draft = await response.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal("paid_social-1", draft!.Topic);
+    }
+
+    [Fact]
+    public async Task Draft_create_validates_topic_length()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string url = "/api/decisions/drafts";
+
+        using var accepted = await client.PostAsJsonAsync(url, new
+        {
+            topic = new string('a', 64),
+        });
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+
+        using var rejected = await client.PostAsJsonAsync(url, new
+        {
+            topic = new string('a', 65),
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal("Topic must be 64 characters or fewer.", Assert.Single(errors!["topic"]));
+    }
+
+    [Fact]
+    public async Task Draft_create_rejects_invalid_topic_format()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var response = await client.PostAsJsonAsync(
+            "/api/decisions/drafts", new { topic = "Paid Social" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(
+            "Topic may only contain lowercase letters, digits, underscores, and hyphens.",
+            Assert.Single(errors!["topic"]));
+    }
+
+    [Fact]
+    public async Task Draft_patch_rejects_invalid_topic_and_preserves_existing_topic()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string originalTopic = "paid_social-1";
+
+        using var created = await client.PostAsJsonAsync(
+            "/api/decisions/drafts", new { topic = originalTopic });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        var draft = await created.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        var url = $"/api/decisions/drafts/{draft!.Slug}";
+
+        using var rejected = await client.PatchAsJsonAsync(url, new { topic = "Paid Social" });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Contains("topic", errors!.Keys);
+
+        var saved = await client.GetFromJsonAsync<DecisionDetailDto>(url, JsonOptions);
+        Assert.NotNull(saved);
+        Assert.Equal(originalTopic, saved!.Topic);
+    }
+
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("PATCH")]
+    [InlineData("DELETE")]
+    public async Task Topic_label_routes_reject_invalid_topic(string method)
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var request = new HttpRequestMessage(
+            new HttpMethod(method), "/api/decisions/topic-labels/paid.social");
+        if (method != "DELETE")
+        {
+            request.Content = JsonContent.Create(new { title = "Paid Social" });
+        }
+
+        using var response = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(
+            "Topic may only contain lowercase letters, digits, underscores, and hyphens.",
+            Assert.Single(errors!["topic"]));
+    }
+
+    [Fact]
+    public async Task Draft_create_rejects_blank_option_text()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var response = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            options = new[] { new { text = "   ", isSelected = false, order = 1 } },
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal("Option text is required.", Assert.Single(errors!["options"]));
+    }
+
+    [Fact]
+    public async Task Draft_create_validates_option_text_length()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string url = "/api/decisions/drafts";
+
+        using var accepted = await client.PostAsJsonAsync(url, new
+        {
+            options = new[] { new { text = new string('A', 1000), isSelected = false, order = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+
+        using var rejected = await client.PostAsJsonAsync(url, new
+        {
+            options = new[] { new { text = new string('A', 1001), isSelected = false, order = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(
+            "Option text must be 1000 characters or fewer.",
+            Assert.Single(errors!["options"]));
+    }
+
+    [Fact]
+    public async Task Draft_create_rejects_duplicate_option_order()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var response = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            options = new[]
+            {
+                new { text = "Test Instagram Reels", isSelected = false, order = 1 },
+                new { text = "Test TikTok", isSelected = false, order = 1 },
+            },
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var errors = await response.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal("Option order must be unique.", Assert.Single(errors!["options"]));
+    }
+
+    [Fact]
+    public async Task Draft_patch_rejects_duplicate_option_order_and_preserves_existing_options()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string originalText = "Test Instagram Reels";
+
+        using var created = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            options = new[] { new { text = originalText, isSelected = false, order = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        var draft = await created.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        var url = $"/api/decisions/drafts/{draft!.Slug}";
+
+        using var rejected = await client.PatchAsJsonAsync(url, new
+        {
+            options = new[]
+            {
+                new { text = "Test TikTok", isSelected = false, order = 1 },
+                new { text = "Test YouTube Shorts", isSelected = false, order = 1 },
+            },
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal("Option order must be unique.", Assert.Single(errors!["options"]));
+
+        var saved = await client.GetFromJsonAsync<DecisionDetailDto>(url, JsonOptions);
+        Assert.NotNull(saved);
+
+        var option = Assert.Single(saved!.Options);
+        Assert.Equal(originalText, option.Text);
+        Assert.Equal(1, option.Order);
+    }
+
+    public static TheoryData<string, string> InvalidGeneralPatchTopics => new()
+    {
+        { "Paid Social", "Topic may only contain lowercase letters, digits, underscores, and hyphens." },
+        { new string('a', 65), "Topic must be 64 characters or fewer." },
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidGeneralPatchTopics))]
+    public async Task General_patch_rejects_invalid_topic_and_preserves_existing_topic(
+        string invalidTopic, string expectedError)
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string originalTopic = "paid_social-1";
+
+        using var created = await client.PostAsJsonAsync(
+            "/api/decisions/drafts", new { topic = originalTopic });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+
+        var draft = await created.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        var slug = draft!.Slug;
+
+        using var rejected = await client.PatchAsJsonAsync(
+            $"/api/decisions/{slug}", new { topic = invalidTopic });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(expectedError, Assert.Single(errors!["topic"]));
+
+        var saved = await client.GetFromJsonAsync<DecisionDetailDto>(
+            $"/api/decisions/drafts/{slug}", JsonOptions);
+        Assert.NotNull(saved);
+        Assert.Equal(originalTopic, saved!.Topic);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(5)]
+    public async Task Draft_create_accepts_confidence_score_at_the_range_edges(int confidenceScore)
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        using var response = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            title = "Q4 creative vendor",
+            confidenceScore,
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var draft = await response.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal(confidenceScore, draft!.ConfidenceScore);
+    }
+
+    [Fact]
+    public async Task Draft_title_limit_counts_an_emoji_as_one_character()
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        // 255 characters, but 257 UTF-16 units: must pass, as the editor counts it as 255.
+        var title = TitleOfLength(253) + "🎄🎁";
+        Assert.Equal(257, title.Length);
+
+        using var accepted = await client.PostAsJsonAsync("/api/decisions/drafts", new { title });
+        Assert.Equal(HttpStatusCode.Created, accepted.StatusCode);
+        var draft = await accepted.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        Assert.Equal(title, draft!.Title);
+
+        using var rejected = await client.PostAsJsonAsync("/api/decisions/drafts", new { title = title + "!" });
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal("Title must be 255 characters or fewer.", Assert.Single(errors!["title"]));
+    }
+
+    public static TheoryData<string, string, string> InvalidGeneralPatchFields => new()
+    {
+        { """{"confidenceScore":6}""", "confidenceScore", "Confidence score must be between 1 and 5." },
+        { $$"""{"title":"{{TitleOfLength(256)}}"}""", "title", "Title must be 255 characters or fewer." },
+        { """{"options":[{"text":"   ","isSelected":false,"order":1}]}""", "options", "Option text is required." },
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidGeneralPatchFields))]
+    public async Task General_patch_rejects_invalid_fields_and_preserves_the_draft(
+        string body, string field, string expectedError)
+    {
+        await using var factory = new DecisionApiFactory(authenticated: true);
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        client.DefaultRequestHeaders.Add("x-project-id", "12");
+
+        const string originalTitle = "Q4 creative vendor";
+        const string originalOption = "Use the existing vendor for all Q4 creative";
+
+        using var created = await client.PostAsJsonAsync("/api/decisions/drafts", new
+        {
+            title = originalTitle,
+            confidenceScore = 3,
+            options = new[] { new { text = originalOption, isSelected = true, order = 1 } },
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var draft = await created.Content.ReadFromJsonAsync<DecisionDetailDto>(JsonOptions);
+        Assert.NotNull(draft);
+        var slug = draft!.Slug;
+
+        using var request = new HttpRequestMessage(HttpMethod.Patch, $"/api/decisions/{slug}")
+        {
+            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+        };
+        using var rejected = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        var errors = await rejected.Content.ReadFromJsonAsync<Dictionary<string, string[]>>();
+        Assert.NotNull(errors);
+        Assert.Equal(expectedError, Assert.Single(errors![field]));
+
+        var saved = await client.GetFromJsonAsync<DecisionDetailDto>($"/api/decisions/drafts/{slug}", JsonOptions);
+        Assert.NotNull(saved);
+        Assert.Equal(originalTitle, saved!.Title);
+        Assert.Equal(3, saved.ConfidenceScore);
+        Assert.Equal(originalOption, Assert.Single(saved.Options).Text);
+    }
+
+    private static string TitleOfLength(int length) =>
+        string.Concat(Enumerable.Repeat("Shift Q4 Meta budget into Google Search. ", 10))[..length];
 
     private sealed class DecisionApiFactory(bool authenticated) : WebApplicationFactory<Program>
     {

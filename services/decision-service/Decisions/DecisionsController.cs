@@ -93,6 +93,16 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
 
+        try{
+            DecisionDraftValidation.ValidateTopic(topic);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]>
+            {
+                [ex.Field] = new[] { ex.Message },
+            });
+        }
         var label = await repository.UpsertTopicLabelAsync(projectId.Value, topic, title, cancellationToken);
         return label is null ? BadRequest(new { detail = "Topic label could not be saved." }) : Ok(label);
     }
@@ -112,6 +122,16 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
             return DecisionAccessResponses.UnauthorizedOrForbidden(access);
         }
 
+        try{
+            DecisionDraftValidation.ValidateTopic(topic);
+        }
+        catch (DecisionValidationException ex)
+        {
+            return BadRequest(new Dictionary<string, string[]>
+            {
+                [ex.Field] = new[] { ex.Message },
+            });
+        }
         return await repository.DeleteTopicLabelAsync(projectId.Value, topic, cancellationToken) switch
         {
             TopicLabelDeleteResult.Deleted or TopicLabelDeleteResult.NotFound => NoContent(),
@@ -144,6 +164,15 @@ public sealed class DecisionsController(IDecisionRepository repository, IDecisio
 
         try
         {
+            DecisionDraftValidation.ValidateTopic(request.Topic);
+            if (existing.Status is DecisionStatus.PREDRAFT
+                or DecisionStatus.DRAFT
+                or DecisionStatus.AWAITING_APPROVAL)
+            {
+                DecisionDraftValidation.ValidateConfidenceScore(request.ConfidenceScore);
+                DecisionDraftValidation.ValidateDecisionTitle(request.Title);
+                DecisionDraftValidation.ValidateOptions(request.Options);
+            }
             var decision = await repository.UpdateDraftAsync(lookup, access.UserId, request, cancellationToken);
             return decision is null ? BadRequest(new { detail = "Decision cannot be updated in its current state." }) : Ok(decision);
         }
