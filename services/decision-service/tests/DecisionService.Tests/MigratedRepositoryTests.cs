@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Diagnostics;
 using DecisionService.Decisions;
 using Microsoft.AspNetCore.Http;
@@ -253,10 +254,19 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
         var created = await repository.CreateAsync(ProjectId, UserId, Draft("Edit signal"), CancellationToken.None);
         var signalId = created.Signals[0].Id;
 
-        var updated = await repository.UpdateSignalAsync(created.Slug, signalId, Signal("CPA"), CancellationToken.None);
+        var updated = await repository.UpdateSignalAsync(created.Slug, signalId, SignalPatch(new { metric = "CPA" }), CancellationToken.None);
 
-        Assert.Equal("CPA DOWN LAST_7_DAYS", updated?.DisplayText);
-        Assert.Null(await repository.UpdateSignalAsync(created.Slug, int.MaxValue, Signal("CPA"), CancellationToken.None));
+        Assert.Equal("CPA · DOWN · Last 7 days · 12.5 %", updated?.DisplayText);
+        Assert.Equal(12.5m, updated?.DeltaValue);
+
+        var cleared = await repository.UpdateSignalAsync(created.Slug, signalId,
+            SignalPatch(new { deltaValue = (decimal?)null, deltaUnit = (string?)null }), CancellationToken.None);
+
+        Assert.NotNull(cleared);
+        Assert.Null(cleared.DeltaValue);
+        Assert.Null(cleared.DeltaUnit);
+        Assert.Equal("CPA · DOWN · Last 7 days", cleared.DisplayText);
+        Assert.Null(await repository.UpdateSignalAsync(created.Slug, int.MaxValue, SignalPatch(new { metric = "CPA" }), CancellationToken.None));
     }
 
     [Fact]
@@ -276,14 +286,20 @@ public sealed class MigratedRepositoryTests(MigratedDatabase database) : IClassF
         var metric = await Assert.ThrowsAsync<DecisionValidationException>(
             () => repository.CreateSignalAsync(created.Slug, UserId, Signal("ROAS"), CancellationToken.None));
         var period = await Assert.ThrowsAsync<DecisionValidationException>(
-            () => repository.UpdateSignalAsync(created.Slug, signalId, Signal("CTR") with { Period = "LAST_30_DAYS" }, CancellationToken.None));
+            () => repository.UpdateSignalAsync(created.Slug, signalId, SignalPatch(new { metric = "CTR", period = "LAST_30_DAYS" }), CancellationToken.None));
         await Assert.ThrowsAsync<DecisionValidationException>(
             () => repository.CreateAsync(ConfiguredProjectId, UserId, Draft("Hidden metric"), CancellationToken.None));
 
         Assert.Equal(("metric", "period"), (metric.Field, period.Field));
-        Assert.NotNull(await repository.UpdateSignalAsync(created.Slug, signalId, Signal("CTR"), CancellationToken.None));
+        Assert.NotNull(await repository.UpdateSignalAsync(created.Slug, signalId, SignalPatch(new { metric = "CTR" }), CancellationToken.None));
         Assert.NotNull(await repository.CreateSignalAsync(created.Slug, UserId, Signal("CPA"), CancellationToken.None));
         Assert.NotNull(await repository.CreateSignalAsync(created.Slug, UserId, Signal("CPM"), CancellationToken.None));
+    }
+
+    private static DecisionSignalPatch SignalPatch(object payload)
+    {
+        Assert.True(DecisionSignalPatch.TryParse(JsonSerializer.SerializeToElement(payload), out var patch, out var error), error);
+        return patch!;
     }
 
     [Fact]

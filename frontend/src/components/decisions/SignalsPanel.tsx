@@ -170,16 +170,17 @@ const SignalsPanel = ({ decisionId, projectId, mode = 'edit' }: SignalsPanelProp
       return;
     }
     setErrorMessage(null);
+    const emptyValue = editingId ? null : undefined;
     const payload: DecisionSignalPayload = {
       metric: metric as SignalMetric,
       movement: movement as SignalMovement,
       period: period as SignalPeriod,
       comparison,
-      scopeType: scopeType || undefined,
-      scopeValue: scopeValue || undefined,
-      deltaValue: deltaValue ? Number(deltaValue) : undefined,
-      deltaUnit: deltaUnit || undefined,
-      displayTextOverride: overrideText.trim() || undefined,
+      scopeType: scopeType || emptyValue,
+      scopeValue: scopeValue.trim() || emptyValue,
+      deltaValue: deltaValue === '' ? emptyValue : Number(deltaValue),
+      deltaUnit: deltaUnit || emptyValue,
+      displayTextOverride: hasOverride ? (overrideText.trim() || emptyValue) : emptyValue,
     };
 
     try {
@@ -470,6 +471,7 @@ const SignalsPanel = ({ decisionId, projectId, mode = 'edit' }: SignalsPanelProp
           }
         }}
         onOverrideTextChange={(value) => {
+          setHasOverride(value.trim() !== '');
           setOverrideText(value);
           setDescriptionEditable(true);
         }}

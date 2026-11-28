@@ -457,6 +457,7 @@ export default function DecisionTreeDetailPanel({
       </aside>
 
       <DecisionSignalDialog
+        elevated
         open={signalDialogOpen}
         mode={signalEdit?.id ? 'edit' : 'create'}
         initial={signalEdit}

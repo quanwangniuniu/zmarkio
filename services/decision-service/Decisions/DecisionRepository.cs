@@ -21,7 +21,7 @@ public interface IDecisionRepository
     Task<bool> DeleteAsync(string lookup, int? actorId, CancellationToken ct);
     Task<DecisionSignalListResponse> ListSignalsAsync(string lookup, CancellationToken ct);
     Task<DecisionSignalDto?> CreateSignalAsync(string lookup, int? actorId, DecisionSignalInput input, CancellationToken ct);
-    Task<DecisionSignalDto?> UpdateSignalAsync(string lookup, int signalId, DecisionSignalInput input, CancellationToken ct);
+    Task<DecisionSignalDto?> UpdateSignalAsync(string lookup, int signalId, DecisionSignalPatch patch, CancellationToken ct);
     Task<bool> DeleteSignalAsync(string lookup, int signalId, CancellationToken ct);
     Task<DecisionConnectionsResponse?> GetConnectionsAsync(string lookup, CancellationToken ct);
     Task<DecisionConnectionsResponse?> UpdateConnectionsAsync(string lookup, int? actorId, DecisionConnectionsUpdateRequest request, CancellationToken ct);
@@ -359,47 +359,29 @@ public sealed class InMemoryDecisionRepository : IDecisionRepository
         return Task.FromResult<DecisionSignalDto?>(signal);
     }
 
-    public Task<DecisionSignalDto?> UpdateSignalAsync(string lookup, int signalId, DecisionSignalInput input, CancellationToken ct)
+    public Task<DecisionSignalDto?> UpdateSignalAsync(string lookup, int signalId, DecisionSignalPatch patch, CancellationToken ct)
     {
-        if (Find(lookup) is not { } existing)
+        while (Find(lookup) is { } existing)
         {
-            return Task.FromResult<DecisionSignalDto?>(null);
-        }
-        var signal = existing.Signals.FirstOrDefault(item => item.Id == signalId);
-        if (signal is null)
-        {
-            return Task.FromResult<DecisionSignalDto?>(null);
-        }
-        var now = DateTimeOffset.UtcNow;
-        var displayText = input.DisplayTextOverride
-            ?? string.Join(" ", new[] { input.Metric, input.Movement, input.Period }.Where(value => !string.IsNullOrWhiteSpace(value)));
-        var updated = signal with
-        {
-            UpdatedAt = now,
-            Metric = input.Metric,
-            Movement = input.Movement,
-            Period = input.Period,
-            Comparison = input.Comparison ?? "NONE",
-            ScopeType = input.ScopeType,
-            ScopeValue = input.ScopeValue,
-            DeltaValue = input.DeltaValue,
-            DeltaUnit = input.DeltaUnit,
-            DisplayText = displayText,
-            DisplayTextOverride = input.DisplayTextOverride,
-        };
-        var updatedDecision = existing with
-        {
-            Signals = existing.Signals
-                .Select(item => item.Id == signalId ? updated : item)
-                .ToList(),
-        };
+            ct.ThrowIfCancellationRequested();
+            var signal = existing.Signals.FirstOrDefault(item => item.Id == signalId);
+            if (signal is null)
+            {
+                return Task.FromResult<DecisionSignalDto?>(null);
+            }
 
-        if (!_decisions.TryUpdate(existing.Id, updatedDecision, existing))
-        {
-            return Task.FromResult<DecisionSignalDto?>(null);
+            var updated = patch.Apply(signal);
+            var decision = existing with
+            {
+                Signals = existing.Signals.Select(item => item.Id == signalId ? updated : item).ToList(),
+            };
+            if (_decisions.TryUpdate(existing.Id, decision, existing))
+            {
+                return Task.FromResult<DecisionSignalDto?>(updated);
+            }
         }
 
-        return Task.FromResult<DecisionSignalDto?>(updated);
+        return Task.FromResult<DecisionSignalDto?>(null);
     }
 
     public Task<bool> DeleteSignalAsync(string lookup, int signalId, CancellationToken ct)
