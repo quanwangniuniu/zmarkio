@@ -20,6 +20,7 @@ interface Props {
   ariaLabel?: string;
   invalid?: boolean;
   ariaDescribedBy?: string;
+  menuZIndexClassName?: string;
 }
 
 export default function InlineSelect({
@@ -31,6 +32,7 @@ export default function InlineSelect({
   ariaLabel,
   invalid,
   ariaDescribedBy,
+  menuZIndexClassName = 'z-50',
 }: Props) {
   return (
     <Select.Root value={value} onValueChange={onValueChange} disabled={disabled}>
@@ -53,7 +55,7 @@ export default function InlineSelect({
         <Select.Content
           position="popper"
           sideOffset={4}
-          className="z-[1000] min-w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-gray-100 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+          className={`${menuZIndexClassName} min-w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg bg-white shadow-lg ring-1 ring-gray-100 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95`}
         >
           <Select.Viewport className="max-h-56 overflow-y-auto py-1">
             {options.map((opt) => (

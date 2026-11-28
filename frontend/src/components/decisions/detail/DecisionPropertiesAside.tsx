@@ -31,6 +31,8 @@ interface Props {
 }
 
 const UNASSIGNED = '__unassigned__';
+// Above the full-screen decision map (z-200).
+const MENU_ABOVE_MAP = 'z-[1000]';
 
 const CONFIDENCE_OPTIONS = [
   { value: UNASSIGNED, label: 'Unassigned' },
@@ -126,6 +128,7 @@ export default function DecisionPropertiesAside({
                 ariaLabel="Risk level"
                 value={riskLevel ?? UNASSIGNED}
                 onValueChange={handleRiskChange}
+                menuZIndexClassName={MENU_ABOVE_MAP}
                 options={[{ value: UNASSIGNED, label: 'Unassigned' }, ...optionChoices(DECISION_RISK)]}
               />
             </div>
@@ -148,6 +151,7 @@ export default function DecisionPropertiesAside({
                   confidenceOutOfRange ? '' : confidenceScore != null ? String(confidenceScore) : UNASSIGNED
                 }
                 onValueChange={handleConfidenceChange}
+                menuZIndexClassName={MENU_ABOVE_MAP}
                 options={CONFIDENCE_OPTIONS}
                 placeholder="Choose 1–5"
                 invalid={!!confidenceError}
