@@ -226,10 +226,13 @@ export async function createTestVariation(args: {
   const row = await insertVariation(args.schema, {
     sourceMode: args.sourceMode ?? 'custom',
     sourceRef: '',
-    hook: 'Fixture hook',
-    headline: 'Fixture headline',
-    description: 'Fixture description',
-    cta: 'LEARN_MORE',
+    platform: 'meta',
+    fields: {
+      hook: 'Fixture hook',
+      headline: 'Fixture headline',
+      description: 'Fixture description',
+      cta: 'LEARN_MORE',
+    },
     instruction: args.instruction ?? '',
     modelName: args.modelName ?? 'fixture',
     promptVersion: 'fixture',

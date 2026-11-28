@@ -1,8 +1,10 @@
 import { assignUniqueSlugs, slugLookup, slugWithSuffix } from '@/lib/slugs';
+import { LEGACY_COPY_KEYS, LEGACY_COPY_PLATFORM_ID } from '@/lib/variationSchema';
 
 import {
   Prisma,
   COLUMNS,
+  META_COLUMN_FIELDS,
   table,
   idList,
   prisma,
@@ -95,12 +97,6 @@ export async function findVariationsByIdsAnyProject(
     WHERE id IN (${idList(ids)})`;
 }
 
-function metaFieldsSql(row: VariationInsert): Prisma.Sql {
-  return Prisma.sql`jsonb_build_object(
-    'hook', ${row.hook}, 'headline', ${row.headline},
-    'description', ${row.description}, 'cta', ${row.cta})`;
-}
-
 export async function insertVariation(
   schema: string,
   row: VariationInsert,
@@ -111,27 +107,8 @@ export async function insertVariation(
 
   while (true) {
     const slug = slugWithSuffix(baseSlug, counter);
-    const now = new Date();
-    const rows = await db.$queryRaw<VariationRow[]>`
-      INSERT INTO ${table(schema)} (
-        created_at, updated_at, is_deleted, source_mode, source_ref,
-        hook, headline, description, cta, instruction, model_name, prompt_version,
-        batch_id, batch_position, status, created_by_id, creative_id, project_id, slug,
-        platform, fields
-      ) VALUES (
-        ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
-        ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
-        ${row.instruction}, ${row.modelName}, ${row.promptVersion},
-        ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
-        ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${slug},
-        'meta', ${metaFieldsSql(row)}
-      )
-      ON CONFLICT (slug) DO NOTHING
-      RETURNING ${COLUMNS}`;
-
-    if (rows[0]) {
-      return rows[0];
-    }
+    const [saved] = await insertVariationRows(schema, [{ ...row, slug }], db);
+    if (saved) return saved;
 
     counter += 1;
   }
@@ -181,14 +158,17 @@ async function insertVariationRows(
     left.slug < right.slug ? -1 : left.slug > right.slug ? 1 : 0
   );
   const now = new Date();
-  const values = ordered.map((row) => Prisma.sql`(
-    ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
-    ${row.hook}, ${row.headline}, ${row.description}, ${row.cta},
-    ${row.instruction}, ${row.modelName}, ${row.promptVersion},
-    ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
-    ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${row.slug},
-    'meta', ${metaFieldsSql(row)}
-  )`);
+  const values = ordered.map((row) => {
+    const legacy = row.platform === LEGACY_COPY_PLATFORM_ID ? row.fields : null;
+    return Prisma.sql`(
+      ${now}, ${now}, false, ${row.sourceMode}, ${row.sourceRef},
+      ${legacy?.hook ?? ''}, ${legacy?.headline ?? ''}, ${legacy?.description ?? ''}, ${legacy?.cta ?? ''},
+      ${row.instruction}, ${row.modelName}, ${row.promptVersion},
+      ${row.batchId}::uuid, ${row.batchPosition}, ${row.status},
+      ${row.createdById}, ${row.creativeId}, ${row.projectId}, ${row.slug},
+      ${row.platform}, ${JSON.stringify(row.fields)}::jsonb
+    )`;
+  });
 
   return db.$queryRaw<VariationRow[]>`
     INSERT INTO ${table(schema)} (
@@ -257,8 +237,9 @@ export async function insertVariations(
 
 export async function updateVariationFields(
   schema: string,
-  id: bigint,
+  row: Pick<VariationRow, 'id' | 'platform'>,
   patch: {
+    fields?: Record<string, string>;
     hook?: string;
     headline?: string;
     description?: string;
@@ -268,28 +249,23 @@ export async function updateVariationFields(
   db: SqlClient = prisma
 ): Promise<VariationRow> {
   const sets: Prisma.Sql[] = [Prisma.sql`updated_at = ${new Date()}`];
-  if (patch.hook !== undefined) sets.push(Prisma.sql`hook = ${patch.hook}`);
-  if (patch.headline !== undefined) sets.push(Prisma.sql`headline = ${patch.headline}`);
-  if (patch.description !== undefined) {
-    sets.push(Prisma.sql`description = ${patch.description}`);
+  const usesLegacyCopyColumns = row.platform === LEGACY_COPY_PLATFORM_ID;
+  // Meta edits use nested fields. Unregistered platforms still send legacy edits at the top level.
+  const legacyEdits = usesLegacyCopyColumns && patch.fields ? patch.fields : patch;
+  for (const key of LEGACY_COPY_KEYS) {
+    if (legacyEdits[key] !== undefined) sets.push(Prisma.sql`${Prisma.raw(key)} = ${legacyEdits[key]}`);
   }
-  if (patch.cta !== undefined) sets.push(Prisma.sql`cta = ${patch.cta}`);
   if (patch.status !== undefined) sets.push(Prisma.sql`status = ${patch.status}`);
 
-  if (patch.hook !== undefined || patch.headline !== undefined ||
-      patch.description !== undefined || patch.cta !== undefined) {
-    sets.push(Prisma.sql`fields = CASE WHEN platform = 'meta' THEN jsonb_build_object(
-      'hook', COALESCE(${patch.hook ?? null}, hook),
-      'headline', COALESCE(${patch.headline ?? null}, headline),
-      'description', COALESCE(${patch.description ?? null}, description),
-      'cta', COALESCE(${patch.cta ?? null}, cta)
-    ) ELSE fields END`);
+  if (patch.fields && Object.keys(patch.fields).length) {
+    const current = usesLegacyCopyColumns ? META_COLUMN_FIELDS : Prisma.sql`COALESCE(fields, '{}'::jsonb)`;
+    sets.push(Prisma.sql`fields = ${current} || ${JSON.stringify(patch.fields)}::jsonb`);
   }
 
   const rows = await db.$queryRaw<VariationRow[]>`
     UPDATE ${table(schema)}
     SET ${Prisma.join(sets, ', ')}
-    WHERE id = ${id}
+    WHERE id = ${row.id}
     RETURNING ${COLUMNS}`;
   return rows[0];
 }

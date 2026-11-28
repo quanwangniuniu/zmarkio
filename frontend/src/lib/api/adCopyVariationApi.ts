@@ -9,6 +9,7 @@ import type {
   BatchGenerateResponse,
   GenerateVariationRequest,
   SaveVariationRequest,
+  StudioPlatformSpec,
 } from '@/types/adCopyVariation';
 
 const BASE = '/api/ad_copy_variation/variations';
@@ -63,6 +64,11 @@ function parseBatchGenerateResponse(data: unknown): BatchGenerateResponse | null
       ? candidate.field_failures.map(parseBatchFieldFailure).filter(failure => failure !== null)
       : [],
   };
+}
+
+export async function listPlatforms(): Promise<StudioPlatformSpec[]> {
+  const { data } = await api.get<{ platforms: StudioPlatformSpec[] }>('/api/ad_copy_variation/platforms/');
+  return data.platforms;
 }
 
 export async function initializeStudio(projectId: number | string): Promise<void> {
@@ -127,6 +133,7 @@ export interface ListVariationsResult {
 
 export interface ListAiVariationsParams {
   project_id?: number | string;
+  platform?: string;
   creative?: number;
   status?: AdCopyVariationStatus | AdCopyVariationStatus[] | string;
   source_mode?: AdCopyVariationSourceMode | '';
@@ -219,12 +226,12 @@ export async function getVariation(idOrSlug: number | string): Promise<AdCopyVar
 
 export async function updateVariation(
   slug: string,
-  fields: Partial<AdCopyVariationCopy & Pick<AdCopyVariation, 'status'>>
+  patch: { fields?: AdCopyVariationCopy; status?: AdCopyVariationStatus }
 ): Promise<AdCopyVariation> {
   if (!slug?.trim()) {
     throw new Error('Cannot save this draft because its slug is missing.');
   }
-  const { data } = await api.patch<AdCopyVariation>(`${BASE}/${slug}/`, fields);
+  const { data } = await api.patch<AdCopyVariation>(`${BASE}/${slug}/`, patch);
   return data;
 }
 

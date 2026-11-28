@@ -12,7 +12,8 @@ info:
     Authentication uses the same Django-issued JWT access token as the rest of
     MediaJira. An organization is required (403 with `detail` if unresolved).
     Use the initialization endpoint before generating or loading AI Drafts.
-    Other operations return 503 with `detail` while variation storage is not ready.
+    Platform discovery is available before initialization. Operations that read
+    or write variations return 503 with `detail` while variation storage is not ready.
 
 servers:
   - url: http://localhost/api
@@ -32,6 +33,32 @@ security:
   - BearerAuth: []
 
 paths:
+  /ad_copy_variation/platforms/:
+    get:
+      tags: [Variations]
+      summary: List registered platforms and their copy fields
+      description: |
+        Requires an authenticated user with a resolvable organization. The Studio
+        form can request these definitions before selecting a project or
+        initializing variation storage.
+      responses:
+        '200':
+          description: Platforms available for selection
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [platforms]
+                properties:
+                  platforms:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StudioPlatform'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
   /ad_copy_variation/initialize/:
     post:
       tags: [Variations]
@@ -154,6 +181,11 @@ paths:
       description: |
         Manual create (not LLM generate). Body field for the project is
         `project` (not `project_id`), matching Django.
+        Supply platform copy in `fields`. Omitting `platform`, sending null, or
+        sending an empty string selects Meta. An unregistered platform returns 400.
+        Missing string fields default to empty strings, including the slug source.
+        Manual creation does not enforce copy length limits. Meta also accepts the
+        legacy top-level copy keys. Mixing the two forms returns 400.
         Omit `creative` or pass null to save a draft without a creative. In any
         source mode, a supplied creative ID must belong to an ad account linked
         to this project in the caller's current organization. An unavailable
@@ -209,7 +241,12 @@ paths:
       tags: [Variations]
       summary: Update writable copy fields or status
       description: |
-        Writable fields: `hook`, `headline`, `description`, `cta`, `status`.
+        Send `fields` to update any subset of copy keys for the draft's stored
+        platform. Send `status` at the top level, alone or alongside the copy.
+        Meta also accepts the legacy top-level copy keys. Mixing those keys with
+        `fields` returns 400. Drafts on historical unregistered platforms retain
+        their legacy top-level edits and ignore nested `fields` submitted without
+        legacy copy keys. A valid top-level `status` still applies.
         For a registered platform, only copy fields included in the request are checked
         against that platform's limits. An enumerated CTA must match an allowed value
         exactly (for example, `LEARN_MORE` on Meta).
@@ -267,6 +304,11 @@ paths:
         `failed_indices` populated. An item over a platform text limit is retried
         once. If it still exceeds a limit, it is skipped and its final violations
         appear in `field_failures`.
+
+        The target platform determines the output fields, text limits and CTA
+        policy for every draft in the batch. An unknown platform ID or a
+        non-string, non-null value returns 400. In `source_mode=custom`,
+        supply the source text in `base_copy` using the target platform's field keys.
 
         In `source_mode=existing`, omitting `creative_id` returns 400. The
         creative's ad account must be linked to `project_id` in the caller's
@@ -493,6 +535,75 @@ components:
             $ref: '#/components/schemas/ErrorBody'
 
   schemas:
+    StudioPlatform:
+      type: object
+      required: [id, display_name, fields, cta]
+      properties:
+        id:
+          type: string
+          example: meta
+        display_name:
+          type: string
+        fields:
+          type: array
+          description: Copy fields in form display order.
+          items:
+            $ref: '#/components/schemas/PlatformField'
+        cta:
+          type: object
+          oneOf:
+            - required: [kind]
+              additionalProperties: false
+              properties:
+                kind: { type: string, enum: [none] }
+            - required: [kind, field]
+              additionalProperties: false
+              properties:
+                kind: { type: string, enum: [freeText] }
+                field: { type: string }
+            - required: [kind, field, values]
+              additionalProperties: false
+              properties:
+                kind: { type: string, enum: [enum] }
+                field: { type: string }
+                values:
+                  type: array
+                  items: { type: string }
+
+    PlatformField:
+      type: object
+      required: [key, label, type, required]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        required:
+          type: boolean
+          description: Whether generated copy must include this field.
+      oneOf:
+        - required: [limits]
+          properties:
+            type: { type: string, enum: [string] }
+            limits:
+              $ref: '#/components/schemas/PlatformTextLimits'
+        - required: [min_items, max_items, item_limits]
+          properties:
+            type: { type: string, enum: ['string[]'] }
+            min_items: { type: integer, minimum: 0 }
+            max_items: { type: integer, minimum: 0 }
+            item_limits:
+              $ref: '#/components/schemas/PlatformTextLimits'
+
+    PlatformTextLimits:
+      type: object
+      additionalProperties: false
+      properties:
+        max_chars: { type: integer }
+        max_words: { type: integer }
+        character_counting:
+          type: string
+          enum: [unicode-code-points, double-width]
+          default: unicode-code-points
+
     SourceMode:
       type: string
       enum: [existing, custom, external_url]
@@ -511,6 +622,7 @@ components:
         - source_mode
         - source_ref
         - platform
+        - fields
         - hook
         - headline
         - description
@@ -547,6 +659,13 @@ components:
           type: string
           description: Stored platform identifier.
           example: meta
+        fields:
+          type: object
+          description: |
+            Complete copy keyed by platform field name. For Meta this reflects the
+            four legacy columns, including on older rows. New non-Meta drafts
+            store their copy here and have empty strings in the four legacy columns.
+          additionalProperties: true
         hook:
           type: string
         headline:
@@ -597,10 +716,38 @@ components:
           items:
             $ref: '#/components/schemas/AdCopyVariation'
 
+    VariationCopyInput:
+      type: object
+      description: |
+        Copy keys must belong to the registered platform. Its currently writable
+        fields take string values. Legacy top-level keys and nested copy are mutually exclusive.
+      properties:
+        fields:
+          type: object
+          additionalProperties: { type: string }
+          example: { headline: Summer sale }
+      not:
+        required: [fields]
+        anyOf:
+          - required: [hook]
+          - required: [headline]
+          - required: [description]
+          - required: [cta]
+
+    WritePlatform:
+      type: string
+      nullable: true
+      default: meta
+      description: A registered target platform ID. Omitting it or passing null or an empty string selects Meta.
+
     VariationCreateRequest:
       type: object
       required: [project, source_mode]
+      allOf:
+        - $ref: '#/components/schemas/VariationCopyInput'
       properties:
+        platform:
+          $ref: '#/components/schemas/WritePlatform'
         project:
           description: Project pk or slug (Django create field name)
           oneOf:
@@ -617,12 +764,16 @@ components:
           type: string
         hook:
           type: string
+          nullable: true
         headline:
           type: string
+          nullable: true
         description:
           type: string
+          nullable: true
         cta:
           type: string
+          nullable: true
         instruction:
           type: string
         model_name:
@@ -641,6 +792,8 @@ components:
 
     VariationPatchRequest:
       type: object
+      allOf:
+        - $ref: '#/components/schemas/VariationCopyInput'
       properties:
         hook:
           type: string
@@ -658,20 +811,16 @@ components:
 
     BaseCopy:
       type: object
-      properties:
-        hook:
-          type: string
-        headline:
-          type: string
-        description:
-          type: string
-        cta:
-          type: string
+      description: Source text for custom generation, keyed by the target platform's field IDs. Omitted source fields are treated as empty text.
+      additionalProperties: { type: string }
+      example: { headline: Summer sale, cta: SHOP_NOW }
 
     GenerateRequest:
       type: object
       required: [project_id, source_mode]
       properties:
+        platform:
+          $ref: '#/components/schemas/WritePlatform'
         project_id:
           oneOf:
             - type: integer
@@ -692,7 +841,6 @@ components:
           description: Required when `source_mode=existing`
         base_copy:
           $ref: '#/components/schemas/BaseCopy'
-          description: Used when `source_mode=custom`
         url:
           type: string
           format: uri

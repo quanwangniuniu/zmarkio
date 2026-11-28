@@ -1,9 +1,10 @@
 import { ApiError } from '@/lib/bulk';
 import { loadCreativeForProject } from '@/lib/creatives';
+import { resolveRequestPlatform } from '@/lib/platforms';
 import { MODEL_NAME } from '@/lib/prompts';
 import { allocateSlugs, readSlugSource } from '@/lib/slugs';
+import { completeDraftFields, readDraftFields } from '@/lib/variationCopy';
 import { insertVariation } from '@/lib/variationStore';
-import { getPlatformSpec } from '@/src/platforms';
 
 // Field rules come from AdCopyVariationSerializer plus the model defaults:
 // source_mode is the only required field, project and created_by are set by the
@@ -11,13 +12,6 @@ import { getPlatformSpec } from '@/src/platforms';
 
 const SOURCE_MODES = new Set(['existing', 'custom', 'external_url']);
 const STATUSES = new Set(['draft', 'reviewed']);
-const TEXT_FIELDS = [
-  'source_ref',
-  'hook',
-  'headline',
-  'description',
-  'cta',
-] as const;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -93,21 +87,19 @@ export async function createVariation(args: {
     throw new ApiError(400, 'status must be draft or reviewed');
   }
 
-  const text = Object.fromEntries(
-    TEXT_FIELDS.map((field) => [field, optionalText(args.body, field)])
-  ) as Record<(typeof TEXT_FIELDS)[number], string>;
+  const spec = resolveRequestPlatform(args.body.platform);
+  const sourceRef = optionalText(args.body, 'source_ref');
+  const submitted = readDraftFields(args.body, spec, 'create');
+  const fields = completeDraftFields(spec, submitted);
 
   const creativeId = await resolveCreativeId(args.body.creative, args.projectId, args.organizationId);
-  const spec = getPlatformSpec('meta');
-  const [slug] = allocateSlugs([readSlugSource(text, spec)]);
+  const [slug] = allocateSlugs([readSlugSource(fields, spec)]);
 
   return insertVariation(args.schema, {
     sourceMode,
-    sourceRef: text.source_ref,
-    hook: text.hook,
-    headline: text.headline,
-    description: text.description,
-    cta: text.cta,
+    sourceRef,
+    platform: spec.id,
+    fields,
     instruction: optionalText(args.body, 'instruction'),
     modelName: optionalText(args.body, 'model_name') || MODEL_NAME,
     promptVersion: optionalText(args.body, 'prompt_version') || spec.promptVersion,

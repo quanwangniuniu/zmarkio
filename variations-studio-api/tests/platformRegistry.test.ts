@@ -1,3 +1,4 @@
+import { serializePlatform } from '@/lib/platforms';
 import {
   assertPlatformSpec,
   createPlatformRegistry,
@@ -59,6 +60,13 @@ describe('platform registry', () => {
     const registry = createPlatformRegistry([metaSpec, googleRsaSpec, freeTextSpec, noCtaSpec]);
     expect(registry.listPlatformIds())
       .toEqual(['meta', 'google_rsa', 'custom_free_text', 'custom_no_cta']);
+  });
+
+  it('serializes repeated fields and their counting rules using public API keys', () => {
+    expect(serializePlatform(googleRsaSpec).fields[0]).toEqual({
+      key: 'headlines', label: 'Headlines', type: 'string[]', required: true,
+      min_items: 3, max_items: 15, item_limits: { max_chars: 30, character_counting: 'double-width' },
+    });
   });
 
   it('rejects duplicate platform ids', () => {

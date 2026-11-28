@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { Client, escapeIdentifier } from 'pg';
 
 import { POST as initialize } from '@/app/api/ad_copy_variation/initialize/route';
+import { GET as listPlatforms } from '@/app/api/ad_copy_variation/platforms/route';
 import { prisma } from '@/lib/prisma';
 import { slugToSchemaName } from '@/lib/tenant';
 import { STUDIO_MIGRATIONS_TABLE, VARIATION_TABLE } from '@/lib/variationSchema';
+import { listPlatformIds } from '@/src/platforms';
 
 import { createVariationTableWithoutLedger, setupStudioFixture, teardownStudioFixture, type StudioFixture } from './support/fixtures';
 import { readJson, studioRequest } from './support/requests';
@@ -13,6 +15,7 @@ import { accessToken } from './support/tokens';
 
 const observer = new Client({ connectionString: process.env.DATABASE_URL });
 const endpoint = '/api/ad_copy_variation/initialize/';
+const platformsEndpoint = '/api/ad_copy_variation/platforms/';
 let fixture: StudioFixture;
 let token: string;
 let organizationId: bigint;
@@ -86,6 +89,31 @@ async function expectNotReady(response: Response) {
     detail: 'Studio is being initialized or upgraded. Please try again shortly.',
   });
 }
+
+it('requires authentication and an organization to read platform specifications', async () => {
+  expect((await listPlatforms(studioRequest(platformsEndpoint))).status).toBe(401);
+  await setUserOrganization(null);
+  expect((await listPlatforms(studioRequest(platformsEndpoint, { token }))).status).toBe(403);
+});
+
+it('returns the public platform specifications before draft storage is initialized', async () => {
+  const response = await listPlatforms(studioRequest(platformsEndpoint, { token }));
+  expect(response.status).toBe(200);
+  const { platforms }: { platforms: { id: string }[] } = await response.json();
+  expect(platforms.map(platform => platform.id)).toEqual(listPlatformIds());
+  expect(platforms).toContainEqual({
+    id: 'meta',
+    display_name: 'Meta (Facebook + Instagram Feed)',
+    fields: [
+      { key: 'hook', label: 'Hook', type: 'string', required: true, limits: { max_words: 10, max_chars: 50 } },
+      { key: 'headline', label: 'Headline', type: 'string', required: true, limits: { max_chars: 40 } },
+      { key: 'description', label: 'Description', type: 'string', required: true, limits: { max_chars: 125 } },
+      { key: 'cta', label: 'CTA', type: 'string', required: true, limits: {} },
+    ],
+    cta: { kind: 'enum', field: 'cta', values: expect.arrayContaining(['LEARN_MORE', 'SHOP_NOW']) },
+  });
+  expect(await storageState()).toEqual({ variation: null, ledger: null });
+});
 
 it('initializes the tenant through 003 and accepts an idempotent slug request', async () => {
   const first = await request();

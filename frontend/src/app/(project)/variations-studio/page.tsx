@@ -18,6 +18,7 @@ import {
   getLatestVariationBatch,
   initializeStudio,
   listAiVariations,
+  listPlatforms,
   reviewVariationBatch,
   updateVariation,
 } from "@/lib/api/adCopyVariationApi";
@@ -30,6 +31,7 @@ import type {
   AdCopyVariationSourceMode,
   AdCopyVariationStatus,
   BatchFieldFailure,
+  StudioPlatformSpec,
 } from "@/types/adCopyVariation";
 
 const externalUrlSchema = yup
@@ -88,17 +90,11 @@ const COPY_LIMIT_UNITS = new Map([
   ["max_chars", "characters"],
 ]);
 
-const EMPTY_COPY: AdCopyVariationCopy = {
-  hook: "",
-  headline: "",
-  description: "",
-  cta: "",
-};
-
 interface CardState {
   key: string;
   id: number;
   slug: string;
+  platform: string;
   batch_id: string;
   source_mode: AdCopyVariationSourceMode;
   source_ref: string;
@@ -129,12 +125,9 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 }
 
 function copyFromVariation(row: AdCopyVariation): AdCopyVariationCopy {
-  return {
-    hook: row.hook,
-    headline: row.headline,
-    description: row.description,
-    cta: row.cta,
-  };
+  return Object.fromEntries(
+    Object.entries(row.fields).filter((entry): entry is [string, string] => typeof entry[1] === "string")
+  );
 }
 
 function cardFromVariation(row: AdCopyVariation): CardState {
@@ -143,6 +136,7 @@ function cardFromVariation(row: AdCopyVariation): CardState {
     key: `draft-${row.id}`,
     id: row.id,
     slug: row.slug,
+    platform: row.platform,
     batch_id: row.batch_id || "",
     source_mode: row.source_mode,
     source_ref: row.source_ref || "",
@@ -180,7 +174,12 @@ function VariationsStudioContent() {
   const [mode, setMode] = useState<AdCopyVariationSourceMode>(initialMode);
   const [creativeMeta, setCreativeMeta] = useState<MetaCreativeDetail | null>(null);
   const [creativeMetaLoading, setCreativeMetaLoading] = useState<boolean>(false);
-  const [customBase, setCustomBase] = useState<AdCopyVariationCopy>(EMPTY_COPY);
+  const [platforms, setPlatforms] = useState<StudioPlatformSpec[] | null>(null);
+  const [platformId, setPlatformId] = useState("");
+  const [draftsEntryPlatform, setDraftsEntryPlatform] = useState("");
+  const [customSources, setCustomSources] = useState<Record<string, AdCopyVariationCopy>>({});
+  const target = platforms?.find((spec) => spec.id === platformId);
+  const customBase = customSources[platformId] ?? {};
   const [externalUrl, setExternalUrl] = useState<string>("");
   const [externalUrlError, setExternalUrlError] = useState<string>("");
   const [instruction, setInstruction] = useState<string>("");
@@ -196,6 +195,24 @@ function VariationsStudioContent() {
   const [cards, setCards] = useState<CardState[]>([]);
   const [activeBatchId, setActiveBatchId] = useState<string>("");
   const [bulkReviewing, setBulkReviewing] = useState<boolean>(false);
+
+  useEffect(() => {
+    let active = true;
+    listPlatforms()
+      .then((specs) => {
+        if (!active) return;
+        setPlatforms(specs);
+        setPlatformId(specs[0]?.id ?? "");
+      })
+      .catch((err) => {
+        if (!active) return;
+        setPlatforms([]);
+        toast.error(extractErrorMessage(err, "Failed to load platforms."));
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!initialCreativeId) return;
@@ -253,20 +270,10 @@ function VariationsStudioContent() {
     setCount(clamped);
   };
 
-  const buildSourcePayload = (normalizedExternalUrl?: string) => {
-    if (mode === "existing") {
-      return {
-        creative_id: creativeMeta?.id,
-        creative_meta: creativeMeta,
-      };
-    }
-    if (mode === "external_url") {
-      return { url: normalizedExternalUrl ?? externalUrl.trim() };
-    }
-    return { base_copy: customBase };
-  };
+  const generateDisabled = !projectId || !target || !sourceInputValid || isGenerating || !hasProjectStoreHydrated;
 
   const runGenerate = async (append: boolean) => {
+    if (!target) return;
     if (!projectId) {
       toast.error("Select an active project before generating variations.");
       return;
@@ -294,13 +301,13 @@ function VariationsStudioContent() {
         mode === "external_url"
           ? externalUrlSchema.validateSync(externalUrl)
           : undefined;
-      const payload = buildSourcePayload(normalizedExternalUrl);
       const res = await generateVariation({
         project_id: projectId,
+        platform: target.id,
         source_mode: mode,
         count,
         instruction,
-        creative_id: payload.creative_id,
+        creative_id: mode === "existing" ? creativeMeta?.id : undefined,
         base_copy: mode === "custom" ? customBase : undefined,
         url: normalizedExternalUrl,
       });
@@ -351,7 +358,7 @@ function VariationsStudioContent() {
     if (!card) return;
     updateCard(key, { saving: true });
     try {
-      const updated = await updateVariation(card.slug, card.draft);
+      const updated = await updateVariation(card.slug, { fields: card.draft });
       const copy = copyFromVariation(updated);
       setCards((prev) =>
         prev.map((c) =>
@@ -384,6 +391,11 @@ function VariationsStudioContent() {
     );
   };
 
+  const openDrafts = (platform: string) => {
+    setDraftsEntryPlatform(platform);
+    setStudioTab("drafts");
+  };
+
   const handleBulkReview = async () => {
     if (!projectId || !currentBatchId || selectedDraftCards.length === 0) return;
     setBulkReviewing(true);
@@ -402,7 +414,7 @@ function VariationsStudioContent() {
       toast.success(
         `Reviewed ${result.reviewed_count} draft${result.reviewed_count === 1 ? "" : "s"}.`
       );
-      setStudioTab("drafts");
+      openDrafts(selectedDraftCards[0].platform);
     } catch (err) {
       toast.error(extractErrorMessage(err, "Failed to review selected drafts."));
     } finally {
@@ -452,7 +464,7 @@ function VariationsStudioContent() {
           </button>
           <button
             type="button"
-            onClick={() => setStudioTab("drafts")}
+            onClick={() => openDrafts(platformId)}
             className={
               studioTab === "drafts"
                 ? `${STUDIO_TAB_BUTTON_BASE} ${STUDIO_TAB_ACTIVE}`
@@ -468,6 +480,21 @@ function VariationsStudioContent() {
           <div className="mt-5 min-h-[720px] space-y-5">
 
         <section className="rounded-xl border-[0.5px] border-gray-200 bg-white p-5">
+          <div className="mb-4">
+            <label htmlFor="studio-target-platform" className="mr-3 text-[14px] font-medium text-gray-700">Platform</label>
+            <select
+              id="studio-target-platform"
+              value={platformId}
+              onChange={(event) => setPlatformId(event.target.value)}
+              disabled={!platforms?.length}
+              className="rounded-md border border-gray-200 bg-white px-3 py-1.5 text-[14px] text-gray-900 focus:border-[#3CCED7] disabled:opacity-60"
+            >
+              {platforms?.map((spec) => (
+                <option key={spec.id} value={spec.id}>{spec.display_name}</option>
+              ))}
+            </select>
+            {platforms === null && <p role="status" className="mt-2 text-[12px] text-gray-500">Loading platforms…</p>}
+          </div>
           <Tabs
             value={mode}
             onValueChange={(value) => setMode(value as AdCopyVariationSourceMode)}
@@ -523,59 +550,17 @@ function VariationsStudioContent() {
             </TabsContent>
 
             <TabsContent value="custom" className="pt-4 mt-0">
-              <div className={SECTION_LABEL}>Custom base copy</div>
-              <div className="space-y-3">
-                <div className="grid grid-cols-[88px_1fr] items-start gap-2">
-                  <span className="pt-1 text-[14px] text-gray-500">Hook</span>
-                  <textarea
-                    value={customBase.hook}
-                    onChange={(e) =>
-                      setCustomBase({ ...customBase, hook: e.target.value })
-                    }
-                    placeholder="First line that catches the eye"
-                    rows={2}
-                    className={TEXTAREA_BASE}
+              {target && (
+                <>
+                  <div className={SECTION_LABEL}>Custom base copy</div>
+                  <CopyEditor
+                    spec={target}
+                    copy={customBase}
+                    onChange={(copy) => setCustomSources((prev) => ({ ...prev, [platformId]: copy }))}
+                    source
                   />
-                </div>
-                <div className="grid grid-cols-[88px_1fr] items-start gap-2">
-                  <span className="pt-1 text-[14px] text-gray-500">Headline</span>
-                  <textarea
-                    value={customBase.headline}
-                    onChange={(e) =>
-                      setCustomBase({ ...customBase, headline: e.target.value })
-                    }
-                    placeholder="Short hero headline"
-                    rows={2}
-                    className={TEXTAREA_BASE}
-                  />
-                </div>
-                <div className="grid grid-cols-[88px_1fr] items-start gap-2">
-                  <span className="pt-1 text-[14px] text-gray-500">
-                    Description
-                  </span>
-                  <textarea
-                    value={customBase.description}
-                    onChange={(e) =>
-                      setCustomBase({ ...customBase, description: e.target.value })
-                    }
-                    placeholder="Body copy"
-                    rows={4}
-                    className={TEXTAREA_BASE}
-                  />
-                </div>
-                <div className="grid grid-cols-[88px_1fr] items-start gap-2">
-                  <span className="pt-1 text-[14px] text-gray-500">CTA</span>
-                  <textarea
-                    value={customBase.cta}
-                    onChange={(e) =>
-                      setCustomBase({ ...customBase, cta: e.target.value })
-                    }
-                    placeholder="e.g. SHOP_NOW"
-                    rows={1}
-                    className={TEXTAREA_BASE}
-                  />
-                </div>
-              </div>
+                </>
+              )}
             </TabsContent>
 
             <TabsContent value="external_url" className="pt-4 mt-0">
@@ -696,7 +681,7 @@ function VariationsStudioContent() {
             <button
               type="button"
               onClick={() => runGenerate(false)}
-              disabled={!projectId || !sourceInputValid || isGenerating || !hasProjectStoreHydrated}
+              disabled={generateDisabled}
               className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-br from-[#3CCED7] to-[#A6E661] px-4 py-1.5 text-[14px] font-semibold text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isGenerating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -779,7 +764,7 @@ function VariationsStudioContent() {
                 <button
                   type="button"
                   onClick={() => runGenerate(true)}
-                  disabled={!projectId || !sourceInputValid || isGenerating || !hasProjectStoreHydrated}
+                  disabled={generateDisabled}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[13px] font-medium text-slate-700 transition hover:bg-slate-50 hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {isGenerating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -803,6 +788,7 @@ function VariationsStudioContent() {
                 <ResultCard
                   key={card.key}
                   card={card}
+                  spec={platforms?.find((spec) => spec.id === card.platform)}
                   resultNumber={index + 1}
                   currentBatchId={currentBatchId}
                   onToggleSelect={() => toggleSelected(card.key)}
@@ -820,7 +806,18 @@ function VariationsStudioContent() {
 
         {studioTab === "drafts" && (
           <div className="mt-5 min-h-[720px]">
-            <AiDraftsTab projectId={projectId} initialCreativeId={initialCreativeId} />
+            {platforms === null ? (
+              <p role="status" className="text-[12px] text-gray-500">Loading platforms…</p>
+            ) : platforms.length === 0 ? (
+              <p role="status" className="text-[12px] text-gray-500">Platform information is unavailable. AI drafts cannot be displayed.</p>
+            ) : (
+              <AiDraftsTab
+                projectId={projectId}
+                initialCreativeId={initialCreativeId}
+                initialPlatform={draftsEntryPlatform || platformId}
+                platforms={platforms}
+              />
+            )}
           </div>
         )}
       </div>
@@ -830,6 +827,7 @@ function VariationsStudioContent() {
 
 interface ResultCardProps {
   card: CardState;
+  spec?: StudioPlatformSpec;
   resultNumber: number;
   currentBatchId: string;
   onToggleSelect: () => void;
@@ -854,6 +852,7 @@ function VariationStatusPill({ status }: { status: AdCopyVariationStatus }) {
 
 function ResultCard({
   card,
+  spec,
   resultNumber,
   currentBatchId,
   onToggleSelect,
@@ -873,8 +872,6 @@ function ResultCard({
     }
   }, [card.source_mode]);
 
-  const display = card.copy;
-  const draft = card.draft;
   const selectable = card.status === "draft" && card.batch_id === currentBatchId;
   const colorPosition = (resultNumber - 1) % 4;
   const cardColorClass =
@@ -911,7 +908,7 @@ function ResultCard({
         </div>
         <div className="flex items-center gap-1.5">
           <VariationStatusPill status={card.status} />
-          {!card.editing && (
+          {!card.editing && spec && (
             <button
               type="button"
               onClick={onStartEdit}
@@ -925,35 +922,20 @@ function ResultCard({
         </div>
       </div>
 
-      <div className="space-y-4">
-        <CardField
-          label="Hook"
-          editing={card.editing}
-          value={card.editing ? draft.hook : display.hook}
-          onChange={(v) => onChangeDraft({ ...draft, hook: v })}
-          rows={2}
-        />
-        <CardField
-          label="Headline"
-          emphasized
-          editing={card.editing}
-          value={card.editing ? draft.headline : display.headline}
-          onChange={(v) => onChangeDraft({ ...draft, headline: v })}
-          rows={2}
-        />
-        <CardField
-          label="Description"
-          editing={card.editing}
-          value={card.editing ? draft.description : display.description}
-          onChange={(v) => onChangeDraft({ ...draft, description: v })}
-          rows={3}
-        />
-        <CtaCardField
-          editing={card.editing}
-          value={card.editing ? draft.cta : display.cta}
-          onChange={(v) => onChangeDraft({ ...draft, cta: v })}
-        />
-      </div>
+      {spec && (card.editing ? (
+        <CopyEditor spec={spec} copy={card.draft} onChange={onChangeDraft} />
+      ) : (
+        <div className="space-y-4">
+          {spec.fields.filter((field) => field.type === "string").map(({ key, label }) => (
+            <CardField
+              key={key}
+              label={label}
+              value={card.copy[key] ?? ""}
+              isCta={spec.cta.kind !== "none" && spec.cta.field === key}
+            />
+          ))}
+        </div>
+      ))}
 
       <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200/80 pt-4">
         <span className="text-xs font-medium text-slate-500">Source: {sourceBadgeLabel}</span>
@@ -983,40 +965,43 @@ function ResultCard({
   );
 }
 
-interface CardFieldProps {
-  label: string;
-  emphasized?: boolean;
-  editing: boolean;
-  value: string;
-  onChange: (next: string) => void;
-  rows: number;
+function CopyEditor({ spec, copy, onChange, source = false }: {
+  spec: StudioPlatformSpec;
+  copy: AdCopyVariationCopy;
+  onChange: (copy: AdCopyVariationCopy) => void;
+  source?: boolean;
+}) {
+  return (
+    <div className="space-y-3">
+      {spec.fields.filter((field) => field.type === "string").map(({ key, label }) => (
+        <label key={key} className={source ? "grid grid-cols-[88px_1fr] items-start gap-2" : "block"}>
+          <span className={source ? "pt-1 text-[14px] text-gray-500" : "text-xs font-semibold text-slate-500"}>{label}</span>
+          <textarea
+            value={copy[key] ?? ""}
+            onChange={(e) => onChange({ ...copy, [key]: e.target.value })}
+            rows={2}
+            className={source || (spec.cta.kind !== "none" && spec.cta.field === key)
+              ? TEXTAREA_BASE
+              : "mt-1 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15"}
+          />
+        </label>
+      ))}
+    </div>
+  );
 }
 
-function CardField({
-  label,
-  emphasized = false,
-  editing,
-  value,
-  onChange,
-  rows,
-}: CardFieldProps) {
-  const canExpand = !editing && value.length > 180;
-  const labelClass = "mb-1.5 text-xs font-semibold text-slate-500";
-  const valueClass = emphasized
-    ? "min-h-9 whitespace-pre-wrap text-base font-semibold leading-6 text-slate-900"
-    : "min-h-9 whitespace-pre-wrap text-[14px] leading-6 text-slate-800";
-
+function CardField({ label, value, isCta }: { label: string; value: string; isCta: boolean }) {
+  const valueClass = "min-h-9 whitespace-pre-wrap text-[14px] leading-6 text-slate-800";
   return (
     <div>
-      <div className={labelClass}>{label}</div>
-      {editing ? (
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          rows={rows}
-          className="mt-1 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none transition focus:border-teal-600 focus:ring-2 focus:ring-teal-600/15"
-        />
-      ) : canExpand ? (
+      <div className="mb-1.5 text-xs font-semibold text-slate-500">{label}</div>
+      {isCta ? (
+        value ? (
+          <span className="inline-flex rounded bg-gray-100 px-2 py-0.5 font-mono text-[12px] text-gray-700">{value}</span>
+        ) : (
+          <span className="text-[14px] text-gray-400">—</span>
+        )
+      ) : value.length > 180 ? (
         <details className="group">
           <summary className="cursor-pointer list-none rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-600/30">
             <div className={`${valueClass} line-clamp-4 group-open:line-clamp-none`}>
@@ -1031,37 +1016,7 @@ function CardField({
           </summary>
         </details>
       ) : (
-        <div className={valueClass}>
-          {value || "—"}
-        </div>
-      )}
-    </div>
-  );
-}
-
-interface CtaCardFieldProps {
-  editing: boolean;
-  value: string;
-  onChange: (next: string) => void;
-}
-
-function CtaCardField({ editing, value, onChange }: CtaCardFieldProps) {
-  return (
-    <div>
-      <div className="mb-1.5 text-xs font-semibold text-slate-500">CTA</div>
-      {editing ? (
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          rows={1}
-          className={TEXTAREA_BASE}
-        />
-      ) : value ? (
-        <span className="inline-flex rounded bg-gray-100 px-2 py-0.5 font-mono text-[12px] text-gray-700">
-          {value}
-        </span>
-      ) : (
-        <span className="text-[14px] text-gray-400">—</span>
+        <div className={valueClass}>{value || "—"}</div>
       )}
     </div>
   );
@@ -1100,13 +1055,18 @@ function relativeTime(iso: string): string {
 function AiDraftsTab({
   projectId,
   initialCreativeId,
+  initialPlatform,
+  platforms,
 }: {
   projectId: Id | null;
   initialCreativeId: string | null;
+  initialPlatform: string;
+  platforms: StudioPlatformSpec[];
 }) {
   const buildUrl = useBuildUrl();
   const [rows, setRows] = useState<AdCopyVariation[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [platformFilter, setPlatformFilter] = useState(initialPlatform);
   const [statusFilter, setStatusFilter] = useState<DraftStatusFilter>("all");
   const [sourceFilter, setSourceFilter] = useState<AdCopyVariationSourceMode | "all">("all");
   const [creativeFilter, setCreativeFilter] = useState<string>(
@@ -1118,7 +1078,7 @@ function AiDraftsTab({
   const [bulkAction, setBulkAction] = useState<"review" | "delete-draft" | "delete-reviewed" | null>(null);
   const [refreshKey, setRefreshKey] = useState<number>(0);
   const [editingRowId, setEditingRowId] = useState<number | null>(null);
-  const [editingDraft, setEditingDraft] = useState<AdCopyVariationCopy>(EMPTY_COPY);
+  const [editingDraft, setEditingDraft] = useState<AdCopyVariationCopy>({});
   const [savingEditId, setSavingEditId] = useState<number | null>(null);
   const [page, setPage] = useState<number>(1);
   const [total, setTotal] = useState<number>(0);
@@ -1147,6 +1107,7 @@ function AiDraftsTab({
         if (!active) return;
         const res = await listAiVariations({
           project_id: projectId,
+          platform: platformFilter,
           status: statusParamForFilter(statusFilter),
           source_mode: sourceFilter === "all" ? "" : sourceFilter,
           creative: creativeIdFilter !== null && Number.isFinite(creativeIdFilter) ? creativeIdFilter : undefined,
@@ -1170,7 +1131,7 @@ function AiDraftsTab({
     return () => {
       active = false;
     };
-  }, [projectId, statusFilter, sourceFilter, creativeIdFilter, batchFilter, page, refreshKey]);
+  }, [projectId, platformFilter, statusFilter, sourceFilter, creativeIdFilter, batchFilter, page, refreshKey]);
 
   const resetToFirstPage = () => setPage(1);
 
@@ -1208,7 +1169,7 @@ function AiDraftsTab({
 
   const cancelRowEdit = () => {
     setEditingRowId(null);
-    setEditingDraft(EMPTY_COPY);
+    setEditingDraft({});
   };
 
   const saveRowEdit = async () => {
@@ -1216,10 +1177,9 @@ function AiDraftsTab({
     if (!editingRow) return;
     setSavingEditId(editingRow.id);
     try {
-      const updated = await updateVariation(editingRow.slug, editingDraft);
+      const updated = await updateVariation(editingRow.slug, { fields: editingDraft });
       setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
-      setEditingRowId(null);
-      setEditingDraft(EMPTY_COPY);
+      cancelRowEdit();
       toast.success("Draft updated");
     } catch (err) {
       toast.error(extractErrorMessage(err, "Failed to update draft."));
@@ -1267,17 +1227,29 @@ function AiDraftsTab({
     }
   };
 
+  const applyPlatformFilter = (platform: string, batchId = "") => {
+    if (platform !== platformFilter) {
+      setRows([]);
+      setTotal(0);
+      setSelectedIds(new Set());
+      cancelRowEdit();
+      setLoading(true);
+    }
+    setPlatformFilter(platform);
+    setBatchFilter(batchId);
+    setPage(1);
+  };
+
   const handleLatestBatch = async () => {
     if (!projectId) return;
     setLoadingLatestBatch(true);
     try {
       const res = await getLatestVariationBatch(projectId);
-      if (!res.batch_id) {
+      if (!res.batch_id || res.results.length === 0) {
         toast("No generated batches yet.");
         return;
       }
-      setBatchFilter(res.batch_id);
-      setPage(1);
+      applyPlatformFilter(res.results[0].platform, res.batch_id);
     } catch (err) {
       toast.error(extractErrorMessage(err, "Failed to load latest batch."));
     } finally {
@@ -1312,6 +1284,22 @@ function AiDraftsTab({
             {loadingLatestBatch && <Loader2 className="h-3 w-3 animate-spin" />}
             Latest batch
           </button>
+          <label className="flex items-center gap-2 text-[12px] text-gray-700">
+            Platform
+            <select
+              value={platformFilter}
+              onChange={(e) => applyPlatformFilter(e.target.value)}
+              disabled={loadingLatestBatch}
+              className="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-[12px] text-gray-700 outline-none focus:ring-2 focus:ring-[#3CCED7]/30"
+            >
+              {platformFilter && !platforms.some((spec) => spec.id === platformFilter) && (
+                <option value={platformFilter}>{platformFilter}</option>
+              )}
+              {platforms.map((spec) => (
+                <option key={spec.id} value={spec.id}>{spec.display_name}</option>
+              ))}
+            </select>
+          </label>
           <select
             value={statusFilter}
             onChange={(e) => {
@@ -1433,6 +1421,7 @@ function AiDraftsTab({
             const isEditing = editingRowId === row.id;
             const savingThisRow = savingEditId === row.id;
             const creativeId = row.creative;
+            const spec = platforms.find((platform) => platform.id === row.platform);
             return (
               <article key={row.id} className="p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1447,6 +1436,9 @@ function AiDraftsTab({
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <VariationStatusPill status={row.status} />
+                        <span className="text-[12px] text-gray-500">
+                          Platform: {spec?.display_name ?? row.platform}
+                        </span>
                         <span className="text-[12px] text-gray-500">
                           {sourceModeLabel(row.source_mode)}
                         </span>
@@ -1466,16 +1458,6 @@ function AiDraftsTab({
                           {relativeTime(row.created_at)}
                         </span>
                       </div>
-                      {!isEditing && (
-                        <>
-                          <h3 className="mt-2 text-[15px] font-semibold text-gray-900">
-                            {row.headline || row.hook || "Untitled variation"}
-                          </h3>
-                          <p className="mt-1 max-w-3xl whitespace-pre-wrap text-[13px] leading-5 text-gray-600">
-                            {row.description || "No description"}
-                          </p>
-                        </>
-                      )}
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -1483,9 +1465,10 @@ function AiDraftsTab({
                       <button
                         type="button"
                         onClick={() => startRowEdit(row)}
+                        disabled={!spec}
                         aria-label={`Edit draft ${row.id}`}
                         title="Edit"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 ring-1 ring-gray-200 transition hover:text-gray-900 hover:ring-gray-300"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-500 ring-1 ring-gray-200 transition hover:text-gray-900 hover:ring-gray-300 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
@@ -1524,45 +1507,18 @@ function AiDraftsTab({
                     )}
                   </div>
                 </div>
-                {isEditing ? (
-                  <div className="mt-4 space-y-3 rounded-lg border border-gray-100 bg-gray-50/60 p-4">
-                    <CardField
-                      label="Hook"
-                      editing
-                      value={editingDraft.hook}
-                      onChange={(v) => setEditingDraft((prev) => ({ ...prev, hook: v }))}
-                      rows={2}
-                    />
-                    <CardField
-                      label="Headline"
-                      editing
-                      value={editingDraft.headline}
-                      onChange={(v) => setEditingDraft((prev) => ({ ...prev, headline: v }))}
-                      rows={2}
-                    />
-                    <CardField
-                      label="Description"
-                      editing
-                      value={editingDraft.description}
-                      onChange={(v) => setEditingDraft((prev) => ({ ...prev, description: v }))}
-                      rows={3}
-                    />
-                    <CtaCardField
-                      editing
-                      value={editingDraft.cta}
-                      onChange={(v) => setEditingDraft((prev) => ({ ...prev, cta: v }))}
-                    />
+                {isEditing && spec ? (
+                  <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50/60 p-4">
+                    <CopyEditor spec={spec} copy={editingDraft} onChange={setEditingDraft} />
                   </div>
                 ) : (
                   <div className="mt-3 grid gap-3 text-[12px] text-gray-500 md:grid-cols-2">
-                    <div>
-                      <span className="font-medium text-gray-700">Hook:</span>{" "}
-                      {row.hook || "—"}
-                    </div>
-                    <div>
-                      <span className="font-medium text-gray-700">CTA:</span>{" "}
-                      {row.cta || "—"}
-                    </div>
+                    {spec?.fields.map((field) => (
+                      <div key={field.key} className="min-w-0">
+                        <span className="font-medium text-gray-700">{field.label}:</span>{" "}
+                        <span className="whitespace-pre-wrap break-words">{row.fields[field.key] || "—"}</span>
+                      </div>
+                    ))}
                     {row.source_ref && (
                       <div className="md:col-span-2">
                         <span className="font-medium text-gray-700">Source:</span>{" "}

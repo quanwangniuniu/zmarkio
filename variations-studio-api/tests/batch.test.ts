@@ -83,19 +83,36 @@ function mockBatchReplies(firstPass: CopyJson[], retry: (feedback: string) => Co
   });
 }
 
-function generateBatch(count: number) {
+function generateBatch(count: number, options: { platform?: unknown } = {}) {
   return generate(
     studioRequest('/api/ad_copy_variation/variations/generate/', {
       token,
       body: {
         project_id: String(fixture.projectA),
         source_mode: 'custom',
+        ...options,
         count,
         base_copy: copy('Base'),
       },
     })
   );
 }
+
+describe('generate platform selection', () => {
+  it.each([null, ''])('uses Meta for platform %j', async (platform) => {
+    ollamaMock.mockResolvedValue(copy('Generated'));
+    const response = await generateBatch(1, { platform });
+    expect(response.status).toBe(200);
+    await expect(readJson(response)).resolves.toMatchObject({ results: [{ platform: 'meta' }] });
+  });
+
+  it.each(['unregistered', 42])('rejects platform %j before calling the model', async (platform) => {
+    const response = await generateBatch(1, { platform });
+    expect(response.status).toBe(400);
+    await expect(readJson(response)).resolves.toEqual({ error: 'platform must be a registered platform' });
+    expect(ollamaMock).not.toHaveBeenCalled();
+  });
+});
 
 describe('batch generate failure handling', () => {
   it('reports a partial failure as 200 and persists only what succeeded', async () => {
@@ -116,7 +133,7 @@ describe('batch generate failure handling', () => {
       count_succeeded: 1,
       count_failed: 3,
     });
-    expect(body.results).toHaveLength(1);
+    expect(body.results).toEqual([expect.objectContaining({ platform: 'meta' })]);
     expect(body.failed_indices).toHaveLength(3);
     expect(body).not.toHaveProperty('field_failures');
 
@@ -320,7 +337,8 @@ describe('batch persistence atomicity', () => {
   it('persists nothing when row 3 of 5 fails', async () => {
     const batchId = randomUUID();
     const rows = Array.from({ length: 5 }, (_, index) => ({
-      ...copy(`Atomic ${index}`),
+      platform: 'meta',
+      fields: copy(`Atomic ${index}`),
       sourceMode: 'custom',
       sourceRef: '',
       instruction: '',
@@ -334,7 +352,7 @@ describe('batch persistence atomicity', () => {
       projectId: fixture.projectA,
       slug: `atomic-${batchId}-${index}`,
     }));
-    rows[2].cta = 'X'.repeat(65);
+    rows[2].fields.cta = 'X'.repeat(65);
 
     await expect(insertVariations(fixture.schema, rows)).rejects.toThrow();
     await expect(

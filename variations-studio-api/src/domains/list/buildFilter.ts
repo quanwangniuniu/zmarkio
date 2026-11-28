@@ -5,6 +5,7 @@ import {
   isActiveProjectMember,
   resolveProjectId,
 } from '@/lib/projects';
+import { DEFAULT_PLATFORM_ID } from '@/src/platforms';
 import type { VariationListFilter } from '@/src/repo';
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -51,7 +52,7 @@ export async function parseListRequest(
   );
 
   const filter: VariationListFilter = {
-    platform: url.searchParams.get('platform') || 'meta',
+    platform: url.searchParams.get('platform') || DEFAULT_PLATFORM_ID,
   };
 
   if (projectParam) {
